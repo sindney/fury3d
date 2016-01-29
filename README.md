@@ -93,7 +93,7 @@ A simple demo should look like this:
 
 ~~~~~~~~~~cpp
 // load scene
-SceneNode::Ptr m_RootNode = m_RootNode::Create("Root");
+SceneNode::Ptr m_RootNode = SceneNode::Create("Root");
 // Use FileUtil::GetAbsPath to get absolute file path on osx.
 FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode);
 
@@ -109,7 +109,7 @@ FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath(
 m_Pipeline->Execute(m_OcTree);
 ~~~~~~~~~~
 
-## Thirdparty
+## Special thanks
 
 * [FbxSdk](http://www.autodesk.com/products/fbx/overview) - for loading fbx model
 
@@ -120,6 +120,10 @@ m_Pipeline->Execute(m_OcTree);
 * [Stbimage](https://github.com/nothings/stb) - for image loading
 
 * [Sfml](http://www.sfml-dev.org) - for example program
+
+* [ASSIMP](https://github.com/assimp/assimp) - for mesh optimization
+
+* [Ogre3d](http://www.ogre3d.org) - for octree implimentation
 
 ## One more thing
 
