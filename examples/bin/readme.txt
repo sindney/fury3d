@@ -1,0 +1,1 @@
+On osx, move Resource folder to demo.app/Contents/Resources folder.

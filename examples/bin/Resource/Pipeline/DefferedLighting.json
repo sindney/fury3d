@@ -1,0 +1,142 @@
+{
+    "textures": [
+        {
+            "name": "gbuffer_diffuse",
+            "format": "rgba8",
+            "filter": "linear",
+            "wrap": "repeat",
+            "width": 1280,
+            "height": 720,
+            "mipmap": false
+        },
+        {
+            "name": "depth_buffer",
+            "format": "depth16",
+            "filter": "linear",
+            "wrap": "repeat",
+            "width": 1280,
+            "height": 720,
+            "mipmap": false
+        },
+        {
+            "name": "gbuffer_depth",
+            "format": "rgba8",
+            "filter": "linear",
+            "wrap": "repeat",
+            "width": 1280,
+            "height": 720,
+            "mipmap": false
+        },
+        {
+            "name": "gbuffer_normal",
+            "format": "rgba16",
+            "filter": "linear",
+            "wrap": "repeat",
+            "width": 1280,
+            "height": 720,
+            "mipmap": false
+        },
+        {
+            "name": "gbuffer_light",
+            "format": "rgba8",
+            "filter": "linear",
+            "wrap": "repeat",
+            "width": 1280,
+            "height": 720,
+            "mipmap": false
+        }
+    ],
+    "shaders": [
+        {
+            "name": "dirlight_shader",
+            "type": "dir_light",
+            "path": "Resource/Shader/SunLight.glsl"
+        },
+        {
+            "name": "gbuffer_shader",
+            "type": "diffuse_texture",
+            "path": "Resource/Shader/Gbuffer.glsl"
+        },
+        {
+            "name": "phong_shader",
+            "type": "other",
+            "path": "Resource/Shader/Phong.glsl"
+        },
+        {
+            "name": "gbuffer_notexture_shader",
+            "type": "color_only",
+            "path": "Resource/Shader/GBufferNoTexture.glsl"
+        },
+        {
+            "name": "pointlight_shader",
+            "type": "point_light",
+            "path": "Resource/Shader/PointLight.glsl"
+        },
+        {
+            "name": "spotlight_shader",
+            "type": "spot_light",
+            "path": "Resource/Shader/SpotLight.glsl"
+        }
+    ],
+    "passes": [
+        {
+            "name": "pass_gbuffer",
+            "camera": "camNode",
+            "shaders": [
+                "gbuffer_shader",
+                "gbuffer_notexture_shader"
+            ],
+            "input": [],
+            "output": [
+                "depth_buffer",
+                "gbuffer_normal",
+                "gbuffer_depth",
+                "gbuffer_diffuse"
+            ],
+            "index": 0,
+            "blendMode": "replace",
+            "compareMode": "less",
+            "cullMode": "back",
+            "drawMode": "renderable"
+        },
+        {
+            "name": "pass_final",
+            "camera": "camNode",
+            "shaders": [
+                "phong_shader"
+            ],
+            "input": [
+                "gbuffer_light",
+                "gbuffer_diffuse"
+            ],
+            "output": [],
+            "index": 2,
+            "blendMode": "replace",
+            "compareMode": "less",
+            "cullMode": "back",
+            "drawMode": "quad"
+        },
+        {
+            "name": "pass_light",
+            "camera": "camNode",
+            "shaders": [
+                "pointlight_shader",
+                "dirlight_shader",
+                "spotlight_shader"
+            ],
+            "input": [
+                "gbuffer_depth",
+                "gbuffer_normal"
+            ],
+            "output": [
+                "depth_buffer",
+                "gbuffer_light"
+            ],
+            "index": 1,
+            "blendMode": "add",
+            "compareMode": "less",
+            "cullMode": "back",
+            "drawMode": "light"
+        }
+    ]
+}
