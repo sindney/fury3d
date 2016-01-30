@@ -462,6 +462,8 @@ namespace fury
 			Vector4 UV;
 
 			Vector4 Normal;
+
+			Vector4 Tangent;
 		};
 
 		struct VtxEntry
@@ -496,10 +498,11 @@ namespace fury
 		dividePlane.Normalize();
 
 		bool hasNormal = mesh->Normals.Data.size() > 0;
+		bool hasTangent = mesh->Tangents.Data.size() > 0;
 		bool hasUV = mesh->UVs.Data.size() > 0;
 
 		// create Vertex obj from mesh data.
-		auto CreateVertex = [&hasNormal, &hasUV, &mesh](Vertex &vtx, int index)
+		auto CreateVertex = [&hasNormal, &hasTangent, &hasUV, &mesh](Vertex &vtx, int index)
 		{
 			int posIndex = index * 3;
 			int uvIndex = index * 2;
@@ -508,11 +511,15 @@ namespace fury
 				mesh->Positions.Data[posIndex + 2]);
 
 			vtx.Normal.Zero();
+			vtx.Tangent.Zero();
 			vtx.UV.Zero();
 
 			if (hasNormal)
 				vtx.Normal = Vector4(mesh->Normals.Data[posIndex], mesh->Normals.Data[posIndex + 1], 
-				mesh->Normals.Data[posIndex + 2]);
+					mesh->Normals.Data[posIndex + 2]);
+			if (hasTangent)
+				vtx.Tangent = Vector4(mesh->Tangents.Data[posIndex], mesh->Tangents.Data[posIndex + 1], 
+					mesh->Tangents.Data[posIndex + 2]);
 			if (hasUV)
 				vtx.UV = Vector4(mesh->UVs.Data[uvIndex], mesh->UVs.Data[uvIndex + 1], 0.0f);
 		};
@@ -621,6 +628,8 @@ namespace fury
 
 				if (hasNormal && (vtxu.Normal - vtx.Normal).SquareLength() > squareEpsilon)
 					continue;
+				if (hasTangent && (vtxu.Tangent - vtx.Tangent).SquareLength() > squareEpsilon)
+					continue;
 				if (hasUV && (vtxu.UV - vtx.UV).SquareLength() > squareEpsilon)
 					continue;
 
@@ -656,6 +665,8 @@ namespace fury
 		mesh->Positions.Data.resize(vtxCount3);
 		if (hasNormal)
 			mesh->Normals.Data.resize(vtxCount3);
+		if (hasTangent)
+			mesh->Tangents.Data.resize(vtxCount3);
 		if (hasUV)
 			mesh->UVs.Data.resize(vtxCount2);
 
@@ -675,6 +686,13 @@ namespace fury
 				mesh->Normals.Data[posIndex] = uVtx.Normal.x;
 				mesh->Normals.Data[posIndex + 1] = uVtx.Normal.y;
 				mesh->Normals.Data[posIndex + 2] = uVtx.Normal.z;
+			}
+
+			if (hasTangent)
+			{
+				mesh->Tangents.Data[posIndex] = uVtx.Tangent.x;
+				mesh->Tangents.Data[posIndex + 1] = uVtx.Tangent.y;
+				mesh->Tangents.Data[posIndex + 2] = uVtx.Tangent.z;				
 			}
 
 			if (hasUV)

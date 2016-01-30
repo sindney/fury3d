@@ -140,13 +140,8 @@ namespace fury
 		auto material = render->GetMaterial();
 		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
-		if (shader == nullptr && pass->GetShaderCount() > 1)
-		{
-			if (material->GetTextureCount() > 0)
-				shader = pass->GetShader(ShaderType::DIFFUSE_TEXTURE);
-			else 
-				shader = pass->GetShader(ShaderType::COLOR_ONLY);
-		}
+		if (shader == nullptr)
+			shader = pass->GetShader(material->GetShaderType());
 
 		if (shader == nullptr)
 		{

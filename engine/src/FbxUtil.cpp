@@ -16,7 +16,7 @@
 
 namespace fury
 {
-	void FbxUtil::LoadScene(const std::string &filePath, const std::shared_ptr<SceneNode> &rootNode, float scaleFactor)
+	void FbxUtil::LoadScene(const std::string &filePath, const std::shared_ptr<SceneNode> &rootNode, float scaleFactor, unsigned int options)
 	{
 		FbxManager* sdkManager = FbxManager::Create();
 
@@ -25,6 +25,7 @@ namespace fury
 
 		FbxImporter* importer = FbxImporter::Create(sdkManager, "");
 		m_ScaleFactor = scaleFactor;
+		m_Options = options;
 
 		if (importer->Initialize(filePath.c_str(), -1, sdkManager->GetIOSettings()))
 		{
@@ -185,11 +186,14 @@ namespace fury
 		mesh->Positions.Data.reserve(indicesCount * 3);
 		mesh->Indices.Data.reserve(indicesCount);
 
-		if (fbxMesh->GetElementUVCount() > 0)
+		if ((m_Options & Options::UV) && fbxMesh->GetElementUVCount() > 0)
 			mesh->UVs.Data.reserve(indicesCount * 2);
 
-		if (fbxMesh->GetElementNormalCount() > 0)
+		if ((m_Options & Options::NORMAL) && fbxMesh->GetElementNormalCount() > 0)
 			mesh->Normals.Data.reserve(indicesCount * 3);
+
+		if ((m_Options & Options::TANGENT) && fbxMesh->GetElementTangent() > 0)
+			mesh->Tangents.Data.reserve(indicesCount * 3);
 
 		int normalCounter = 0, uvCounter = 0, tangentCounter = 0;
 
@@ -205,7 +209,7 @@ namespace fury
 				mesh->Positions.Data.push_back((float)position.mData[2]);
 
 				// uv
-				if (fbxMesh->GetElementUVCount() > 0)
+				if ((m_Options & Options::UV) && fbxMesh->GetElementUVCount() > 0)
 				{
 					int uvIndex = 0;
 					FbxGeometryElementUV* vertexUV = fbxMesh->GetElementUV();
@@ -237,7 +241,7 @@ namespace fury
 				}
 
 				// normal
-				if (fbxMesh->GetElementNormalCount() > 0)
+				if ((m_Options & Options::NORMAL) && fbxMesh->GetElementNormalCount() > 0)
 				{
 					int normalIndex = 0;
 					FbxGeometryElementNormal* vertexNormal = fbxMesh->GetElementNormal();
@@ -269,13 +273,47 @@ namespace fury
 					mesh->Normals.Data.push_back((float)normal.mData[2]);
 				}
 
+				// tangent
+				if ((m_Options & Options::TANGENT) && fbxMesh->GetElementNormalCount() > 0)
+				{
+					int tangentIndex = 0;
+					FbxGeometryElementTangent* vertexTangent = fbxMesh->GetElementTangent();
+
+					if (vertexTangent->GetMappingMode() == FbxGeometryElement::eByControlPoint)
+					{
+						if (vertexTangent->GetReferenceMode() == FbxGeometryElement::eDirect)
+							tangentIndex = ctrPtrIndex;
+						else if (vertexTangent->GetReferenceMode() == FbxGeometryElement::eIndexToDirect)
+							tangentIndex = vertexTangent->GetIndexArray().GetAt(ctrPtrIndex);
+						else
+							ASSERT_MSG(false, "Error: Invalid Reference Mode!");
+					}
+					else if (vertexTangent->GetMappingMode() == FbxGeometryElement::eByPolygonVertex)
+					{
+						if (vertexTangent->GetReferenceMode() == FbxGeometryElement::eDirect)
+							tangentIndex = tangentCounter;
+						else if (vertexTangent->GetReferenceMode() == FbxGeometryElement::eIndexToDirect)
+							tangentIndex = vertexTangent->GetIndexArray().GetAt(tangentCounter);
+						else
+							ASSERT_MSG(false, "Error: Invalid Reference Mode!");
+
+						tangentCounter++;
+					}
+
+					auto tangent = vertexTangent->GetDirectArray().GetAt(tangentIndex);
+					mesh->Tangents.Data.push_back((float)tangent.mData[0]);
+					mesh->Tangents.Data.push_back((float)tangent.mData[1]);
+					mesh->Tangents.Data.push_back((float)tangent.mData[2]);
+				}
+
 				mesh->Indices.Data.push_back(i * 3 + j);
 			}
 		}
 
 		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
-		MeshUtil::Instance()->OptimizeMesh(mesh);
+		if(m_Options & Options::OPTIMIZE_MESH)
+			MeshUtil::Instance()->OptimizeMesh(mesh);
 
 		mesh->CalculateAABB();
 
@@ -336,9 +374,12 @@ namespace fury
 		};
 
 		// read tetxures.
-		material->SetTexture(Material::DIFFUSE_TEXTURE, GetTexture(fbxPhong->Diffuse));
-		material->SetTexture(Material::SPECULAR_TEXTURE, GetTexture(fbxPhong->Specular));
-		material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxPhong->NormalMap));
+		if(m_Options & Options::DIFFUSE_MAP)
+			material->SetTexture(Material::DIFFUSE_TEXTURE, GetTexture(fbxPhong->Diffuse));
+		if(m_Options & Options::SPECULAR_MAP)
+			material->SetTexture(Material::SPECULAR_TEXTURE, GetTexture(fbxPhong->Specular));
+		if(m_Options & Options::NORMAL_MAP)
+			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxPhong->NormalMap));
 
 		LOGD << fbxMaterial->GetName();
 

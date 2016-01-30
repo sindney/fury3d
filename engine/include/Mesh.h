@@ -30,6 +30,8 @@ namespace fury
 
 		ArrayBufferf Normals;
 
+		ArrayBufferf Tangents;
+
 		ArrayBufferf UVs;
 
 		ArrayBufferui Indices;

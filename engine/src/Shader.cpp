@@ -325,6 +325,7 @@ namespace fury
 
 		int lPos = glGetAttribLocation(m_Program, mesh->Positions.Name.c_str());
 		int lNormal = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
+		int lTangent = glGetAttribLocation(m_Program, mesh->Tangents.Name.c_str());
 		int lUV = glGetAttribLocation(m_Program, mesh->UVs.Name.c_str());
 
 		glBindVertexArray(mesh->m_VAO);
@@ -353,6 +354,19 @@ namespace fury
 			else
 			{
 				LOGW << "Mesh " + mesh->GetName() + " Normal data dirty!";
+			}
+		}
+		if(lTangent != -1)
+		{
+			if(!mesh->Tangents.GetDirty())
+			{
+				glBindBuffer(GL_ARRAY_BUFFER, mesh->Tangents.GetID());
+				glVertexAttribPointer(lTangent, 3, GL_FLOAT, GL_FALSE, 0, 0);
+				glEnableVertexAttribArray(lTangent);
+			}
+			else 
+			{
+				LOGW << "Mesh" + mesh->GetName() + " Tangent data dirty!";
 			}
 		}
 		if (lUV != -1)

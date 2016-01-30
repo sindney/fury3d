@@ -114,6 +114,9 @@ namespace fury
 	{
 		std::make_pair(ShaderType::OTHER, "other"), 
 		std::make_pair(ShaderType::DIFFUSE_TEXTURE, "diffuse_texture"), 
+		std::make_pair(ShaderType::DIFFUSE_SPECULAR_TEXTURE, "diffuse_specular_texture"), 
+		std::make_pair(ShaderType::DIFFUSE_NORMAL_TEXTURE, "diffuse_normal_texture"), 
+		std::make_pair(ShaderType::DIFFUSE_SPECULAR_NORMAL_TEXTURE, "diffuse_specular_normal_texture"), 
 		std::make_pair(ShaderType::COLOR_ONLY, "color_only"), 
 		std::make_pair(ShaderType::POINT_LIGHT, "point_light"), 
 		std::make_pair(ShaderType::SPOT_LIGHT, "spot_light"), 

@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "Entity.h"
+#include "EnumUtil.h"
 #include "Buffer.h"
 
 namespace fury
@@ -64,6 +65,8 @@ namespace fury
 
 		std::vector<std::shared_ptr<Shader>> m_Shaders;
 
+		ShaderType m_ShaderType;
+
 		bool m_Opaque;
 
 		unsigned int m_ID;
@@ -75,6 +78,8 @@ namespace fury
 		virtual ~Material();
 
 		virtual void DeleteBuffer();
+
+		ShaderType GetShaderType() const;
 
 		std::shared_ptr<Texture> GetTexture(const std::string &name) const;
 

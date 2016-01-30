@@ -46,7 +46,7 @@ namespace fury
 	}
 
 	Material::Material(const std::string &name)
-		: Entity(name), m_Opaque(true), m_ID(GetMaterialID())
+		: Entity(name), m_Opaque(true), m_ID(GetMaterialID()), m_ShaderType(ShaderType::COLOR_ONLY)
 	{
 		m_TypeIndex = typeid(Material);
 		m_Dirty = false;
@@ -62,6 +62,11 @@ namespace fury
 	{
 		m_Textures.clear();
 		m_Uniforms.clear();
+	}
+
+	ShaderType Material::GetShaderType() const
+	{
+		return m_ShaderType;
 	}
 
 	Texture::Ptr Material::GetTexture(const std::string &name) const
@@ -86,6 +91,49 @@ namespace fury
 		else if (ptr != nullptr)
 		{
 			m_Textures[name] = ptr;
+		}
+
+		// calculate new matching shaderType
+		bool hasDiffuse = false, hasSpecular = false, hasNormal = false;
+		for(auto pair : m_Textures)
+		{
+			if(pair.first == DIFFUSE_TEXTURE)
+			{
+				hasDiffuse = true;
+				break;
+			}
+			if(pair.first == SPECULAR_TEXTURE)
+			{
+				hasSpecular = true;
+				break;
+			}
+			if(pair.first == NORMAL_TEXTURE)
+			{
+				hasNormal = true;
+				break;
+			}
+		}
+
+		if(hasDiffuse)
+		{
+			if(hasSpecular)
+			{
+				if(hasNormal)
+					m_ShaderType = ShaderType::DIFFUSE_SPECULAR_NORMAL_TEXTURE;
+				else 
+					m_ShaderType = ShaderType::DIFFUSE_SPECULAR_TEXTURE;
+			}
+			else 
+			{
+				if(hasNormal)
+					m_ShaderType = ShaderType::DIFFUSE_NORMAL_TEXTURE;
+				else 
+					m_ShaderType = ShaderType::DIFFUSE_TEXTURE;
+			}
+		}
+		else 
+		{
+			m_ShaderType = ShaderType::COLOR_ONLY;
 		}
 	}
 

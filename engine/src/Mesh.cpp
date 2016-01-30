@@ -14,6 +14,7 @@ namespace fury
 		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Positions("vertex_position", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
 		Normals("vertex_normal", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
+		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
 		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW)
 	{
 		m_TypeIndex = typeid(Mesh);
@@ -29,6 +30,7 @@ namespace fury
 	{
 		Positions.UpdateBuffer();
 		Normals.UpdateBuffer();
+		Tangents.UpdateBuffer();
 		UVs.UpdateBuffer();
 		Indices.UpdateBuffer();
 
@@ -56,6 +58,7 @@ namespace fury
 		}
 		Positions.DeleteBuffer();
 		Normals.DeleteBuffer();
+		Tangents.DeleteBuffer();
 		UVs.DeleteBuffer();
 		Indices.DeleteBuffer();
 	}
