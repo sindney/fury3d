@@ -38,7 +38,6 @@ int main(int argc, char *argv[])
 	window.setFramerateLimit(60);
 
 	// setup plog
-	plog::init(plog::warning, FileUtil::Instance()->GetAbsPath("Log.txt").c_str());
 	Engine::InitPlog(plog::warning, new plog::ConsoleAppender<plog::FuncMessageFormatter>());
 
 	if (!Engine::InitGL())
