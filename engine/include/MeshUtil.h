@@ -51,7 +51,12 @@ namespace fury
 		// restruct mesh's data by finding & removing possible reapet vertices.
 		void OptimizeMesh(const std::shared_ptr<Mesh> &mesh);
 
+		// you should calculate normal first, then optimize ur mesh.
 		void CalculateNormal(const std::shared_ptr<Mesh> &mesh) const;
+
+		// TODO: test
+		// you should calculate normal first, then calculate tangent.
+		void CalculateTangent(const std::shared_ptr<Mesh> &mesh) const;
 	};
 }
 

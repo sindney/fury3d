@@ -113,15 +113,19 @@ namespace fury
 	{
 		DeleteProgram();
 
+		std::string defines;
+		GetDefines(defines);
+
 		std::string vsVersion, vsMain;
 		GetVersionInfo(vsData, vsVersion, vsMain);
+		vsVersion += "#define VERTEX_SHADER\n";
 
 		// compile vertex shader
 		unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
 		if (vertexShader != 0)
 		{
-			const char *sources[3] = { vsVersion.c_str(), m_VertexShaderPrepends.c_str(), vsMain.c_str() };
-			const int counts[3] = { (int)vsVersion.size(), (int)m_VertexShaderPrepends.size(), (int)vsMain.size() };
+			const char *sources[3] = { vsVersion.c_str(), defines.c_str(), vsMain.c_str() };
+			const int counts[3] = { (int)vsVersion.size(), (int)defines.size(), (int)vsMain.size() };
 			glShaderSource(vertexShader, 3, sources, counts);
 			glCompileShader(vertexShader);
 
@@ -142,13 +146,14 @@ namespace fury
 
 		std::string fsVersion, fsMain;
 		GetVersionInfo(fsData, fsVersion, fsMain);
+		fsVersion += "#define FRAGMENT_SHADER\n";
 
 		// compile fragment shader
 		unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 		if (fragmentShader != 0)
 		{
-			const char *sources[3] = { fsVersion.c_str(), m_FragmentShaderPrepends.c_str(), fsMain.c_str() };
-			const int counts[3] = { (int)fsVersion.size(), (int)m_FragmentShaderPrepends.size(), (int)fsMain.size() };
+			const char *sources[3] = { fsVersion.c_str(), defines.c_str(), fsMain.c_str() };
+			const int counts[3] = { (int)fsVersion.size(), (int)defines.size(), (int)fsMain.size() };
 			glShaderSource(fragmentShader, 3, sources, counts);
 			glCompileShader(fragmentShader);
 
@@ -211,26 +216,6 @@ namespace fury
 		}
 
 		m_Dirty = true;
-	}
-
-	std::string Shader::GetVertexShaderPrepends() const
-	{
-		return m_VertexShaderPrepends;
-	}
-
-	void Shader::SetVertexShaderPrepends(const std::string &data)
-	{
-		m_VertexShaderPrepends = data;
-	}
-
-	std::string Shader::GetFragmentShaderPrepends() const
-	{
-		return m_FragmentShaderPrepends;
-	}
-
-	void Shader::SetFragmentShaderPrepends(const std::string &data)
-	{
-		m_FragmentShaderPrepends = data;
 	}
 
 	void Shader::Bind()
@@ -315,14 +300,8 @@ namespace fury
 		}
 	}
 
-	void Shader::BindMesh(const std::shared_ptr<Mesh> &mesh)
+	void Shader::BindMeshData(const std::shared_ptr<Mesh> &mesh, unsigned int vao) const
 	{
-		if (mesh->GetDirty())
-			mesh->UpdateBuffer();
-
-		if (m_Dirty || mesh->GetDirty() || mesh->Indices.GetDirty())
-			return;
-
 		int lPos = glGetAttribLocation(m_Program, mesh->Positions.Name.c_str());
 		int lNormal = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
 		int lTangent = glGetAttribLocation(m_Program, mesh->Tangents.Name.c_str());
@@ -356,15 +335,15 @@ namespace fury
 				LOGW << "Mesh " + mesh->GetName() + " Normal data dirty!";
 			}
 		}
-		if(lTangent != -1)
+		if (lTangent != -1)
 		{
-			if(!mesh->Tangents.GetDirty())
+			if (!mesh->Tangents.GetDirty())
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Tangents.GetID());
 				glVertexAttribPointer(lTangent, 3, GL_FLOAT, GL_FALSE, 0, 0);
 				glEnableVertexAttribArray(lTangent);
 			}
-			else 
+			else
 			{
 				LOGW << "Mesh" + mesh->GetName() + " Tangent data dirty!";
 			}
@@ -384,7 +363,42 @@ namespace fury
 		}
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+
+	void Shader::BindMesh(const std::shared_ptr<Mesh> &mesh)
+	{
+		if (mesh->GetDirty())
+			mesh->UpdateBuffer();
+
+		if (m_Dirty || mesh->GetDirty() || mesh->Indices.GetDirty())
+			return;
+
+		BindMeshData(mesh, mesh->m_VAO);
+
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->Indices.GetID());
+	}
+
+	void Shader::BindSubMesh(const std::shared_ptr<Mesh> &mesh, unsigned int index)
+	{
+		auto subMesh = mesh->GetSubMeshAt(index);
+		if (subMesh == nullptr)
+		{
+			LOGW << "SubMesh out of range!";
+			return;
+		}
+
+		if (mesh->GetDirty())
+			mesh->UpdateBuffer();
+
+		if (subMesh->GetDirty())
+			subMesh->UpdateBuffer();
+
+		if (m_Dirty || mesh->GetDirty() || subMesh->GetDirty() || subMesh->Indices.GetDirty())
+			return;
+
+		BindMeshData(mesh, subMesh->m_VAO);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, subMesh->Indices.GetID());
 	}
 
 	void Shader::BindMatrix(const std::string &name, const float *raw)
@@ -600,6 +614,39 @@ namespace fury
 			auto start = index + versionStr.size();
 			auto size = source.size() - start;
 			mainStr = source.substr(0, index) + source.substr(start, size);
+		}
+	}
+
+	void Shader::GetDefines(std::string &definesStr)
+	{
+		switch (m_Type)
+		{
+		case ShaderType::COLOR_ONLY:
+			definesStr = "#define COLOR_ONLY\n";
+			break;
+		case ShaderType::DIFFUSE_NORMAL_TEXTURE:
+			definesStr = "#define DIFFUSE_TEXTURE\n#define NORMAL_TEXTURE\n";
+			break;
+		case ShaderType::DIFFUSE_SPECULAR_NORMAL_TEXTURE:
+			definesStr = "#define DIFFUSE_TEXTURE\n#define SPECULAR_TEXTURE\n#define NORMAL_TEXTURE\n";
+			break;
+		case ShaderType::DIFFUSE_SPECULAR_TEXTURE:
+			definesStr = "#define DIFFUSE_TEXTURE\n#define SPECULAR_TEXTURE\n";
+			break;
+		case ShaderType::DIFFUSE_TEXTURE:
+			definesStr = "#define DIFFUSE_TEXTURE\n";
+			break;
+		case ShaderType::DIR_LIGHT:
+			definesStr = "#define DIR_LIGHT\n";
+			break;
+		case ShaderType::POINT_LIGHT:
+			definesStr = "#define POINT_LIGHT\n";
+			break;
+		case ShaderType::SPOT_LIGHT:
+			definesStr = "#define SPOT_LIGHT\n";
+			break;
+		default:
+			break;
 		}
 	}
 }

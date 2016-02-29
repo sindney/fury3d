@@ -28,6 +28,8 @@ namespace fury
 
 		std::string GetAbsPath(const std::string &source, bool toForwardSlash = false);
 
+		bool FileExist(const std::string &path) const;
+
 		// image, text file io
 
 		bool LoadString(const std::string &path, std::string &output);

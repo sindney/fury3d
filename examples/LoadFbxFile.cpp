@@ -6,7 +6,7 @@ void LoadFbxFile::Init(sf::RenderWindow &window)
 	m_RootNode = SceneNode::Create("RootNode");
 
 	// load scene
-	auto options = Options::UV | Options::NORMAL | Options::DIFFUSE_MAP | Options::OPTIMIZE_MESH;
+	auto options = Options::UV | Options::NORMAL | Options::DIFFUSE_MAP | Options::OPTIMIZE_MESH | Options::DELETE_MESHDATA;
 	FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Resource/Scene/tank.fbx"), m_RootNode, 0.01f, options);
 
 	// setup camera

@@ -133,40 +133,83 @@ namespace fury
 	void PrelightPipeline::DrawRenderable(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		auto render = node->GetComponent<MeshRender>();
-		if (render == nullptr || !render->GetRenderable())
-			return;
-
 		auto mesh = render->GetMesh();
-		auto material = render->GetMaterial();
-		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
-		if (shader == nullptr)
-			shader = pass->GetShader(material->GetShaderType());
-
-		if (shader == nullptr)
+		unsigned int subMeshCount = mesh->GetSubMeshCount();
+		if (subMeshCount > 0)
 		{
-			LOGW << "Failed to draw " << node->GetName() << ", data incomplete!";
-			return;
+			// with subMesh
+			for (unsigned int i = 0; i < subMeshCount; i++)
+			{
+				if (auto subMesh = mesh->GetSubMeshAt(i))
+				{
+					auto material = render->GetMaterial(i);
+					auto shader = material->GetShaderForPass(pass->GetRenderIndex());
+
+					if (shader == nullptr)
+						shader = pass->GetShader(material->GetShaderType());
+
+					if (shader == nullptr)
+					{
+						LOGW << "Failed to draw " << node->GetName() << ", data incomplete!";
+						return;
+					}
+
+					shader->Bind();
+					shader->BindCamera(m_CurrentCamera);
+					shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+
+					shader->BindSubMesh(mesh, i);
+					shader->BindMaterial(material);
+
+					for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+					{
+						auto ptr = pass->GetTextureAt(i, true);
+						shader->BindTexture(ptr->GetName(), ptr);
+					}
+
+					glDrawElements(GL_TRIANGLES, subMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+					shader->UnBind();
+
+					m_DrawCall++;
+				}
+			}
 		}
-
-		shader->Bind();
-		shader->BindCamera(m_CurrentCamera);
-		shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
-
-		shader->BindMesh(mesh);
-		shader->BindMaterial(material);
-
-		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+		else
 		{
-			auto ptr = pass->GetTextureAt(i, true);
-			shader->BindTexture(ptr->GetName(), ptr);
+			// no subMesh
+			auto material = render->GetMaterial();
+			auto shader = material->GetShaderForPass(pass->GetRenderIndex());
+
+			if (shader == nullptr)
+				shader = pass->GetShader(material->GetShaderType());
+
+			if (shader == nullptr)
+			{
+				LOGW << "Failed to draw " << node->GetName() << ", data incomplete!";
+				return;
+			}
+
+			shader->Bind();
+			shader->BindCamera(m_CurrentCamera);
+			shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+
+			shader->BindMesh(mesh);
+			shader->BindMaterial(material);
+
+			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+			{
+				auto ptr = pass->GetTextureAt(i, true);
+				shader->BindTexture(ptr->GetName(), ptr);
+			}
+
+			glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+			shader->UnBind();
+
+			m_DrawCall++;
 		}
-
-		glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-
-		shader->UnBind();
-
-		m_DrawCall++;
 	}
 
 	void PrelightPipeline::DrawLight(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)

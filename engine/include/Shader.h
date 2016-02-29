@@ -29,10 +29,6 @@ namespace fury
 
 	protected:
 
-		std::string m_VertexShaderPrepends = "#define VERTEX_SHADER\n";
-
-		std::string m_FragmentShaderPrepends = "#define FRAGMENT_SHADER\n";
-
 		std::string m_FilePath;
 
 		ShaderType m_Type;
@@ -67,16 +63,6 @@ namespace fury
 
 		void DeleteProgram();
 
-		// default: #define VERTEX_SHADER\n
-		std::string GetVertexShaderPrepends() const;
-
-		void SetVertexShaderPrepends(const std::string &data);
-
-		// default: #define FRAGMENT_SHADER\n
-		std::string GetFragmentShaderPrepends() const;
-
-		void SetFragmentShaderPrepends(const std::string &data);
-
 		void Bind();
 
 		void BindCamera(const std::shared_ptr<SceneNode> &camNode);
@@ -88,6 +74,8 @@ namespace fury
 		void BindMaterial(const std::shared_ptr<Material> &material);
 
 		void BindMesh(const std::shared_ptr<Mesh> &mesh);
+
+		void BindSubMesh(const std::shared_ptr<Mesh> &mesh, unsigned int index);
 
 		void BindMatrix(const std::string &name, const float *raw);
 
@@ -127,9 +115,13 @@ namespace fury
 
 	protected:
 
+		void BindMeshData(const std::shared_ptr<Mesh> &mesh, unsigned int vao) const;
+
 		int GetUniformLocation(const std::string &name) const;
 
 		void GetVersionInfo(const std::string &source, std::string &versionStr, std::string &mainStr);
+
+		void GetDefines(std::string &definesStr);
 
 	};
 }

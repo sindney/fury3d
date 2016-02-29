@@ -1,4 +1,5 @@
 #include <vector>
+#include <unordered_map>
 
 #include "Angle.h"
 #include "Debug.h"
@@ -26,6 +27,10 @@ namespace fury
 		FbxImporter* importer = FbxImporter::Create(sdkManager, "");
 		m_ScaleFactor = scaleFactor;
 		m_Options = options;
+
+		size_t pos = filePath.find_last_of("\\/");
+		m_FbxFolder = (std::string::npos == pos) ? "" : filePath.substr(0, pos + 1);
+		LOGD << "FbxFolder: " << m_FbxFolder;
 
 		if (importer->Initialize(filePath.c_str(), -1, sdkManager->GetIOSettings()))
 		{
@@ -103,7 +108,7 @@ namespace fury
 		if (mesh == nullptr)
 		{
 			// if not, we read the mesh data.
-			mesh = CreateMesh(fbxMesh);
+			mesh = CreateMesh(fbxNode);
 			EntityUtil::Instance()->AddEntity(mesh);
 		}
 
@@ -115,9 +120,10 @@ namespace fury
 
 	void FbxUtil::LoadMaterial(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
 	{
-		if (fbxNode->GetMaterialCount() > 0)
+		int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
+		for (int i = 0; i < materialCount; i++)
 		{
-			FbxSurfaceMaterial *fbxMaterial = fbxNode->GetMaterial(0);
+			FbxSurfaceMaterial *fbxMaterial = fbxNode->GetSrcObject<FbxSurfaceMaterial>(i);
 
 			// only supports phong material
 			if (fbxMaterial->GetClassId().Is(FbxSurfacePhong::ClassId))
@@ -131,7 +137,11 @@ namespace fury
 				}
 
 				if (auto ptr = ntNode->GetComponent<MeshRender>())
-					ptr->SetMaterial(material);
+					ptr->SetMaterial(material, i);
+			}
+			else
+			{
+				LOGW << "Material Type not supported!";
 			}
 		}
 	}
@@ -174,8 +184,11 @@ namespace fury
 		ntNode->AddComponent(light);
 	}
 
-	std::shared_ptr<Mesh> FbxUtil::CreateMesh(FbxMesh *fbxMesh)
+	std::shared_ptr<Mesh> FbxUtil::CreateMesh(FbxNode *fbxNode)
 	{
+		FbxMesh* fbxMesh = static_cast<FbxMesh*>(fbxNode->GetNodeAttribute());
+		FbxLayerElementMaterial* layerMaterial = fbxMesh->GetLayer(0)->GetMaterials();
+
 		Mesh::Ptr mesh = Mesh::Create(fbxMesh->GetName());
 
 		// read physical data.
@@ -312,10 +325,57 @@ namespace fury
 
 		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
-		if(m_Options & Options::OPTIMIZE_MESH)
-			MeshUtil::Instance()->OptimizeMesh(mesh);
+		// read subMeshes if theres any
+		unsigned int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
+		if (materialCount > 0 && layerMaterial->GetMappingMode() == FbxLayerElement::eByPolygon)
+		{
+			if (layerMaterial->GetReferenceMode() == FbxLayerElement::eIndex ||
+				layerMaterial->GetReferenceMode() == FbxLayerElement::eIndexToDirect)
+			{
+				unsigned int materialIndexCount = layerMaterial->GetIndexArray().GetCount();
+				std::unordered_map<unsigned int, SubMesh::Ptr> subMeshes;
+
+				for (unsigned int i = 0; i < materialIndexCount; i++)
+				{
+					unsigned int matID = layerMaterial->GetIndexArray().GetAt(i);
+					if (matID == -1 || matID >= materialCount) 
+						matID = 0;
+
+					auto it = subMeshes.find(matID);
+					if (it == subMeshes.end())
+						it = subMeshes.emplace(std::make_pair(matID, SubMesh::Create())).first;
+
+					auto subMesh = it->second;
+					unsigned int index = i * 3;
+
+					subMesh->Indices.Data.push_back(index);
+					subMesh->Indices.Data.push_back(index + 1);
+					subMesh->Indices.Data.push_back(index + 2);
+				}
+
+				for (unsigned int i = 0; i < subMeshes.size(); i++)
+					mesh->AddSubMesh(subMeshes[i]);
+
+				LOGD << "Loaded " << subMeshes.size() << " subMeshes.";
+			}
+			else
+			{
+				LOGW << "Material referenceMode not supported!";
+			}
+		}
 
 		mesh->CalculateAABB();
+
+		// optimize mesh data, aka find unique vertices.
+		if (m_Options & Options::OPTIMIZE_MESH)
+			MeshUtil::Instance()->OptimizeMesh(mesh);
+
+		// delete mesh data after opengl buffer creation.
+		// this will save some memory space, if you won't change mesh's vertex data.
+		if (m_Options & Options::DELETE_MESHDATA)
+		{
+			mesh->UpdateBuffer();
+		}
 
 		return mesh;
 	}
@@ -324,7 +384,7 @@ namespace fury
 	{
 		// a,d,s, Intensity(Factor), Shininess, Reflectivity, Transparency
 		//GetImplementation(material, FBXSDK_IMP)
-
+		
 		FbxSurfacePhong *fbxPhong = static_cast<FbxSurfacePhong*>(fbxMaterial);
 		Material::Ptr material = Material::Create(fbxPhong->GetName());
 
@@ -356,7 +416,7 @@ namespace fury
 				if (fileTexture)
 				{
 					bool mipMap = (bool)fileTexture->UseMipMap;
-					std::string filePath = FileUtil::Instance()->GetAbsPath(fileTexture->GetRelativeFileName(), true);
+					std::string filePath = m_FbxFolder + fileTexture->GetRelativeFileName();
 
 					auto texture = Texture::Create(fileTexture->GetName());
 					texture->SetFilterMode(mipMap ? FilterMode::LINEAR_MIPMAP_LINEAR : FilterMode::LINEAR);

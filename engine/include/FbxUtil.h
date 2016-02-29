@@ -23,7 +23,8 @@ namespace fury
 		DIFFUSE_MAP 	= 0x0008, 
 		SPECULAR_MAP 	= 0x0010, 
 		NORMAL_MAP 		= 0x0020, 
-		OPTIMIZE_MESH 	= 0x0040
+		OPTIMIZE_MESH 	= 0x0040, 
+		DELETE_MESHDATA = 0x0080
 	};
 
 	class FURY_API FbxUtil : public Singleton<FbxUtil>
@@ -33,6 +34,8 @@ namespace fury
 		float m_ScaleFactor = 1.0f;
 
 		int m_Options = 0;
+
+		std::string m_FbxFolder;
 
 	public:
 
@@ -51,7 +54,7 @@ namespace fury
 
 		void LoadLight(const std::shared_ptr<SceneNode> &ntNode, FbxNode *fbxNode);
 
-		std::shared_ptr<Mesh> CreateMesh(FbxMesh *fbxMesh);
+		std::shared_ptr<Mesh> CreateMesh(FbxNode *fbxNode);
 
 		std::shared_ptr<Material> CreateMaterial(FbxSurfaceMaterial *fbxMaterial);
 	};

@@ -19,7 +19,7 @@ namespace fury
 
 	protected:
 
-		std::weak_ptr<Material> m_Material;
+		std::vector<std::weak_ptr<Material>> m_Materials;
 
 		std::weak_ptr<Mesh> m_Mesh;
 
@@ -31,9 +31,13 @@ namespace fury
 
 		void UpdateBuffer();
 
-		void SetMaterial(const std::shared_ptr<Material> &material);
+		// if index exceeds material.size().
+		// it will append ur material to the end of the vector.
+		void SetMaterial(const std::shared_ptr<Material> &material, unsigned int index = 0);
 
-		std::shared_ptr<Material> GetMaterial() const;
+		std::shared_ptr<Material> GetMaterial(unsigned int index = 0) const;
+
+		unsigned int GetMaterialCount() const;
 
 		void SetMesh(const std::shared_ptr<Mesh> &mesh);
 

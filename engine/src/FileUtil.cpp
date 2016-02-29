@@ -54,6 +54,22 @@ namespace fury
 		return GetAbsPath() + clone;
 	}
 
+	bool FileUtil::FileExist(const std::string &path) const
+	{
+		std::ifstream stream(path.c_str());
+		if (stream.good())
+		{
+			stream.close();
+			return true;
+		}
+		else
+		{
+			LOGE << "File " << path << " not exist!";
+			stream.close();
+			return false;
+		}
+	}
+
 	// file io
 
 	bool FileUtil::LoadString(const std::string &path, std::string &output)
@@ -81,6 +97,9 @@ namespace fury
 
 	bool FileUtil::LoadImage(const std::string &path, std::vector<unsigned char> &output, int &width, int &height, int &channels)
 	{
+		if (!FileExist(path))
+			return false;
+
 		unsigned char* ptr = stbi_load(path.c_str(), &width, &height, &channels, 0);
 		if (ptr && width && height)
 		{

@@ -12,24 +12,45 @@ namespace fury
 	}
 
 	MeshRender::MeshRender(const std::shared_ptr<Material> &material, const std::shared_ptr<Mesh> &mesh)
-		: m_Material(material), m_Mesh(mesh) 
+		: m_Mesh(mesh) 
 	{
 		m_TypeIndex = typeid(MeshRender);
+		SetMaterial(material);
 	};
 
 	Component::Ptr MeshRender::Clone() const
 	{
-		return MeshRender::Create(m_Material.lock(), m_Mesh.lock());
+		auto clone = MeshRender::Create(nullptr, m_Mesh.lock());
+		unsigned int materialCount = m_Materials.size();
+
+		for (unsigned int i = 0; i < materialCount; i++)
+		{
+			auto material = m_Materials[i];
+			clone->SetMaterial(material.lock(), i);
+		}
+		
+		return clone;
 	}
 
-	void MeshRender::SetMaterial(const std::shared_ptr<Material> &material)
+	void MeshRender::SetMaterial(const std::shared_ptr<Material> &material, unsigned int index)
 	{
-		m_Material = material;
+		if (index < m_Materials.size())
+			m_Materials[index] = material;
+		else
+			m_Materials.push_back(material);
 	}
 
-	std::shared_ptr<Material> MeshRender::GetMaterial() const
+	std::shared_ptr<Material> MeshRender::GetMaterial(unsigned int index) const
 	{
-		return m_Material.lock();
+		if (index < m_Materials.size())
+			return m_Materials[index].lock();
+		else
+			return nullptr;
+	}
+
+	unsigned int MeshRender::GetMaterialCount() const
+	{
+		return m_Materials.size();
 	}
 
 	void MeshRender::SetMesh(const std::shared_ptr<Mesh> &mesh)
@@ -47,7 +68,20 @@ namespace fury
 
 	bool MeshRender::GetRenderable() const
 	{
-		return !(m_Mesh.expired() || m_Material.expired());
+		if (m_Mesh.expired())
+			return false;
+
+		for (auto material : m_Materials)
+			if (material.expired())
+				return false;
+
+		if (m_Materials.size() < m_Mesh.lock()->GetSubMeshCount())
+		{
+			LOGW << "Material count and SubMesh count miss match!";
+			return false;
+		}
+
+		return true;
 	}
 
 	void MeshRender::OnAttaching(const std::shared_ptr<SceneNode> &node)

@@ -90,7 +90,7 @@ namespace fury
 		mesh->Indices.Data = {
 			// front
 			//0, 1, 2, 2, 3, 0,
-			0, 3, 2, 2, 1, 0, 
+			0, 3, 2, 2, 1, 0,
 			// back
 			//4, 7, 6, 6, 5, 4,
 			4, 5, 6, 6, 7, 4,
@@ -178,11 +178,11 @@ namespace fury
 		// create 20 triangles of the icosahedron
 		mesh->Indices.Data = {
 			// 5 faces around point 0
-			0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 
+			0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
 			// 5 adjacent faces 
-			1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8, 
+			1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
 			// 5 faces around point 3
-			3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 
+			3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
 			// 5 adjacent faces 
 			4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1
 		};
@@ -333,13 +333,13 @@ namespace fury
 
 		/*if (inclusive)
 		{
-			topR = topR / std::cos(avgRadian * 0.5f);
-			bottomR = bottomR / std::cos(avgRadian * 0.5f);
+		topR = topR / std::cos(avgRadian * 0.5f);
+		bottomR = bottomR / std::cos(avgRadian * 0.5f);
 		}*/
 
 		float currentHeight = height / 2.0f;
 		float currentRadius = topR;
-		
+
 		float heightStep = height / (segH - 1);
 		float radiusSetp = (topR - bottomR) / (segH - 1);
 
@@ -372,12 +372,12 @@ namespace fury
 				for (unsigned int i = 0; i < currentRing.size() - 1; i++)
 				{
 					mesh->Indices.Data.insert(mesh->Indices.Data.end(), {
-						previousRing[i], previousRing[i + 1], currentRing[i + 1], 
+						previousRing[i], previousRing[i + 1], currentRing[i + 1],
 						currentRing[i + 1], currentRing[i], previousRing[i]
 					});
 				}
 				mesh->Indices.Data.insert(mesh->Indices.Data.end(), {
-					previousRing.back(), previousRing.front(), currentRing.front(), 
+					previousRing.back(), previousRing.front(), currentRing.front(),
 					currentRing.front(), currentRing.back(), previousRing.back()
 				});
 			}
@@ -406,7 +406,7 @@ namespace fury
 			mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, previousRing[i], previousRing[i + 1] });
 		}
 		mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, previousRing.back(), previousRing.front() });
-		
+
 		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		if (topR == 0 || bottomR == 0)
@@ -431,7 +431,7 @@ namespace fury
 			unsigned int j = i * 3;
 
 			Vector4 pos(mesh->Positions.Data[j], mesh->Positions.Data[j + 1], mesh->Positions.Data[j + 2], 1);
-			
+
 			pos = matrix.Multiply(pos);
 			mesh->Positions.Data[j] = pos.x;
 			mesh->Positions.Data[j + 1] = pos.y;
@@ -515,11 +515,11 @@ namespace fury
 			vtx.UV.Zero();
 
 			if (hasNormal)
-				vtx.Normal = Vector4(mesh->Normals.Data[posIndex], mesh->Normals.Data[posIndex + 1], 
-					mesh->Normals.Data[posIndex + 2]);
+				vtx.Normal = Vector4(mesh->Normals.Data[posIndex], mesh->Normals.Data[posIndex + 1],
+				mesh->Normals.Data[posIndex + 2]);
 			if (hasTangent)
-				vtx.Tangent = Vector4(mesh->Tangents.Data[posIndex], mesh->Tangents.Data[posIndex + 1], 
-					mesh->Tangents.Data[posIndex + 2]);
+				vtx.Tangent = Vector4(mesh->Tangents.Data[posIndex], mesh->Tangents.Data[posIndex + 1],
+				mesh->Tangents.Data[posIndex + 2]);
 			if (hasUV)
 				vtx.UV = Vector4(mesh->UVs.Data[uvIndex], mesh->UVs.Data[uvIndex + 1], 0.0f);
 		};
@@ -692,7 +692,7 @@ namespace fury
 			{
 				mesh->Tangents.Data[posIndex] = uVtx.Tangent.x;
 				mesh->Tangents.Data[posIndex + 1] = uVtx.Tangent.y;
-				mesh->Tangents.Data[posIndex + 2] = uVtx.Tangent.z;				
+				mesh->Tangents.Data[posIndex + 2] = uVtx.Tangent.z;
 			}
 
 			if (hasUV)
@@ -707,6 +707,19 @@ namespace fury
 		{
 			// set most significant bit to 0. ie: remove flag bit.
 			mesh->Indices.Data[i] = replaceIndices[mesh->Indices.Data[i]] & ~0x80000000;
+		}
+
+		// correct submeshes
+		unsigned int subMeshCount = mesh->GetSubMeshCount();
+		for (unsigned int i = 0; i < subMeshCount; i++)
+		{
+			if (auto subMesh = mesh->GetSubMeshAt(i))
+			{
+				for (unsigned int j = 0; j < subMesh->Indices.Data.size(); j++)
+				{
+					subMesh->Indices.Data[j] = replaceIndices[subMesh->Indices.Data[j]] & ~0x80000000;
+				}
+			}
 		}
 
 		LOGD << mesh->GetName() << "[vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
@@ -769,6 +782,90 @@ namespace fury
 			x = normal.x;
 			y = normal.y;
 			z = normal.z;
+		}
+	}
+
+	void MeshUtil::CalculateTangent(const std::shared_ptr<Mesh> &mesh) const
+	{
+		if (mesh->Normals.Data.size() == 0 || mesh->UVs.Data.size() == 0)
+		{
+			LOGW << "Normal and UV data is required.";
+			return;
+		}
+
+		mesh->Tangents.Data.resize(mesh->Positions.Data.size());
+
+		for (auto &value : mesh->Tangents.Data)
+			value = 0.0f;
+
+		unsigned int numTriangles = mesh->Indices.Data.size() / 3;
+		unsigned int numVertices = mesh->Positions.Data.size() / 3;
+
+		auto GetPositionAt = [&mesh](unsigned int index) -> Vector4
+		{
+			unsigned int j = index * 3;
+			return Vector4(mesh->Positions.Data[j], mesh->Positions.Data[j + 1], mesh->Positions.Data[j + 2]);
+		};
+
+		auto GetUVAt = [&mesh](unsigned int index) -> Vector4
+		{
+			unsigned int j = index * 3;
+			return Vector4(mesh->UVs.Data[j], mesh->UVs.Data[j + 1], 0, 0);
+		};
+
+		auto SetTangentAt = [&mesh](unsigned int index, Vector4 tangent)
+		{
+			unsigned int j = index * 3;
+			mesh->Tangents.Data[j] += tangent.x;
+			mesh->Tangents.Data[j + 1] += tangent.y;
+			mesh->Tangents.Data[j + 2] += tangent.z;
+		};
+
+		for (unsigned int i = 0; i < numTriangles; i++)
+		{
+			unsigned int j = i * 3;
+			unsigned int ia = mesh->Indices.Data[j];
+			unsigned int ib = mesh->Indices.Data[j + 1];
+			unsigned int ic = mesh->Indices.Data[j + 2];
+
+			Vector4 p0 = GetPositionAt(ia);
+			Vector4 p1 = GetPositionAt(ib);
+			Vector4 p2 = GetPositionAt(ic);
+
+			Vector4 uv0 = GetUVAt(ia);
+			Vector4 uv1 = GetUVAt(ib);
+			Vector4 uv2 = GetUVAt(ic);
+
+			Vector4 dp0 = p1 - p0;
+			Vector4 dp1 = p2 - p1;
+
+			Vector4 duv0 = uv1 - uv0;
+			Vector4 duv1 = uv2 - uv1;
+
+			float cross = (duv0.x * duv1.y - duv0.y * duv1.x);
+			float r = 0.0f;
+			if (cross != 0.0f) r = 1.0f / cross;
+
+			Vector4 tangent = (dp0 * duv1.y - dp1 * duv0.y) * r;
+
+			SetTangentAt(ia, tangent);
+			SetTangentAt(ib, tangent);
+			SetTangentAt(ic, tangent);
+		}
+
+		for (unsigned int i = 0; i < numVertices; i++)
+		{
+			unsigned int j = i * 3;
+
+			float &x = mesh->Tangents.Data[j];
+			float &y = mesh->Tangents.Data[j + 1];
+			float &z = mesh->Tangents.Data[j + 2];
+
+			Vector4 tangent = Vector4(x, y, z).Normalized();
+
+			x = tangent.x;
+			y = tangent.y;
+			z = tangent.z;
 		}
 	}
 }

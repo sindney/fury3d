@@ -9,6 +9,7 @@ namespace fury
 		int flag = gl::LoadGLFunctions();
 		if (flag == 1)
 		{
+			glEnable(GL_FRAMEBUFFER_SRGB);
 			return true;
 		}
 
