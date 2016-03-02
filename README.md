@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/release-v0.1.0-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/release-v0.1.1-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -42,52 +42,7 @@ Should work with any graphic card that supports opengl 3.3 +
 
 ## Example
 
-You can setup custom rendering pipeline using json file:
-
-~~~~~~~~~~json
-{
-    "textures": [
-        {
-            "name": "gbuffer_diffuse",
-            "format": "rgba8",
-            "filter": "linear",
-            "wrap": "repeat",
-            "width": 1280,
-            "height": 720,
-            "mipmap": false
-        },
-	], 
-	"shaders": [
-        {
-            "name": "dirlight_shader",
-            "type": "dir_light",
-            "path": "Resource/Shader/SunLight.glsl"
-        },
-	], 
-	"passes": [
-        {
-            "name": "pass_gbuffer",
-            "camera": "camNode",
-            "shaders": [
-                "gbuffer_shader",
-                "gbuffer_notexture_shader"
-            ],
-            "input": [],
-            "output": [
-                "depth_buffer",
-                "gbuffer_normal",
-                "gbuffer_depth",
-                "gbuffer_diffuse"
-            ],
-            "index": 0,
-            "blendMode": "replace",
-            "compareMode": "less",
-            "cullMode": "back",
-            "drawMode": "renderable"
-        },
-	]
-}
-~~~~~~~~~~
+You can setup custom rendering pipeline using json file, [check it out.](https://github.com/sindney/fury3d/blob/master/examples/bin/Resource/Pipeline/DefferedLighting.json)
 
 A simple demo should look like this: 
 
