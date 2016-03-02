@@ -1,0 +1,4 @@
+/engine/build/
+/engine/lib/
+*.sublime-project
+*.sublime-workspace
