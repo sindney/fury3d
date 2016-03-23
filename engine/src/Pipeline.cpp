@@ -28,29 +28,30 @@ namespace fury
 			}
 
 			auto texture = Texture::Create(str);
-			texture->Load(node);
+			if (!texture->Load(node))
+				return false;
+
 			m_TextureMap.emplace(texture->GetName(), texture);
 			entityUtil->AddEntity(texture);
 
 			return true;
 		}))
 		{
-			LOGE << "Texture array not found!";
+			LOGE << "Error reading texture array!";
 			return false;
 		}
 
 		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
 		{
-			std::string name, type, path;
-			if (!LoadMemberValue(node, "name", name) || !LoadMemberValue(node, "type", type) ||
-				!LoadMemberValue(node, "path", path))
+			if (!LoadMemberValue(node, "name", str))
 			{
-				LOGE << "Shader param 'name/type/path' not found!";
+				LOGE << "Shader param 'name' not found!";
 				return false;
 			}
 
-			auto shader = Shader::Create(name, enumUtil->ShaderTypeFromString(type));
-			shader->LoadAndCompile(FileUtil::Instance()->GetAbsPath() + path);
+			auto shader = Shader::Create(str, ShaderType::OTHER);
+			if (!shader->Load(node))
+				return false;
 
 			m_ShaderMap.emplace(shader->GetName(), shader);
 			entityUtil->AddEntity(shader);
@@ -58,7 +59,7 @@ namespace fury
 			return true;
 		}))
 		{
-			LOGE << "Shader array not found!";
+			LOGE << "Error reading shader array!";
 			return false;
 		}
 
@@ -71,12 +72,17 @@ namespace fury
 			}
 
 			auto pass = Pass::Create(str);
-			pass->Load(node);
+			if (!pass->Load(node))
+				return false;
 
 			m_PassMap.emplace(str, pass);
 
 			return true;
-		})) return false;
+		}))
+		{
+			LOGE << "Error reading pass array!";
+			return false;
+		}
 
 		return true;
 	}

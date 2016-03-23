@@ -72,6 +72,9 @@ namespace fury
 
 	Side Frustum::IsInside(const SphereBounds &bsphere) const
 	{
+		if (bsphere.GetInfinite())
+			return Side::IN;
+
 		bool straddle = false;
 
 		for (int i = 0; i < 6; i++)
@@ -88,6 +91,9 @@ namespace fury
 
 	Side Frustum::IsInside(const BoxBounds &aabb) const
 	{
+		if (aabb.GetInfinite())
+			return Side::IN;
+
 		bool straddle = false;
 
 		for (int i = 0; i < 6; i++)
@@ -120,6 +126,9 @@ namespace fury
 
 	bool Frustum::IsInsideFast(const SphereBounds &bsphere) const
 	{
+		if (bsphere.GetInfinite())
+			return true;
+
 		for (int i = 0; i < 6; i++)
 			if (!m_Planes[i].IsInsideFast(bsphere))
 				return false;
@@ -129,6 +138,9 @@ namespace fury
 
 	bool Frustum::IsInsideFast(const BoxBounds &aabb) const
 	{
+		if (aabb.GetInfinite())
+			return true;
+
 		for (int i = 0; i < 6; i++)
 			if (!m_Planes[i].IsInsideFast(aabb))
 				return false;

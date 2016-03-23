@@ -2,6 +2,7 @@
 #define _FURY_MESH_H_
 
 #include <vector>
+#include <unordered_map>
 
 #include "Entity.h"
 #include "ArrayBuffers.h"
@@ -45,11 +46,15 @@ namespace fury
 		virtual std::type_index GetTypeIndex() const override;
 	};
 
+	class Joint;
+
 	class FURY_API Mesh : public Entity, public Buffer
 	{
 	public:
 
 		friend class Shader;
+
+		friend class FbxUtil;
 
 		typedef std::shared_ptr<Mesh> Ptr;
 
@@ -63,6 +68,12 @@ namespace fury
 
 		std::vector<SubMesh::Ptr> m_SubMeshes;
 
+		std::unordered_map<std::string, std::shared_ptr<Joint>> m_JointMap;
+
+		std::vector<std::shared_ptr<Joint>> m_Joints;
+
+		std::shared_ptr<Joint> m_RootJoint;
+
 	public:
 
 		ArrayBufferf Positions;
@@ -72,6 +83,10 @@ namespace fury
 		ArrayBufferf Tangents;
 
 		ArrayBufferf UVs;
+
+		ArrayBufferf Weights;
+
+		ArrayBufferui IDs;
 
 		ArrayBufferui Indices;
 
@@ -85,13 +100,20 @@ namespace fury
 
 		unsigned int GetSubMeshCount() const;
 
+		bool IsSkinnedMesh() const;
+
+		std::shared_ptr<Joint> GetJoint(const std::string &name) const;
+
+		std::shared_ptr<Joint> GetJointAt(unsigned int index) const;
+
+		// this returns the count of joints that influences mesh's vertices.
+		unsigned int GetJointCount() const;
+
+		std::shared_ptr<Joint> GetRootJoint() const;
+
 		void UpdateBuffer();
 
 		virtual void DeleteBuffer() override;
-
-		// if ur mesh is static, and won't change after import.
-		// call this to free the memory allocated for vertex data.
-		void DeleteRawData();
 
 		void CalculateAABB(const Vector4& min, const Vector4& max);
 

@@ -4,6 +4,7 @@
 #include "EnumUtil.h"
 #include "EntityUtil.h"
 #include "FileUtil.h"
+#include "Joint.h"
 #include "Light.h"
 #include "Material.h"
 #include "Mesh.h"
@@ -14,13 +15,13 @@
 
 namespace fury
 {
-	Shader::Ptr Shader::Create(const std::string &name, ShaderType type)
+	Shader::Ptr Shader::Create(const std::string &name, ShaderType type, unsigned int textureFlags)
 	{
-		return std::make_shared<Shader>(name, type);
+		return std::make_shared<Shader>(name, type, textureFlags);
 	}
 
-	Shader::Shader(const std::string &name, ShaderType type)
-		: Entity(name), m_Type(type)
+	Shader::Shader(const std::string &name, ShaderType type, unsigned int textureFlags)
+		: Entity(name), m_Type(type), m_TextureFlags(textureFlags)
 	{
 		m_TypeIndex = typeid(Shader);
 	}
@@ -44,12 +45,34 @@ namespace fury
 		}
 		m_Type = enumUtil->ShaderTypeFromString(str);
 
+		// read shader texture flags
+
+		std::vector<ShaderTexture> textures;
+
+		m_TextureFlags = 0;
+		if (LoadArray(wrapper, "textures", [&](const void* node) -> bool
+		{
+			if (!LoadValue(node, str))
+			{
+				LOGE << "Shader's texture flag not found!";
+				return false;
+			}
+			textures.push_back(enumUtil->ShaderTextureFromString(str));
+			return true;
+		}))
+		{
+			for (auto texture : textures)
+				m_TextureFlags = m_TextureFlags | (unsigned int)texture;
+		}
+
+		// end: read shader texture flags
+
 		if (!LoadMemberValue(wrapper, "path", str))
 		{
 			LOGE << "Shader param 'path' not found!";
 			return false;
 		}
-		LoadAndCompile(str);
+		LoadAndCompile(FileUtil::Instance()->GetAbsPath() + str);
 
 		return true;
 	}
@@ -65,6 +88,15 @@ namespace fury
 
 		SaveKey(wrapper, "type");
 		SaveValue(wrapper, enumUtil->ShaderTypeToString(m_Type));
+
+		std::vector<ShaderTexture> enums;
+		enumUtil->GetShaderTextures(m_TextureFlags, enums);
+
+		SaveKey(wrapper, "textures");
+		SaveArray(wrapper, enums.size(), [&](unsigned int index)
+		{
+			SaveValue(wrapper, enumUtil->ShaderTextureToString(enums[index]));
+		});
 
 		SaveKey(wrapper, "path");
 		SaveValue(wrapper, m_FilePath);
@@ -92,6 +124,16 @@ namespace fury
 	ShaderType Shader::GetType() const
 	{
 		return m_Type;
+	}
+
+	unsigned int Shader::GetTextureFlags() const
+	{
+		return m_TextureFlags;
+	}
+
+	void Shader::SetTextureFlags(unsigned int flags)
+	{
+		m_TextureFlags = flags;
 	}
 
 	bool Shader::LoadAndCompile(const std::string &shaderPath)
@@ -300,61 +342,61 @@ namespace fury
 		}
 	}
 
-	void Shader::BindMeshData(const std::shared_ptr<Mesh> &mesh, unsigned int vao) const
+	void Shader::BindMeshData(const std::shared_ptr<Mesh> &mesh)
 	{
-		int lPos = glGetAttribLocation(m_Program, mesh->Positions.Name.c_str());
-		int lNormal = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
-		int lTangent = glGetAttribLocation(m_Program, mesh->Tangents.Name.c_str());
-		int lUV = glGetAttribLocation(m_Program, mesh->UVs.Name.c_str());
+		int posFlag = glGetAttribLocation(m_Program, mesh->Positions.Name.c_str());
+		int normalFlag = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
+		int tangentFlag = glGetAttribLocation(m_Program, mesh->Tangents.Name.c_str());
+		int uvFlag = glGetAttribLocation(m_Program, mesh->UVs.Name.c_str());
 
 		glBindVertexArray(mesh->m_VAO);
 
-		if (lPos != -1)
+		if (posFlag != -1)
 		{
 			if (!mesh->Positions.GetDirty())
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Positions.GetID());
-				glVertexAttribPointer(lPos, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(lPos);
+				glVertexAttribPointer(posFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
+				glEnableVertexAttribArray(posFlag);
 			}
 			else
 			{
 				LOGW << "Mesh " + mesh->GetName() + " Position data dirty!";
 			}
 		}
-		if (lNormal != -1)
+		if (normalFlag != -1)
 		{
 			if (!mesh->Normals.GetDirty())
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Normals.GetID());
-				glVertexAttribPointer(lNormal, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(lNormal);
+				glVertexAttribPointer(normalFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
+				glEnableVertexAttribArray(normalFlag);
 			}
 			else
 			{
 				LOGW << "Mesh " + mesh->GetName() + " Normal data dirty!";
 			}
 		}
-		if (lTangent != -1)
+		if (tangentFlag != -1)
 		{
 			if (!mesh->Tangents.GetDirty())
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Tangents.GetID());
-				glVertexAttribPointer(lTangent, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(lTangent);
+				glVertexAttribPointer(tangentFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
+				glEnableVertexAttribArray(tangentFlag);
 			}
 			else
 			{
 				LOGW << "Mesh" + mesh->GetName() + " Tangent data dirty!";
 			}
 		}
-		if (lUV != -1)
+		if (uvFlag != -1)
 		{
 			if (!mesh->UVs.GetDirty())
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->UVs.GetID());
-				glVertexAttribPointer(lUV, 2, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(lUV);
+				glVertexAttribPointer(uvFlag, 2, GL_FLOAT, GL_FALSE, 0, 0);
+				glEnableVertexAttribArray(uvFlag);
 			}
 			else
 			{
@@ -362,6 +404,74 @@ namespace fury
 			}
 		}
 
+		if (mesh->IsSkinnedMesh())
+		{
+			int idFlag = glGetAttribLocation(m_Program, mesh->IDs.Name.c_str());
+			int weightFlag = glGetAttribLocation(m_Program, mesh->Weights.Name.c_str());
+
+			if (idFlag != -1)
+			{
+				if (!mesh->IDs.GetDirty())
+				{
+					glBindBuffer(GL_ARRAY_BUFFER, mesh->IDs.GetID());
+					glVertexAttribIPointer(idFlag, 4, GL_UNSIGNED_INT, 0, 0);
+					glEnableVertexAttribArray(idFlag);
+				}
+				else
+				{
+					LOGW << "Mesh " + mesh->GetName() + " ID data dirty!";
+				}
+			}
+			else
+			{
+				LOGW << "Can't find " << mesh->IDs.Name << " in " << m_Name;
+			}
+
+			if (weightFlag != -1)
+			{
+				if (!mesh->Weights.GetDirty())
+				{
+					glBindBuffer(GL_ARRAY_BUFFER, mesh->Weights.GetID());
+					glVertexAttribPointer(weightFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
+					glEnableVertexAttribArray(weightFlag);
+				}
+				else
+				{
+					LOGW << "Mesh " + mesh->GetName() + " Weight data dirty!";
+				}
+			}
+			else
+			{
+				LOGW << "Can't find " << mesh->Weights.Name << " in " << m_Name;
+			}
+
+			if (idFlag != -1 && weightFlag != -1)
+			{
+				int jointCount = (int)mesh->GetJointCount();
+				if (jointCount > 35)
+				{
+					LOGW << "Max joint count 35!";
+					jointCount = 35;
+				}
+
+				std::vector<float> raw(jointCount * 16);
+
+				for (int i = 0; i < jointCount; i++)
+				{
+					auto joint = mesh->GetJointAt(i);
+					auto matrix = joint->GetFinalMatrix();
+					int index = i * 16;
+
+					for (int j = 0; j < 16; j++)
+					{
+						raw[index + j] = matrix.Raw[j];
+					}
+				}
+
+				BindMatrices("bone_matrices", jointCount, &raw[0]);
+			}
+		}
+		
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
@@ -373,7 +483,7 @@ namespace fury
 		if (m_Dirty || mesh->GetDirty() || mesh->Indices.GetDirty())
 			return;
 
-		BindMeshData(mesh, mesh->m_VAO);
+		BindMeshData(mesh);
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->Indices.GetID());
 	}
@@ -396,9 +506,14 @@ namespace fury
 		if (m_Dirty || mesh->GetDirty() || subMesh->GetDirty() || subMesh->Indices.GetDirty())
 			return;
 
-		BindMeshData(mesh, subMesh->m_VAO);
+		BindMeshData(mesh);
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, subMesh->Indices.GetID());
+	}
+
+	void Shader::BindMatrix(const std::string &name, const Matrix4 &matrix)
+	{
+		BindMatrix(name, &matrix.Raw[0]);
 	}
 
 	void Shader::BindMatrix(const std::string &name, const float *raw)
@@ -408,9 +523,11 @@ namespace fury
 			glUniformMatrix4fv(id, 1, false, raw);
 	}
 
-	void Shader::BindMatrix(const std::string &name, const Matrix4 &matrix)
+	void Shader::BindMatrices(const std::string &name, int count, const float *raw)
 	{
-		BindMatrix(name, &matrix.Raw[0]);
+		int id = GetUniformLocation(name);
+		if (id != -1)
+			glUniformMatrix4fv(id, count, false, raw);
 	}
 
 	void Shader::BindFloat(const std::string &name, float v0)
@@ -621,21 +738,6 @@ namespace fury
 	{
 		switch (m_Type)
 		{
-		case ShaderType::COLOR_ONLY:
-			definesStr = "#define COLOR_ONLY\n";
-			break;
-		case ShaderType::DIFFUSE_NORMAL_TEXTURE:
-			definesStr = "#define DIFFUSE_TEXTURE\n#define NORMAL_TEXTURE\n";
-			break;
-		case ShaderType::DIFFUSE_SPECULAR_NORMAL_TEXTURE:
-			definesStr = "#define DIFFUSE_TEXTURE\n#define SPECULAR_TEXTURE\n#define NORMAL_TEXTURE\n";
-			break;
-		case ShaderType::DIFFUSE_SPECULAR_TEXTURE:
-			definesStr = "#define DIFFUSE_TEXTURE\n#define SPECULAR_TEXTURE\n";
-			break;
-		case ShaderType::DIFFUSE_TEXTURE:
-			definesStr = "#define DIFFUSE_TEXTURE\n";
-			break;
 		case ShaderType::DIR_LIGHT:
 			definesStr = "#define DIR_LIGHT\n";
 			break;
@@ -644,6 +746,12 @@ namespace fury
 			break;
 		case ShaderType::SPOT_LIGHT:
 			definesStr = "#define SPOT_LIGHT\n";
+			break;
+		case ShaderType::STATIC_MESH:
+			definesStr = "#define STATIC_MESH\n";
+			break;
+		case ShaderType::SKINNED_MESH:
+			definesStr = "#define SKINNED_MESH\n";
 			break;
 		default:
 			break;

@@ -2,25 +2,25 @@
     "shaders": [
         {
             "name": "gbuffer_shader",
-            "path": "Resource/Shader/Gbuffer.glsl",
+            "path": "Resource/Shader/GbufferLambert.glsl",
             "type": "static_mesh", 
             "textures" : ["diffuse"]
         },
         {
             "name": "gbuffer_notexture_shader",
-            "path": "Resource/Shader/GBufferNoTexture.glsl",
+            "path": "Resource/Shader/GBufferNoTextureLambert.glsl",
             "type": "static_mesh", 
             "textures" : ["color_only"]
         },
         {
             "name": "gbuffer_skin_shader",
-            "path": "Resource/Shader/Gbuffer.glsl",
+            "path": "Resource/Shader/GbufferLambert.glsl",
             "type": "skinned_mesh", 
             "textures" : ["diffuse"]
         },
         {
             "name": "gbuffer_notexture_skin_shader",
-            "path": "Resource/Shader/GBufferNoTexture.glsl",
+            "path": "Resource/Shader/GBufferNoTextureLambert.glsl",
             "type": "skinned_mesh", 
             "textures" : ["color_only"]
         },
@@ -41,7 +41,7 @@
         },
         {
             "name": "phong_shader",
-            "path": "Resource/Shader/Phong.glsl",
+            "path": "Resource/Shader/Lambert.glsl",
             "type": "other"
         }
     ],

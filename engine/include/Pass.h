@@ -12,6 +12,7 @@
 
 #undef OPAQUE
 #undef TRANSPARENT
+#undef IGNORE
 
 namespace fury
 {
@@ -47,7 +48,7 @@ namespace fury
 
 		std::shared_ptr<SceneNode> m_CameraNode;
 
-		std::unordered_map<size_t, std::shared_ptr<Shader>> m_ShaderMap;
+		std::vector<std::shared_ptr<Shader>> m_Shaders;
 
 		unsigned int m_RenderIndex = 0;
 
@@ -91,7 +92,7 @@ namespace fury
 
 		void AddShader(const std::shared_ptr<Shader> &shader);
 
-		std::shared_ptr<Shader> GetShader(ShaderType type) const;
+		std::shared_ptr<Shader> GetShader(ShaderType type, unsigned int textures = 0) const;
 
 		std::shared_ptr<Shader> GetFirstShader() const;
 

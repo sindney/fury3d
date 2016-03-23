@@ -113,15 +113,20 @@ namespace fury
 	const std::vector<std::pair<ShaderType, std::string>> EnumUtil::m_ShaderType =
 	{
 		std::make_pair(ShaderType::OTHER, "other"), 
-		std::make_pair(ShaderType::DIFFUSE_TEXTURE, "diffuse_texture"), 
-		std::make_pair(ShaderType::DIFFUSE_SPECULAR_TEXTURE, "diffuse_specular_texture"), 
-		std::make_pair(ShaderType::DIFFUSE_NORMAL_TEXTURE, "diffuse_normal_texture"), 
-		std::make_pair(ShaderType::DIFFUSE_SPECULAR_NORMAL_TEXTURE, "diffuse_specular_normal_texture"), 
-		std::make_pair(ShaderType::COLOR_ONLY, "color_only"), 
+		std::make_pair(ShaderType::STATIC_MESH, "static_mesh"), 
+		std::make_pair(ShaderType::SKINNED_MESH, "skinned_mesh"), 
 		std::make_pair(ShaderType::POINT_LIGHT, "point_light"), 
 		std::make_pair(ShaderType::SPOT_LIGHT, "spot_light"), 
 		std::make_pair(ShaderType::DIR_LIGHT, "dir_light"), 
 		std::make_pair(ShaderType::POST_EFFECT, "post_effect")
+	};
+
+	const std::vector<std::pair<ShaderTexture, std::string>> EnumUtil::m_ShaderTexture =
+	{
+		std::make_pair(ShaderTexture::COLOR_ONLY, "color_only"),
+		std::make_pair(ShaderTexture::DIFFUSE, "diffuse"), 
+		std::make_pair(ShaderTexture::SPECULAR, "specular"), 
+		std::make_pair(ShaderTexture::NORMAL, "normal")
 	};
 
 	unsigned int EnumUtil::CompareModeToUint(CompareMode mode)
@@ -308,5 +313,31 @@ namespace fury
 				return pair.first;
 		}
 		return ShaderType::OTHER;
+	}
+
+	std::string EnumUtil::ShaderTextureToString(ShaderTexture texture)
+	{
+		return m_ShaderTexture[(int)texture].second;
+	}
+
+	ShaderTexture EnumUtil::ShaderTextureFromString(const std::string &name)
+	{
+		for (const auto &pair : m_ShaderTexture)
+		{
+			if (pair.second == name)
+				return pair.first;
+		}
+		return ShaderTexture::COLOR_ONLY;
+	}
+
+	void EnumUtil::GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures)
+	{
+		std::vector<ShaderTexture> enums = { ShaderTexture::COLOR_ONLY, ShaderTexture::DIFFUSE, 
+			ShaderTexture::NORMAL, ShaderTexture::SPECULAR };
+		for (auto single : enums)
+		{
+			if (flags & (unsigned int)single)
+				textures.push_back(single);
+		}
 	}
 }

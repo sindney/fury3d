@@ -119,7 +119,7 @@ namespace fury
 		{
 			float height = m_Radius;
 			float topR = std::tan(m_OutterAngle * 0.5f) * height;
-			m_AABB.SetMinMax(Vector4(-topR, 0.0f, -topR), Vector4(topR, height, topR));
+			m_AABB.SetMinMax(Vector4(-topR, -height, -topR), Vector4(topR, 0.0f, topR));
 		}
 	}
 
@@ -146,11 +146,11 @@ namespace fury
 		else
 		{
 			float height = m_Radius;
-			float topR = std::tan(m_OutterAngle * 0.5f) * height;
-			m_Mesh = MeshUtil::Instance()->CreateCylinder("spolight_convex", topR, 0.0f, height, 5, 20);
+			float bottomR = std::tan(m_OutterAngle * 0.5f) * height;
+			m_Mesh = MeshUtil::Instance()->CreateCylinder("spotlight_convex", 0.0f, bottomR, height, 5, 20);
 
 			Matrix4 matrix;
-			matrix.Translate(Vector4(0.0f, height * 0.5f, 0.0f));
+			matrix.Translate(Vector4(0.0f, -height * 0.5f, 0.0f));
 
 			MeshUtil::Instance()->TransformMesh(m_Mesh, matrix);
 		}

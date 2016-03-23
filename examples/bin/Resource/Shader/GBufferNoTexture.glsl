@@ -5,6 +5,12 @@
 in vec3 vertex_position;
 in vec3 vertex_normal;
 
+#ifdef SKINNED_MESH
+in ivec4 bone_ids;
+in vec3 bone_weights;
+uniform mat4 bone_matrices[35];
+#endif
+
 out vec3 out_normal;
 out float out_depth;
 
@@ -14,7 +20,16 @@ uniform mat4 world_matrix;
 
 void main()
 {
+#ifdef SKINNED_MESH
+	mat4 bone_matrix = bone_matrices[bone_ids[0]] * bone_weights[0];
+	bone_matrix += bone_matrices[bone_ids[1]] * bone_weights[1];
+	bone_matrix += bone_matrices[bone_ids[2]] * bone_weights[2];
+	bone_matrix += bone_matrices[bone_ids[3]] * (1.0f - bone_weights[0] - bone_weights[1] - bone_weights[2]);
+	vec4 worldPos = world_matrix * bone_matrix * vec4(vertex_position, 1.0);
+#else
 	vec4 worldPos = world_matrix * vec4(vertex_position, 1.0);
+#endif
+	
 	vec4 viewPos = invert_view_matrix * worldPos;
 
 	out_depth = -viewPos.z;
@@ -33,8 +48,10 @@ in float out_depth;
 uniform float camera_far = 10000;
 uniform float shininess = 0;
 
+uniform vec3 ambient_color;
 uniform vec3 diffuse_color;
 
+uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 uniform float specular_factor = 1;
 
@@ -61,7 +78,7 @@ void main()
 
 	rt1 = pack_depth(out_depth / camera_far);
 
-	rt2 = diffuse_color.rgbb * diffuse_factor;
+	rt2.rgb = diffuse_color.rgb * diffuse_factor + ambient_color.rgb * ambient_factor;
 	rt2.a = dot(rt2.rgb, vec3(0.2126, 0.7152, 0.0722)) * specular_factor;
 }
 

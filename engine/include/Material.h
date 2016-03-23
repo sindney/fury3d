@@ -41,11 +41,15 @@ namespace fury
 
 		static const std::string SPECULAR_FACTOR;
 
+		static const std::string EMISSIVE_FACTOR;
+
 		static const std::string AMBIENT_COLOR;
 
 		static const std::string DIFFUSE_COLOR;
 
 		static const std::string SPECULAR_COLOR;
+
+		static const std::string EMISSIVE_COLOR;
 
 		static const std::string MATERIAL_ID;
 
@@ -65,7 +69,7 @@ namespace fury
 
 		std::vector<std::shared_ptr<Shader>> m_Shaders;
 
-		ShaderType m_ShaderType;
+		unsigned int m_TextureFlags;
 
 		bool m_Opaque;
 
@@ -79,7 +83,7 @@ namespace fury
 
 		virtual void DeleteBuffer();
 
-		ShaderType GetShaderType() const;
+		unsigned int GetTextureFlags() const;
 
 		std::shared_ptr<Texture> GetTexture(const std::string &name) const;
 

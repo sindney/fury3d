@@ -1,13 +1,23 @@
 #include "LoadFbxFile.h"
 #include "FileUtil.h"
 
+AnimationPlayer::Ptr animPlayer;
+
 void LoadFbxFile::Init(sf::RenderWindow &window)
 {
 	m_RootNode = SceneNode::Create("RootNode");
 
 	// load scene
-	auto options = Options::UV | Options::NORMAL | Options::DIFFUSE_MAP | Options::OPTIMIZE_MESH | Options::DELETE_MESHDATA;
-	FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Resource/Scene/tank.fbx"), m_RootNode, 0.01f, options);
+	FbxImportOptions importOptions;
+	importOptions.ScaleFactor = 0.01f;
+	importOptions.AnimCompressLevel = 0.25f;
+
+	FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Resource/Scene/james.fbx"), m_RootNode, importOptions);
+
+	auto cube = m_RootNode->FindChildRecursively("JamesNode");
+	auto cubeMove = EntityUtil::Instance()->FindEntity<AnimationClip>("James|Walk");
+	animPlayer = AnimationPlayer::Create("AnimPlayer");
+	animPlayer->AdvanceTime(cube, cubeMove, 0.0f);
 
 	// setup camera
 	m_CamSpeed = 1;
@@ -27,13 +37,20 @@ void LoadFbxFile::Init(sf::RenderWindow &window)
 
 	// setup pipeline
 	m_Pipeline = PrelightPipeline::Create("pipeline");
-	FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath("Resource/Pipeline/DefferedLighting.json"));
+	FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
 	//FileUtil::Instance()->SaveToFile(m_Pipeline, "Resource/Pipeline/DefferedLighting.json");
+}
+
+void LoadFbxFile::FixedUpdate()
+{
+	BasicScene::FixedUpdate();
+	animPlayer->AdvanceTime(0.04f);
 }
 
 void LoadFbxFile::Update(float dt)
 {
 	BasicScene::Update(dt);
+	animPlayer->Display(dt);
 }
 
 void LoadFbxFile::Draw(sf::RenderWindow &window)

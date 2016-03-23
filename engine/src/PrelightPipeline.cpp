@@ -147,11 +147,12 @@ namespace fury
 					auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
 					if (shader == nullptr)
-						shader = pass->GetShader(material->GetShaderType());
+						shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH, 
+						material->GetTextureFlags());
 
 					if (shader == nullptr)
 					{
-						LOGW << "Failed to draw " << node->GetName() << ", data incomplete!";
+						LOGW << "Failed to draw " << node->GetName() << ", shader not found!";
 						return;
 					}
 
@@ -183,11 +184,12 @@ namespace fury
 			auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
 			if (shader == nullptr)
-				shader = pass->GetShader(material->GetShaderType());
+				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH, 
+				material->GetTextureFlags());
 
 			if (shader == nullptr)
 			{
-				LOGW << "Failed to draw " << node->GetName() << ", data incomplete!";
+				LOGW << "Failed to draw " << node->GetName() << ", shader not found!";
 				return;
 			}
 
@@ -243,7 +245,7 @@ namespace fury
 		else if (light->GetType() == LightType::SPOT)
 		{
 			auto coneCenter = node->GetWorldPosition();
-			auto coneDir = worldMatrix.Multiply(Vector4(0, 1, 0, 0)).Normalized();
+			auto coneDir = worldMatrix.Multiply(Vector4(0, -1, 0, 0)).Normalized();
 
 			float camNear = (camPtr->GetFrustum().GetWorldSpaceCorners()[0] - camPos).Length();
 			float theta = light->GetOutterAngle() * 0.5f;

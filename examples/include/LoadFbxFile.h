@@ -15,6 +15,8 @@ public:
 
 	virtual void Init(sf::RenderWindow &window);
 
+	virtual void FixedUpdate();
+
 	virtual void Update(float dt);
 
 	virtual void Draw(sf::RenderWindow &window);

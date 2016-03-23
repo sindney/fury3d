@@ -20,11 +20,15 @@ namespace fury
 
 	const std::string Material::SPECULAR_FACTOR = "specular_factor";
 
+	const std::string Material::EMISSIVE_FACTOR = "emissive_factor";
+
 	const std::string Material::AMBIENT_COLOR = "ambient_color";
 
 	const std::string Material::DIFFUSE_COLOR = "diffuse_color";
 
 	const std::string Material::SPECULAR_COLOR = "specular_color";
+
+	const std::string Material::EMISSIVE_COLOR = "emissive_color";
 
 	const std::string Material::MATERIAL_ID = "material_id";
 
@@ -46,7 +50,7 @@ namespace fury
 	}
 
 	Material::Material(const std::string &name)
-		: Entity(name), m_Opaque(true), m_ID(GetMaterialID()), m_ShaderType(ShaderType::COLOR_ONLY)
+		: Entity(name), m_Opaque(true), m_ID(GetMaterialID()), m_TextureFlags(0)
 	{
 		m_TypeIndex = typeid(Material);
 		m_Dirty = false;
@@ -64,9 +68,9 @@ namespace fury
 		m_Uniforms.clear();
 	}
 
-	ShaderType Material::GetShaderType() const
+	unsigned int Material::GetTextureFlags() const
 	{
-		return m_ShaderType;
+		return m_TextureFlags;
 	}
 
 	Texture::Ptr Material::GetTexture(const std::string &name) const
@@ -94,47 +98,33 @@ namespace fury
 		}
 
 		// calculate new matching shaderType
-		bool hasDiffuse = false, hasSpecular = false, hasNormal = false;
+		bool hasTexture = false;
+		m_TextureFlags = 0;
+
 		for(auto pair : m_Textures)
 		{
 			if(pair.first == DIFFUSE_TEXTURE)
 			{
-				hasDiffuse = true;
+				hasTexture = true;
+				m_TextureFlags = m_TextureFlags | (unsigned int)ShaderTexture::DIFFUSE;
 				break;
 			}
 			if(pair.first == SPECULAR_TEXTURE)
 			{
-				hasSpecular = true;
+				hasTexture = true;
+				m_TextureFlags = m_TextureFlags | (unsigned int)ShaderTexture::SPECULAR;
 				break;
 			}
 			if(pair.first == NORMAL_TEXTURE)
 			{
-				hasNormal = true;
+				hasTexture = true;
+				m_TextureFlags = m_TextureFlags | (unsigned int)ShaderTexture::NORMAL;
 				break;
 			}
 		}
 
-		if(hasDiffuse)
-		{
-			if(hasSpecular)
-			{
-				if(hasNormal)
-					m_ShaderType = ShaderType::DIFFUSE_SPECULAR_NORMAL_TEXTURE;
-				else 
-					m_ShaderType = ShaderType::DIFFUSE_SPECULAR_TEXTURE;
-			}
-			else 
-			{
-				if(hasNormal)
-					m_ShaderType = ShaderType::DIFFUSE_NORMAL_TEXTURE;
-				else 
-					m_ShaderType = ShaderType::DIFFUSE_TEXTURE;
-			}
-		}
-		else 
-		{
-			m_ShaderType = ShaderType::COLOR_ONLY;
-		}
+		if (!hasTexture)
+			m_TextureFlags = (unsigned int)ShaderTexture::COLOR_ONLY;
 	}
 
 	unsigned int Material::GetTextureCount() const

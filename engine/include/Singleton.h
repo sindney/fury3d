@@ -14,7 +14,7 @@ namespace fury
 
 		static std::shared_ptr<TargetType> m_Instance;
 
-		bool m_Initialized = false;
+		//bool m_Initialized = false;
 
 	public:
 
@@ -22,7 +22,7 @@ namespace fury
 		// so you can call Instance().reset() to destory static instance.
 		static std::shared_ptr<TargetType> &Instance()
 		{
-			if(m_Instance == nullptr)
+			if (m_Instance == nullptr)
 				m_Instance = std::make_shared<TargetType>();
 			return m_Instance;
 		}

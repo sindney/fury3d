@@ -62,9 +62,16 @@ namespace fury
 
 	void SceneNode::SetModelAABB(const BoxBounds &aabb)
 	{
-		m_ModelAABB = aabb;
-		m_LocalAABB = m_LocalMatrix.Multiply(m_ModelAABB);
-		m_WorldAABB = m_WorldMatrix.Multiply(m_ModelAABB);
+		if (aabb.GetInfinite())
+		{
+			m_ModelAABB = m_LocalAABB = m_WorldAABB = aabb;
+		}
+		else
+		{
+			m_ModelAABB = aabb;
+			m_LocalAABB = m_LocalMatrix.Multiply(m_ModelAABB);
+			m_WorldAABB = m_WorldMatrix.Multiply(m_ModelAABB);
+		}
 	}
 
 	BoxBounds SceneNode::GetModelAABB() const

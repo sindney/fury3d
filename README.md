@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/release-v0.1.1-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/release-v0.1.2-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -22,11 +22,13 @@ Features:
 
 * Build-in light-pre pass rendering pipeling.
 
+* Basic skeleton animation support.
+
 Plans:
 
 * Add shadow maps.
 
-* Add skeleton animation support.
+* Add skeleton animation support. (Done, but need improvements)
 
 ## Compatibility
 
@@ -49,8 +51,13 @@ A simple demo should look like this:
 ~~~~~~~~~~cpp
 // load scene
 SceneNode::Ptr m_RootNode = SceneNode::Create("Root");
+
+FbxImportOptions importOptions;
+importOptions.ScaleFactor = 0.01f;
+importOptions.AnimCompressLevel = 0.25f;
+
 // Use FileUtil::GetAbsPath to get absolute file path on osx.
-FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode);
+FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
 // setup octree
 OcTree::Ptr m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
@@ -63,6 +70,12 @@ FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath(
 // draw scene
 m_Pipeline->Execute(m_OcTree);
 ~~~~~~~~~~
+
+## Screenshots
+
+![Skeleton Animation](screenshots/skinAnim.jpg)
+
+![Dynamic Lighting](screenshots/dynamicLighting.jpg)
 
 ## Special thanks
 

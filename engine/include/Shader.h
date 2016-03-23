@@ -25,13 +25,15 @@ namespace fury
 
 		typedef std::shared_ptr<Shader> Ptr;
 
-		static Ptr Create(const std::string &name, ShaderType type);
+		static Ptr Create(const std::string &name, ShaderType type, unsigned int textureFlags = 0);
 
 	protected:
 
 		std::string m_FilePath;
 
 		ShaderType m_Type;
+
+		unsigned int m_TextureFlags;
 
 		unsigned int m_Program = 0;
 
@@ -41,7 +43,7 @@ namespace fury
 
 	public:
 
-		Shader(const std::string &name, ShaderType type);
+		Shader(const std::string &name, ShaderType type, unsigned int textureFlags = 0);
 
 		virtual ~Shader();
 
@@ -56,6 +58,10 @@ namespace fury
 		std::string GetFilePath() const;
 
 		ShaderType GetType() const;
+
+		unsigned int GetTextureFlags() const;
+
+		void SetTextureFlags(unsigned int flags);
 
 		bool LoadAndCompile(const std::string &shaderPath);
 
@@ -77,9 +83,11 @@ namespace fury
 
 		void BindSubMesh(const std::shared_ptr<Mesh> &mesh, unsigned int index);
 
+		void BindMatrix(const std::string &name, const Matrix4 &matrix);
+
 		void BindMatrix(const std::string &name, const float *raw);
 
-		void BindMatrix(const std::string &name, const Matrix4 &matrix);
+		void BindMatrices(const std::string &name, int count, const float *raw);
 
 		void BindFloat(const std::string &name, float v0);
 
@@ -115,7 +123,7 @@ namespace fury
 
 	protected:
 
-		void BindMeshData(const std::shared_ptr<Mesh> &mesh, unsigned int vao) const;
+		void BindMeshData(const std::shared_ptr<Mesh> &mesh);
 
 		int GetUniformLocation(const std::string &name) const;
 

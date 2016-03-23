@@ -108,15 +108,20 @@ namespace fury
 	enum class ShaderType : int
 	{
 		OTHER = 0, 
-		DIFFUSE_TEXTURE, 
-		DIFFUSE_SPECULAR_TEXTURE, 
-		DIFFUSE_NORMAL_TEXTURE, 
-		DIFFUSE_SPECULAR_NORMAL_TEXTURE, 
-		COLOR_ONLY, 
+		STATIC_MESH, 
+		SKINNED_MESH, 
 		POINT_LIGHT, 
 		SPOT_LIGHT, 
 		DIR_LIGHT, 
 		POST_EFFECT
+	};
+
+	enum class ShaderTexture : unsigned int
+	{
+		COLOR_ONLY	= 0x0001, 
+		DIFFUSE		= 0x0002, 
+		SPECULAR	= 0x0004, 
+		NORMAL		= 0x0008
 	};
 
 	class FURY_API EnumUtil : public Singleton <EnumUtil>
@@ -144,6 +149,8 @@ namespace fury
 		static const std::vector<std::tuple<WrapMode, unsigned int, std::string>> m_WrapMode;
 
 		static const std::vector<std::pair<ShaderType, std::string>> m_ShaderType;
+
+		static const std::vector<std::pair<ShaderTexture, std::string>> m_ShaderTexture;
 
 	public:
 
@@ -201,6 +208,13 @@ namespace fury
 		std::string ShaderTypeToString(ShaderType type);
 
 		ShaderType ShaderTypeFromString(const std::string &name);
+
+
+		std::string ShaderTextureToString(ShaderTexture texture);
+
+		ShaderTexture ShaderTextureFromString(const std::string &name);
+
+		void GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures);
 
 	};
 }

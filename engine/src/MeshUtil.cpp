@@ -333,8 +333,8 @@ namespace fury
 
 		/*if (inclusive)
 		{
-		topR = topR / std::cos(avgRadian * 0.5f);
-		bottomR = bottomR / std::cos(avgRadian * 0.5f);
+			topR = topR / std::cos(avgRadian * 0.5f);
+			bottomR = bottomR / std::cos(avgRadian * 0.5f);
 		}*/
 
 		float currentHeight = height / 2.0f;
@@ -464,6 +464,33 @@ namespace fury
 			Vector4 Normal;
 
 			Vector4 Tangent;
+
+			unsigned int IDs[4];
+
+			float Weights[3];
+
+			bool HasSameWeights(const float *another, float epsilon)
+			{
+				return !(std::abs(Weights[0] - another[0]) > epsilon ||
+					std::abs(Weights[1] - another[1]) > epsilon ||
+					std::abs(Weights[2] - another[2]) > epsilon);
+			}
+
+			bool HasSameIDs(const unsigned int *another)
+			{
+				return IDs[0] == another[0] && IDs[1] == another[1] &&
+					IDs[2] == another[2] && IDs[3] == another[3];
+			}
+
+			void Empty()
+			{
+				Position.Zero();
+				UV.Zero();
+				Normal.Zero();
+				Tangent.Zero();
+				IDs[0] = IDs[1] = IDs[2] = IDs[3] = 0;
+				Weights[0] = Weights[1] = Weights[2] = 0.0f;
+			}
 		};
 
 		struct VtxEntry
@@ -500,19 +527,22 @@ namespace fury
 		bool hasNormal = mesh->Normals.Data.size() > 0;
 		bool hasTangent = mesh->Tangents.Data.size() > 0;
 		bool hasUV = mesh->UVs.Data.size() > 0;
+		bool hasWeights = mesh->Weights.Data.size() > 0;
+		bool hasIDs = mesh->IDs.Data.size() > 0;
+
+		if ((hasWeights || hasIDs) && (!hasWeights || !hasIDs))
+			ASSERT_MSG(false, "Error: Invalid Skin Info!");
 
 		// create Vertex obj from mesh data.
-		auto CreateVertex = [&hasNormal, &hasTangent, &hasUV, &mesh](Vertex &vtx, int index)
+		auto CreateVertex = [&](Vertex &vtx, int index)
 		{
 			int posIndex = index * 3;
 			int uvIndex = index * 2;
+			int weightIndex = index * 4;
 
+			vtx.Empty();
 			vtx.Position = Vector4(mesh->Positions.Data[posIndex], mesh->Positions.Data[posIndex + 1],
 				mesh->Positions.Data[posIndex + 2]);
-
-			vtx.Normal.Zero();
-			vtx.Tangent.Zero();
-			vtx.UV.Zero();
 
 			if (hasNormal)
 				vtx.Normal = Vector4(mesh->Normals.Data[posIndex], mesh->Normals.Data[posIndex + 1],
@@ -522,6 +552,17 @@ namespace fury
 				mesh->Tangents.Data[posIndex + 2]);
 			if (hasUV)
 				vtx.UV = Vector4(mesh->UVs.Data[uvIndex], mesh->UVs.Data[uvIndex + 1], 0.0f);
+
+			if (hasWeights)
+			{
+				vtx.IDs[0] = mesh->IDs.Data[weightIndex];
+				vtx.IDs[1] = mesh->IDs.Data[weightIndex + 1];
+				vtx.IDs[2] = mesh->IDs.Data[weightIndex + 2];
+				vtx.IDs[3] = mesh->IDs.Data[weightIndex + 3];
+				vtx.Weights[0] = mesh->Weights.Data[posIndex];
+				vtx.Weights[1] = mesh->Weights.Data[posIndex + 1];
+				vtx.Weights[2] = mesh->Weights.Data[posIndex + 2];
+			}
 		};
 
 		// find nearest points to a given position.
@@ -624,13 +665,15 @@ namespace fury
 				if (uidx & 0x80000000)
 					continue;
 
-				const Vertex &vtxu = uniqueVertices[uidx];
+				Vertex &vtxu = uniqueVertices[uidx];
 
 				if (hasNormal && (vtxu.Normal - vtx.Normal).SquareLength() > squareEpsilon)
 					continue;
 				if (hasTangent && (vtxu.Tangent - vtx.Tangent).SquareLength() > squareEpsilon)
 					continue;
 				if (hasUV && (vtxu.UV - vtx.UV).SquareLength() > squareEpsilon)
+					continue;
+				if (hasWeights && !vtxu.HasSameWeights(vtx.Weights, epsilon) && !vtxu.HasSameIDs(vtx.IDs))
 					continue;
 
 				// found a unique one, update replacement data.
@@ -660,6 +703,7 @@ namespace fury
 		const int vtxCount = uniqueVertices.size();
 		const int vtxCount2 = vtxCount * 2;
 		const int vtxCount3 = vtxCount * 3;
+		const int vtxCount4 = vtxCount * 4;
 
 		// pre allocate some space.
 		mesh->Positions.Data.resize(vtxCount3);
@@ -669,6 +713,10 @@ namespace fury
 			mesh->Tangents.Data.resize(vtxCount3);
 		if (hasUV)
 			mesh->UVs.Data.resize(vtxCount2);
+		if (hasWeights)
+			mesh->IDs.Data.resize(vtxCount4);
+		if (hasWeights)
+			mesh->Weights.Data.resize(vtxCount3);
 
 		// copy data to mesh.
 		for (unsigned int i = 0; i < uniqueVertices.size(); i++)
@@ -676,6 +724,7 @@ namespace fury
 			Vertex &uVtx = uniqueVertices[i];
 			int posIndex = i * 3;
 			int uvIndex = i * 2;
+			int weightIndex = i * 4;
 
 			mesh->Positions.Data[posIndex] = uVtx.Position.x;
 			mesh->Positions.Data[posIndex + 1] = uVtx.Position.y;
@@ -699,6 +748,17 @@ namespace fury
 			{
 				mesh->UVs.Data[uvIndex] = uVtx.UV.x;
 				mesh->UVs.Data[uvIndex + 1] = uVtx.UV.y;
+			}
+
+			if (hasWeights)
+			{
+				mesh->IDs.Data[weightIndex] = uVtx.IDs[0];
+				mesh->IDs.Data[weightIndex + 1] = uVtx.IDs[1];
+				mesh->IDs.Data[weightIndex + 2] = uVtx.IDs[2];
+				mesh->IDs.Data[weightIndex + 3] = uVtx.IDs[3];
+				mesh->Weights.Data[posIndex] = uVtx.Weights[0];
+				mesh->Weights.Data[posIndex + 1] = uVtx.Weights[1];
+				mesh->Weights.Data[posIndex + 2] = uVtx.Weights[2];
 			}
 		}
 

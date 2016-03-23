@@ -58,7 +58,6 @@ uniform sampler2D diffuse_texture;
 
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
-uniform float specular_factor = 1;
 
 // normal.xyz, shininess
 layout (location = 0) out vec4 rt0;
@@ -84,7 +83,7 @@ void main()
 	rt1 = pack_depth(out_depth / camera_far);
 
 	rt2.rgb = texture(diffuse_texture, out_uv).rgb * diffuse_factor + ambient_color * ambient_factor;
-	rt2.a = dot(rt2.rgb, vec3(0.2126, 0.7152, 0.0722)) * specular_factor;
+	// rt2.a = dot(rt2.rgb, vec3(0.2126, 0.7152, 0.0722)) * specular_factor;
 }
 
 #endif

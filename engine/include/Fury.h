@@ -1,6 +1,9 @@
 #ifndef _FURY_FURY_H_
 #define _FURY_FURY_H_
 
+#include "AnimationClip.h"
+#include "AnimationPlayer.h"
+#include "AnimationUtil.h"
 #include "Angle.h"
 #include "ArrayBuffers.h"
 #include "BoxBounds.h"
@@ -15,6 +18,7 @@
 #include "EntityUtil.h"
 #include "FileUtil.h"
 #include "Frustum.h"
+#include "Joint.h"
 #include "Light.h"
 #include "Material.h"
 #include "Matrix4.h"

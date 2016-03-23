@@ -152,15 +152,10 @@ namespace fury
 		SaveKey(wrapper, "camera");
 		SaveValue(wrapper, m_CameraNode == nullptr ? "" : m_CameraNode->GetName());
 
-		std::vector<Shader::Ptr> shaders;
-		shaders.reserve(m_ShaderMap.size());
-		for (auto pair : m_ShaderMap)
-			shaders.push_back(pair.second);
-
 		SaveKey(wrapper, "shaders");
-		SaveArray(wrapper, m_ShaderMap.size(), [&](unsigned int index)
+		SaveArray(wrapper, m_Shaders.size(), [&](unsigned int index)
 		{
-			SaveValue(wrapper, shaders[index]->GetName());
+			SaveValue(wrapper, m_Shaders[index]->GetName());
 		});
 
 		SaveKey(wrapper, "input");
@@ -260,31 +255,37 @@ namespace fury
 
 	void Pass::AddShader(const std::shared_ptr<Shader> &shader)
 	{
-		m_ShaderMap.emplace(StringUtil::Instance()->GetHashCode(
-			EnumUtil::Instance()->ShaderTypeToString(shader->GetType())), shader);
+		m_Shaders.push_back(shader);
 	}
 
-	std::shared_ptr<Shader> Pass::GetShader(ShaderType type) const
+	std::shared_ptr<Shader> Pass::GetShader(ShaderType type, unsigned int textures) const
 	{
-		auto it = m_ShaderMap.find(StringUtil::Instance()->GetHashCode(
-			EnumUtil::Instance()->ShaderTypeToString(type)));
-		if (it != m_ShaderMap.end())
-			return it->second;
+		for (auto shader : m_Shaders)
+		{
+			if (shader->GetType() != type)
+				continue;
+
+			if (textures == 0)
+				return shader;
+
+			if (textures == shader->GetTextureFlags())
+				return shader;
+		}
 
 		return nullptr;
 	}
 
 	std::shared_ptr<Shader> Pass::GetFirstShader() const
 	{
-		if (m_ShaderMap.begin() != m_ShaderMap.end())
-			return m_ShaderMap.begin()->second;
+		if (m_Shaders.size() > 0)
+			return m_Shaders.front();
 		else
 			return nullptr;
 	}
 
 	unsigned int Pass::GetShaderCount() const
 	{
-		return m_ShaderMap.size();
+		return m_Shaders.size();
 	}
 
 	void Pass::AddTexture(const std::shared_ptr<Texture> &texture, bool input)

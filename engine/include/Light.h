@@ -10,6 +10,7 @@ namespace fury
 {
 	class Mesh;
 
+	// light's default direction is (0,-1,0,0)
 	class FURY_API Light : public Component
 	{
 	public:

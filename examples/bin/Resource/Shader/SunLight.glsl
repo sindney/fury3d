@@ -15,7 +15,7 @@ uniform mat4 invert_view_matrix;
 
 void main()
 {
-	vs_dir = normalize(invert_view_matrix * vec4(light_dir, 0)).xyz;
+	vs_dir = normalize(invert_view_matrix * vec4(-light_dir, 0)).xyz;
 	vs_pos = (inverse(projection_matrix) * vec4(vertex_position, 1.0)).xyz;
 	ss_pos = vec4(vertex_position.xyz, 1.0);
 	gl_Position = ss_pos;

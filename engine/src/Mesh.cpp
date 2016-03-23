@@ -1,3 +1,5 @@
+#include <stack>
+
 #include "Debug.h"
 #include "GLLoader.h"
 #include "Mesh.h"
@@ -80,7 +82,9 @@ namespace fury
 		Positions("vertex_position", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
 		Normals("vertex_normal", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
-		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW)
+		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
+		IDs("bone_ids", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
+		Weights("bone_weights", GL_ARRAY_BUFFER, GL_STATIC_DRAW)
 	{
 		m_TypeIndex = typeid(Mesh);
 	};
@@ -109,12 +113,45 @@ namespace fury
 		return m_SubMeshes.size();
 	}
 
+	bool Mesh::IsSkinnedMesh() const
+	{
+		return m_Joints.size() > 0 && m_RootJoint != nullptr;
+	}
+
+	std::shared_ptr<Joint> Mesh::GetJoint(const std::string &name) const
+	{
+		auto it = m_JointMap.find(name);
+		if (it != m_JointMap.end())
+			return it->second;
+		else
+			return nullptr;
+	}
+
+	std::shared_ptr<Joint> Mesh::GetJointAt(unsigned int index) const
+	{
+		if (index > m_Joints.size() - 1)
+			return nullptr;
+		return m_Joints[index];
+	}
+
+	unsigned int Mesh::GetJointCount() const
+	{
+		return m_Joints.size();
+	}
+
+	std::shared_ptr<Joint> Mesh::GetRootJoint() const
+	{
+		return m_RootJoint;
+	}
+
 	void Mesh::UpdateBuffer()
 	{
 		Positions.UpdateBuffer();
 		Normals.UpdateBuffer();
 		Tangents.UpdateBuffer();
 		UVs.UpdateBuffer();
+		Weights.UpdateBuffer();
+		IDs.UpdateBuffer();
 		Indices.UpdateBuffer();
 
 		m_Dirty = Indices.GetDirty() || Positions.GetDirty();
@@ -152,24 +189,13 @@ namespace fury
 		Normals.DeleteBuffer();
 		Tangents.DeleteBuffer();
 		UVs.DeleteBuffer();
+		Weights.DeleteBuffer();
+		IDs.DeleteBuffer();
 		Indices.DeleteBuffer();
 
 		for (auto subMesh : m_SubMeshes)
 			if (subMesh != nullptr)
 				subMesh->DeleteBuffer();
-	}
-
-	void Mesh::DeleteRawData()
-	{
-		Positions.Data.clear();
-		Normals.Data.clear();
-		Tangents.Data.clear();
-		UVs.Data.clear();
-		Indices.Data.clear();
-
-		for (auto subMesh : m_SubMeshes)
-			if (subMesh != nullptr)
-				subMesh->DeleteRawData();
 	}
 
 	void Mesh::CalculateAABB(const Vector4& min, const Vector4& max)
