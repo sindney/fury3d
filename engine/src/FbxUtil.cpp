@@ -221,7 +221,10 @@ namespace fury
 			for (auto animStack : animStacks)
 			{
 				auto clip = AnimationClip::Create(animStack->GetName(), 24);
-
+				
+				// set as current
+				m_FbxScene->SetCurrentAnimationStack(animStack);
+				
 				LOGD << "Reading animStack " << animStack->GetName() << " for " << mesh->GetName();
 
 				for (int i = 0; i < clusterCount; i++)
@@ -747,7 +750,7 @@ namespace fury
 
 		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
-		// TODO: ÔÚ¶ÁÍêskinÐÅÏ¢ºó£¬¶ÁsubMeshÊ±£¬³¢ÊÔ·Ö¸î¹Ç÷Àµ½¸÷subMesh£¬½â³ýÒ»¸öskinMeshÖ»ÄÜ°ó35¸ö¹Ç÷ÀµÄÏÞÖÆ
+		// TODO: åœ¨è¯»å®Œskinä¿¡æ¯åŽï¼Œè¯»subMeshæ—¶ï¼Œå°è¯•åˆ†å‰²éª¨éª¼åˆ°å„subMeshï¼Œè§£é™¤ä¸€ä¸ªskinMeshåªèƒ½ç»‘35ä¸ªéª¨éª¼çš„é™åˆ¶
 
 		// read subMeshes if theres any
 		unsigned int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
