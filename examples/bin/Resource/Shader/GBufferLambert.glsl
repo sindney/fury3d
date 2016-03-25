@@ -28,14 +28,14 @@ void main()
 	bone_matrix += bone_matrices[bone_ids[2]] * bone_weights[2];
 	bone_matrix += bone_matrices[bone_ids[3]] * (1.0f - bone_weights[0] - bone_weights[1] - bone_weights[2]);
 	vec4 worldPos = world_matrix * bone_matrix * vec4(vertex_position, 1.0);
+	out_normal = normalize(invert_view_matrix * world_matrix * bone_matrix * vec4(vertex_normal, 0.0)).xyz;
 #else
 	vec4 worldPos = world_matrix * vec4(vertex_position, 1.0);
+	out_normal = normalize(invert_view_matrix * world_matrix * vec4(vertex_normal, 0.0)).xyz;
 #endif
 
 	vec4 viewPos = invert_view_matrix * worldPos;
-
 	out_depth = -viewPos.z;
-	out_normal = normalize(invert_view_matrix * world_matrix * vec4(vertex_normal, 0.0)).xyz;
 	out_uv = vertex_uv;
 	
 	gl_Position = projection_matrix * viewPos;
