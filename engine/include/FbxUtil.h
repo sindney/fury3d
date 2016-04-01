@@ -37,8 +37,8 @@ namespace fury
 	public:
 
 		unsigned int Flags = FbxImportFlags::UV | FbxImportFlags::NORMAL | FbxImportFlags::IMP_ANIM | 
-			FbxImportFlags::IMP_POS_ANIM | FbxImportFlags::IMP_SCL_ANIM | FbxImportFlags::AUTO_PAIR_CLIP | 
-			FbxImportFlags::OPTIMIZE_ANIM | FbxImportFlags::OPTIMIZE_MESH;
+			FbxImportFlags::IMP_POS_ANIM | FbxImportFlags::AUTO_PAIR_CLIP | FbxImportFlags::OPTIMIZE_ANIM | 
+			FbxImportFlags::OPTIMIZE_MESH;
 
 		float ScaleFactor = 1.0f;
 
@@ -88,15 +88,15 @@ namespace fury
 
 		std::shared_ptr<Material> CreateLambertMaterial(FbxSurfaceLambert *fbxLambert);
 
-		std::shared_ptr<Mesh> CreateMesh(FbxNode *fbxNode);
+		std::shared_ptr<Mesh> CreateMesh(const std::shared_ptr<SceneNode> &ntNode, FbxNode *fbxNode);
 
-		bool CreateSkeleton(const std::shared_ptr<Mesh> &mesh, FbxMesh *fbxMesh);
-
-		FbxAMatrix GetLocalMatrix(FbxNode* fbxNode) const;
+		bool CreateSkeleton(const std::shared_ptr<SceneNode> &ntNode, const std::shared_ptr<Mesh> &mesh, FbxMesh *fbxMesh);
 
 		FbxAMatrix GetGeometryMatrix(FbxNode* fbxNode) const;
 
 		Matrix4 FbxMatrixToFuryMatrix(const FbxAMatrix &fbxMatrix);
+
+		void ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix);
 	};
 }
 

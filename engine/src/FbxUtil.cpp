@@ -215,16 +215,21 @@ namespace fury
 				return KeyFrame(tick, (float)fbxVector.mData[0], (float)fbxVector.mData[1], (float)fbxVector.mData[2]);
 			};
 
+			auto EulerToQuat = [&](const FbxDouble3 &fbxDouble) -> Quaternion
+			{
+				return Angle::EulerRadToQuat(Vector4((float)fbxDouble[1], (float)fbxDouble[0], (float)fbxDouble[2]) * Angle::DegToRad);
+			};
+
 			auto impPosAnim = m_ImportOptions.Flags & FbxImportFlags::IMP_POS_ANIM;
 			auto impSclAnim = m_ImportOptions.Flags & FbxImportFlags::IMP_SCL_ANIM;
 
 			for (auto animStack : animStacks)
 			{
 				auto clip = AnimationClip::Create(animStack->GetName(), 24);
-				
+
 				// set as current
 				m_FbxScene->SetCurrentAnimationStack(animStack);
-				
+
 				LOGD << "Reading animStack " << animStack->GetName() << " for " << mesh->GetName();
 
 				for (int i = 0; i < clusterCount; i++)
@@ -245,20 +250,15 @@ namespace fury
 						FbxTime curTime;
 						curTime.SetFrame(i, FbxTime::eFrames24);
 
-						// transform whatever euler rotation to quaternion.
-						// then back to fury's euler rotation.
-						// this corrects rotation order, fury's euler is in YXZ order.
-						FbxQuaternion fbxQ;
-						fbxQ.ComposeSphericalXYZ(link->EvaluateLocalRotation(curTime));
-						auto curRotation = Angle::QuatToEulerRad(Quaternion((float)fbxQ.mData[0], (float)fbxQ.mData[1], (float)fbxQ.mData[2], (float)fbxQ.mData[3]));
-						channel->rotations.push_back(KeyFrame(tick, curRotation.x, curRotation.y, curRotation.z));
+						auto curRotation = link->EvaluateLocalRotation(curTime) * (double)Angle::DegToRad;
+						channel->rotations.push_back(KeyFrame(tick, (float)curRotation[1], (float)curRotation[0], (float)curRotation[2]));
 
 						if (impPosAnim)
 						{
 							auto curPosition = link->EvaluateLocalTranslation(curTime);
 							channel->positions.push_back(Vector4ToKeyFrame(tick, curPosition));
 						}
-						
+
 						if (impSclAnim)
 						{
 							auto curScale = link->EvaluateLocalScaling(curTime);
@@ -281,23 +281,7 @@ namespace fury
 	void FbxUtil::LoadNode(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
 	{
 		SceneNode::Ptr childNode = SceneNode::Create(fbxNode->GetName());
-
-		// copy transforms.
-		FbxQuaternion fbxQ;
-		fbxQ.ComposeSphericalXYZ(fbxNode->LclRotation.Get());
-		FbxDouble3 fbxT = fbxNode->LclTranslation.Get();
-		FbxDouble3 fbxS = fbxNode->LclScaling.Get();
-
-		Vector4 furyT((float)fbxT.mData[0], (float)fbxT.mData[1], (float)fbxT.mData[2], 1.0f);
-		Vector4 furyS((float)fbxS.mData[0], (float)fbxS.mData[1], (float)fbxS.mData[2], 1.0f);
-		Quaternion furyR((float)fbxQ.mData[0], (float)fbxQ.mData[1], (float)fbxQ.mData[2], (float)fbxQ.mData[3]);
-
-		furyT = furyT * m_ImportOptions.ScaleFactor;
-		furyS = furyS * m_ImportOptions.ScaleFactor;
-
-		childNode->SetLocalPosition(furyT);
-		childNode->SetLocalRoattion(furyR);
-		childNode->SetLocalScale(furyS);
+		ApplyFbxAMatrixToNode(childNode, fbxNode->EvaluateLocalTransform());
 
 		// add to scene graph
 		ntNode->AddChild(childNode);
@@ -332,7 +316,7 @@ namespace fury
 		if (mesh == nullptr)
 		{
 			// if not, we read the mesh data.
-			mesh = CreateMesh(fbxNode);
+			mesh = CreateMesh(ntNode, fbxNode);
 			EntityUtil::Instance()->AddEntity(mesh);
 		}
 
@@ -544,7 +528,7 @@ namespace fury
 		return material;
 	}
 
-	std::shared_ptr<Mesh> FbxUtil::CreateMesh(FbxNode *fbxNode)
+	std::shared_ptr<Mesh> FbxUtil::CreateMesh(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
 	{
 		FbxMesh* fbxMesh = static_cast<FbxMesh*>(fbxNode->GetNodeAttribute());
 		FbxLayerElementMaterial* layerMaterial = fbxMesh->GetLayer(0)->GetMaterials();
@@ -723,7 +707,7 @@ namespace fury
 					mesh->Tangents.Data.push_back((float)tangent.mData[2]);
 				}
 
-				unsigned int index = i * 3 + j;
+				unsigned int vtxIndex = i * 3 + j;
 
 				if (hasSkeleton)
 				{
@@ -731,8 +715,8 @@ namespace fury
 					auto &jointIndices = pair.second.first;
 					auto &jointWeights = pair.second.second;
 					
-					unsigned int index4 = index * 4;
-					unsigned int index3 = index * 3;
+					unsigned int index4 = vtxIndex * 4;
+					unsigned int index3 = vtxIndex * 3;
 					for (unsigned int k = 0; k < jointIndices.size(); k++)
 					{
 						mesh->IDs.Data[index4] = jointIndices[k];
@@ -744,13 +728,13 @@ namespace fury
 					}
 				}
 
-				mesh->Indices.Data.push_back(index);
+				mesh->Indices.Data.push_back(vtxIndex);
 			}
 		}
 
 		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
-		// TODO: åœ¨è¯»å®Œskinä¿¡æ¯åŽï¼Œè¯»subMeshæ—¶ï¼Œå°è¯•åˆ†å‰²éª¨éª¼åˆ°å„subMeshï¼Œè§£é™¤ä¸€ä¸ªskinMeshåªèƒ½ç»‘35ä¸ªéª¨éª¼çš„é™åˆ¶
+		// TODO: ÔÚ¶ÁÍêskinÐÅÏ¢ºó£¬¶ÁsubMeshÊ±£¬³¢ÊÔ·Ö¸î¹Ç÷Àµ½¸÷subMesh£¬½â³ýÒ»¸öskinMeshÖ»ÄÜ°ó35¸ö¹Ç÷ÀµÄÏÞÖÆ
 
 		// read subMeshes if theres any
 		unsigned int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
@@ -793,7 +777,7 @@ namespace fury
 
 		// load mesh skin info, if there's any.
 		if (hasSkeleton)
-			CreateSkeleton(mesh, fbxMesh);
+			CreateSkeleton(ntNode, mesh, fbxMesh);
 
 		mesh->CalculateAABB();
 
@@ -832,7 +816,7 @@ namespace fury
 		}
 	}
 
-	bool FbxUtil::CreateSkeleton(const std::shared_ptr<Mesh> &mesh, FbxMesh *fbxMesh)
+	bool FbxUtil::CreateSkeleton(const SceneNode::Ptr &ntNode, const Mesh::Ptr &mesh, FbxMesh *fbxMesh)
 	{
 		int deformerCount = fbxMesh->GetDeformerCount(FbxDeformer::eSkin);
 		if (deformerCount != 1)
@@ -877,6 +861,10 @@ namespace fury
 		}
 		LOGD << "Found Root Joint: " << root->GetName();
 
+		// apply root joint's local transform to mesh's node.
+		// because root joint's transform is the real transform of this whole skinnedMeshNode.
+		ApplyFbxAMatrixToNode(ntNode, root->EvaluateLocalTransform());
+
 		// create joint tree
 		{
 			auto GetJointByName = [&](const std::string &name) -> Joint::Ptr
@@ -897,6 +885,8 @@ namespace fury
 				nodeStack.pop();
 
 				auto joint = GetJointByName(node->GetName());
+				if (node != root)
+					joint->SetLocalMatrix(FbxMatrixToFuryMatrix(node->EvaluateLocalTransform()));
 
 				Joint::Ptr prevJoint = nullptr;
 				int childCount = node->GetChildCount();
@@ -946,6 +936,7 @@ namespace fury
 			FbxAMatrix transformMatrix, transformLinkMatrix, offsetMatrix;
 			cluster->GetTransformMatrix(transformMatrix);
 			cluster->GetTransformLinkMatrix(transformLinkMatrix);
+
 			offsetMatrix = transformLinkMatrix.Inverse() * transformMatrix * geomMatrix;
 
 			joint->SetOffsetMatrix(FbxMatrixToFuryMatrix(offsetMatrix));
@@ -953,6 +944,7 @@ namespace fury
 		}
 
 		mesh->m_RootJoint = jointMap[root->GetName()];
+		mesh->m_RootJoint->Update(Matrix4());
 
 		//DisplayTree(jointMap[root->GetName()]);
 		
@@ -961,14 +953,7 @@ namespace fury
 
 		return true;
 	}
-
-	FbxAMatrix FbxUtil::GetLocalMatrix(FbxNode* fbxNode) const
-	{
-		return FbxAMatrix(fbxNode->LclTranslation.Get(),
-			fbxNode->LclRotation.Get(),
-			fbxNode->LclScaling.Get());
-	}
-
+	
 	FbxAMatrix FbxUtil::GetGeometryMatrix(FbxNode* fbxNode) const
 	{
 		return FbxAMatrix(fbxNode->GetGeometricTranslation(FbxNode::eSourcePivot),
@@ -981,8 +966,28 @@ namespace fury
 		Matrix4 furyMatrix;
 		for (int i = 0; i < 4; i++)
 			for (int j = 0; j < 4; j++)
-				furyMatrix.Raw[i * 4 + j] = (float)fbxMatrix.mData[i].mData[j];
+				furyMatrix.Raw[i * 4 + j] = (float)fbxMatrix.Get(i, j);
 
 		return furyMatrix;
+	}
+
+	void FbxUtil::ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix)
+	{
+		FbxQuaternion fbxQ;
+		fbxQ.ComposeSphericalXYZ(fbxMatrix.GetR());
+		FbxDouble3 fbxT = fbxMatrix.GetT();
+		FbxDouble3 fbxS = fbxMatrix.GetS();
+
+		Vector4 furyT((float)fbxT.mData[0], (float)fbxT.mData[1], (float)fbxT.mData[2], 1.0f);
+		Vector4 furyS((float)fbxS.mData[0], (float)fbxS.mData[1], (float)fbxS.mData[2], 1.0f);
+		Quaternion furyR((float)fbxQ.mData[0], (float)fbxQ.mData[1], (float)fbxQ.mData[2], (float)fbxQ.mData[3]);
+
+		furyT = furyT * m_ImportOptions.ScaleFactor;
+		furyS = furyS * m_ImportOptions.ScaleFactor;
+
+		ntNode->SetLocalPosition(furyT);
+		ntNode->SetLocalRoattion(furyR);
+		ntNode->SetLocalScale(furyS);
+		ntNode->Recompose();
 	}
 }

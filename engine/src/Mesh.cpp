@@ -14,11 +14,11 @@ namespace fury
 		return std::make_shared<SubMesh>();
 	}
 
-	SubMesh::SubMesh() : 
-		m_VAO(0), Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW), 
+	SubMesh::SubMesh() :
+		m_VAO(0), Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW),
 		m_TypeIndex(typeid(SubMesh))
 	{
-		
+
 	}
 
 	SubMesh::~SubMesh()
@@ -77,13 +77,13 @@ namespace fury
 		return std::make_shared<Mesh>(name);
 	}
 
-	Mesh::Mesh(const std::string &name) : Entity(name), m_VAO(0), 
+	Mesh::Mesh(const std::string &name) : Entity(name), m_VAO(0),
 		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Positions("vertex_position", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
+		Positions("vertex_position", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Normals("vertex_normal", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
-		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
-		IDs("bone_ids", GL_ARRAY_BUFFER, GL_STATIC_DRAW), 
+		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
+		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
+		IDs("bone_ids", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Weights("bone_weights", GL_ARRAY_BUFFER, GL_STATIC_DRAW)
 	{
 		m_TypeIndex = typeid(Mesh);
