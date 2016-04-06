@@ -32,7 +32,7 @@ namespace fury
 				return false;
 
 			m_TextureMap.emplace(texture->GetName(), texture);
-			entityUtil->AddEntity(texture);
+			entityUtil->Add(texture);
 
 			return true;
 		}))
@@ -54,7 +54,7 @@ namespace fury
 				return false;
 
 			m_ShaderMap.emplace(shader->GetName(), shader);
-			entityUtil->AddEntity(shader);
+			entityUtil->Add(shader);
 
 			return true;
 		}))

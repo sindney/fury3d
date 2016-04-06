@@ -2,6 +2,7 @@
 #define _FURY_ENTITY_UTIL_H_
 
 #include <unordered_map>
+#include <functional>
 
 #include "Singleton.h"
 #include "Entity.h"
@@ -9,108 +10,146 @@
 
 namespace fury
 {
-	class FURY_API EntityUtil : public Singleton<EntityUtil> 
+	class FURY_API EntityUtil final : public Singleton<EntityUtil> 
 	{
 	public:
 
+		typedef std::unordered_map<std::type_index, std::unordered_map<size_t, std::shared_ptr<void>>> TypeMap;
+
 		typedef std::shared_ptr<EntityUtil> Ptr;
 
-		// returns false if there's a name conflict.
-		bool AddEntity(const Entity::Ptr &entity);
-
-		template<class EntityType>
-		std::shared_ptr<EntityType> RemoveEntity(const std::string &name);
-
-		template<class EntityType>
-		std::shared_ptr<EntityType> FindEntity(const std::string &name);
-
-		template<class EntityType>
-		std::shared_ptr<EntityType> RemoveEntity(size_t hashcode);
-
-		template<class EntityType>
-		std::shared_ptr<EntityType> FindEntity(size_t hashcode);
-
-		template<class EntityType>
-		void RemoveEntities(std::type_index type);
-
-		void RemoveAllEntities();
-
-	protected:
-
-		class FURY_API EntityMap
+		// class ObjectType must have function 'size_t GetHashCode()'.
+		template<class ObjectType>
+		bool Add(std::shared_ptr<ObjectType> pointer)
 		{
-		public:
+			std::type_index key0 = typeid(ObjectType);
+			size_t key1 = pointer->GetHashCode();
 
-			typedef std::shared_ptr<EntityMap> Ptr;
+			auto it0 = m_EntityMap.find(key0);
+			if (it0 == m_EntityMap.end())
+			{
+				m_EntityMap[key0].emplace(key1, std::static_pointer_cast<void>(pointer));
+				return true;
+			}
 
-			static Ptr Create();
+			auto it1 = it0->second.find(key1);
+			if (it1 == it0->second.end())
+			{
+				m_EntityMap[key0].emplace(key1, std::static_pointer_cast<void>(pointer));
+				return true;
+			}
 
-			// returns false if there's a name conflict.
-			bool AddEntity(const Entity::Ptr &entity);
-
-			Entity::Ptr RemoveEntity(size_t hashcode);
-
-			Entity::Ptr FindEntity(size_t hashcode) const;
-
-			void RemoveAllEntities();
-
-		private:
-
-			std::unordered_map<size_t, Entity::Ptr> m_Entities;
-
-		};
-
-		typedef std::unordered_map<std::type_index, EntityMap::Ptr> TypeMap;
-
-		TypeMap m_EntityTypes;
-	};
-
-	template<class EntityType>
-	std::shared_ptr<EntityType> EntityUtil::RemoveEntity(const std::string &name)
-	{
-		return RemoveEntity<EntityType>(StringUtil::Instance()->GetHashCode(name));
-	}
-
-	template<class EntityType>
-	std::shared_ptr<EntityType> EntityUtil::FindEntity(const std::string &name)
-	{
-		return FindEntity<EntityType>(StringUtil::Instance()->GetHashCode(name));
-	}
-
-	template<class EntityType>
-	std::shared_ptr<EntityType> EntityUtil::RemoveEntity(size_t hashcode)
-	{
-		std::type_index typeIndex = typeid(EntityType);
-		auto it = m_EntityTypes.find(typeIndex);
-
-		if(it != m_EntityTypes.end())
-		{
-			auto &entityMap = it->second;
-			return std::static_pointer_cast<EntityType>(entityMap->RemoveEntity(hashcode));
+			return false;
 		}
 
-		return nullptr;
-	}
+		template<class ObjectType>
+		std::shared_ptr<ObjectType> Remove(size_t hashcode)
+		{
+			std::type_index key0 = typeid(ObjectType);
+			size_t key1 = hashcode;
 
-	template<class EntityType>
-	std::shared_ptr<EntityType> EntityUtil::FindEntity(size_t hashcode)
-	{
-		std::type_index typeIndex = typeid(EntityType);
-		auto it = m_EntityTypes.find(typeIndex);
+			auto it0 = m_EntityMap.find(key0);
+			if (it0 == m_EntityMap.end())
+				return nullptr;
 
-		if(it != m_EntityTypes.end())
-			return std::static_pointer_cast<EntityType>(it->second->FindEntity(hashcode));
+			auto it1 = it0->second.find(key1);
+			if (it1 == it0->second.end())
+				return nullptr;
 
-		return nullptr;
-	}
+			auto ptr = it1->second;
+			it0->second.erase(it1);
 
-	template<class EntityType>
-	void EntityUtil::RemoveEntities(std::type_index type)
-	{
-		auto it = m_EntityTypes.find(type);
-		if (it != m_EntityTypes.end())
-			it->second->RemoveAllEntities();
-	}
+			return std::static_pointer_cast<ObjectType>(ptr);
+		}
+
+		template<class ObjectType>
+		std::shared_ptr<ObjectType> Remove(const std::string &name)
+		{
+			return Remove<ObjectType>(StringUtil::Instance()->GetHashCode(name));
+		}
+
+		template<class ObjectType>
+		void RemoveAll()
+		{
+			auto it0 = m_EntityMap.find(typeid(ObjectType));
+			if (it0 != m_EntityMap.end())
+				it0->second.clear();
+		}
+
+		void RemoveAll()
+		{
+			m_EntityMap.clear();
+		}
+
+		template<class ObjectType>
+		std::shared_ptr<ObjectType> Get(size_t hashcode)
+		{
+			std::type_index key0 = typeid(ObjectType);
+			size_t key1 = hashcode;
+
+			auto it0 = m_EntityMap.find(key0);
+			if (it0 == m_EntityMap.end())
+				return nullptr;
+
+			auto it1 = it0->second.find(key1);
+			if (it1 == it0->second.end())
+				return nullptr;
+
+			return std::static_pointer_cast<ObjectType>(it1->second);
+		}
+
+		template<class ObjectType>
+		std::shared_ptr<ObjectType> Get(const std::string &name)
+		{
+			return Get<ObjectType>(StringUtil::Instance()->GetHashCode(name));
+		}
+
+		template<class ObjectType>
+		std::unordered_map<size_t, std::shared_ptr<void>>::iterator Begin()
+		{
+			std::type_index key0 = typeid(ObjectType);
+
+			auto it0 = m_EntityMap.find(key0);
+			if (it0 != m_EntityMap.end())
+				return it0->second.begin();
+
+			return std::unordered_map<size_t, std::shared_ptr<void>>::iterator();
+		}
+
+		template<class ObjectType>
+		std::unordered_map<size_t, std::shared_ptr<void>>::iterator End()
+		{
+			std::type_index key0 = typeid(ObjectType);
+
+			auto it0 = m_EntityMap.find(key0);
+			if (it0 != m_EntityMap.end())
+				return it0->second.end();
+
+			return std::unordered_map<size_t, std::shared_ptr<void>>::iterator();
+		}
+
+		// return false in your functor to break the loop.
+		template<class ObjectType>
+		void ForEach(const std::function<bool(const std::shared_ptr<ObjectType>&)> &func)
+		{
+			std::type_index key0 = typeid(ObjectType);
+
+			auto it0 = m_EntityMap.find(key0);
+			if (it0 == m_EntityMap.end())
+				return;
+
+			for (auto it1 = it0->second.begin(); it1 != it0->second.end(); ++it1)
+			{
+				auto ptr = std::static_pointer_cast<ObjectType>(it1->second);
+				if (!func(ptr))
+					break;
+			}
+		}
+
+	private:
+
+		TypeMap m_EntityMap;
+	};
 }
 
 #endif // _FURY_ENTITY_UTIL_H_

@@ -40,7 +40,7 @@ namespace fury
 			LOGE << "Pass param 'camera' not found!";
 			return false;
 		}
-		if (auto camNode = entityUtil->FindEntity<SceneNode>(str))
+		if (auto camNode = entityUtil->Get<SceneNode>(str))
 			SetCameraNode(camNode);
 
 		if (!LoadMemberValue(wrapper, "blendMode", str))
@@ -84,7 +84,7 @@ namespace fury
 				LOGE << "Pass's shader name not found!";
 				return false;
 			}
-			if (auto shader = entityUtil->FindEntity<Shader>(str))
+			if (auto shader = entityUtil->Get<Shader>(str))
 			{
 				AddShader(shader);
 				return true;
@@ -103,7 +103,7 @@ namespace fury
 				LOGE << "Pass's inputTexture name not found!";
 				return false;
 			}
-			if (auto texture = entityUtil->FindEntity<Texture>(str))
+			if (auto texture = entityUtil->Get<Texture>(str))
 			{
 				AddTexture(texture, true);
 				return true;
@@ -122,7 +122,7 @@ namespace fury
 				LOGE << "Pass's outputTexture name not found!";
 				return false;
 			}
-			if (auto texture = entityUtil->FindEntity<Texture>(str))
+			if (auto texture = entityUtil->Get<Texture>(str))
 			{
 				AddTexture(texture, false);
 				return true;

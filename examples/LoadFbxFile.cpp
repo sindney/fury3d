@@ -14,10 +14,10 @@ void LoadFbxFile::Init(sf::RenderWindow &window)
 
 	FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Resource/Scene/james.fbx"), m_RootNode, importOptions);
 
-	auto cube = m_RootNode->FindChildRecursively("JamesNode");
-	auto cubeMove = EntityUtil::Instance()->FindEntity<AnimationClip>("James|Walk");
+	auto animNode = m_RootNode->FindChildRecursively("JamesNode");
+	auto animWalk = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
 	animPlayer = AnimationPlayer::Create("AnimPlayer");
-	animPlayer->AdvanceTime(cube, cubeMove, 0.0f);
+	animPlayer->AdvanceTime(animNode, animWalk, 0.0f);
 
 	// setup camera
 	m_CamSpeed = 1;
@@ -30,7 +30,7 @@ void LoadFbxFile::Init(sf::RenderWindow &window)
 	m_CamNode->AddComponent(Camera::Create());
 	m_CamNode->GetComponent<Camera>()->PerspectiveFov(0.7854f, 1.778f, 1, 500000);
 	m_CamNode->Recompose(true);
-	EntityUtil::Instance()->AddEntity(m_CamNode);
+	EntityUtil::Instance()->Add(m_CamNode);
 
 	m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
 	m_OcTree->AddSceneNodeRecursively(m_RootNode);
