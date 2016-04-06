@@ -5,7 +5,6 @@
 #include <functional>
 
 #include "Singleton.h"
-#include "Entity.h"
 #include "StringUtil.h"
 
 namespace fury
