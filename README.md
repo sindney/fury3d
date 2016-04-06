@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/release-v0.1.2-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/dev-v0.1.3-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -49,8 +49,8 @@ You can setup custom rendering pipeline using json file, [check it out.](https:/
 A simple demo should look like this: 
 
 ~~~~~~~~~~cpp
-// load scene
-SceneNode::Ptr m_RootNode = SceneNode::Create("Root");
+// Load scene
+auto m_RootNode = SceneNode::Create("Root");
 
 FbxImportOptions importOptions;
 importOptions.ScaleFactor = 0.01f;
@@ -59,15 +59,25 @@ importOptions.AnimCompressLevel = 0.25f;
 // Use FileUtil::GetAbsPath to get absolute file path on osx.
 FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
-// setup octree
-OcTree::Ptr m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
+// You can iterate a certain type of imported resources.
+EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+{
+	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
+	return true;
+});
+
+// Or you can simply find an resource by it's name or hashcode.
+auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
+
+// Setup octree
+auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
 m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 // Load pipeline
-PrelightPipeline::Ptr m_Pipeline = PrelightPipeline::Create("pipeline");
+auto m_Pipeline = PrelightPipeline::Create("pipeline");
 FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath("Path To Pipeline.json"));
 
-// draw scene
+// Draw scene
 m_Pipeline->Execute(m_OcTree);
 ~~~~~~~~~~
 
