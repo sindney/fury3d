@@ -46,7 +46,7 @@ namespace fury
 		std::shared_ptr<Mesh> CreateCylinder(const std::string &name, float topR, float bottomR, float height, 
 			int segH, int segV);
 
-		void TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix) const;
+		void TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer = false) const;
 
 		// restruct mesh's data by finding & removing possible reapet vertices.
 		void OptimizeMesh(const std::shared_ptr<Mesh> &mesh);
