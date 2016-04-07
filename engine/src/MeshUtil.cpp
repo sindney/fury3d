@@ -417,7 +417,7 @@ namespace fury
 		return mesh;
 	}
 
-	void MeshUtil::TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix) const
+	void MeshUtil::TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer) const
 	{
 		unsigned int count = mesh->Positions.Data.size();
 		if (count == 0) return;
@@ -425,6 +425,7 @@ namespace fury
 		count = count / 3;
 
 		bool hasNormal = mesh->Normals.Data.size() > 0;
+		bool hasTangent = mesh->Tangents.Data.size() > 0;
 
 		for (unsigned int i = 0; i < count; i++)
 		{
@@ -446,9 +447,26 @@ namespace fury
 				mesh->Normals.Data[j + 1] = normal.y;
 				mesh->Normals.Data[j + 2] = normal.z;
 			}
+
+			if (hasTangent)
+			{
+				Vector4 tangent(mesh->Tangents.Data[j], mesh->Tangents.Data[j + 1], mesh->Tangents.Data[j + 2], 0);
+
+				tangent = matrix.Multiply(tangent).Normalized();
+				mesh->Tangents.Data[j] = tangent.x;
+				mesh->Tangents.Data[j + 1] = tangent.y;
+				mesh->Tangents.Data[j + 2] = tangent.z;
+			}
 		}
 
-		mesh->Positions.UpdateBuffer(true);
+		if (updateBuffer)
+		{
+			mesh->Positions.UpdateBuffer(true);
+			if (hasNormal)
+				mesh->Normals.UpdateBuffer(true);
+			if (hasTangent)
+				mesh->Tangents.UpdateBuffer(true);
+		}
 	}
 
 	void MeshUtil::OptimizeMesh(const std::shared_ptr<Mesh> &mesh)
