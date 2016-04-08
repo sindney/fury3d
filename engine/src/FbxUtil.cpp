@@ -48,7 +48,15 @@ namespace fury
 			{
 				auto &globalSettings = m_FbxScene->GetGlobalSettings();
 				m_AmbientColor = globalSettings.GetAmbientColor();
-
+				
+				FbxAxisSystem sceneAxisSystem = m_FbxScene->GetGlobalSettings().GetAxisSystem();
+				FbxAxisSystem furyAxisSystem = FbxAxisSystem(FbxAxisSystem::EUpVector::eYAxis, FbxAxisSystem::EFrontVector::eParityOdd, FbxAxisSystem::ECoordSystem::eRightHanded);
+				if (sceneAxisSystem != furyAxisSystem)
+				{
+					furyAxisSystem.ConvertScene(m_FbxScene);
+					LOGD << "Converting axis system.";
+				}
+				
 				if (m_ImportOptions.Flags & FbxImportFlags::TRIANGULATE)
 				{
 					FbxGeometryConverter geomConverter(m_FbxManager);
@@ -734,7 +742,7 @@ namespace fury
 
 		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
-		// TODO: ÔÚ¶ÁÍêskinÐÅÏ¢ºó£¬¶ÁsubMeshÊ±£¬³¢ÊÔ·Ö¸î¹Ç÷Àµ½¸÷subMesh£¬½â³ýÒ»¸öskinMeshÖ»ÄÜ°ó35¸ö¹Ç÷ÀµÄÏÞÖÆ
+		// TODO: åœ¨è¯»å®Œskinä¿¡æ¯åŽï¼Œè¯»subMeshæ—¶ï¼Œå°è¯•åˆ†å‰²éª¨éª¼åˆ°å„subMeshï¼Œè§£é™¤ä¸€ä¸ªskinMeshåªèƒ½ç»‘35ä¸ªéª¨éª¼çš„é™åˆ¶
 
 		// read subMeshes if theres any
 		unsigned int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
