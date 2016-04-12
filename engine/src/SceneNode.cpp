@@ -4,7 +4,6 @@
 #include "OcTreeNode.h"
 #include "OcTree.h"
 #include "SceneNode.h"
-#include "StringUtil.h"
 
 namespace fury
 {
@@ -19,8 +18,7 @@ namespace fury
 		: Entity(name), m_LocalScale(1.0f, 1.0f, 1.0f, 1.0f), m_TransformDirty(true)
 	{
 		m_TypeIndex = typeid(SceneNode);
-		m_Signal = Signal::Create();
-		m_Signal->Emit(EVENT_TRANSFORM_CHANGE, nullptr);
+		OnTransformChange = Signal<const Ptr&>::Create();
 	}
 
 	SceneNode::~SceneNode()
@@ -89,11 +87,6 @@ namespace fury
 		return m_WorldAABB;
 	}
 
-	Signal::Ptr SceneNode::GetSignal() const
-	{
-		return m_Signal;
-	}
-
 	//////////////////////////////////
 	// Transforms
 	//////////////////////////////////
@@ -139,7 +132,7 @@ namespace fury
 			m_OcTreeNode.lock()->GetManager().UpdateSceneNode(shared_from_this());
 
 		// trigger event
-		m_Signal->Emit(EVENT_TRANSFORM_CHANGE, shared_from_this());
+		OnTransformChange->Emit(shared_from_this());
 
 		// force update child nodes' matrix
 		for (auto &child : m_Childs)
@@ -341,12 +334,12 @@ namespace fury
 
 	SceneNode::Ptr SceneNode::FindChild(const std::string &name) const 
 	{
-		return FindChild(StringUtil::Instance()->GetHashCode(name));
+		return FindChild(std::hash<std::string>()(name));
 	}
 
 	SceneNode::Ptr SceneNode::FindChildRecursively(const std::string &name) const
 	{
-		return FindChildRecursively(StringUtil::Instance()->GetHashCode(name));
+		return FindChildRecursively(std::hash<std::string>()(name));
 	}
 
 	SceneNode::Ptr SceneNode::FindChild(size_t hashcode) const

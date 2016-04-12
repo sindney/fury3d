@@ -104,20 +104,19 @@ namespace fury
 	{
 		Component::OnAttaching(node);
 		Camera::Ptr selfPtr = shared_from_this();
-		node->GetSignal()->Connect(SceneNode::EVENT_TRANSFORM_CHANGE, selfPtr, 
-			BIND_FUNC(selfPtr, &Camera::OnSceneNodeTransformChange));
+		m_SignalKey = node->OnTransformChange->Connect(selfPtr, &Camera::OnSceneNodeTransformChange);
 	}
 
 	void Camera::OnDetaching(const std::shared_ptr<SceneNode> &node)
 	{
 		Component::OnDetaching(node);
-		node->GetSignal()->Disconnect(SceneNode::EVENT_TRANSFORM_CHANGE, shared_from_this());
+		node->OnTransformChange->Disconnect(m_SignalKey);
+		m_SignalKey = 0;
 	}
 
-	void Camera::OnSceneNodeTransformChange(const std::shared_ptr<void> &sender)
+	void Camera::OnSceneNodeTransformChange(const std::shared_ptr<SceneNode> &sender)
 	{
-		SceneNode::Ptr sceneNode = std::static_pointer_cast<SceneNode>(sender);
-		Transform(sceneNode->GetWorldMatrix());
+		Transform(sender->GetWorldMatrix());
 	}
 
 }

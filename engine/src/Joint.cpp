@@ -2,7 +2,6 @@
 
 #include "Mesh.h"
 #include "Joint.h"
-#include "StringUtil.h"
 
 namespace fury
 {
@@ -13,7 +12,7 @@ namespace fury
 
 	std::shared_ptr<Joint> Joint::FindFromRoot(const std::string &name, const std::shared_ptr<Joint> &root)
 	{
-		size_t nameHash = StringUtil::Instance()->GetHashCode(name);
+		size_t nameHash = std::hash<std::string>()(name);
 		if (root->m_HashCode == nameHash)
 			return root;
 

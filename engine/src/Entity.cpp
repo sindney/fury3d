@@ -1,5 +1,4 @@
 #include "Entity.h"
-#include "StringUtil.h"
 
 namespace fury
 {
@@ -31,7 +30,7 @@ namespace fury
 	size_t Entity::SetName(const std::string &name)
 	{
 		m_Name = name;
-		m_HashCode = StringUtil::Instance()->GetHashCode(name);
+		m_HashCode = std::hash<std::string>()(name);
 		return m_HashCode;
 	}
 }

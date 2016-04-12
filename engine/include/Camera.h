@@ -23,6 +23,8 @@ namespace fury
 
 		float m_Far = 0.0;
 
+		size_t m_SignalKey = 0;
+
 	public:
 
 		typedef std::shared_ptr<Camera> Ptr;
@@ -61,8 +63,8 @@ namespace fury
 		// test the visiablity of a point.
 		bool IsVisible(Vector4 point) const;
 
-		// SceneNode::EVENT_TRANSFORM_CHANGE event handler
-		void OnSceneNodeTransformChange(const std::shared_ptr<void> &sender);
+		// SceneNode::OnTransformChange callback.
+		void OnSceneNodeTransformChange(const std::shared_ptr<SceneNode> &sender);
 
 	protected:
 

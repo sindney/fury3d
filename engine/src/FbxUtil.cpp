@@ -49,6 +49,14 @@ namespace fury
 				auto &globalSettings = m_FbxScene->GetGlobalSettings();
 				m_AmbientColor = globalSettings.GetAmbientColor();
 
+				FbxAxisSystem sceneAxisSystem = m_FbxScene->GetGlobalSettings().GetAxisSystem();
+				FbxAxisSystem furyAxisSystem = FbxAxisSystem(FbxAxisSystem::EUpVector::eYAxis, FbxAxisSystem::EFrontVector::eParityOdd, FbxAxisSystem::ECoordSystem::eRightHanded);
+				if (sceneAxisSystem != furyAxisSystem)
+				{
+					furyAxisSystem.ConvertScene(m_FbxScene);
+					LOGD << "Converting axis system.";
+				}
+
 				if (m_ImportOptions.Flags & FbxImportFlags::TRIANGULATE)
 				{
 					FbxGeometryConverter geomConverter(m_FbxManager);

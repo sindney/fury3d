@@ -5,8 +5,6 @@
 #include <functional>
 
 #include "Singleton.h"
-#include "Entity.h"
-#include "StringUtil.h"
 
 namespace fury
 {
@@ -65,7 +63,7 @@ namespace fury
 		template<class ObjectType>
 		std::shared_ptr<ObjectType> Remove(const std::string &name)
 		{
-			return Remove<ObjectType>(StringUtil::Instance()->GetHashCode(name));
+			return Remove<ObjectType>(std::hash<std::string>()(name));
 		}
 
 		template<class ObjectType>
@@ -101,7 +99,7 @@ namespace fury
 		template<class ObjectType>
 		std::shared_ptr<ObjectType> Get(const std::string &name)
 		{
-			return Get<ObjectType>(StringUtil::Instance()->GetHashCode(name));
+			return Get<ObjectType>(std::hash<std::string>()(name));
 		}
 
 		template<class ObjectType>

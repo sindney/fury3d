@@ -2,59 +2,126 @@
 #define _FURY_SIGNAL_H_
 
 #include <functional>
-#include <map>
-#include <unordered_map>
 #include <memory>
+#include <stack>
+#include <vector>
 #include <string>
 
-#include "Macros.h"
-
-#define BIND_FUNC(listener, func) std::bind(func, listener.get(), std::placeholders::_1)
+#include "TypeComparable.h"
 
 namespace fury
 {
-	class FURY_API Signal
+	template <class... Args>
+	class FURY_API Signal : public TypeComparable
 	{
+	public:
+
+		typedef std::shared_ptr<Signal<Args...>> Ptr;
+
+		typedef std::function<void(Args...)> CallbackFunc;
+
+		typedef std::pair<std::weak_ptr<void>, CallbackFunc> CallbackPair;
+
+		static Ptr Create()
+		{
+			return std::make_shared<Signal<Args...>>();
+		}
+
 	private:
 
-		class Slot
-		{
-		public:
+		std::vector<CallbackPair> m_Links;
 
-			typedef std::shared_ptr<Slot> Ptr;
+		std::shared_ptr<void> m_DefaultOwner;
 
-			std::map<
-				std::weak_ptr<void>,
-				std::function<void(const std::shared_ptr<void>&)>,
-				std::owner_less<std::weak_ptr<void>>
-			> Listeners;
-		};
+		std::stack<size_t> m_KeyStack;
 
-		std::unordered_map<size_t, Slot::Ptr> m_Slots;
+		size_t m_CurrentKey;
+
+		std::type_index m_TypeIndex;
 
 	public:
 
-		typedef std::shared_ptr<Signal> Ptr;
+		Signal() : m_TypeIndex(typeid(Signal<Args...>))
+		{
+			m_DefaultOwner = std::static_pointer_cast<void>(std::make_shared<bool>(true));
+		}
 
-		static Ptr Create();
+		size_t GenKey()
+		{
+			if (m_KeyStack.empty())
+			{
+				return m_CurrentKey++;
+			}
+			else
+			{
+				auto key = m_KeyStack.top();
+				m_KeyStack.pop();
+				return key;
+			}
+		}
 
-		bool Connect(const std::string &slotName, const std::shared_ptr<void> &listener, const std::function<void(const std::shared_ptr<void>&)> &funcPtr);
+		virtual std::type_index GetTypeIndex() const
+		{
+			return m_TypeIndex;
+		}
 
-		bool Connect(size_t slotName, const std::shared_ptr<void> &listener, const std::function<void(const std::shared_ptr<void>&)> &funcPtr);
+		size_t Connect(void(*f)(Args...))
+		{
+			m_Links.emplace_back(std::make_pair<std::weak_ptr<void>, CallbackFunc>(m_DefaultOwner, f));
+			return GenKey();
+		}
 
-		void Disconnect(const std::string &slotName, const std::shared_ptr<void> &listener);
+		template <class Reciver>
+		size_t Connect(const std::shared_ptr<Reciver> &reciver, void(Reciver::*f)(Args ...))
+		{
+			auto rawPtr = reciver.get();
+			CallbackFunc forward = [rawPtr, f](Args&&... args)
+			{
+				(rawPtr->*f)(std::forward<Args>(args)...);
+			};
 
-		void Disconnect(size_t slotName, const std::shared_ptr<void> &listener);
+			m_Links.emplace_back(std::make_pair(std::static_pointer_cast<void>(reciver), forward));
 
-		void Clear(const std::string &slotName);
+			return GenKey();
+		}
 
-		void Clear(size_t slotName);
+		bool Disconnect(size_t key)
+		{
+			if (key < m_Links.size())
+			{
+				m_KeyStack.push(key);
+				m_Links.erase(m_Links.begin() + key);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
 
-		void Clear();
+		void Clear()
+		{
+			while (!m_KeyStack.empty())
+				m_KeyStack.pop();
 
-		void Emit(const std::string &slotName, const std::shared_ptr<void> &sender);
+			m_CurrentKey = 0;
+			m_Links.clear();
+		}
 
-		void Emit(size_t slotName, const std::shared_ptr<void> &sender);
+		void Emit(Args&&... args)
+		{
+			for (size_t i = 0; i < m_Links.size(); i++)
+			{
+				auto pair = m_Links[i];
+				if (pair.first.expired())
+				{
+					m_Links.erase(m_Links.begin() + i);
+					i--;
+					continue;
+				}
+				pair.second(std::forward<Args>(args)...);
+			}
+		}
 	};
 }
 

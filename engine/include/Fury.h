@@ -40,7 +40,6 @@
 #include "Shader.h"
 #include "Singleton.h"
 #include "SphereBounds.h"
-#include "StringUtil.h"
 #include "Texture.h"
 #include "Transform.h"
 #include "TypeComparable.h"

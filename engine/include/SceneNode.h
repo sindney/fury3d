@@ -35,8 +35,6 @@ namespace fury
 
 	protected:
 
-		Signal::Ptr m_Signal;
-
 		std::weak_ptr<OcTreeNode> m_OcTreeNode;
 
 		std::weak_ptr<SceneNode> m_Parent;
@@ -75,6 +73,8 @@ namespace fury
 
 	public:
 
+		Signal<const Ptr&>::Ptr OnTransformChange;
+
 		SceneNode(const std::string &name);
 
 		virtual ~SceneNode();
@@ -93,8 +93,6 @@ namespace fury
 		BoxBounds GetLocalAABB() const;
 
 		BoxBounds GetWorldAABB() const;
-
-		Signal::Ptr GetSignal() const;
 
 		//////////////////////////////////
 		// Transforms

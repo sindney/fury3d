@@ -4,7 +4,6 @@
 #include "Pass.h"
 #include "SceneNode.h"
 #include "Shader.h"
-#include "StringUtil.h"
 #include "Texture.h"
 #include "EnumUtil.h"
 #include "EntityUtil.h"
