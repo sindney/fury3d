@@ -442,8 +442,6 @@ namespace fury
 			ptr = it->second;
 			m_Components.erase(it);
 
-			const std::type_index &typeIndex = ptr->GetTypeIndex();
-
 			ptr->OnDetaching(shared_from_this());
 			return true;
 		}
