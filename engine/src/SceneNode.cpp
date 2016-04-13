@@ -7,8 +7,6 @@
 
 namespace fury
 {
-	const std::string SceneNode::EVENT_TRANSFORM_CHANGE = "event_transform_change";
-
 	SceneNode::Ptr SceneNode::Create(const std::string &name)
 	{
 		return std::make_shared<SceneNode>(name);

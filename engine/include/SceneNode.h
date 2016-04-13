@@ -29,8 +29,6 @@ namespace fury
 
 		typedef std::shared_ptr<SceneNode> Ptr;
 
-		static const std::string EVENT_TRANSFORM_CHANGE;
-
 		static Ptr Create(const std::string &name);
 
 	protected:

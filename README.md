@@ -2,6 +2,8 @@
 
 # Fury3D
 
+[中文简体](README.ZH-CN.md)
+
 ## Introduction
 
 Fury3d is a cross-platform rendering engine written in c++11 and modern opengl.
@@ -16,13 +18,13 @@ Features:
 
 * C++11 smart pointers made memory management easier.
 
-* Support fbx model format, you can load static models and lights directlly.
+* Flexible signal message system.
+
+* Support fbx model format, you can load static meshes, skinned meshes and lights directlly.
 
 * Easy rendering pipeline management through json serialization functionality.
 
 * Build-in light-pre pass rendering pipeling.
-
-* Basic skeleton animation support.
 
 Plans:
 
@@ -42,21 +44,27 @@ Because fbxsdk only offers MSVC builds on windows, so you must use MSVC to build
 
 Should work with any graphic card that supports opengl 3.3 +
 
-## Example
+## Screenshots
+
+![Skeleton Animation](screenshots/skinAnim.jpg)
+
+![Dynamic Lighting](screenshots/dynamicLighting.jpg)
+
+## Examples
 
 You can setup custom rendering pipeline using json file, [check it out.](https://github.com/sindney/fury3d/blob/master/examples/bin/Resource/Pipeline/DefferedLighting.json)
 
 A simple demo should look like this: 
 
 ~~~~~~~~~~cpp
-// Load scene
+// This is the root of our scene
 auto m_RootNode = SceneNode::Create("Root");
 
 FbxImportOptions importOptions;
 importOptions.ScaleFactor = 0.01f;
 importOptions.AnimCompressLevel = 0.25f;
 
-// Use FileUtil::GetAbsPath to get absolute file path on osx.
+// Load fbx scene, use FileUtil::GetAbsPath to get absolute file path on osx.
 FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
 // You can iterate a certain type of imported resources.
@@ -81,11 +89,47 @@ FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath(
 m_Pipeline->Execute(m_OcTree);
 ~~~~~~~~~~
 
-## Screenshots
+Signal system demo: 
 
-![Skeleton Animation](screenshots/skinAnim.jpg)
+~~~~~~~~~~cpp
+class Test
+{
+public:
+	void Add(int a, int b)
+	{
+		std::cout << "Test::Add:" << a + b << std::endl;
+	}
+};
 
-![Dynamic Lighting](screenshots/dynamicLighting.jpg)
+void Add(int a, int b)
+{
+	std::cout << "Add:" << a + b << std::endl;
+}
+
+auto test = std::make_shared<Test>();
+
+auto signal = Signal<int, int>::Create();
+
+auto key = signal->Connect(&Add);
+signal->Connect(test, &Test::Add);
+
+signal->Emit(2, 3);
+std::cout << std::endl;
+
+test.reset();
+
+signal->Emit(2, 3);
+std::cout << std::endl;
+
+signal->Disconnect(key);
+
+signal->Emit(2, 3);
+
+// Test::Add:5
+// Add:5
+// 
+// Add:5
+~~~~~~~~~~
 
 ## Special thanks
 
