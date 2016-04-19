@@ -1,8 +1,8 @@
 #include "Camera.h"
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
+#include "EntityManager.h"
 #include "FileUtil.h"
 #include "Joint.h"
 #include "Light.h"
@@ -33,17 +33,15 @@ namespace fury
 
 	bool Shader::Load(const void* wrapper)
 	{
-		EntityUtil::Ptr entityUtil = EntityUtil::Instance();
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
-
+		EntityManager::Ptr entityMgr = EntityManager::Instance();
 		std::string str;
 
 		if (!LoadMemberValue(wrapper, "type", str))
 		{
-			LOGE << "Shader param 'type' not found!";
+			FURYE << "Shader param 'type' not found!";
 			return false;
 		}
-		m_Type = enumUtil->ShaderTypeFromString(str);
+		m_Type = EnumUtil::ShaderTypeFromString(str);
 
 		// read shader texture flags
 
@@ -54,10 +52,10 @@ namespace fury
 		{
 			if (!LoadValue(node, str))
 			{
-				LOGE << "Shader's texture flag not found!";
+				FURYE << "Shader's texture flag not found!";
 				return false;
 			}
-			textures.push_back(enumUtil->ShaderTextureFromString(str));
+			textures.push_back(EnumUtil::ShaderTextureFromString(str));
 			return true;
 		}))
 		{
@@ -69,33 +67,31 @@ namespace fury
 
 		if (!LoadMemberValue(wrapper, "path", str))
 		{
-			LOGE << "Shader param 'path' not found!";
+			FURYE << "Shader param 'path' not found!";
 			return false;
 		}
-		LoadAndCompile(FileUtil::Instance()->GetAbsPath() + str);
+		LoadAndCompile(FileUtil::GetAbsPath() + str);
 
 		return true;
 	}
 
 	bool Shader::Save(void* wrapper)
 	{
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
-
 		StartObject(wrapper);
 
 		SaveKey(wrapper, "name");
 		SaveValue(wrapper, m_Name);
 
 		SaveKey(wrapper, "type");
-		SaveValue(wrapper, enumUtil->ShaderTypeToString(m_Type));
+		SaveValue(wrapper, EnumUtil::ShaderTypeToString(m_Type));
 
 		std::vector<ShaderTexture> enums;
-		enumUtil->GetShaderTextures(m_TextureFlags, enums);
+		EnumUtil::GetShaderTextures(m_TextureFlags, enums);
 
 		SaveKey(wrapper, "textures");
 		SaveArray(wrapper, enums.size(), [&](unsigned int index)
 		{
-			SaveValue(wrapper, enumUtil->ShaderTextureToString(enums[index]));
+			SaveValue(wrapper, EnumUtil::ShaderTextureToString(enums[index]));
 		});
 
 		SaveKey(wrapper, "path");
@@ -139,14 +135,14 @@ namespace fury
 	bool Shader::LoadAndCompile(const std::string &shaderPath)
 	{
 		std::string dataStr;
-		if (FileUtil::Instance()->LoadString(shaderPath, dataStr))
+		if (FileUtil::LoadString(shaderPath, dataStr))
 		{
 			m_FilePath = shaderPath;
 			return Compile(dataStr, dataStr);
 		}
 		else
 		{
-			LOGW << m_Name << " load failed!";
+			FURYW << m_Name << " load failed!";
 			return false;
 		}
 	}
@@ -176,13 +172,13 @@ namespace fury
 			if (status != GL_TRUE)
 			{
 				vertexShader = 0;
-				LOGE << m_Name << "'s vertex shader compile failed!";
+				FURYE << m_Name << "'s vertex shader compile failed!";
 				return false;
 			}
 		}
 		else
 		{
-			LOGE << "Failed to create vertex shader context!";
+			FURYE << "Failed to create vertex shader context!";
 			return false;
 		}
 
@@ -205,13 +201,13 @@ namespace fury
 			{
 				glDeleteShader(vertexShader);
 				vertexShader = fragmentShader = 0;
-				LOGE << m_Name << "'s fragment compile failed!";
+				FURYE << m_Name << "'s fragment compile failed!";
 				return false;
 			}
 		}
 		else
 		{
-			LOGE << "Failed to create fragment shader context!";
+			FURYE << "Failed to create fragment shader context!";
 			return false;
 		}
 
@@ -234,18 +230,18 @@ namespace fury
 			{
 				glDeleteProgram(m_Program);
 				m_Program = fragmentShader = vertexShader = 0;
-				LOGE << m_Name << " link failed!";
+				FURYE << m_Name << " link failed!";
 				return false;
 			}
 		}
 		else
 		{
-			LOGE << "Failed to create shader program context!";
+			FURYE << "Failed to create shader program context!";
 			return false;
 		}
 		
 		m_Dirty = false;
-		LOGD << m_Name << " compile & link success!";
+		FURYD << m_Name << " compile & link success!";
 		return true;
 	}
 
@@ -264,7 +260,7 @@ namespace fury
 	{
 		if (m_Dirty)
 		{
-			LOGW << "Binding dirty shader!";
+			FURYW << "Binding dirty shader!";
 			return;
 		}
 
@@ -308,7 +304,7 @@ namespace fury
 	{
 		if (texture->GetDirty())
 		{
-			LOGW << "Binding dirty texture!";
+			FURYW << "Binding dirty texture!";
 			return;
 		}
 
@@ -361,7 +357,7 @@ namespace fury
 			}
 			else
 			{
-				LOGW << "Mesh " + mesh->GetName() + " Position data dirty!";
+				FURYW << "Mesh " + mesh->GetName() + " Position data dirty!";
 			}
 		}
 		if (normalFlag != -1)
@@ -374,7 +370,7 @@ namespace fury
 			}
 			else
 			{
-				LOGW << "Mesh " + mesh->GetName() + " Normal data dirty!";
+				FURYW << "Mesh " + mesh->GetName() + " Normal data dirty!";
 			}
 		}
 		if (tangentFlag != -1)
@@ -387,7 +383,7 @@ namespace fury
 			}
 			else
 			{
-				LOGW << "Mesh" + mesh->GetName() + " Tangent data dirty!";
+				FURYW << "Mesh" + mesh->GetName() + " Tangent data dirty!";
 			}
 		}
 		if (uvFlag != -1)
@@ -400,7 +396,7 @@ namespace fury
 			}
 			else
 			{
-				LOGW << "Mesh " + mesh->GetName() + " UV data dirty!";
+				FURYW << "Mesh " + mesh->GetName() + " UV data dirty!";
 			}
 		}
 
@@ -419,12 +415,12 @@ namespace fury
 				}
 				else
 				{
-					LOGW << "Mesh " + mesh->GetName() + " ID data dirty!";
+					FURYW << "Mesh " + mesh->GetName() + " ID data dirty!";
 				}
 			}
 			else
 			{
-				LOGW << "Can't find " << mesh->IDs.Name << " in " << m_Name;
+				FURYW << "Can't find " << mesh->IDs.Name << " in " << m_Name;
 			}
 
 			if (weightFlag != -1)
@@ -437,12 +433,12 @@ namespace fury
 				}
 				else
 				{
-					LOGW << "Mesh " + mesh->GetName() + " Weight data dirty!";
+					FURYW << "Mesh " + mesh->GetName() + " Weight data dirty!";
 				}
 			}
 			else
 			{
-				LOGW << "Can't find " << mesh->Weights.Name << " in " << m_Name;
+				FURYW << "Can't find " << mesh->Weights.Name << " in " << m_Name;
 			}
 
 			if (idFlag != -1 && weightFlag != -1)
@@ -450,7 +446,7 @@ namespace fury
 				int jointCount = (int)mesh->GetJointCount();
 				if (jointCount > 35)
 				{
-					LOGW << "Max joint count 35!";
+					FURYW << "Max joint count 35!";
 					jointCount = 35;
 				}
 
@@ -493,7 +489,7 @@ namespace fury
 		auto subMesh = mesh->GetSubMeshAt(index);
 		if (subMesh == nullptr)
 		{
-			LOGW << "SubMesh out of range!";
+			FURYW << "SubMesh out of range!";
 			return;
 		}
 
@@ -578,7 +574,7 @@ namespace fury
 			glUniform4fv(id, count, value);
 			break;
 		default:
-			LOGW << "Incorrect unfirom size!";
+			FURYW << "Incorrect unfirom size!";
 			break;
 		}
 	}
@@ -631,7 +627,7 @@ namespace fury
 			glUniform4iv(id, count, value);
 			break;
 		default:
-			LOGW << "Incorrect unfirom size!";
+			FURYW << "Incorrect unfirom size!";
 			break;
 		}
 	}
@@ -684,7 +680,7 @@ namespace fury
 			glUniform4uiv(id, count, value);
 			break;
 		default:
-			LOGW << "Incorrect unfirom size!";
+			FURYW << "Incorrect unfirom size!";
 			break;
 		}
 	}

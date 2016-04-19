@@ -6,8 +6,8 @@
 #include "AnimationClip.h"
 #include "AnimationUtil.h"
 #include "Angle.h"
-#include "Debug.h"
-#include "EntityUtil.h"
+#include "Log.h"
+#include "EntityManager.h"
 #include "FileUtil.h"
 #include "Joint.h"
 #include "Light.h"
@@ -16,13 +16,13 @@
 #include "MeshRender.h"
 #include "MeshUtil.h"
 #include "SceneNode.h"
-#include "FbxUtil.h"
+#include "FbxParser.h"
 #include "Texture.h"
 #include "Uniform.h"
 
 namespace fury
 {
-	void FbxUtil::LoadScene(const std::string &filePath, const std::shared_ptr<SceneNode> &rootNode, FbxImportOptions importOptions)
+	void FbxParser::LoadScene(const std::string &filePath, const std::shared_ptr<SceneNode> &rootNode, FbxImportOptions importOptions)
 	{
 		m_ImportOptions = importOptions;
 		m_FbxManager = FbxManager::Create();
@@ -35,7 +35,7 @@ namespace fury
 
 		size_t pos = filePath.find_last_of("\\/");
 		m_FbxFolder = (std::string::npos == pos) ? "" : filePath.substr(0, pos + 1);
-		LOGD << "FbxFolder: " << m_FbxFolder;
+		FURYD << "FbxFolder: " << m_FbxFolder;
 
 		if (importer->Initialize(filePath.c_str(), -1, m_FbxManager->GetIOSettings()))
 		{
@@ -54,14 +54,14 @@ namespace fury
 				if (sceneAxisSystem != furyAxisSystem)
 				{
 					furyAxisSystem.ConvertScene(m_FbxScene);
-					LOGD << "Converting axis system.";
+					FURYD << "Converting axis system.";
 				}
 
 				if (m_ImportOptions.Flags & FbxImportFlags::TRIANGULATE)
 				{
 					FbxGeometryConverter geomConverter(m_FbxManager);
 					geomConverter.Triangulate(m_FbxScene, true);
-					LOGD << "Scene Triangulated.";
+					FURYD << "Scene Triangulated.";
 				}
 
 				if (m_ImportOptions.Flags & FbxImportFlags::IMP_ANIM)
@@ -78,7 +78,7 @@ namespace fury
 						if (m_ImportOptions.Flags & FbxImportFlags::BAKE_LAYERS)
 							stack->BakeLayers(m_FbxScene->GetAnimationEvaluator(), start, stop, FbxTime::eFrames24);
 					}
-					LOGD << "Found " << animStackCount << " animation stacks.";
+					FURYD << "Found " << animStackCount << " animation stacks.";
 				}
 
 				auto fbxRootNode = m_FbxScene->GetRootNode();
@@ -109,10 +109,10 @@ namespace fury
 								continue;
 
 							auto meshName = stackName.substr(0, index);
-							if (auto matchMesh = EntityUtil::Instance()->Get<Mesh>(meshName))
+							if (auto matchMesh = EntityManager::Instance()->Get<Mesh>(meshName))
 							{
 								auto it = linkMap.find(meshName);
-								LOGD << "Found Clip " << stackName << " for " << meshName;
+								FURYD << "Found Clip " << stackName << " for " << meshName;
 								if (it == linkMap.end())
 								{
 									auto stackNames = { stackName };
@@ -154,7 +154,7 @@ namespace fury
 		m_FbxManager = nullptr;
 	}
 
-	void FbxUtil::LoadAnimations(const AnimLinkMap &animLinkMap)
+	void FbxParser::LoadAnimations(const AnimLinkMap &animLinkMap)
 	{
 		auto GetAnimStackByName = [&](const std::string &name) -> FbxAnimStack*
 		{
@@ -179,7 +179,7 @@ namespace fury
 			auto it = m_SkinnedMeshMap.find(pair.first);
 			if (it == m_SkinnedMeshMap.end())
 			{
-				LOGW << "Skinned Mesh " << pair.first << " not found!";
+				FURYW << "Skinned Mesh " << pair.first << " not found!";
 				continue;
 			}
 
@@ -193,7 +193,7 @@ namespace fury
 				}
 				else
 				{
-					LOGW << "Animation Stack " << name << " not found!";
+					FURYW << "Animation Stack " << name << " not found!";
 				}
 			}
 
@@ -206,7 +206,7 @@ namespace fury
 
 			if (deformerCount != 1)
 			{
-				LOGW << "Don't support multiple deformer on one geometry.";
+				FURYW << "Don't support multiple deformer on one geometry.";
 				continue;
 			}
 
@@ -238,7 +238,7 @@ namespace fury
 				// set as current
 				m_FbxScene->SetCurrentAnimationStack(animStack);
 
-				LOGD << "Reading animStack " << animStack->GetName() << " for " << mesh->GetName();
+				FURYD << "Reading animStack " << animStack->GetName() << " for " << mesh->GetName();
 
 				for (int i = 0; i < clusterCount; i++)
 				{
@@ -278,15 +278,15 @@ namespace fury
 				}
 
 				if (m_ImportOptions.Flags & FbxImportFlags::OPTIMIZE_ANIM)
-					AnimationUtil::Instance()->OptimizeAnimClip(clip, 0.5f);
+					AnimationUtil::OptimizeAnimClip(clip, 0.5f);
 
 				clip->CalculateDuration();
-				EntityUtil::Instance()->Add(clip);
+				EntityManager::Instance()->Add(clip);
 			}
 		}
 	}
 
-	void FbxUtil::LoadNode(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
+	void FbxParser::LoadNode(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
 	{
 		SceneNode::Ptr childNode = SceneNode::Create(fbxNode->GetName());
 		ApplyFbxAMatrixToNode(childNode, fbxNode->EvaluateLocalTransform());
@@ -314,18 +314,18 @@ namespace fury
 			LoadNode(ntNode, fbxNode->GetChild(i));
 	}
 
-	void FbxUtil::LoadMesh(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
+	void FbxParser::LoadMesh(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
 	{
 		FbxMesh* fbxMesh = static_cast<FbxMesh*>(fbxNode->GetNodeAttribute());
 
 		// first, we test if ther's already a mesh asset exits with this name.
-		Mesh::Ptr mesh = EntityUtil::Instance()->Get<Mesh>(fbxMesh->GetName());
+		Mesh::Ptr mesh = EntityManager::Instance()->Get<Mesh>(fbxMesh->GetName());
 
 		if (mesh == nullptr)
 		{
 			// if not, we read the mesh data.
 			mesh = CreateMesh(ntNode, fbxNode);
-			EntityUtil::Instance()->Add(mesh);
+			EntityManager::Instance()->Add(mesh);
 		}
 
 		// attach mesh component to node.
@@ -334,7 +334,7 @@ namespace fury
 		LoadMaterial(ntNode, fbxNode);
 	}
 
-	void FbxUtil::LoadMaterial(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
+	void FbxParser::LoadMaterial(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
 	{
 		int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
 		for (int i = 0; i < materialCount; i++)
@@ -347,13 +347,13 @@ namespace fury
 
 			if (isPhong || isLambert)
 			{
-				Material::Ptr material = EntityUtil::Instance()->Get<Material>(fbxMaterial->GetName());
+				Material::Ptr material = EntityManager::Instance()->Get<Material>(fbxMaterial->GetName());
 
 				if (material == nullptr)
 				{
 					material = isPhong ? CreatePhongMaterial((FbxSurfacePhong*)fbxMaterial) :
 						CreateLambertMaterial((FbxSurfaceLambert*)fbxMaterial);
-					EntityUtil::Instance()->Add(material);
+					EntityManager::Instance()->Add(material);
 				}
 
 				if (auto ptr = ntNode->GetComponent<MeshRender>())
@@ -361,12 +361,12 @@ namespace fury
 			}
 			else
 			{
-				LOGW << "Material type not supported!";
+				FURYW << "Material type not supported!";
 			}
 		}
 	}
 
-	void FbxUtil::LoadLight(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
+	void FbxParser::LoadLight(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
 	{
 		FbxLight *fbxLight = static_cast<FbxLight*>(fbxNode->GetNodeAttribute());
 
@@ -384,7 +384,7 @@ namespace fury
 			type = LightType::SPOT;
 			break;
 		default:
-			LOGW << "Unsupported light type!";
+			FURYW << "Unsupported light type!";
 			return;
 		}
 
@@ -399,12 +399,12 @@ namespace fury
 		light->SetFalloff((float)fbxLight->FarAttenuationEnd.Get() * m_ImportOptions.ScaleFactor);
 		light->SetRadius((float)fbxLight->DecayStart.Get() * m_ImportOptions.ScaleFactor);
 		light->CalculateAABB();
-		LOGD << fbxLight->GetName();
+		FURYD << fbxLight->GetName();
 
 		ntNode->AddComponent(light);
 	}
 
-	std::shared_ptr<Material> FbxUtil::CreatePhongMaterial(FbxSurfacePhong *fbxPhong)
+	std::shared_ptr<Material> FbxParser::CreatePhongMaterial(FbxSurfacePhong *fbxPhong)
 	{
 		// a,d,s, Intensity(Factor), Shininess, Reflectivity, Transparency
 		//GetImplementation(material, FBXSDK_IMP)
@@ -455,7 +455,7 @@ namespace fury
 				}
 				else
 				{
-					LOGW << "FbxProceduralTexture not supported!";
+					FURYW << "FbxProceduralTexture not supported!";
 				}
 			}
 
@@ -469,12 +469,12 @@ namespace fury
 		if (m_ImportOptions.Flags & FbxImportFlags::NORMAL_MAP)
 			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxPhong->NormalMap));
 
-		LOGD << fbxPhong->GetName();
+		FURYD << fbxPhong->GetName();
 
 		return material;
 	}
 
-	std::shared_ptr<Material> FbxUtil::CreateLambertMaterial(FbxSurfaceLambert *fbxLambert)
+	std::shared_ptr<Material> FbxParser::CreateLambertMaterial(FbxSurfaceLambert *fbxLambert)
 	{
 		Material::Ptr material = Material::Create(fbxLambert->GetName());
 
@@ -519,7 +519,7 @@ namespace fury
 				}
 				else
 				{
-					LOGW << "FbxProceduralTexture not supported!";
+					FURYW << "FbxProceduralTexture not supported!";
 				}
 			}
 
@@ -531,12 +531,12 @@ namespace fury
 		if (m_ImportOptions.Flags & FbxImportFlags::NORMAL_MAP)
 			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxLambert->NormalMap));
 
-		LOGD << fbxLambert->GetName();
+		FURYD << fbxLambert->GetName();
 
 		return material;
 	}
 
-	std::shared_ptr<Mesh> FbxUtil::CreateMesh(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
+	std::shared_ptr<Mesh> FbxParser::CreateMesh(const SceneNode::Ptr &ntNode, FbxNode *fbxNode)
 	{
 		FbxMesh* fbxMesh = static_cast<FbxMesh*>(fbxNode->GetNodeAttribute());
 		FbxLayerElementMaterial* layerMaterial = fbxMesh->GetLayer(0)->GetMaterials();
@@ -579,7 +579,7 @@ namespace fury
 
 					if (pair.first > 4)
 					{
-						LOGW << link->GetName() << "has more than 4 vertex bindings!";
+						FURYW << link->GetName() << "has more than 4 vertex bindings!";
 						continue;
 					}
 
@@ -740,9 +740,9 @@ namespace fury
 			}
 		}
 
-		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
-		// TODO: åœ¨è¯»å®Œskinä¿¡æ¯åŽï¼Œè¯»subMeshæ—¶ï¼Œå°è¯•åˆ†å‰²éª¨éª¼åˆ°å„subMeshï¼Œè§£é™¤ä¸€ä¸ªskinMeshåªèƒ½ç»‘35ä¸ªéª¨éª¼çš„é™åˆ¶
+		// TODO: ÔÚ¶ÁÍêskinÐÅÏ¢ºó£¬¶ÁsubMeshÊ±£¬³¢ÊÔ·Ö¸î¹Ç÷Àµ½¸÷subMesh£¬½â³ýÒ»¸öskinMeshÖ»ÄÜ°ó35¸ö¹Ç÷ÀµÄÏÞÖÆ
 
 		// read subMeshes if theres any
 		unsigned int materialCount = fbxNode->GetSrcObjectCount<FbxSurfaceMaterial>();
@@ -775,11 +775,11 @@ namespace fury
 				for (unsigned int i = 0; i < subMeshes.size(); i++)
 					mesh->AddSubMesh(subMeshes[i]);
 
-				LOGD << "Loaded " << subMeshes.size() << " subMeshes.";
+				FURYD << "Loaded " << subMeshes.size() << " subMeshes.";
 			}
 			else
 			{
-				LOGW << "Material referenceMode not supported!";
+				FURYW << "Material referenceMode not supported!";
 			}
 		}
 
@@ -791,7 +791,7 @@ namespace fury
 
 		// optimize mesh data, aka find unique vertices.
 		if (m_ImportOptions.Flags & FbxImportFlags::OPTIMIZE_MESH)
-			MeshUtil::Instance()->OptimizeMesh(mesh);
+			MeshUtil::OptimizeMesh(mesh);
 
 		return mesh;
 	}
@@ -806,7 +806,7 @@ namespace fury
 			auto joint = jointStack.top();
 			jointStack.pop();
 
-			LOGD << joint->GetName();
+			FURYD << joint->GetName();
 
 			std::string desc = "Childs: ";
 			auto sibling = joint->GetFirstChild();
@@ -820,20 +820,20 @@ namespace fury
 				sibling = sibling->GetSibling();
 			}
 
-			LOGD << desc;
+			FURYD << desc;
 		}
 	}
 
-	bool FbxUtil::CreateSkeleton(const SceneNode::Ptr &ntNode, const Mesh::Ptr &mesh, FbxMesh *fbxMesh)
+	bool FbxParser::CreateSkeleton(const SceneNode::Ptr &ntNode, const Mesh::Ptr &mesh, FbxMesh *fbxMesh)
 	{
 		int deformerCount = fbxMesh->GetDeformerCount(FbxDeformer::eSkin);
 		if (deformerCount != 1)
 		{
-			LOGW << "Don't support multiple deformer on one geometry.";
+			FURYW << "Don't support multiple deformer on one geometry.";
 			return false;
 		}
 
-		LOGD << "Reading " << mesh->GetName() << "'s skeleton.";
+		FURYD << "Reading " << mesh->GetName() << "'s skeleton.";
 
 		FbxAMatrix geomMatrix = GetGeometryMatrix(fbxMesh->GetNode());
 		FbxSkin *fbxSkin = (FbxSkin*)fbxMesh->GetDeformer(0, FbxDeformer::eSkin);
@@ -841,7 +841,7 @@ namespace fury
 		if (clusterCount < 1)
 			return true;
 
-		LOGD << "Found " << clusterCount << " joints.";
+		FURYD << "Found " << clusterCount << " joints.";
 
 		std::unordered_map<std::string, std::shared_ptr<Joint>> &jointMap = mesh->m_JointMap;
 		std::vector<Joint::Ptr> &joints = mesh->m_Joints;
@@ -867,7 +867,7 @@ namespace fury
 				break;
 			}
 		}
-		LOGD << "Found Root Joint: " << root->GetName();
+		FURYD << "Found Root Joint: " << root->GetName();
 
 		// apply root joint's local transform to mesh's node.
 		// because root joint's transform is the real transform of this whole skinnedMeshNode.
@@ -926,7 +926,7 @@ namespace fury
 					}
 					else
 					{
-						LOGW << curNode->GetName() << " is not a joint, skipping.";
+						FURYW << curNode->GetName() << " is not a joint, skipping.";
 					}
 				}
 			}
@@ -962,14 +962,14 @@ namespace fury
 		return true;
 	}
 	
-	FbxAMatrix FbxUtil::GetGeometryMatrix(FbxNode* fbxNode) const
+	FbxAMatrix FbxParser::GetGeometryMatrix(FbxNode* fbxNode) 
 	{
 		return FbxAMatrix(fbxNode->GetGeometricTranslation(FbxNode::eSourcePivot),
 			fbxNode->GetGeometricRotation(FbxNode::eSourcePivot),
 			fbxNode->GetGeometricScaling(FbxNode::eSourcePivot));
 	}
 
-	Matrix4 FbxUtil::FbxMatrixToFuryMatrix(const FbxAMatrix &fbxMatrix)
+	Matrix4 FbxParser::FbxMatrixToFuryMatrix(const FbxAMatrix &fbxMatrix)
 	{
 		Matrix4 furyMatrix;
 		for (int i = 0; i < 4; i++)
@@ -979,7 +979,7 @@ namespace fury
 		return furyMatrix;
 	}
 
-	void FbxUtil::ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix)
+	void FbxParser::ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix)
 	{
 		FbxQuaternion fbxQ;
 		fbxQ.ComposeSphericalXYZ(fbxMatrix.GetR());

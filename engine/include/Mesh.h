@@ -54,7 +54,7 @@ namespace fury
 
 		friend class Shader;
 
-		friend class FbxUtil;
+		friend class FbxParser;
 
 		typedef std::shared_ptr<Mesh> Ptr;
 

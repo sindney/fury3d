@@ -7,7 +7,8 @@ BasicScene::BasicScene()
 
 BasicScene::~BasicScene()
 {
-
+	m_OcTree->Clear();
+	m_RootNode->RemoveAllChilds();
 }
 
 void BasicScene::Init(sf::RenderWindow &window)

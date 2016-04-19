@@ -65,17 +65,17 @@ importOptions.ScaleFactor = 0.01f;
 importOptions.AnimCompressLevel = 0.25f;
 
 // Load fbx scene, use FileUtil::GetAbsPath to get absolute file path on osx.
-FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode, importOptions);
+FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
 // You can iterate a certain type of imported resources.
-EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+EntityManager::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 {
 	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 	return true;
 });
 
 // Or you can simply find an resource by it's name or hashcode.
-auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
+auto clip = EntityManager::Instance()->Get<AnimationClip>("James|Walk");
 
 // Setup octree
 auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
@@ -83,7 +83,7 @@ m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 // Load pipeline
 auto m_Pipeline = PrelightPipeline::Create("pipeline");
-FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath("Path To Pipeline.json"));
+FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
 
 // Draw scene
 m_Pipeline->Execute(m_OcTree);
@@ -137,7 +137,9 @@ signal->Emit(2, 3);
 
 * [Rapidjson](https://github.com/miloyip/rapidjson) - for loading pipeline setups
 
-* [Plog](https://github.com/SergiusTheBest/plog) - for logging
+* [Plog](https://github.com/SergiusTheBest/plog) - for log implimentation
+
+* [ThreadPool](https://github.com/progschj/ThreadPool) - for threadpool implimentation
 
 * [Stbimage](https://github.com/nothings/stb) - for image loading
 

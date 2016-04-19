@@ -3,7 +3,7 @@
 #include "Angle.h"
 #include "AnimationClip.h"
 #include "AnimationUtil.h"
-#include "Debug.h"
+#include "Log.h"
 
 namespace fury
 {
@@ -79,6 +79,6 @@ namespace fury
 			}
 		}
 
-		LOGD << "Before: " << oldCount << " After: " << newCount;
+		FURYD << "Before: " << oldCount << " After: " << newCount;
 	}
 }

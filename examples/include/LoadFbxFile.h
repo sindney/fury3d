@@ -11,13 +11,15 @@ protected:
 
 	Pipeline::Ptr m_Pipeline;
 
+	AnimationPlayer::Ptr m_AnimPlayer;
+
 public:
 
 	virtual void Init(sf::RenderWindow &window);
 
-	virtual void FixedUpdate();
-
 	virtual void Update(float dt);
+
+	virtual void FixedUpdate();
 
 	virtual void Draw(sf::RenderWindow &window);
 };

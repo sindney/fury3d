@@ -10,8 +10,6 @@ endif()
 
 set(CMAKE_CXX_FLAGS "-std=c++11")
 
-set(PLOG_INCLUDE "/usr/local/include" CACHE PATH "Location of plog headers.")
-
 set(FBXSDK_INCLUDE "" CACHE PATH "Location of fbxsdk headers.")
 set(FBXSDK_LIB "" CACHE PATH "Location of fbxsdk lib.")
 
@@ -22,8 +20,6 @@ set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
 set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
-
-include_directories(${PLOG_INCLUDE})
 
 include_directories(${FBXSDK_INCLUDE})
 link_directories(${FBXSDK_LIB})

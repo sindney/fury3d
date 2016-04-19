@@ -1,4 +1,4 @@
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 #include "FileUtil.h"
 #include "Texture.h"
@@ -23,37 +23,35 @@ namespace fury
 
 	bool Texture::Load(const void* wrapper)
 	{
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
-
 		std::string str;
 
 		if (!IsObject(wrapper)) return false;
 
 		if (!LoadMemberValue(wrapper, "format", str))
 		{
-			LOGE << "Texture param 'format' not found!";
+			FURYE << "Texture param 'format' not found!";
 			return false;
 		}
-		auto format = enumUtil->TextureFormatFromString(str);
+		auto format = EnumUtil::TextureFormatFromString(str);
 		
 		if (!LoadMemberValue(wrapper, "filter", str))
 		{
-			LOGE << "Texture param 'filter' not found!";
+			FURYE << "Texture param 'filter' not found!";
 			return false;
 		}
-		auto filterMode = enumUtil->FilterModeFromString(str);
+		auto filterMode = EnumUtil::FilterModeFromString(str);
 
 		if (!LoadMemberValue(wrapper, "wrap", str))
 		{
-			LOGE << "Texture param 'wrap' not found!";
+			FURYE << "Texture param 'wrap' not found!";
 			return false;
 		}
-		auto wrapMode = enumUtil->WrapModeFromString(str);
+		auto wrapMode = EnumUtil::WrapModeFromString(str);
 
 		int width, height;
 		if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
 		{
-			LOGE << "Texture param 'width/height' not found!";
+			FURYE << "Texture param 'width/height' not found!";
 			return false;
 		}
 
@@ -70,18 +68,16 @@ namespace fury
 
 	bool Texture::Save(void* wrapper)
 	{
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
-
 		StartObject(wrapper);
 
 		SaveKey(wrapper, "name");
 		SaveValue(wrapper, m_Name);
 		SaveKey(wrapper, "format");
-		SaveValue(wrapper, enumUtil->TextureFormatToString(m_Format));
+		SaveValue(wrapper, EnumUtil::TextureFormatToString(m_Format));
 		SaveKey(wrapper, "filter");
-		SaveValue(wrapper, enumUtil->FilterModeToString(m_FilterMode));
+		SaveValue(wrapper, EnumUtil::FilterModeToString(m_FilterMode));
 		SaveKey(wrapper, "wrap");
-		SaveValue(wrapper, enumUtil->WrapModeToString(m_WrapMode));
+		SaveValue(wrapper, EnumUtil::WrapModeToString(m_WrapMode));
 		SaveKey(wrapper, "width");
 		SaveValue(wrapper, m_Width);
 		SaveKey(wrapper, "height");
@@ -100,7 +96,7 @@ namespace fury
 
 		int channels;
 		std::vector<unsigned char> pixels;
-		if (FileUtil::Instance()->LoadImage(filePath, pixels, m_Width, m_Height, channels))
+		if (FileUtil::LoadImage(filePath, pixels, m_Width, m_Height, channels))
 		{
 			unsigned int internalFormat, imageFormat;
 
@@ -128,7 +124,7 @@ namespace fury
 				break;
 			default:
 				m_Format = TextureFormat::UNKNOW;
-				LOGW << channels << " channel image not supported!";
+				FURYW << channels << " channel image not supported!";
 				return;
 			}
 
@@ -142,8 +138,8 @@ namespace fury
 			glTexStorage2D(GL_TEXTURE_2D, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, &pixels[0]);
 			
-			unsigned int filterMode = EnumUtil::Instance()->FilterModeToUint(m_FilterMode);
-			unsigned int wrapMode = EnumUtil::Instance()->WrapModeToUint(m_WrapMode);
+			unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
+			unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
@@ -154,7 +150,7 @@ namespace fury
 
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			LOGD << m_Name << " [" << m_Width << " x " << m_Height << "]";
+			FURYD << m_Name << " [" << m_Width << " x " << m_Height << "]";
 		}
 	}
 
@@ -171,14 +167,14 @@ namespace fury
 		m_Width = width;
 		m_Height = height;
 
-		unsigned int internalFormat = EnumUtil::Instance()->TextureFormatToUint(format).second;
+		unsigned int internalFormat = EnumUtil::TextureFormatToUint(format).second;
 
 		glGenTextures(1, &m_ID);
 		glBindTexture(GL_TEXTURE_2D, m_ID);
 		glTexStorage2D(GL_TEXTURE_2D, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height);
 
-		unsigned int filterMode = EnumUtil::Instance()->FilterModeToUint(m_FilterMode);
-		unsigned int wrapMode = EnumUtil::Instance()->WrapModeToUint(m_WrapMode);
+		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
+		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
@@ -189,7 +185,7 @@ namespace fury
 
 		glBindTexture(GL_TEXTURE_2D, 0);
 
-		LOGD << m_Name << " [" << m_Width << " x " << m_Height << "]";
+		FURYD << m_Name << " [" << m_Width << " x " << m_Height << "]";
 	}
 
 	void Texture::DeleteBuffer()
@@ -225,7 +221,7 @@ namespace fury
 			{
 				glBindTexture(GL_TEXTURE_2D, m_ID);
 
-				unsigned int filterMode = EnumUtil::Instance()->FilterModeToUint(m_FilterMode);
+				unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
 
 				glBindTexture(GL_TEXTURE_2D, 0);
@@ -247,7 +243,7 @@ namespace fury
 			{
 				glBindTexture(GL_TEXTURE_2D, m_ID);
 
-				unsigned int wrapMode = EnumUtil::Instance()->WrapModeToUint(m_WrapMode);
+				unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
 

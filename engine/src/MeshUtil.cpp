@@ -5,51 +5,50 @@
 // Icosphere mesh creation refered to:
 // http://blog.andreaskahler.com/2009/06/creating-icosphere-mesh-in-code.html
 
+#include <algorithm>
+
 #include "Angle.h"
-#include "Debug.h"
+#include "Log.h"
 #include "Mesh.h"
 #include "MeshUtil.h"
 
 namespace fury
 {
-	MeshUtil::MeshUtil()
+	std::shared_ptr<Mesh> MeshUtil::m_UnitQuad = nullptr;
+	std::shared_ptr<Mesh> MeshUtil::m_UnitCube = nullptr;
+	std::shared_ptr<Mesh> MeshUtil::m_UnitIcoSphere = nullptr;
+	std::shared_ptr<Mesh> MeshUtil::m_UnitSphere = nullptr;
+	std::shared_ptr<Mesh> MeshUtil::m_UnitCylinder = nullptr;
+	std::shared_ptr<Mesh> MeshUtil::m_UnitCone = nullptr;
+
+	std::shared_ptr<Mesh> MeshUtil::GetUnitCube() 
 	{
-		m_MeshMap.emplace("quad_mesh", CreateQuad("quad_mesh", Vector4(-1.0f, -1.0f, 0.0f), Vector4(1.0f, 1.0f, 0.0f)));
-		m_MeshMap.emplace("cube_mesh", CreateCube("cube_mesh", Vector4(-1.0f), Vector4(1.0f)));
-		m_MeshMap.emplace("ico_sphere_mesh", CreateIcoSphere("ico_sphere_mesh", 1.0f, 2));
-		m_MeshMap.emplace("sphere_mesh", CreateSphere("sphere_mesh", 1.0f, 20, 20));
-		m_MeshMap.emplace("cylinder_mesh", CreateCylinder("cylinder_mesh", 1.0f, 1.0f, 1.0f, 4, 10));
-		m_MeshMap.emplace("cone_mesh", CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10));
+		return m_UnitCube;
 	}
 
-	std::shared_ptr<Mesh> MeshUtil::GetUnitCube() const
+	std::shared_ptr<Mesh> MeshUtil::GetUnitQuad() 
 	{
-		return m_MeshMap.find("cube_mesh")->second;
+		return m_UnitQuad;
 	}
 
-	std::shared_ptr<Mesh> MeshUtil::GetUnitQuad() const
+	std::shared_ptr<Mesh> MeshUtil::GetUnitSphere() 
 	{
-		return m_MeshMap.find("quad_mesh")->second;
+		return m_UnitSphere;
 	}
 
-	std::shared_ptr<Mesh> MeshUtil::GetUnitSphere() const
+	std::shared_ptr<Mesh> MeshUtil::GetUnitIcoSphere() 
 	{
-		return m_MeshMap.find("sphere_mesh")->second;
+		return m_UnitIcoSphere;
 	}
 
-	std::shared_ptr<Mesh> MeshUtil::GetUnitIcoSphere() const
+	std::shared_ptr<Mesh> MeshUtil::GetUnitCylinder() 
 	{
-		return m_MeshMap.find("ico_sphere_mesh")->second;
+		return m_UnitCylinder;
 	}
 
-	std::shared_ptr<Mesh> MeshUtil::GetUnitCylinder() const
+	std::shared_ptr<Mesh> MeshUtil::GetUnitCone() 
 	{
-		return m_MeshMap.find("cylinder_mesh")->second;
-	}
-
-	std::shared_ptr<Mesh> MeshUtil::GetUnitCone() const
-	{
-		return m_MeshMap.find("cone_mesh")->second;
+		return m_UnitCone;
 	}
 
 	// mesh creation
@@ -65,7 +64,7 @@ namespace fury
 		mesh->Indices.Data = { 0, 1, 2, 2, 3, 0 };
 		mesh->UVs.Data = { 1, 1, 0, 1, 0, 0, 1, 0 };
 
-		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		mesh->CalculateAABB();
 
@@ -108,7 +107,7 @@ namespace fury
 			2, 3, 7, 7, 6, 2
 		};
 
-		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		mesh->CalculateAABB();
 
@@ -215,7 +214,7 @@ namespace fury
 			mesh->Indices.Data = newIndices;
 		}
 
-		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		mesh->CalculateAABB();
 
@@ -226,7 +225,7 @@ namespace fury
 	{
 		if (segH < 2 || segV < 3)
 		{
-			LOGW << "SegH or SegV tooooo small!";
+			FURYW << "SegH or SegV tooooo small!";
 			return nullptr;
 		}
 
@@ -306,7 +305,7 @@ namespace fury
 		}
 		mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, previousRing.back(), previousRing.front() });
 
-		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		OptimizeMesh(mesh);
 
@@ -319,7 +318,7 @@ namespace fury
 	{
 		if (segH < 2 || segV < 3)
 		{
-			LOGW << "SegH or SegV tooooo small!";
+			FURYW << "SegH or SegV tooooo small!";
 			return nullptr;
 		}
 
@@ -407,7 +406,7 @@ namespace fury
 		}
 		mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, previousRing.back(), previousRing.front() });
 
-		LOGD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		if (topR == 0 || bottomR == 0)
 			OptimizeMesh(mesh);
@@ -417,7 +416,7 @@ namespace fury
 		return mesh;
 	}
 
-	void MeshUtil::TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer) const
+	void MeshUtil::TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer) 
 	{
 		unsigned int count = mesh->Positions.Data.size();
 		if (count == 0) return;
@@ -800,10 +799,10 @@ namespace fury
 			}
 		}
 
-		LOGD << mesh->GetName() << "[vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
+		FURYD << mesh->GetName() << "[vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 	}
 
-	void MeshUtil::CalculateNormal(const std::shared_ptr<Mesh> &mesh) const
+	void MeshUtil::CalculateNormal(const std::shared_ptr<Mesh> &mesh) 
 	{
 		mesh->Normals.Data.resize(mesh->Positions.Data.size());
 
@@ -863,11 +862,11 @@ namespace fury
 		}
 	}
 
-	void MeshUtil::CalculateTangent(const std::shared_ptr<Mesh> &mesh) const
+	void MeshUtil::CalculateTangent(const std::shared_ptr<Mesh> &mesh) 
 	{
 		if (mesh->Normals.Data.size() == 0 || mesh->UVs.Data.size() == 0)
 		{
-			LOGW << "Normal and UV data is required.";
+			FURYW << "Normal and UV data is required.";
 			return;
 		}
 

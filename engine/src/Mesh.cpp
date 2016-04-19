@@ -1,9 +1,10 @@
 #include <stack>
 
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 #include "Mesh.h"
 #include "SceneNode.h"
+#include "Joint.h"
 
 namespace fury
 {
@@ -24,7 +25,7 @@ namespace fury
 	SubMesh::~SubMesh()
 	{
 		DeleteBuffer();
-		LOGD << "SubMesh Destoried!";
+		FURYD << "SubMesh Destoried!";
 	}
 
 	void SubMesh::UpdateBuffer()
@@ -43,7 +44,7 @@ namespace fury
 		if (m_VAO == 0)
 		{
 			m_Dirty = true;
-			LOGW << "Failed to glGenVertexArrays!";
+			FURYW << "Failed to glGenVertexArrays!";
 		}
 	}
 
@@ -92,7 +93,7 @@ namespace fury
 	Mesh::~Mesh()
 	{
 		DeleteBuffer();
-		LOGD << "Mesh: " << m_Name << " Destoried!";
+		FURYD << "Mesh: " << m_Name << " Destoried!";
 	}
 
 	void Mesh::AddSubMesh(const SubMesh::Ptr &subMesh)
@@ -166,7 +167,7 @@ namespace fury
 		if (m_VAO == 0)
 		{
 			m_Dirty = true;
-			LOGW << "Failed to glGenVertexArrays!";
+			FURYW << "Failed to glGenVertexArrays!";
 		}
 		else
 		{

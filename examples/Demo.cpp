@@ -3,9 +3,6 @@
 
 #include <Fury.h>
 
-#include <plog/Appenders/ConsoleAppender.h>
-#include <plog/Formatters/FuncMessageFormatter.h>
-
 #include "LoadFbxFile.h"
 
 using namespace std;
@@ -37,13 +34,8 @@ int main(int argc, char *argv[])
 	window.setKeyRepeatEnabled(true);
 	window.setFramerateLimit(60);
 
-	// setup plog
-	Engine::InitPlog(plog::warning, new plog::ConsoleAppender<plog::FuncMessageFormatter>());
-
-	if (!Engine::InitGL())
+	if (!EngineManager::Initialize(2, LogLevel::DBUG, Formatter::Simple, true, FileUtil::GetAbsPath("Log.txt").c_str()))
 		return false;
-
-	// if (argc < 2) Pause();
 
 	FrameWork::Ptr example = std::make_shared<LoadFbxFile>();
 	example->Init(window);
@@ -52,6 +44,8 @@ int main(int argc, char *argv[])
 	sf::Clock clock;
 	sf::Event event;
 	sf::Int32 next_game_tick = clock.getElapsedTime().asMilliseconds();
+
+	ThreadManager::Instance()->Enqueue([](){ FURYD << "Hello from another thread!"; });
 
 	while (window.isOpen() && example->running)
 	{
@@ -84,6 +78,8 @@ int main(int argc, char *argv[])
 		window.display();
 		window.setActive(false);
 	}
+
+	example = nullptr;
 
 	return EXIT_SUCCESS;
 }

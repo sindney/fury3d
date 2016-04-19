@@ -1,7 +1,7 @@
 #include "Angle.h"
 #include "AnimationClip.h"
 #include "AnimationPlayer.h"
-#include "Debug.h"
+#include "Log.h"
 #include "Joint.h"
 #include "Mesh.h"
 #include "Vector4.h"
@@ -59,7 +59,7 @@ namespace fury
 	{
 		if (m_SceneNode.expired() || m_AnimClip.expired())
 		{
-			LOGW << "Node or AnimClip empty!";
+			FURYW << "Node or AnimClip empty!";
 			return;
 		}
 
@@ -191,7 +191,7 @@ namespace fury
 	{
 		if (m_SceneNode.expired() || m_AnimClip.expired())
 		{
-			LOGW << "Node or AnimClip empty.";
+			FURYW << "Node or AnimClip empty.";
 			return;
 		}
 

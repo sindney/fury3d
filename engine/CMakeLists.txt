@@ -12,7 +12,6 @@ endif()
 
 set(STBIMAGE_INCLUDE "/usr/local/include" CACHE PATH "Path to stb_image headers.")
 set(RAPIDJSON_INCLUDE "/usr/local/include" CACHE PATH "Path to rapidjson headers.")
-set(PLOG_INCLUDE "/usr/local/include" CACHE PATH "Path to plog headers.")
 set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
 set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
 set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")

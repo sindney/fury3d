@@ -1,10 +1,13 @@
-#ifndef _FURY_FBXUTIL_H_
-#define _FURY_FBXUTIL_H_
+#ifndef _FURY_FBXPARSER_H_
+#define _FURY_FBXPARSER_H_
+
+#include <unordered_map>
 
 #include <fbxsdk.h>
 
 #include "Singleton.h"
 #include "Entity.h"
+#include "Matrix4.h"
 
 namespace fury
 {
@@ -48,7 +51,7 @@ namespace fury
 		std::unordered_map<std::string, std::vector<std::string>> AnimLinkMap;
 	};
 
-	class FURY_API FbxUtil : public Singleton<FbxUtil>
+	class FURY_API FbxParser : public Singleton<FbxParser>
 	{
 	protected:
 
@@ -66,7 +69,7 @@ namespace fury
 
 	public:
 
-		typedef std::shared_ptr<FbxUtil> Ptr;
+		typedef std::shared_ptr<FbxParser> Ptr;
 
 		typedef std::unordered_map<std::string, std::vector<std::string>> AnimLinkMap;
 		
@@ -92,7 +95,7 @@ namespace fury
 
 		bool CreateSkeleton(const std::shared_ptr<SceneNode> &ntNode, const std::shared_ptr<Mesh> &mesh, FbxMesh *fbxMesh);
 
-		FbxAMatrix GetGeometryMatrix(FbxNode* fbxNode) const;
+		FbxAMatrix GetGeometryMatrix(FbxNode* fbxNode);
 
 		Matrix4 FbxMatrixToFuryMatrix(const FbxAMatrix &fbxMatrix);
 
@@ -100,4 +103,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_FBXUTIL_H_
+#endif // _FURY_FBXPARSER_H_

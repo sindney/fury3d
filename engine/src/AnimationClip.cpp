@@ -1,4 +1,5 @@
 #include "AnimationClip.h"
+#include "Log.h"
 
 namespace fury
 {
@@ -11,6 +12,11 @@ namespace fury
 		: Entity(name), m_TicksPerSecond(ticksPerSecond)
 	{
 		m_TypeIndex = typeid(AnimationClip);
+	}
+
+	AnimationClip::~AnimationClip()
+	{
+		FURYD << "AnimationClip " << m_Name << " destoried!";
 	}
 
 	void AnimationClip::CalculateDuration()

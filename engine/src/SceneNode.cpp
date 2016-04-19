@@ -1,8 +1,8 @@
 #include "Angle.h"
 #include "Component.h"
-#include "Debug.h"
+#include "Log.h"
 #include "OcTreeNode.h"
-#include "OcTree.h"
+#include "OcTreeManager.h"
 #include "SceneNode.h"
 
 namespace fury
@@ -23,7 +23,7 @@ namespace fury
 	{
 		RemoveAllComponents(true);
 		RemoveAllChilds();
-		LOGD << m_Name << " destoried.";
+		//FURYD << m_Name << " destoried.";
 	}
 
 	SceneNode::Ptr SceneNode::Clone(const std::string &name) const
@@ -281,7 +281,7 @@ namespace fury
 			m_Childs.erase(m_Childs.begin() + i);
 		}
 		else
-			LOGW << "SceneNode " << node->GetName() << " not found!";
+			FURYW << "SceneNode " << node->GetName() << " not found!";
 	}
 
 	SceneNode::Ptr SceneNode::RemoveChildAt(unsigned int index)
@@ -409,7 +409,7 @@ namespace fury
 		}
 		else
 		{
-			LOGW << "Index out of range!";
+			FURYW << "Index out of range!";
 			return nullptr;
 		}
 	}

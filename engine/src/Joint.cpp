@@ -1,5 +1,6 @@
 #include <stack>
 
+#include "Log.h"
 #include "Mesh.h"
 #include "Joint.h"
 
@@ -44,13 +45,13 @@ namespace fury
 		m_TypeIndex = typeid(Joint);
 	}
 
-	// TODO: test
 	Joint::~Joint()
 	{
-		m_Mesh = nullptr;
+		m_Mesh.reset();
+		m_Parent.reset();
 		m_FirstChild = nullptr;
 		m_Sibling = nullptr;
-		m_Parent = nullptr;
+		//FURYD << "Joint " << m_Name << " destoried!";
 	}
 
 	void Joint::Update(const Matrix4 &matrix)
@@ -157,7 +158,7 @@ namespace fury
 
 	Joint::Ptr Joint::GetParent() const
 	{
-		return m_Parent;
+		return m_Parent.lock();
 	}
 
 	void Joint::SetParent(const Joint::Ptr &joint)
@@ -167,6 +168,6 @@ namespace fury
 
 	std::shared_ptr<Mesh> Joint::GetMesh() const
 	{
-		return m_Mesh;
+		return m_Mesh.lock();
 	}
 }

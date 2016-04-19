@@ -1,5 +1,5 @@
 #include "ArrayBuffers.h"
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 
 namespace fury

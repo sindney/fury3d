@@ -2,9 +2,9 @@
 
 #include "Angle.h"
 #include "Camera.h"
-#include "Debug.h"
+#include "Log.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
+#include "EntityManager.h"
 #include "Frustum.h"
 #include "GLLoader.h"
 #include "Light.h"
@@ -51,7 +51,7 @@ namespace fury
 
 			if (camNode == nullptr)
 			{
-				LOGW << "Camera for pass " + pass->GetName() + " not found!";
+				FURYW << "Camera for pass " + pass->GetName() + " not found!";
 				continue;
 			}
 
@@ -152,7 +152,7 @@ namespace fury
 
 					if (shader == nullptr)
 					{
-						LOGW << "Failed to draw " << node->GetName() << ", shader not found!";
+						FURYW << "Failed to draw " << node->GetName() << ", shader not found!";
 						return;
 					}
 
@@ -189,7 +189,7 @@ namespace fury
 
 			if (shader == nullptr)
 			{
-				LOGW << "Failed to draw " << node->GetName() << ", shader not found!";
+				FURYW << "Failed to draw " << node->GetName() << ", shader not found!";
 				return;
 			}
 
@@ -278,7 +278,7 @@ namespace fury
 
 		if (shader == nullptr)
 		{
-			LOGW << "Shader for light " << node->GetName() << " not found!";
+			FURYW << "Shader for light " << node->GetName() << " not found!";
 			return;
 		}
 
@@ -306,11 +306,11 @@ namespace fury
 	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)
 	{
 		auto shader = m_CurrentShader;
-		auto mesh = MeshUtil::Instance()->GetUnitQuad();
+		auto mesh = MeshUtil::GetUnitQuad();
 
 		if (shader == nullptr)
 		{
-			LOGW << "Failed to draw full screen quad, shader not found!";
+			FURYW << "Failed to draw full screen quad, shader not found!";
 			return;
 		}
 

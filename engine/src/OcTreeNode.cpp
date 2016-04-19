@@ -1,19 +1,19 @@
 #include <math.h>
 
 #include "OcTreeNode.h"
-#include "OcTree.h"
+#include "OcTreeManager.h"
 #include "Plane.h"
 #include "SceneNode.h"
 
 namespace fury
 {
-	OcTreeNode::Ptr OcTreeNode::Create(OcTree &manager, const OcTreeNode::Ptr &parent, 
+	OcTreeNode::Ptr OcTreeNode::Create(OcTreeManager &manager, const OcTreeNode::Ptr &parent, 
 		Vector4 min, Vector4 max)
 	{
 		return std::make_shared<OcTreeNode>(manager, parent, min, max);
 	}
 
-	OcTreeNode::OcTreeNode(OcTree &manager, const OcTreeNode::Ptr &parent, Vector4 min, Vector4 max) :
+	OcTreeNode::OcTreeNode(OcTreeManager &manager, const OcTreeNode::Ptr &parent, Vector4 min, Vector4 max) :
 		m_TypeIndex(typeid(OcTreeNode)), m_Manager(manager), m_Parent(parent), 
 		m_AABB(min, max), m_IsLeaf(false), m_TotalSceneNodeCount(0)
 	{
@@ -108,7 +108,7 @@ namespace fury
 		return child;
 	}
 
-	OcTree &OcTreeNode::GetManager() const
+	OcTreeManager &OcTreeNode::GetManager() const
 	{
 		return m_Manager;
 	}
@@ -155,14 +155,14 @@ namespace fury
 		}	
 	}
 
-	void OcTreeNode::AddSceneNode(std::shared_ptr<SceneNode> node)
+	void OcTreeNode::AddSceneNode(const std::shared_ptr<SceneNode> &node)
 	{
 		m_SceneNodes.push_back(node);
 		node->SetOcTreeNode(shared_from_this());
 		IncreaseSceneNodeCount();
 	}
 
-	void OcTreeNode::RemoveSceneNode(std::shared_ptr<SceneNode> node)
+	void OcTreeNode::RemoveSceneNode(const std::shared_ptr<SceneNode> &node)
 	{
 		auto it = m_SceneNodes.begin();
 		while (it != m_SceneNodes.end())

@@ -1,4 +1,6 @@
 #include <fstream>
+#include <sstream>
+#include <algorithm>
 
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
@@ -15,7 +17,7 @@
 #include <rapidjson/PrettyWriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "Debug.h"
+#include "Log.h"
 #include "FileUtil.h"
 #include "Serializable.h"
 
@@ -26,7 +28,9 @@ namespace fury
 {
 	using namespace std;
 
-	std::string FileUtil::GetAbsPath() 
+	std::string FileUtil::m_AbsPath = "";
+
+	std::string FileUtil::GetAbsPath()
 	{
 		#if defined(__APPLE__)
 		if (m_AbsPath.size() == 0)
@@ -36,7 +40,7 @@ namespace fury
 		    char path[512];
 		    if (!CFURLGetFileSystemRepresentation(resourcesURL, TRUE, (UInt8*)path, 512))
 		    {
-		        LOGE << "Absolute Path Not Found!";
+		        FURYE << "Absolute Path Not Found!";
 		    }
 		    CFRelease(resourcesURL);
 		    m_AbsPath = std::string(path) + '/';
@@ -54,7 +58,7 @@ namespace fury
 		return GetAbsPath() + clone;
 	}
 
-	bool FileUtil::FileExist(const std::string &path) const
+	bool FileUtil::FileExist(const std::string &path) 
 	{
 		std::ifstream stream(path.c_str());
 		if (stream.good())
@@ -64,7 +68,7 @@ namespace fury
 		}
 		else
 		{
-			LOGE << "File " << path << " not exist!";
+			FURYE << "File " << path << " not exist!";
 			stream.close();
 			return false;
 		}
@@ -90,7 +94,7 @@ namespace fury
 		}
 		else
 		{
-			LOGW << "Failed to load chars: " << path;
+			FURYW << "Failed to load chars: " << path;
 			return false;
 		}
 	}
@@ -112,7 +116,7 @@ namespace fury
 		}
 		else
 		{
-			LOGW << "Failed to load image: " << path;
+			FURYW << "Failed to load image: " << path;
 			return false;
 		}
 	}
@@ -132,17 +136,17 @@ namespace fury
 
 			if (dom.HasParseError())
 			{
-				LOGE << "Error parsing json file " << filePath << ": " << dom.GetParseError();
+				FURYE << "Error parsing json file " << filePath << ": " << dom.GetParseError();
 				return false;
 			}
 
 			if (!source->Load(&dom))
 			{
-				LOGE << "Serialization failed!";
+				FURYE << "Serialization failed!";
 				return false;
 			}
 
-			LOGD << filePath << " successfully deserialized!";
+			FURYD << filePath << " successfully deserialized!";
 			return true;
 		}
 		return false;
@@ -160,14 +164,14 @@ namespace fury
 
 			if (!source->Save(&writer))
 			{
-				LOGE << "Serialization failed!";
+				FURYE << "Serialization failed!";
 				return false;
 			}
 
 			output << sb.GetString();
 			output.close();
 
-			LOGD << filePath << " successfully serialized!";
+			FURYD << filePath << " successfully serialized!";
 			return true;
 		}
 		return false;

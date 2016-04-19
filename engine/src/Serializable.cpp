@@ -4,7 +4,7 @@
 #include <rapidjson/PrettyWriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "Debug.h"
+#include "Log.h"
 #include "Serializable.h"
 
 namespace fury

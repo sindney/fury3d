@@ -4,8 +4,6 @@ include_directories(${STBIMAGE_INCLUDE})
 
 include_directories(${RAPIDJSON_INCLUDE})
 
-include_directories(${PLOG_INCLUDE})
-
 include_directories(${FBXSDK_INCLUDE})
 
 if(OS_MACOSX)

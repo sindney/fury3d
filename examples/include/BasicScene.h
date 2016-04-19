@@ -8,9 +8,9 @@
 class BasicScene :
 	public FrameWork
 {
-protected:
+public:
 
-	OcTree::Ptr m_OcTree;
+	OcTreeManager::Ptr m_OcTree;
 
 	SceneNode::Ptr m_CamNode;
 

@@ -4,59 +4,67 @@
 #include <memory>
 #include <unordered_map>
 
-#include "Singleton.h"
+#include "Macros.h"
 #include "Matrix4.h"
 
 namespace fury
 {
 	class Mesh;
 
-	class FURY_API MeshUtil : public Singleton<MeshUtil>
+	class FURY_API MeshUtil final 
 	{
+		friend class EngineManager;
+
 	private:
 
-		std::unordered_map<std::string, std::shared_ptr<Mesh>> m_MeshMap;
+		static std::shared_ptr<Mesh> m_UnitCube;
+
+		static std::shared_ptr<Mesh> m_UnitQuad;
+
+		static std::shared_ptr<Mesh> m_UnitSphere;
+
+		static std::shared_ptr<Mesh> m_UnitIcoSphere;
+
+		static std::shared_ptr<Mesh> m_UnitCylinder;
+
+		static std::shared_ptr<Mesh> m_UnitCone;
 
 	public:
 
-		typedef std::shared_ptr<MeshUtil> Ptr;
+		static std::shared_ptr<Mesh> GetUnitCube();
 
-		MeshUtil();
+		static std::shared_ptr<Mesh> GetUnitQuad();
 
-		std::shared_ptr<Mesh> GetUnitCube() const;
+		static std::shared_ptr<Mesh> GetUnitSphere();
 
-		std::shared_ptr<Mesh> GetUnitQuad() const;
+		static std::shared_ptr<Mesh> GetUnitIcoSphere();
 
-		std::shared_ptr<Mesh> GetUnitSphere() const;
+		static std::shared_ptr<Mesh> GetUnitCylinder();
 
-		std::shared_ptr<Mesh> GetUnitIcoSphere() const;
+		static std::shared_ptr<Mesh> GetUnitCone();
 
-		std::shared_ptr<Mesh> GetUnitCylinder() const;
+		static std::shared_ptr<Mesh> CreateQuad(const std::string &name, Vector4 min, Vector4 max);
 
-		std::shared_ptr<Mesh> GetUnitCone() const;
+		static std::shared_ptr<Mesh> CreateCube(const std::string &name, Vector4 min, Vector4 max);
 
-		std::shared_ptr<Mesh> CreateQuad(const std::string &name, Vector4 min, Vector4 max);
+		static std::shared_ptr<Mesh> CreateIcoSphere(const std::string &name, float radius, int level);
 
-		std::shared_ptr<Mesh> CreateCube(const std::string &name, Vector4 min, Vector4 max);
+		static std::shared_ptr<Mesh> CreateSphere(const std::string &name, float radius, int segH, int segV);
 
-		std::shared_ptr<Mesh> CreateIcoSphere(const std::string &name, float radius, int level);
-
-		std::shared_ptr<Mesh> CreateSphere(const std::string &name, float radius, int segH, int segV);
-
-		std::shared_ptr<Mesh> CreateCylinder(const std::string &name, float topR, float bottomR, float height, 
+		static std::shared_ptr<Mesh> CreateCylinder(const std::string &name, float topR, float bottomR, float height,
 			int segH, int segV);
 
-		void TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer = false) const;
+		static void TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer = false);
 
 		// restruct mesh's data by finding & removing possible reapet vertices.
-		void OptimizeMesh(const std::shared_ptr<Mesh> &mesh);
+		static void OptimizeMesh(const std::shared_ptr<Mesh> &mesh);
 
 		// you should calculate normal first, then optimize ur mesh.
-		void CalculateNormal(const std::shared_ptr<Mesh> &mesh) const;
+		static void CalculateNormal(const std::shared_ptr<Mesh> &mesh);
 
 		// TODO: test
 		// you should calculate normal first, then calculate tangent.
-		void CalculateTangent(const std::shared_ptr<Mesh> &mesh) const;
+		static void CalculateTangent(const std::shared_ptr<Mesh> &mesh);
 	};
 }
 

@@ -1,4 +1,4 @@
-#include "Debug.h"
+#include "Log.h"
 #include "Transform.h"
 #include "SceneNode.h"
 

@@ -5,41 +5,43 @@
 #include "Material.h"
 #include "MeshRender.h"
 #include "OcTreeNode.h"
-#include "OcTree.h"
+#include "OcTreeManager.h"
 #include "RenderQuery.h"
 //#include "RenderUtil.h"
 #include "SceneNode.h"
 #include "SphereBounds.h"
+#include "Log.h"
 
 namespace fury
 {
-	OcTree::Ptr OcTree::Create(Vector4 min, Vector4 max, unsigned int maxDepth)
+	OcTreeManager::Ptr OcTreeManager::Create(Vector4 min, Vector4 max, unsigned int maxDepth)
 	{
-		return std::make_shared<OcTree>(min, max, maxDepth);
+		return std::make_shared<OcTreeManager>(min, max, maxDepth);
 	}
 
-	OcTree::OcTree(Vector4 min, Vector4 max, unsigned int maxDepth) :
-		m_TypeIndex(typeid(OcTree)), m_MaxDepth(maxDepth)
+	OcTreeManager::OcTreeManager(Vector4 min, Vector4 max, unsigned int maxDepth) :
+		m_TypeIndex(typeid(OcTreeManager)), m_MaxDepth(maxDepth)
 	{
 		m_Root = OcTreeNode::Create(*this, nullptr, min, max);
 	}
 
-	OcTree::~OcTree()
+	OcTreeManager::~OcTreeManager()
 	{
 		m_Root.reset();
+		FURYD << "OcTreeManager::~OcTreeManager";
 	}
 
-	std::type_index OcTree::GetTypeIndex() const
+	std::type_index OcTreeManager::GetTypeIndex() const
 	{
 		return m_TypeIndex;
 	}
 
-	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode)
+	void OcTreeManager::AddSceneNode(const SceneNode::Ptr &sceneNode)
 	{
 		AddSceneNode(sceneNode, m_Root, 0);
 	}
 
-	void OcTree::AddSceneNodeRecursively(const std::shared_ptr<SceneNode> &sceneNode)
+	void OcTreeManager::AddSceneNodeRecursively(const std::shared_ptr<SceneNode> &sceneNode)
 	{
 		AddSceneNode(sceneNode);
 
@@ -47,18 +49,18 @@ namespace fury
 			AddSceneNode(sceneNode->GetChildAt(i));
 	}
 
-	void OcTree::RemoveSceneNode(const SceneNode::Ptr &sceneNode)
+	void OcTreeManager::RemoveSceneNode(const SceneNode::Ptr &sceneNode)
 	{
 		sceneNode->RemoveFromOcTree(false);
 	}
 
-	void OcTree::UpdateSceneNode(const SceneNode::Ptr &sceneNode)
+	void OcTreeManager::UpdateSceneNode(const SceneNode::Ptr &sceneNode)
 	{
 		sceneNode->RemoveFromOcTree(false);
 		AddSceneNode(sceneNode);
 	}
 
-	void OcTree::GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool visualize) const
+	void OcTreeManager::GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool visualize) const
 	{
 		renderQuery->Clear();
 
@@ -85,7 +87,7 @@ namespace fury
 		}, visualize);
 	}
 
-	void OcTree::GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes, bool visualize) const
+	void OcTreeManager::GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes, bool visualize) const
 	{
 		sceneNodes.clear();
 
@@ -96,7 +98,7 @@ namespace fury
 		}, visualize);
 	}
 
-	void OcTree::GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool visualize) const
+	void OcTreeManager::GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool visualize) const
 	{
 		renderables.clear();
 
@@ -109,7 +111,7 @@ namespace fury
 		}, visualize);
 	}
 
-	void OcTree::GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool visualize) const
+	void OcTreeManager::GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool visualize) const
 	{
 		lights.clear();
 
@@ -121,7 +123,7 @@ namespace fury
 		}, visualize);
 	}
 
-	void OcTree::GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool visualize) const
+	void OcTreeManager::GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool visualize) const
 	{
 		renderables.clear();
 		lights.clear();
@@ -137,7 +139,7 @@ namespace fury
 		}, visualize);
 	}
 
-	void OcTree::WalkScene(const Collidable &collider, const FilterFunc &filterFunc, bool visualize) const
+	void OcTreeManager::WalkScene(const Collidable &collider, const FilterFunc &filterFunc, bool visualize) const
 	{
 		using TreeNodePair = std::pair<bool, OcTreeNode::Ptr>;
 
@@ -187,23 +189,23 @@ namespace fury
 		}
 	}
 
-	void OcTree::Reset(Vector4 min, Vector4 max, unsigned int maxDepth)
+	void OcTreeManager::Reset(Vector4 min, Vector4 max, unsigned int maxDepth)
 	{
 		m_Root.reset();
 		m_Root = OcTreeNode::Create(*this, nullptr, min, max);
 	}
 
-	void OcTree::Clear()
+	void OcTreeManager::Clear()
 	{
 		m_Root->Clear();
 	}
 
-	/*void OcTree::DrawOcTree(Color color) const
+	/*void OcTreeManager::DrawOcTree(Color color) const
 	{
 		DrawOcTreeNode(m_Root, color);
 	}
 
-	void OcTree::DrawOcTreeNode(const OcTreeNode::Ptr &treeNode, Color color) const
+	void OcTreeManager::DrawOcTreeNode(const OcTreeNode::Ptr &treeNode, Color color) const
 	{
 		RenderUtil::Instance()->DrawBoxBounds(treeNode->GetAABB(), color);
 
@@ -215,7 +217,7 @@ namespace fury
 		}
 	}*/
 
-	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode, const OcTreeNode::Ptr &treeNode, unsigned int depth)
+	void OcTreeManager::AddSceneNode(const SceneNode::Ptr &sceneNode, const OcTreeNode::Ptr &treeNode, unsigned int depth)
 	{
 		BoxBounds treeBounds = treeNode->GetAABB();
 		BoxBounds nodeBounds = sceneNode->GetWorldAABB();

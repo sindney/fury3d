@@ -1,7 +1,4 @@
 #include "LoadFbxFile.h"
-#include "FileUtil.h"
-
-AnimationPlayer::Ptr animPlayer;
 
 void LoadFbxFile::Init(sf::RenderWindow &window)
 {
@@ -12,12 +9,18 @@ void LoadFbxFile::Init(sf::RenderWindow &window)
 	importOptions.ScaleFactor = 0.01f;
 	importOptions.AnimCompressLevel = 0.25f;
 
-	FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Resource/Scene/james.fbx"), m_RootNode, importOptions);
+	FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/james.fbx"), m_RootNode, importOptions);
+
+	EntityManager::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+	{
+		std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
+		return true;
+	});
 
 	auto animNode = m_RootNode->FindChildRecursively("JamesNode");
-	auto animWalk = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
-	animPlayer = AnimationPlayer::Create("AnimPlayer");
-	animPlayer->AdvanceTime(animNode, animWalk, 0.0f);
+	auto animWalk = EntityManager::Instance()->Get<AnimationClip>("James|Walk");
+	m_AnimPlayer = AnimationPlayer::Create("AnimPlayer");
+	m_AnimPlayer->AdvanceTime(animNode, animWalk, 0.0f);
 
 	// setup camera
 	m_CamSpeed = 1;
@@ -30,27 +33,26 @@ void LoadFbxFile::Init(sf::RenderWindow &window)
 	m_CamNode->AddComponent(Camera::Create());
 	m_CamNode->GetComponent<Camera>()->PerspectiveFov(0.7854f, 1.778f, 1, 500000);
 	m_CamNode->Recompose(true);
-	EntityUtil::Instance()->Add(m_CamNode);
+	EntityManager::Instance()->Add(m_CamNode);
 
-	m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
+	m_OcTree = OcTreeManager::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
 	m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 	// setup pipeline
 	m_Pipeline = PrelightPipeline::Create("pipeline");
-	FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
-	//FileUtil::Instance()->SaveToFile(m_Pipeline, "Resource/Pipeline/DefferedLighting.json");
+	FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
 }
 
 void LoadFbxFile::FixedUpdate()
 {
 	BasicScene::FixedUpdate();
-	animPlayer->AdvanceTime(0.04f);
+	m_AnimPlayer->AdvanceTime(0.04f);
 }
 
 void LoadFbxFile::Update(float dt)
 {
 	BasicScene::Update(dt);
-	animPlayer->Display(dt);
+	m_AnimPlayer->Display(dt);
 }
 
 void LoadFbxFile::Draw(sf::RenderWindow &window)

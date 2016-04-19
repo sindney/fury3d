@@ -65,25 +65,25 @@ importOptions.ScaleFactor = 0.01f;
 importOptions.AnimCompressLevel = 0.25f;
 
 // 载入FBX场景，使用 FileUtil::GetAbsPath 来在MAC OSX上得到文件的绝对路径
-FbxUtil::Instance()->LoadScene(FileUtil::Instance()->GetAbsPath("Path to fbx"), m_RootNode, importOptions);
+FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
 // 你可以遍历任意一种载入的资源列表
-EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+EntityManager::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 {
 	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 	return true;
 });
 
 // 也可以通过名字或者名字的哈希值来得到某资源指针
-auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
+auto clip = EntityManager::Instance()->Get<AnimationClip>("James|Walk");
 
 // 初始化八叉树
-auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
+auto m_OcTree = OcTreeManager::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
 m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 // 载入渲染管线
 auto m_Pipeline = PrelightPipeline::Create("pipeline");
-FileUtil::Instance()->LoadFromFile(m_Pipeline, FileUtil::Instance()->GetAbsPath("Path To Pipeline.json"));
+FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
 
 // 绘制场景
 m_Pipeline->Execute(m_OcTree);
@@ -137,7 +137,9 @@ signal->Emit(2, 3);
 
 * [Rapidjson](https://github.com/miloyip/rapidjson) - Json的序列化反序列化
 
-* [Plog](https://github.com/SergiusTheBest/plog) - 输出日志
+* [Plog](https://github.com/SergiusTheBest/plog) - 日志的实现
+
+* [ThreadPool](https://github.com/progschj/ThreadPool) - 线程池的实现
 
 * [Stbimage](https://github.com/nothings/stb) - 载入图像
 

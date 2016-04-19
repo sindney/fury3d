@@ -5,7 +5,7 @@
 #include <string>
 #include <tuple>
 
-#include "Singleton.h"
+#include "Macros.h"
 
 namespace fury
 {
@@ -124,12 +124,8 @@ namespace fury
 		NORMAL		= 0x0008
 	};
 
-	class FURY_API EnumUtil : public Singleton <EnumUtil>
+	class FURY_API EnumUtil final
 	{
-	public:
-
-		typedef std::shared_ptr<EnumUtil> Ptr;
-
 	private:
 
 		static const std::vector<std::tuple<CompareMode, unsigned int, std::string>> m_CompareMode;
@@ -154,67 +150,67 @@ namespace fury
 
 	public:
 
-		unsigned int CompareModeToUint(CompareMode mode);
+		static unsigned int CompareModeToUint(CompareMode mode);
 
-		std::string CompareModeToString(CompareMode mode);
+		static std::string CompareModeToString(CompareMode mode);
 
-		CompareMode CompareModeFromString(const std::string &name);
-
-
-		unsigned int BlendModeSrc(BlendMode mode);
-
-		unsigned int BlendModeDest(BlendMode mode);
-
-		unsigned int BlendModeOp(BlendMode mode);
-
-		std::string BlendModeToString(BlendMode mode);
-
-		BlendMode BlendModeFromString(const std::string &name);
+		static CompareMode CompareModeFromString(const std::string &name);
 
 
-		std::pair<bool, unsigned int> CullModeToUint(CullMode mode);
+		static unsigned int BlendModeSrc(BlendMode mode);
 
-		std::string CullModeToString(CullMode mode);
+		static unsigned int BlendModeDest(BlendMode mode);
 
-		CullMode CullModeFromString(const std::string &name);
+		static unsigned int BlendModeOp(BlendMode mode);
 
+		static std::string BlendModeToString(BlendMode mode);
 
-		std::pair<bool, unsigned int> TextureFormatToUint(TextureFormat format, bool internalFormat = true);
-
-		std::string TextureFormatToString(TextureFormat foramt);
-
-		TextureFormat TextureFormatFromString(const std::string &name);
+		static BlendMode BlendModeFromString(const std::string &name);
 
 
-		unsigned int FilterModeToUint(FilterMode mode);
+		static std::pair<bool, unsigned int> CullModeToUint(CullMode mode);
 
-		std::string FilterModeToString(FilterMode mode);
+		static std::string CullModeToString(CullMode mode);
 
-		FilterMode FilterModeFromString(const std::string &name);
-
-
-		unsigned int WrapModeToUint(WrapMode mode);
-
-		std::string WrapModeToString(WrapMode mode);
-
-		WrapMode WrapModeFromString(const std::string &name);
+		static CullMode CullModeFromString(const std::string &name);
 
 
-		std::string DrawModeToString(DrawMode mode);
+		static std::pair<bool, unsigned int> TextureFormatToUint(TextureFormat format, bool internalFormat = true);
 
-		DrawMode DrawModeFromString(const std::string &name);
+		static std::string TextureFormatToString(TextureFormat foramt);
 
-
-		std::string ShaderTypeToString(ShaderType type);
-
-		ShaderType ShaderTypeFromString(const std::string &name);
+		static TextureFormat TextureFormatFromString(const std::string &name);
 
 
-		std::string ShaderTextureToString(ShaderTexture texture);
+		static unsigned int FilterModeToUint(FilterMode mode);
 
-		ShaderTexture ShaderTextureFromString(const std::string &name);
+		static std::string FilterModeToString(FilterMode mode);
 
-		void GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures);
+		static FilterMode FilterModeFromString(const std::string &name);
+
+
+		static unsigned int WrapModeToUint(WrapMode mode);
+
+		static std::string WrapModeToString(WrapMode mode);
+
+		static WrapMode WrapModeFromString(const std::string &name);
+
+
+		static std::string DrawModeToString(DrawMode mode);
+
+		static DrawMode DrawModeFromString(const std::string &name);
+
+
+		static std::string ShaderTypeToString(ShaderType type);
+
+		static ShaderType ShaderTypeFromString(const std::string &name);
+
+
+		static std::string ShaderTextureToString(ShaderTexture texture);
+
+		static ShaderTexture ShaderTextureFromString(const std::string &name);
+
+		static void GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures);
 
 	};
 }

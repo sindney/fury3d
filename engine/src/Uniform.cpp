@@ -1,6 +1,6 @@
 #include <type_traits>
 
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 #include "Uniform.h"
 
@@ -65,7 +65,7 @@ namespace fury
 				glUniformMatrix4fv(id, 1, false, (float*)&m_Data[0]);
 				break;
 			default:
-				LOGW << "Invalide data size!";
+				FURYW << "Invalide data size!";
 				break;
 			}
 		}
@@ -88,7 +88,7 @@ namespace fury
 					glUniform4ui(id, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2], (int)m_Data[3]);
 					break;
 				default:
-					LOGW << "Invalide data size!";
+					FURYW << "Invalide data size!";
 					break;
 				}
 			}
@@ -109,7 +109,7 @@ namespace fury
 					glUniform4i(id, (unsigned int)m_Data[0], (unsigned int)m_Data[1], (unsigned int)m_Data[2], (unsigned int)m_Data[3]);
 					break;
 				default:
-					LOGW << "Invalide data size!";
+					FURYW << "Invalide data size!";
 					break;
 				}
 			}
@@ -121,7 +121,7 @@ namespace fury
 	{
 		if (data.size() != m_Size)
 		{
-			LOGW << "Invalide data size!";
+			FURYW << "Invalide data size!";
 			return;
 		}
 

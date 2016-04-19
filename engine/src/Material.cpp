@@ -1,4 +1,4 @@
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 #include "Material.h"
 #include "Texture.h"
@@ -59,7 +59,7 @@ namespace fury
 	Material::~Material()
 	{
 		DeleteBuffer();
-		LOGD << "Material: " << m_Name << " Destoried!";
+		FURYD << "Material: " << m_Name << " Destoried!";
 	}
 
 	void Material::DeleteBuffer()

@@ -23,13 +23,13 @@ namespace fury
 
 	protected:
 
-		std::shared_ptr<Mesh> m_Mesh;
+		std::weak_ptr<Mesh> m_Mesh;
 
 		Joint::Ptr m_FirstChild;
 
 		Joint::Ptr m_Sibling;
 
-		Joint::Ptr m_Parent;
+		std::weak_ptr<Joint> m_Parent;
 
 		Matrix4 m_LocalMatrix;
 

@@ -1,7 +1,9 @@
+#include <algorithm>
+
 #include "Camera.h"
-#include "Debug.h"
+#include "Log.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
+#include "EntityManager.h"
 #include "FileUtil.h"
 #include "Material.h"
 #include "Pipeline.h"
@@ -12,18 +14,21 @@
 
 namespace fury
 {
+	Pipeline::~Pipeline()
+	{
+		FURYD << "Pipeline " << m_Name << " destoried!";
+	}
+
 	bool Pipeline::Load(const void* wrapper)
 	{
-		EntityUtil::Ptr entityUtil = EntityUtil::Instance();
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
-
+		EntityManager::Ptr entityMgr = EntityManager::Instance();
 		std::string str;
 
 		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
 		{
 			if (!LoadMemberValue(node, "name", str))
 			{
-				LOGE << "Texture param 'name' not found!";
+				FURYE << "Texture param 'name' not found!";
 				return false;
 			}
 
@@ -32,12 +37,12 @@ namespace fury
 				return false;
 
 			m_TextureMap.emplace(texture->GetName(), texture);
-			entityUtil->Add(texture);
+			entityMgr->Add(texture);
 
 			return true;
 		}))
 		{
-			LOGE << "Error reading texture array!";
+			FURYE << "Error reading texture array!";
 			return false;
 		}
 
@@ -45,7 +50,7 @@ namespace fury
 		{
 			if (!LoadMemberValue(node, "name", str))
 			{
-				LOGE << "Shader param 'name' not found!";
+				FURYE << "Shader param 'name' not found!";
 				return false;
 			}
 
@@ -54,12 +59,12 @@ namespace fury
 				return false;
 
 			m_ShaderMap.emplace(shader->GetName(), shader);
-			entityUtil->Add(shader);
+			entityMgr->Add(shader);
 
 			return true;
 		}))
 		{
-			LOGE << "Error reading shader array!";
+			FURYE << "Error reading shader array!";
 			return false;
 		}
 
@@ -67,7 +72,7 @@ namespace fury
 		{
 			if (!LoadMemberValue(node, "name", str))
 			{
-				LOGE << "Pass param 'name' not found!";
+				FURYE << "Pass param 'name' not found!";
 				return false;
 			}
 
@@ -80,7 +85,7 @@ namespace fury
 			return true;
 		}))
 		{
-			LOGE << "Error reading pass array!";
+			FURYE << "Error reading pass array!";
 			return false;
 		}
 
@@ -89,7 +94,6 @@ namespace fury
 
 	bool Pipeline::Save(void* wrapper)
 	{
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
 		std::vector<std::string> strs;
 
 		StartObject(wrapper);

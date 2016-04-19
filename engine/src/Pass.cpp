@@ -1,12 +1,12 @@
 #include "Camera.h"
-#include "Debug.h"
+#include "Log.h"
 #include "GLLoader.h"
 #include "Pass.h"
 #include "SceneNode.h"
 #include "Shader.h"
 #include "Texture.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
+#include "EntityManager.h"
 
 namespace fury
 {
@@ -27,8 +27,7 @@ namespace fury
 
 	bool Pass::Load(const void* wrapper)
 	{
-		EntityUtil::Ptr entityUtil = EntityUtil::Instance();
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
+		EntityManager::Ptr entityMgr = EntityManager::Instance();
 
 		std::string str;
 
@@ -36,43 +35,43 @@ namespace fury
 
 		if (!LoadMemberValue(wrapper, "camera", str))
 		{
-			LOGE << "Pass param 'camera' not found!";
+			FURYE << "Pass param 'camera' not found!";
 			return false;
 		}
-		if (auto camNode = entityUtil->Get<SceneNode>(str))
+		if (auto camNode = entityMgr->Get<SceneNode>(str))
 			SetCameraNode(camNode);
 
 		if (!LoadMemberValue(wrapper, "blendMode", str))
 		{
-			LOGE << "Pass param 'blendMode' not found!";
+			FURYE << "Pass param 'blendMode' not found!";
 			return false;
 		}
-		SetBlendMode(enumUtil->BlendModeFromString(str));
+		SetBlendMode(EnumUtil::BlendModeFromString(str));
 
 		if (!LoadMemberValue(wrapper, "compareMode", str))
 		{
-			LOGE << "Pass param 'compareMode' not found!";
+			FURYE << "Pass param 'compareMode' not found!";
 			return false;
 		}
-		SetCompareMode(enumUtil->CompareModeFromString(str));
+		SetCompareMode(EnumUtil::CompareModeFromString(str));
 
 		if (!LoadMemberValue(wrapper, "cullMode", str))
 		{
-			LOGE << "Pass param 'cullMode' not found!";
+			FURYE << "Pass param 'cullMode' not found!";
 			return false;
 		}
-		SetCullMode(enumUtil->CullModeFromString(str));
+		SetCullMode(EnumUtil::CullModeFromString(str));
 
 		if (!LoadMemberValue(wrapper, "drawMode", str))
 		{
-			LOGE << "Pass param 'drawMode' not found!";
+			FURYE << "Pass param 'drawMode' not found!";
 			return false;
 		}
-		SetDrawMode(enumUtil->DrawModeFromString(str));
+		SetDrawMode(EnumUtil::DrawModeFromString(str));
 
 		if (!LoadMemberValue(wrapper, "index", (int&)m_RenderIndex))
 		{
-			LOGE << "Pass param 'index' not found!";
+			FURYE << "Pass param 'index' not found!";
 			return false;
 		}
 
@@ -80,17 +79,17 @@ namespace fury
 		{
 			if (!LoadValue(node, str))
 			{
-				LOGE << "Pass's shader name not found!";
+				FURYE << "Pass's shader name not found!";
 				return false;
 			}
-			if (auto shader = entityUtil->Get<Shader>(str))
+			if (auto shader = entityMgr->Get<Shader>(str))
 			{
 				AddShader(shader);
 				return true;
 			}
 			else
 			{
-				LOGW << "Shader " << str << " not found!";
+				FURYW << "Shader " << str << " not found!";
 				return false;
 			}
 		})) return false;
@@ -99,17 +98,17 @@ namespace fury
 		{
 			if (!LoadValue(node, str))
 			{
-				LOGE << "Pass's inputTexture name not found!";
+				FURYE << "Pass's inputTexture name not found!";
 				return false;
 			}
-			if (auto texture = entityUtil->Get<Texture>(str))
+			if (auto texture = entityMgr->Get<Texture>(str))
 			{
 				AddTexture(texture, true);
 				return true;
 			}
 			else
 			{
-				LOGW << "Input Texture " << str << " not found!";
+				FURYW << "Input Texture " << str << " not found!";
 				return false;
 			}
 		})) return false;
@@ -118,17 +117,17 @@ namespace fury
 		{
 			if (!LoadValue(node, str))
 			{
-				LOGE << "Pass's outputTexture name not found!";
+				FURYE << "Pass's outputTexture name not found!";
 				return false;
 			}
-			if (auto texture = entityUtil->Get<Texture>(str))
+			if (auto texture = entityMgr->Get<Texture>(str))
 			{
 				AddTexture(texture, false);
 				return true;
 			}
 			else
 			{
-				LOGW << "Output Texture " << str << " not found!";
+				FURYW << "Output Texture " << str << " not found!";
 				return false;
 			}
 		})) return false;
@@ -138,8 +137,6 @@ namespace fury
 
 	bool Pass::Save(void* wrapper)
 	{
-		EnumUtil::Ptr enumUtil = EnumUtil::Instance();
-
 		std::vector<std::string> strs;
 		std::string emptyStr;
 
@@ -173,16 +170,16 @@ namespace fury
 		SaveValue(wrapper, (int&)m_RenderIndex);
 
 		SaveKey(wrapper, "blendMode");
-		SaveValue(wrapper, enumUtil->BlendModeToString(m_BlendMode));
+		SaveValue(wrapper, EnumUtil::BlendModeToString(m_BlendMode));
 
 		SaveKey(wrapper, "compareMode");
-		SaveValue(wrapper, enumUtil->CompareModeToString(m_CompareMode));
+		SaveValue(wrapper, EnumUtil::CompareModeToString(m_CompareMode));
 
 		SaveKey(wrapper, "cullMode");
-		SaveValue(wrapper, enumUtil->CullModeToString(m_CullMode));
+		SaveValue(wrapper, EnumUtil::CullModeToString(m_CullMode));
 
 		SaveKey(wrapper, "drawMode");
-		SaveValue(wrapper, enumUtil->DrawModeToString(m_DrawMode));
+		SaveValue(wrapper, EnumUtil::DrawModeToString(m_DrawMode));
 
 		EndObject(wrapper);
 
@@ -244,7 +241,7 @@ namespace fury
 		if (cameraNode->GetComponent<Camera>())
 			m_CameraNode = cameraNode;
 		else
-			LOGW << "Invalide camera node";
+			FURYW << "Invalide camera node";
 	}
 
 	std::shared_ptr<SceneNode> Pass::GetCameraNode() const
@@ -358,7 +355,7 @@ namespace fury
 
 				if (texture->GetDirty())
 				{
-					LOGW << "Texture dirty!";
+					FURYW << "Texture dirty!";
 					continue;
 				}
 
@@ -382,7 +379,7 @@ namespace fury
 				}
 				else
 				{
-					LOGW << "Invalide texture type!";
+					FURYW << "Invalide texture type!";
 				}
 			}
 
@@ -416,13 +413,13 @@ namespace fury
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(EnumUtil::Instance()->CompareModeToUint(m_CompareMode));
+		glDepthFunc(EnumUtil::CompareModeToUint(m_CompareMode));
 
 		if (m_BlendMode != BlendMode::REPLACE)
 		{
 			glEnable(GL_BLEND);
-			glBlendFunc(EnumUtil::Instance()->BlendModeSrc(m_BlendMode), 
-				EnumUtil::Instance()->BlendModeDest(m_BlendMode));
+			glBlendFunc(EnumUtil::BlendModeSrc(m_BlendMode), 
+				EnumUtil::BlendModeDest(m_BlendMode));
 		}
 		else
 		{
@@ -432,7 +429,7 @@ namespace fury
 		if (m_CullMode != CullMode::NONE)
 		{
 			glEnable(GL_CULL_FACE);
-			glCullFace(EnumUtil::Instance()->CullModeToUint(m_CullMode).second);
+			glCullFace(EnumUtil::CullModeToUint(m_CullMode).second);
 		}
 		else
 		{

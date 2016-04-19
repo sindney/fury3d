@@ -1,4 +1,4 @@
-#include "Debug.h"
+#include "Log.h"
 #include "Mesh.h"
 #include "MeshRender.h"
 #include "Material.h"
@@ -77,7 +77,7 @@ namespace fury
 
 		if (m_Materials.size() < m_Mesh.lock()->GetSubMeshCount())
 		{
-			LOGW << "Material count and SubMesh count miss match!";
+			FURYW << "Material count and SubMesh count miss match!";
 			return false;
 		}
 

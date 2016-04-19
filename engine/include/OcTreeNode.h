@@ -5,7 +5,7 @@
 
 namespace fury
 {
-	class OcTree;
+	class OcTreeManager;
 
 	/**
 
@@ -20,13 +20,13 @@ namespace fury
 	*/
 	class FURY_API OcTreeNode : public TypeComparable, public std::enable_shared_from_this<OcTreeNode>
 	{
-		friend class OcTree;
+		friend class OcTreeManager;
 
 	public:
 
 		typedef std::shared_ptr<OcTreeNode> Ptr;
 
-		static Ptr Create(OcTree &manager, const OcTreeNode::Ptr &parent, 
+		static Ptr Create(OcTreeManager &manager, const OcTreeNode::Ptr &parent, 
 			Vector4 min, Vector4 max);
 
 	protected:
@@ -35,7 +35,7 @@ namespace fury
 
 		BoxBounds m_AABB;
 
-		OcTree& m_Manager;
+		OcTreeManager& m_Manager;
 
 		OcTreeNode::Ptr m_Childs[8];
 
@@ -49,7 +49,7 @@ namespace fury
 
 	public:
 
-		OcTreeNode(OcTree &manager, const OcTreeNode::Ptr &parent, 
+		OcTreeNode(OcTreeManager &manager, const OcTreeNode::Ptr &parent, 
 			Vector4 min, Vector4 max);
 
 		virtual ~OcTreeNode();
@@ -58,7 +58,7 @@ namespace fury
 
 		BoxBounds GetAABB() const;
 
-		OcTree &GetManager() const;
+		OcTreeManager &GetManager() const;
 
 		bool IsTwiceSize(BoxBounds other) const;
 
@@ -76,9 +76,9 @@ namespace fury
 
 		void Clear();
 
-		void AddSceneNode(std::shared_ptr<SceneNode> node);
+		void AddSceneNode(const std::shared_ptr<SceneNode> &node);
 
-		void RemoveSceneNode(std::shared_ptr<SceneNode> node);
+		void RemoveSceneNode(const std::shared_ptr<SceneNode> &node);
 
 	protected:
 

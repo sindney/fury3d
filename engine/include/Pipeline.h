@@ -47,6 +47,8 @@ namespace fury
 			m_TypeIndex = typeid(Pipeline);
 		}
 
+		virtual ~Pipeline();
+
 		virtual bool Load(const void* wrapper);
 
 		virtual bool Save(void* wrapper);

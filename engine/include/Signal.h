@@ -7,11 +7,13 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <mutex>
 
 #include "TypeComparable.h"
 
 namespace fury
 {
+	// thread safe
 	template <class... Args>
 	class FURY_API Signal : public TypeComparable
 	{
@@ -29,6 +31,10 @@ namespace fury
 		}
 
 	private:
+
+		std::mutex m_LinkMapMutex;
+
+		std::mutex m_KeyGenMutex;
 
 		std::unordered_map<size_t, CallbackPair> m_LinkMap;
 
@@ -54,6 +60,8 @@ namespace fury
 
 		size_t GenKey()
 		{
+			std::lock_guard<std::mutex> lock(m_KeyGenMutex);
+
 			if (m_KeyStack.empty())
 			{
 				return m_CurrentKey++;
@@ -69,7 +77,8 @@ namespace fury
 		size_t Connect(void(*f)(Args...))
 		{
 			auto key = GenKey();
-			m_LinkMap.emplace(std::make_pair(key,
+			std::lock_guard<std::mutex> lock(m_LinkMapMutex);
+			m_LinkMap.emplace(std::make_pair(key, 
 				std::make_pair<std::weak_ptr<void>, CallbackFunc>(m_DefaultOwner, f)));
 			return key;
 		}
@@ -83,6 +92,8 @@ namespace fury
 			{
 				(rawPtr->*f)(std::forward<Args>(args)...);
 			};
+			
+			std::lock_guard<std::mutex> lock(m_LinkMapMutex);
 
 			m_LinkMap.emplace(std::make_pair(key,
 				std::make_pair(std::static_pointer_cast<void>(reciver), forward)));
@@ -92,9 +103,12 @@ namespace fury
 
 		bool Disconnect(size_t key)
 		{
+			std::lock_guard<std::mutex> lockLinkMap(m_LinkMapMutex);
+
 			auto it = m_LinkMap.find(key);
 			if (it != m_LinkMap.end())
 			{
+				std::lock_guard<std::mutex> lockKeyGen(m_KeyGenMutex);
 				m_KeyStack.push(key);
 				m_LinkMap.erase(it);
 				return true;
@@ -107,15 +121,21 @@ namespace fury
 
 		void Clear()
 		{
-			while (!m_KeyStack.empty())
-				m_KeyStack.pop();
+			{
+				std::lock_guard<std::mutex> lockKeyGen(m_KeyGenMutex);
+				while (!m_KeyStack.empty())
+					m_KeyStack.pop();
+			}
 
 			m_CurrentKey = 0;
+			std::lock_guard<std::mutex> lockLinkMap(m_LinkMapMutex);
 			m_LinkMap.clear();
 		}
 
 		void Emit(Args&&... args)
 		{
+			std::lock_guard<std::mutex> lock(m_LinkMapMutex);
+
 			std::vector<typename std::unordered_map<size_t, CallbackPair>::iterator> tobeRemoved;
 
 			for (auto it = m_LinkMap.begin(); it != m_LinkMap.end(); ++it)

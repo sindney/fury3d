@@ -63,6 +63,8 @@ namespace fury
 
 		AnimationClip(const std::string &name, int ticksPerSecond = 24);
 
+		virtual ~AnimationClip();
+
 		void CalculateDuration();
 
 		float GetDuration() const;

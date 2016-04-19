@@ -1,4 +1,4 @@
-#include "Debug.h"
+#include "Log.h"
 #include "Light.h"
 #include "Mesh.h"
 #include "MeshUtil.h"
@@ -137,22 +137,22 @@ namespace fury
 
 		if (m_Type == LightType::DIRECTIONAL)
 		{
-			m_Mesh = MeshUtil::Instance()->GetUnitQuad();
+			m_Mesh = MeshUtil::GetUnitQuad();
 		}
 		else if (m_Type == LightType::POINT)
 		{
-			m_Mesh = MeshUtil::Instance()->GetUnitIcoSphere();
+			m_Mesh = MeshUtil::GetUnitIcoSphere();
 		}
 		else
 		{
 			float height = m_Radius;
 			float bottomR = std::tan(m_OutterAngle * 0.5f) * height;
-			m_Mesh = MeshUtil::Instance()->CreateCylinder("spotlight_convex", 0.0f, bottomR, height, 5, 20);
+			m_Mesh = MeshUtil::CreateCylinder("spotlight_convex", 0.0f, bottomR, height, 5, 20);
 
 			Matrix4 matrix;
 			matrix.Translate(Vector4(0.0f, -height * 0.5f, 0.0f));
 
-			MeshUtil::Instance()->TransformMesh(m_Mesh, matrix);
+			MeshUtil::TransformMesh(m_Mesh, matrix);
 		}
 
 		return m_Mesh;
