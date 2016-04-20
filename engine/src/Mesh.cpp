@@ -206,18 +206,49 @@ namespace fury
 
 	void Mesh::CalculateAABB()
 	{
-		Vector4 max, min, tmp;
-
 		m_AABB.SetDirty(true);
 
-		int triangleCount = Positions.Data.size() / 3;
-		for (int i = 0; i < triangleCount; i++)
+		if (IsSkinnedMesh())
 		{
-			int index = i * 3;
-			tmp.x = Positions.Data[index];
-			tmp.y = Positions.Data[index + 1];
-			tmp.z = Positions.Data[index + 2];
-			m_AABB.Encapsulate(tmp);
+			unsigned int numTriangles = Indices.Data.size() / 3;
+
+			for (unsigned int i = 0; i < numTriangles; i++)
+			{
+				unsigned int triIndex = i * 3;
+				for (unsigned int j = 0; j < 3; j++)
+				{
+					unsigned int current = Indices.Data[triIndex + j];
+					unsigned int current3 = current * 3;
+					unsigned int current4 = current * 4;
+
+					Vector4 pos = Vector4(Positions.Data[current3], Positions.Data[current3 + 1],
+						Positions.Data[current3 + 2], 1.0f);
+
+					unsigned int ids[] = { IDs.Data[current4], IDs.Data[current4 + 1],
+						IDs.Data[current4 + 2], IDs.Data[current4 + 3] };
+
+					float weights[] = { Weights.Data[current3], Weights.Data[current3 + 1],
+						Weights.Data[current3 + 2], 0.0f };
+					weights[3] = 1.0f - weights[0] - weights[1] - weights[2];
+
+					Vector4 blended = m_Joints[ids[0]]->GetFinalMatrix().Multiply(pos) * weights[0] +
+						m_Joints[ids[1]]->GetFinalMatrix().Multiply(pos) * weights[1] +
+						m_Joints[ids[2]]->GetFinalMatrix().Multiply(pos) * weights[2] +
+						m_Joints[ids[3]]->GetFinalMatrix().Multiply(pos) * weights[3];
+
+					m_AABB.Encapsulate(blended);
+				}
+			}
+		}
+		else
+		{
+			unsigned int triangleCount = Positions.Data.size() / 3;
+			for (unsigned int i = 0; i < triangleCount; i++)
+			{
+				unsigned int index = i * 3;
+				m_AABB.Encapsulate(Vector4(Positions.Data[index], Positions.Data[index + 1], 
+					Positions.Data[index + 2], 1.0f));
+			}
 		}
 	}
 
