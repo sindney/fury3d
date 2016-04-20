@@ -15,7 +15,7 @@ namespace fury
 {
 	// thread safe
 	template <class... Args>
-	class FURY_API Signal : public TypeComparable
+	class Signal : public TypeComparable
 	{
 	public:
 
