@@ -5,6 +5,9 @@
 #include <functional>
 #include <string>
 
+#include <SFML/Window/Window.hpp>
+#include <SFML/Window/Event.hpp>
+
 #include "Log.h"
 
 namespace fury
@@ -13,14 +16,12 @@ namespace fury
 	{
 	public:
 
-		static bool Initialize(int numThreads, LogLevel level = LogLevel::EROR, const LogFormatter &formatter = Formatter::Simple,
-			bool console = true, const char* logfile = nullptr, bool append = false);
+		static bool Initialize(sf::Window &window, int numThreads, LogLevel level = LogLevel::EROR, const char* logfile = nullptr, 
+			bool console = true, const LogFormatter &formatter = Formatter::Simple, bool append = false);
+
+		static void HandleEvent(sf::Event &event);
 
 		static std::pair<int, int> GetGLVersion();
-
-	private:
-
-		static bool SetupGL();
 	};
 }
 

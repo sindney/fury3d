@@ -24,7 +24,7 @@ public:
 
 	Vector4 m_CamPos;
 
-	bool m_MouseDown = false;
+	bool m_ShowProfilerWindow = true;
 
 public:
 
@@ -32,9 +32,7 @@ public:
 
 	virtual ~BasicScene();
 
-	virtual void Init(sf::RenderWindow &window);
-
-	virtual void HandleEvent(sf::Event event);
+	virtual void Init(sf::Window &window);
 
 	virtual void PreFixedUpdate();
 
@@ -44,7 +42,9 @@ public:
 
 	virtual void Update(float dt);
 
-	virtual void Draw(sf::RenderWindow &window);
+	virtual void UpdateGUI(float dt);
+
+	virtual void Draw(sf::Window &window);
 
 };
 

@@ -15,13 +15,13 @@ protected:
 
 public:
 
-	virtual void Init(sf::RenderWindow &window);
+	virtual void Init(sf::Window &window);
 
 	virtual void Update(float dt);
 
 	virtual void FixedUpdate();
 
-	virtual void Draw(sf::RenderWindow &window);
+	virtual void Draw(sf::Window &window);
 };
 
 #endif // _LOADFBXFILE_H_

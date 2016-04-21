@@ -10,8 +10,13 @@ else()
 	message(SEND_ERROR "Only support windows && osx currentlly.")
 endif()
 
-set(STBIMAGE_INCLUDE "/usr/local/include" CACHE PATH "Path to stb_image headers.")
+set(STB_INCLUDE "/usr/local/include" CACHE PATH "Path to stb_library headers.")
+
 set(RAPIDJSON_INCLUDE "/usr/local/include" CACHE PATH "Path to rapidjson headers.")
+
+set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
+set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
+
 set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
 set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
 set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")

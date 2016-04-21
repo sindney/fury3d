@@ -18,13 +18,15 @@ Features:
 
 * C++11 smart pointers made memory management easier.
 
-* Flexible signal message system.
+* Flexible signal message system. (use function pointers, so it won't accept lambdas, sry)
 
 * Support fbx model format, you can load static meshes, skinned meshes and lights directlly.
 
 * Easy rendering pipeline management through json serialization functionality.
 
 * Build-in light-pre pass rendering pipeling.
+
+* Intergates powerful gui library [ImGui](https://github.com/ocornut/imgui).
 
 Plans:
 
@@ -143,11 +145,13 @@ signal->Emit(2, 3);
 
 * [Stbimage](https://github.com/nothings/stb) - for image loading
 
-* [Sfml](http://www.sfml-dev.org) - for example program
+* [Sfml](http://www.sfml-dev.org) - for os related window/input/context handling
 
 * [ASSIMP](https://github.com/assimp/assimp) - for mesh optimization
 
 * [Ogre3d](http://www.ogre3d.org) - for octree implimentation
+
+* [ImGui](https://github.com/ocornut/imgui) - for debug gui
 
 ## One more thing
 

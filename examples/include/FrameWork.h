@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "SFML/Window/Event.hpp"
-#include "SFML/Graphics/RenderWindow.hpp"
+#include "SFML/Window/Window.hpp"
 
 #undef near
 #undef far
@@ -20,9 +20,7 @@ public:
 
 	bool running = true;
 
-	virtual void Init(sf::RenderWindow &window) = 0;
-
-	virtual void HandleEvent(sf::Event event) = 0;
+	virtual void Init(sf::Window &window) = 0;
 
 	virtual void PreFixedUpdate() = 0;
 
@@ -32,7 +30,9 @@ public:
 
 	virtual void Update(float dt) = 0;
 
-	virtual void Draw(sf::RenderWindow &window) = 0;
+	virtual void UpdateGUI(float dt) = 0;
+
+	virtual void Draw(sf::Window &window) = 0;
 };
 
 #endif // _FRAMEWORK_H_

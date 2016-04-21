@@ -1,6 +1,6 @@
 #include "LoadFbxFile.h"
 
-void LoadFbxFile::Init(sf::RenderWindow &window)
+void LoadFbxFile::Init(sf::Window &window)
 {
 	m_RootNode = SceneNode::Create("RootNode");
 
@@ -55,7 +55,7 @@ void LoadFbxFile::Update(float dt)
 	m_AnimPlayer->Display(dt);
 }
 
-void LoadFbxFile::Draw(sf::RenderWindow &window)
+void LoadFbxFile::Draw(sf::Window &window)
 {
 	m_Pipeline->Execute(m_OcTree);
 }

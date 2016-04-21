@@ -320,6 +320,20 @@ namespace fury
 		}
 	}
 
+	void Shader::BindTexture(const std::string &name, size_t textureId)
+	{
+		int id = GetUniformLocation(name);
+
+		if (id != -1)
+		{
+			glActiveTexture(m_TextureID);
+			glBindTexture(GL_TEXTURE_2D, textureId);
+			glUniform1i(id, m_TextureID - GL_TEXTURE0);
+
+			m_TextureID++;
+		}
+	}
+
 	void Shader::BindMaterial(const std::shared_ptr<Material> &material)
 	{
 		if (m_Dirty)

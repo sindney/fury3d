@@ -50,6 +50,8 @@ namespace fury
 
 		void CreateEmpty(int width, int height, TextureFormat format = TextureFormat::RGBA8, bool mipMap = false);
 
+		void Update(const void* pixels);
+
 		virtual void DeleteBuffer() override;
 
 		TextureFormat GetFormat() const;

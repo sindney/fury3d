@@ -7,6 +7,8 @@
 
 #include "Macros.h"
 
+#undef DELETE
+
 namespace fury
 {
 	enum class CompareMode : int

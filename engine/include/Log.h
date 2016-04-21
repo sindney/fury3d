@@ -108,7 +108,7 @@ namespace fury
 
 	// thread safe
 	template<int instance>
-	class FURY_API Log : public Singleton<Log<instance>, LogLevel, const LogFormatter&, bool, const char*, bool>
+	class FURY_API Log : public Singleton<Log<instance>, LogLevel, const char*, bool, const LogFormatter&, bool>
 	{
 	private:
 
@@ -129,8 +129,8 @@ namespace fury
 
 	public:
 
-		Log(LogLevel level, const LogFormatter &formatter, bool console, const char* logfile, bool append)
-			: m_LogLevel(level), m_Formatter(formatter), m_ConsoleOutput(console), m_FileOutput(logfile != nullptr)
+		Log(LogLevel level, const char* logfile, bool console, const LogFormatter &formatter, bool append)
+			: m_LogLevel(level), m_FileOutput(logfile != nullptr), m_ConsoleOutput(console), m_Formatter(formatter)
 		{
 			if (m_FileOutput)
 			{
@@ -176,9 +176,9 @@ namespace fury
 }
 
 #ifdef _MSC_VER
-	#define FURY_FUNC_NAME __FUNCTION__
+#define FURY_FUNC_NAME __FUNCTION__
 #else
-	#define FURY_FUNC_NAME __PRETTY_FUNCTION__
+#define FURY_FUNC_NAME __PRETTY_FUNCTION__
 #endif
 
 #define FURY_LOG_IF(instance, level)	if (fury::Log<instance>::Instance() && level <= fury::Log<instance>::Instance()->GetLevel())

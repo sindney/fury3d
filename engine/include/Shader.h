@@ -77,6 +77,8 @@ namespace fury
 
 		void BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture);
 
+		void BindTexture(const std::string &name, size_t textureId);
+
 		void BindMaterial(const std::shared_ptr<Material> &material);
 
 		void BindMesh(const std::shared_ptr<Mesh> &mesh);

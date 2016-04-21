@@ -1,7 +1,8 @@
-#include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
 
 #include <Fury.h>
+#include <Imgui/imgui_fury.h>
+#include <Imgui/imgui.h>
 
 #include "LoadFbxFile.h"
 
@@ -25,16 +26,21 @@ void Pause()
 int main(int argc, char *argv[])
 {
 	// setup sfml
-	sf::RenderWindow window(
-		sf::VideoMode(1280, 720), 
-		"Fury3d", 
-		sf::Style::Titlebar | sf::Style::Close, 
+	sf::Window window(
+		sf::VideoMode(1280, 720),
+		"Fury3d",
+		sf::Style::Titlebar | sf::Style::Close,
 		sf::ContextSettings(24, 8, 0, 3, 3)
-	);
+		);
 	window.setKeyRepeatEnabled(true);
 	window.setFramerateLimit(60);
 
-	if (!EngineManager::Initialize(2, LogLevel::DBUG, Formatter::Simple, true, FileUtil::GetAbsPath("Log.txt").c_str()))
+	if (argc < 2) Pause();
+
+	if (!EngineManager::Initialize(window, 2, LogLevel::DBUG, FileUtil::GetAbsPath("Log.txt").c_str()))
+		return false;
+
+	if (!ImGuiBridge::Initialize(&window))
 		return false;
 
 	FrameWork::Ptr example = std::make_shared<LoadFbxFile>();
@@ -45,7 +51,7 @@ int main(int argc, char *argv[])
 	sf::Event event;
 	sf::Int32 next_game_tick = clock.getElapsedTime().asMilliseconds();
 
-	ThreadManager::Instance()->Enqueue([](){ FURYD << "Hello from another thread!"; });
+	bool show_test_window = true;
 
 	while (window.isOpen() && example->running)
 	{
@@ -57,7 +63,14 @@ int main(int argc, char *argv[])
 
 			while (window.pollEvent(event))
 			{
-				example->HandleEvent(event);
+				if (event.type == sf::Event::Closed)
+				{
+					example->running = false;
+					break;
+				}
+
+				EngineManager::HandleEvent(event);
+				ImGuiBridge::HandleEvent(event);
 			}
 
 			example->FixedUpdate();
@@ -67,13 +80,20 @@ int main(int argc, char *argv[])
 			numLoops++;
 		}
 		// display game object in maximum framerate.
-		float dt = float(clock.getElapsedTime().asMilliseconds() + SKIP_TICKS - next_game_tick) / float(SKIP_TICKS);
+		sf::Int32 elapsed = clock.getElapsedTime().asMilliseconds();
+		float dt = float(elapsed + SKIP_TICKS - next_game_tick) / float(SKIP_TICKS);
+		next_game_tick -= elapsed;
+
+		ImGuiBridge::NewFrame(clock.restart().asSeconds());
 
 		example->Update(dt);
 
 		window.setActive();
 
 		example->Draw(window);
+
+		example->UpdateGUI(dt);
+		ImGui::Render();
 
 		window.display();
 		window.setActive(false);

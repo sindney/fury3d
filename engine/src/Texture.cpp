@@ -188,6 +188,23 @@ namespace fury
 		FURYD << m_Name << " [" << m_Width << " x " << m_Height << "]";
 	}
 
+	void Texture::Update(const void* pixels)
+	{
+		if (m_ID == 0)
+		{
+			FURYW << "Texture buffer not created yet!";
+			return;
+		}
+
+		glBindTexture(GL_TEXTURE_2D, m_ID);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_Width, m_Height, EnumUtil::TextureFormatToUint(m_Format).second, GL_UNSIGNED_BYTE, pixels);
+
+		if (m_Mipmap)
+			glGenerateMipmap(GL_TEXTURE_2D);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
 	void Texture::DeleteBuffer()
 	{
 		m_Dirty = true;

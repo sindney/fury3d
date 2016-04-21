@@ -1,3 +1,5 @@
+#include <Imgui/imgui.h>
+
 #include "BasicScene.h"
 
 BasicScene::BasicScene()
@@ -11,91 +13,9 @@ BasicScene::~BasicScene()
 	m_RootNode->RemoveAllChilds();
 }
 
-void BasicScene::Init(sf::RenderWindow &window)
+void BasicScene::Init(sf::Window &window)
 {
 	
-}
-
-const float DEGREE_90 = 3.1416f / 2;
-
-void BasicScene::HandleEvent(sf::Event event)
-{
-	switch (event.type)
-	{
-	case sf::Event::Closed:
-		running = false;
-		break;
-	case sf::Event::KeyPressed:
-		switch (event.key.code)
-		{
-		case sf::Keyboard::A:
-			m_CamPos.x = -m_CamSpeed;
-			break;
-		case sf::Keyboard::D:
-			m_CamPos.x = m_CamSpeed;
-			break;
-		case sf::Keyboard::W:
-			m_CamPos.z = -m_CamSpeed;
-			break;
-		case sf::Keyboard::S:
-			m_CamPos.z = m_CamSpeed;
-			break;
-		default:
-			break;
-		}
-		break;
-	case sf::Event::KeyReleased:
-		switch (event.key.code)
-		{
-		case sf::Keyboard::A:
-			m_CamPos.x = 0;
-			break;
-		case sf::Keyboard::D:
-			m_CamPos.x = 0;
-			break;
-		case sf::Keyboard::W:
-			m_CamPos.z = 0;
-			break;
-		case sf::Keyboard::S:
-			m_CamPos.z = 0;
-			break;
-		}
-		break;
-	case sf::Event::MouseButtonPressed:
-		m_MouseDown = true;
-		break;
-	case sf::Event::MouseButtonReleased:
-		m_MouseDown = false;
-		break;
-	case sf::Event::MouseLeft:
-		m_MouseDown = false;
-		break;
-	case sf::Event::MouseMoved:
-		float tx, ty;
-		if (m_MouseDown)
-		{
-			tx = (m_OldMouseX - event.mouseMove.x) * m_MouseSensitivity;
-			ty = (m_OldMouseY - event.mouseMove.y) * m_MouseSensitivity;
-
-			Transform::Ptr camTrans = m_CamNode->GetComponent<Transform>();
-			Vector4 euler = Angle::QuatToEulerRad(camTrans->GetPostRotation());
-			euler.x += tx;
-			euler.y += ty;
-
-			if (euler.y >= DEGREE_90)
-				euler.y = DEGREE_90;
-			else if (euler.y <= -DEGREE_90)
-				euler.y = -DEGREE_90;
-
-			camTrans->SetPostRotation(Angle::EulerRadToQuat(euler));
-		}
-		m_OldMouseX = event.mouseMove.x;
-		m_OldMouseY = event.mouseMove.y;
-
-		break;
-	default:
-		break;
-	}
 }
 
 void BasicScene::PreFixedUpdate()
@@ -105,7 +25,44 @@ void BasicScene::PreFixedUpdate()
 
 void BasicScene::FixedUpdate()
 {
+	auto &inputMgr = InputManager::Instance();
 
+	if (inputMgr->GetKeyDown(sf::Keyboard::A))
+		m_CamPos.x = -m_CamSpeed;
+	else if (inputMgr->GetKeyDown(sf::Keyboard::D))
+		m_CamPos.x = m_CamSpeed;
+	else 
+		m_CamPos.x = 0;
+
+	if (inputMgr->GetKeyDown(sf::Keyboard::W))
+		m_CamPos.z = -m_CamSpeed;
+	else if (inputMgr->GetKeyDown(sf::Keyboard::S))
+		m_CamPos.z = m_CamSpeed;
+	else
+		m_CamPos.z = 0;
+
+	auto mousePos = inputMgr->GetMousePosition();
+	if (inputMgr->GetMouseDown(sf::Mouse::Middle) || inputMgr->GetMouseDown(sf::Mouse::Right))
+	{
+		float tx = (m_OldMouseX - mousePos.first) * m_MouseSensitivity;
+		float ty = (m_OldMouseY - mousePos.second) * m_MouseSensitivity;
+
+		Transform::Ptr camTrans = m_CamNode->GetComponent<Transform>();
+		Vector4 euler = Angle::QuatToEulerRad(camTrans->GetPostRotation());
+		euler.x += tx;
+		euler.y += ty;
+
+		static const float DEGREE_90 = 3.1416f / 2;
+
+		if (euler.y >= DEGREE_90)
+			euler.y = DEGREE_90;
+		else if (euler.y <= -DEGREE_90)
+			euler.y = -DEGREE_90;
+
+		camTrans->SetPostRotation(Angle::EulerRadToQuat(euler));
+	}
+	m_OldMouseX = mousePos.first;
+	m_OldMouseY = mousePos.second;
 }
 
 void BasicScene::PostFixedUpdate()
@@ -118,7 +75,22 @@ void BasicScene::Update(float dt)
 	m_CamNode->GetComponent<Transform>()->SetDeltaTime(dt);
 }
 
-void BasicScene::Draw(sf::RenderWindow &window)
+void BasicScene::UpdateGUI(float dt)
+{
+	ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiSetCond_FirstUseEver);
+	ImGui::Begin("Profiler", &m_ShowProfilerWindow, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | 
+		ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize);
+
+	ImGui::Text("FrameTime: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
+	ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+
+	ImGui::End();
+
+	/*ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiSetCond_FirstUseEver);
+	ImGui::ShowTestWindow(&m_ShowProfilerWindow);*/
+}
+
+void BasicScene::Draw(sf::Window &window)
 {
 
 }

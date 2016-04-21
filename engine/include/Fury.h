@@ -18,6 +18,7 @@
 #include "FileUtil.h"
 #include "FbxParser.h"
 #include "Frustum.h"
+#include "InputManager.h"
 #include "Joint.h"
 #include "Light.h"
 #include "Log.h"

@@ -3,6 +3,7 @@
 #include "MeshRender.h"
 #include "Material.h"
 #include "SceneNode.h"
+#include "Joint.h"
 
 namespace fury
 {

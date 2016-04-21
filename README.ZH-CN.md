@@ -18,13 +18,15 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 * C++11的智能指针简化了内存管理的复杂度
 
-* 灵活的Signal消息系统
+* 灵活的Signal消息系统 (使用函数指针，所以不支持lambda函数)
 
 * 支持FBX模型文件的读取，可直接读取场景的灯光，静态模型，以及带有蒙皮骨骼动画的模型
 
 * 可使用json自由配置的渲染管线
 
 * 内置阉割版light-pre pass渲染管线
+
+* 接入了强大的GUI库[ImGui](https://github.com/ocornut/imgui)
 
 计划:
 
@@ -143,12 +145,14 @@ signal->Emit(2, 3);
 
 * [Stbimage](https://github.com/nothings/stb) - 载入图像
 
-* [Sfml](http://www.sfml-dev.org) - 窗口框架
+* [Sfml](http://www.sfml-dev.org) - 解决平台相关的窗口相关需求
 
 * [ASSIMP](https://github.com/assimp/assimp) - Mesh的物理资源优化
 
 * [Ogre3d](http://www.ogre3d.org) - 八叉树的实现
 
+* [ImGui](https://github.com/ocornut/imgui) - 测试用GUI库
+
 ## 最后
 
-如果你使用SUblimeText码字，可以尝试我的 [GLSLCompiler](https://github.com/sindney/GLSLCompiler) 组件来debug glsl代码 :D
+如果你使用SublimeText码字，可以尝试我的 [GLSLCompiler](https://github.com/sindney/GLSLCompiler) 组件来debug glsl代码 :D
