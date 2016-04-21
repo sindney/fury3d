@@ -26,7 +26,10 @@ void BasicScene::PreFixedUpdate()
 void BasicScene::FixedUpdate()
 {
 	auto &inputMgr = InputManager::Instance();
-
+	
+	if (inputMgr->GetKeyDown(sf::Keyboard::Escape))
+		running = false;
+	
 	if (inputMgr->GetKeyDown(sf::Keyboard::A))
 		m_CamPos.x = -m_CamSpeed;
 	else if (inputMgr->GetKeyDown(sf::Keyboard::D))
