@@ -2,7 +2,7 @@
 #include "Log.h"
 #include "GLLoader.h"
 #include "EnumUtil.h"
-#include "EntityManager.h"
+#include "EntityUtil.h"
 #include "FileUtil.h"
 #include "Joint.h"
 #include "Light.h"
@@ -33,7 +33,7 @@ namespace fury
 
 	bool Shader::Load(const void* wrapper)
 	{
-		EntityManager::Ptr entityMgr = EntityManager::Instance();
+		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
 
 		if (!LoadMemberValue(wrapper, "type", str))

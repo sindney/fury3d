@@ -1,13 +1,13 @@
 #include <stack>
 
 #include "Log.h"
-#include "ThreadManager.h"
+#include "ThreadUtil.h"
 
 namespace fury
 {
-	std::thread::id ThreadManager::m_MainThreadId;
+	std::thread::id ThreadUtil::m_MainThreadId;
 
-	ThreadManager::ThreadManager(size_t numThreads)
+	ThreadUtil::ThreadUtil(size_t numThreads)
 		: m_Stop(false)
 	{
 		size_t maxThreads = std::thread::hardware_concurrency();
@@ -45,7 +45,7 @@ namespace fury
 		}
 	}
 
-	ThreadManager::~ThreadManager()
+	ThreadUtil::~ThreadUtil()
 	{
 		{
 			std::unique_lock<std::mutex> lock(m_QueueMutex);
@@ -57,17 +57,17 @@ namespace fury
 			worker.join();
 	}
 
-	size_t ThreadManager::GetWorkerCount()
+	size_t ThreadUtil::GetWorkerCount()
 	{
 		return m_Workers.size();
 	}
 
-	void ThreadManager::SetMainThread()
+	void ThreadUtil::SetMainThread()
 	{
 		m_MainThreadId = std::this_thread::get_id();
 	}
 
-	bool ThreadManager::IsMainThread()
+	bool ThreadUtil::IsMainThread()
 	{
 		return std::this_thread::get_id() == m_MainThreadId;
 	}

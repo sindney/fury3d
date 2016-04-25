@@ -1,5 +1,5 @@
-#ifndef _FURY_ENTITY_MANAGER_H_
-#define _FURY_ENTITY_MANAGER_H_
+#ifndef _FURY_ENTITY_UTIL_H_
+#define _FURY_ENTITY_UTIL_H_
 
 #include <unordered_map>
 #include <functional>
@@ -9,13 +9,13 @@
 
 namespace fury
 {
-	class FURY_API EntityManager final : public Singleton<EntityManager> 
+	class FURY_API EntityUtil final : public Singleton<EntityUtil> 
 	{
 	public:
 
 		typedef std::unordered_map<std::type_index, std::unordered_map<size_t, std::shared_ptr<void>>> TypeMap;
 
-		typedef std::shared_ptr<EntityManager> Ptr;
+		typedef std::shared_ptr<EntityUtil> Ptr;
 
 		// class ObjectType must have function 'size_t GetHashCode()'.
 		template<class ObjectType>
@@ -151,4 +151,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_ENTITY_MANAGER_H_
+#endif // _FURY_ENTITY_UTIL_H_

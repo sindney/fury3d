@@ -4,7 +4,7 @@
 #include "Camera.h"
 #include "Log.h"
 #include "EnumUtil.h"
-#include "EntityManager.h"
+#include "EntityUtil.h"
 #include "Frustum.h"
 #include "GLLoader.h"
 #include "Light.h"
@@ -15,6 +15,7 @@
 #include "Pass.h"
 #include "PrelightPipeline.h"
 #include "RenderQuery.h"
+#include "RenderUtil.h"
 #include "SceneManager.h"
 #include "SceneNode.h"
 #include "Shader.h"
@@ -36,7 +37,6 @@ namespace fury
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
 		// pre
-		m_DrawCall = 0;
 		m_CurrentCamera = nullptr;
 		m_CurrentShader = nullptr;
 		SortPassByIndex();
@@ -110,6 +110,67 @@ namespace fury
 			pass->UnBind();
 		}
 
+		// debug pass
+		if (m_DrawLightBounds || m_DrawOpaqueBounds)
+		{
+			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+			glEnable(GL_DEPTH_TEST);
+			glEnable(GL_CULL_FACE);
+			glCullFace(GL_BACK);
+			glDisable(GL_BLEND);
+
+			auto renderUtil = RenderUtil::Instance();
+
+			for (auto &pair : m_PassMap)
+			{
+				auto pass = pair.second;
+				auto camNode = pass->GetCameraNode();
+
+				if (camNode == nullptr || pass->GetDrawMode() == DrawMode::QUAD)
+					continue;
+
+				auto it = queries.find(camNode->GetName());
+				if (it == queries.end())
+					continue;
+
+				auto visibles = it->second;
+				renderUtil->BeginDrawLines(camNode);
+
+				if (m_DrawOpaqueBounds)
+				{
+					for (auto node : visibles->OpaqueNodes)
+						renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
+				}
+
+				renderUtil->EndDrawLines();
+
+				renderUtil->BeginDrawMeshs(camNode);
+
+				if (m_DrawLightBounds)
+				{
+					for (auto node : visibles->LightNodes)
+					{
+						auto light = node->GetComponent<Light>();
+						if (light->GetType() == LightType::SPOT)
+						{
+							renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), Color::Green);
+						}
+						else if (light->GetType() == LightType::POINT)
+						{
+							Matrix4 worldMatrix = node->GetWorldMatrix();
+							worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
+							renderUtil->DrawMesh(light->GetMesh(), worldMatrix, Color::Green);
+						}
+					}
+				}
+
+				renderUtil->EndDrawMeshes();
+			}
+
+			glDisable(GL_DEPTH_TEST);
+		}
+
 		// post
 		m_CurrentCamera = nullptr;
 		m_CurrentShader = nullptr;
@@ -134,6 +195,11 @@ namespace fury
 	{
 		auto render = node->GetComponent<MeshRender>();
 		auto mesh = render->GetMesh();
+
+		if (mesh->IsSkinnedMesh())
+			RenderUtil::Instance()->IncreaseSkinnedMeshCount();
+		else
+			RenderUtil::Instance()->IncreaseMeshCount();
 
 		unsigned int subMeshCount = mesh->GetSubMeshCount();
 		if (subMeshCount > 0)
@@ -173,7 +239,8 @@ namespace fury
 
 					shader->UnBind();
 
-					m_DrawCall++;
+					RenderUtil::Instance()->IncreaseDrawCall();
+					RenderUtil::Instance()->IncreaseTriangleCount(subMesh->Indices.Data.size());
 				}
 			}
 		}
@@ -210,7 +277,8 @@ namespace fury
 
 			shader->UnBind();
 
-			m_DrawCall++;
+			RenderUtil::Instance()->IncreaseDrawCall();
+			RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
 		}
 	}
 
@@ -300,7 +368,8 @@ namespace fury
 
 		shader->UnBind();
 
-		m_DrawCall++;
+		RenderUtil::Instance()->IncreaseDrawCall();
+		RenderUtil::Instance()->IncreaseLightCount();
 	}
 
 	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)
@@ -329,6 +398,7 @@ namespace fury
 
 		shader->UnBind();
 
-		m_DrawCall++;
+		RenderUtil::Instance()->IncreaseDrawCall();
+		RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
 	}
 }

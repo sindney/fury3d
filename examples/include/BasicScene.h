@@ -10,11 +10,13 @@ class BasicScene :
 {
 public:
 
-	OcTreeManager::Ptr m_OcTree;
+	OcTree::Ptr m_OcTree;
 
 	SceneNode::Ptr m_CamNode;
 
 	SceneNode::Ptr m_RootNode;
+
+	Pipeline::Ptr m_Pipeline;
 
 	int m_OldMouseX = 0, m_OldMouseY = 0;
 
@@ -23,8 +25,6 @@ public:
 	float m_CamSpeed = 1000;
 
 	Vector4 m_CamPos;
-
-	bool m_ShowProfilerWindow = true;
 
 public:
 

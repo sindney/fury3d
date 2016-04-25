@@ -7,7 +7,7 @@
 #include "AnimationUtil.h"
 #include "Angle.h"
 #include "Log.h"
-#include "EntityManager.h"
+#include "EntityUtil.h"
 #include "FileUtil.h"
 #include "Joint.h"
 #include "Light.h"
@@ -109,7 +109,7 @@ namespace fury
 								continue;
 
 							auto meshName = stackName.substr(0, index);
-							if (auto matchMesh = EntityManager::Instance()->Get<Mesh>(meshName))
+							if (auto matchMesh = EntityUtil::Instance()->Get<Mesh>(meshName))
 							{
 								auto it = linkMap.find(meshName);
 								FURYD << "Found Clip " << stackName << " for " << meshName;
@@ -281,7 +281,7 @@ namespace fury
 					AnimationUtil::OptimizeAnimClip(clip, 0.5f);
 
 				clip->CalculateDuration();
-				EntityManager::Instance()->Add(clip);
+				EntityUtil::Instance()->Add(clip);
 			}
 		}
 	}
@@ -319,13 +319,13 @@ namespace fury
 		FbxMesh* fbxMesh = static_cast<FbxMesh*>(fbxNode->GetNodeAttribute());
 
 		// first, we test if ther's already a mesh asset exits with this name.
-		Mesh::Ptr mesh = EntityManager::Instance()->Get<Mesh>(fbxMesh->GetName());
+		Mesh::Ptr mesh = EntityUtil::Instance()->Get<Mesh>(fbxMesh->GetName());
 
 		if (mesh == nullptr)
 		{
 			// if not, we read the mesh data.
 			mesh = CreateMesh(ntNode, fbxNode);
-			EntityManager::Instance()->Add(mesh);
+			EntityUtil::Instance()->Add(mesh);
 		}
 
 		// attach mesh component to node.
@@ -347,13 +347,13 @@ namespace fury
 
 			if (isPhong || isLambert)
 			{
-				Material::Ptr material = EntityManager::Instance()->Get<Material>(fbxMaterial->GetName());
+				Material::Ptr material = EntityUtil::Instance()->Get<Material>(fbxMaterial->GetName());
 
 				if (material == nullptr)
 				{
 					material = isPhong ? CreatePhongMaterial((FbxSurfacePhong*)fbxMaterial) :
 						CreateLambertMaterial((FbxSurfaceLambert*)fbxMaterial);
-					EntityManager::Instance()->Add(material);
+					EntityUtil::Instance()->Add(material);
 				}
 
 				if (auto ptr = ntNode->GetComponent<MeshRender>())

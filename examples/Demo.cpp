@@ -30,14 +30,15 @@ int main(int argc, char *argv[])
 		sf::VideoMode(1280, 720),
 		"Fury3d",
 		sf::Style::Titlebar | sf::Style::Close,
+		//sf::Style::Fullscreen, 
 		sf::ContextSettings(24, 8, 0, 3, 3)
 		);
 	window.setKeyRepeatEnabled(true);
-	window.setFramerateLimit(60);
+	//window.setFramerateLimit(60);
 
 	if (argc < 2) Pause();
 
-	if (!EngineManager::Initialize(window, 2, LogLevel::DBUG, FileUtil::GetAbsPath("Log.txt").c_str()))
+	if (!Engine::Initialize(window, 2, LogLevel::DBUG, FileUtil::GetAbsPath("Log.txt").c_str()))
 		return false;
 
 	if (!ImGuiBridge::Initialize(&window))
@@ -55,6 +56,8 @@ int main(int argc, char *argv[])
 
 	while (window.isOpen() && example->running)
 	{
+		RenderUtil::Instance()->BeginFrame();
+
 		// Update game logic TICKS_PER_SECOND times per second.
 		int numLoops = 0;
 		while (clock.getElapsedTime().asMilliseconds() > next_game_tick && numLoops < MAX_FRAMESKIP && example->running)
@@ -69,7 +72,7 @@ int main(int argc, char *argv[])
 					break;
 				}
 
-				EngineManager::HandleEvent(event);
+				Engine::HandleEvent(event);
 				ImGuiBridge::HandleEvent(event);
 			}
 
@@ -97,6 +100,8 @@ int main(int argc, char *argv[])
 
 		window.display();
 		window.setActive(false);
+
+		RenderUtil::Instance()->EndFrame();
 	}
 
 	example = nullptr;

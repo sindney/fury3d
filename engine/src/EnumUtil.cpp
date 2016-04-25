@@ -3,6 +3,18 @@
 
 namespace fury
 {
+	const std::vector<std::pair<ClearMode, std::string>> EnumUtil::m_ClearMode =
+	{
+		std::make_pair(ClearMode::NONE, "none"),
+		std::make_pair(ClearMode::COLOR, "color"), 
+		std::make_pair(ClearMode::DEPTH, "depth"), 
+		std::make_pair(ClearMode::STENCIL, "stencil"), 
+		std::make_pair(ClearMode::COLOR_DEPTH, "color_depth"), 
+		std::make_pair(ClearMode::COLOR_STENCIL, "color_stencil"), 
+		std::make_pair(ClearMode::STENCIL_DEPTH, "stencil_depth"), 
+		std::make_pair(ClearMode::COLOR_DEPTH_STENCIL, "color_depth_stencil")
+	};
+
 	const std::vector<std::tuple<CompareMode, unsigned int, std::string>> EnumUtil::m_CompareMode =
 	{
 		std::make_tuple(CompareMode::LESS, GL_LESS, "less"),
@@ -128,6 +140,31 @@ namespace fury
 		std::make_pair(ShaderTexture::SPECULAR, "specular"), 
 		std::make_pair(ShaderTexture::NORMAL, "normal")
 	};
+
+	const std::vector<unsigned int> EnumUtil::m_LineMode =
+	{
+		GL_LINES, 
+		GL_LINE_LOOP, 
+		GL_LINE_STRIP
+	};
+
+
+	std::string EnumUtil::ClearModeToString(ClearMode mode)
+	{
+		return m_ClearMode[(unsigned int)mode].second;
+	}
+
+	ClearMode EnumUtil::ClearModeFromString(const std::string &name)
+	{
+		for (const auto &mode : m_ClearMode)
+		{
+			if (mode.second == name)
+				return mode.first;
+		}
+		return ClearMode::COLOR_DEPTH_STENCIL;
+	}
+
+
 
 	unsigned int EnumUtil::CompareModeToUint(CompareMode mode)
 	{
@@ -317,7 +354,12 @@ namespace fury
 
 	std::string EnumUtil::ShaderTextureToString(ShaderTexture texture)
 	{
-		return m_ShaderTexture[(int)texture].second;
+		for (const auto &pair : m_ShaderTexture)
+		{
+			if (pair.first == texture)
+				return pair.second;
+		}
+		return "";
 	}
 
 	ShaderTexture EnumUtil::ShaderTextureFromString(const std::string &name)
@@ -339,5 +381,10 @@ namespace fury
 			if (flags & (unsigned int)single)
 				textures.push_back(single);
 		}
+	}
+
+	unsigned int EnumUtil::LineModeToUnit(LineMode mode)
+	{
+		return m_LineMode[(unsigned int)mode];
 	}
 }

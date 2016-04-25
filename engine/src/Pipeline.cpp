@@ -3,7 +3,7 @@
 #include "Camera.h"
 #include "Log.h"
 #include "EnumUtil.h"
-#include "EntityManager.h"
+#include "EntityUtil.h"
 #include "FileUtil.h"
 #include "Material.h"
 #include "Pipeline.h"
@@ -21,7 +21,7 @@ namespace fury
 
 	bool Pipeline::Load(const void* wrapper)
 	{
-		EntityManager::Ptr entityMgr = EntityManager::Instance();
+		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
 
 		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
@@ -157,5 +157,38 @@ namespace fury
 		m_SortedPasses.reserve(wrapper.size());
 		for (auto pair : wrapper)
 			m_SortedPasses.push_back(pair.second);
+	}
+
+	void Pipeline::SetDebugParams(bool drawOpaqueBounds, bool drawLightBounds)
+	{
+		m_DrawOpaqueBounds = drawOpaqueBounds;
+		m_DrawLightBounds = drawLightBounds;
+	}
+
+	std::shared_ptr<Pass> Pipeline::GetPassByName(const std::string &name)
+	{
+		auto it = m_PassMap.find(name);
+		if (it != m_PassMap.end())
+			return it->second;
+
+		return nullptr;
+	}
+
+	std::shared_ptr<Texture> Pipeline::GetTextureByName(const std::string &name)
+	{
+		auto it = m_TextureMap.find(name);
+		if (it != m_TextureMap.end())
+			return it->second;
+
+		return nullptr;
+	}
+
+	std::shared_ptr<Shader> Pipeline::GetShaderByName(const std::string &name)
+	{
+		auto it = m_ShaderMap.find(name);
+		if (it != m_ShaderMap.end())
+			return it->second;
+
+		return nullptr;
 	}
 }

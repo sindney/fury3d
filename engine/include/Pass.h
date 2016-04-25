@@ -38,6 +38,8 @@ namespace fury
 
 		std::vector<std::shared_ptr<Texture>> m_InputTextures;
 
+		ClearMode m_ClearMode = ClearMode::COLOR_DEPTH_STENCIL;
+
 		CompareMode m_CompareMode = CompareMode::LESS;
 
 		BlendMode m_BlendMode = BlendMode::REPLACE;
@@ -69,6 +71,10 @@ namespace fury
 		void SetRenderIndex(unsigned int index);
 
 		unsigned int GetRenderIndex() const;
+
+		void SetClearMode(ClearMode mode);
+
+		ClearMode GetClearMode() const;
 
 		void SetCompareMode(CompareMode mode);
 

@@ -2,7 +2,7 @@
 #include "Component.h"
 #include "Log.h"
 #include "OcTreeNode.h"
-#include "OcTreeManager.h"
+#include "OcTree.h"
 #include "SceneNode.h"
 
 namespace fury

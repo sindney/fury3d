@@ -1,5 +1,7 @@
 #include "LoadFbxFile.h"
 
+AnimationPlayer::Ptr m_AnimPlayer = nullptr;
+
 void LoadFbxFile::Init(sf::Window &window)
 {
 	m_RootNode = SceneNode::Create("RootNode");
@@ -9,18 +11,25 @@ void LoadFbxFile::Init(sf::Window &window)
 	importOptions.ScaleFactor = 0.01f;
 	importOptions.AnimCompressLevel = 0.25f;
 
-	FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/james.fbx"), m_RootNode, importOptions);
-
-	EntityManager::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+	if (false)
 	{
-		std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
-		return true;
-	});
+		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/james.fbx"), m_RootNode, importOptions);
 
-	auto animNode = m_RootNode->FindChildRecursively("JamesNode");
-	auto animWalk = EntityManager::Instance()->Get<AnimationClip>("James|Walk");
-	m_AnimPlayer = AnimationPlayer::Create("AnimPlayer");
-	m_AnimPlayer->AdvanceTime(animNode, animWalk, 0.0f);
+		EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+		{
+			std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
+			return true;
+		});
+
+		auto animWalk = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
+		auto animNode = m_RootNode->FindChildRecursively("JamesNode");
+		m_AnimPlayer = AnimationPlayer::Create("AnimPlayer");
+		m_AnimPlayer->AdvanceTime(animNode, animWalk, 0.0f);
+	}
+	else
+	{
+		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank.fbx"), m_RootNode, importOptions);
+	}
 
 	// setup camera
 	m_CamSpeed = 1;
@@ -33,9 +42,9 @@ void LoadFbxFile::Init(sf::Window &window)
 	m_CamNode->AddComponent(Camera::Create());
 	m_CamNode->GetComponent<Camera>()->PerspectiveFov(0.7854f, 1.778f, 1, 500000);
 	m_CamNode->Recompose(true);
-	EntityManager::Instance()->Add(m_CamNode);
+	EntityUtil::Instance()->Add(m_CamNode);
 
-	m_OcTree = OcTreeManager::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
+	m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
 	m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 	// setup pipeline
@@ -46,13 +55,15 @@ void LoadFbxFile::Init(sf::Window &window)
 void LoadFbxFile::FixedUpdate()
 {
 	BasicScene::FixedUpdate();
-	m_AnimPlayer->AdvanceTime(0.04f);
+	if (m_AnimPlayer)
+		m_AnimPlayer->AdvanceTime(0.04f);
 }
 
 void LoadFbxFile::Update(float dt)
 {
 	BasicScene::Update(dt);
-	m_AnimPlayer->Display(dt);
+	if (m_AnimPlayer)
+		m_AnimPlayer->Display(dt);
 }
 
 void LoadFbxFile::Draw(sf::Window &window)

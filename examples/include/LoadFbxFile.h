@@ -7,12 +7,6 @@
 
 class LoadFbxFile : public BasicScene
 {
-protected:
-
-	Pipeline::Ptr m_Pipeline;
-
-	AnimationPlayer::Ptr m_AnimPlayer;
-
 public:
 
 	virtual void Init(sf::Window &window);

@@ -16,11 +16,11 @@
 
 namespace fury
 {
-	class FURY_API ThreadManager : public Singleton<ThreadManager, size_t>
+	class FURY_API ThreadUtil : public Singleton<ThreadUtil, size_t>
 	{
 	public:
 
-		typedef std::shared_ptr<ThreadManager> Ptr;
+		typedef std::shared_ptr<ThreadUtil> Ptr;
 
 	protected:
 
@@ -38,9 +38,9 @@ namespace fury
 
 	public:
 
-		ThreadManager(size_t numThreads);
+		ThreadUtil(size_t numThreads);
 
-		~ThreadManager();
+		~ThreadUtil();
 
 		template<class F, class... Args>
 		auto Enqueue(F&& f, Args&&... args)

@@ -1,5 +1,5 @@
-#ifndef _FURY_OCTREE_MANAGER_H_
-#define _FURY_OCTREE_MANAGER_H_
+#ifndef _FURY_OCTREE_H_
+#define _FURY_OCTREE_H_
 
 #include <vector>
 #include <memory>
@@ -13,15 +13,15 @@ namespace fury
 {
 	class OcTreeNode;
 
-	// OcTreeManager holds a shared_ptr to attached scenenodes.
+	// OcTree holds a shared_ptr to attached scenenodes.
 	// When you need to destory a scenenode.
 	// Call node.RemoveFromOcTree(true) + node.RemoveFromParent() + node.reset().
 	// You'll destory this node and all it's childs.
-	class FURY_API OcTreeManager : public SceneManager, public std::enable_shared_from_this<OcTreeManager>
+	class FURY_API OcTree : public SceneManager, public std::enable_shared_from_this<OcTree>
 	{
 	public:
 
-		typedef std::shared_ptr<OcTreeManager> Ptr;
+		typedef std::shared_ptr<OcTree> Ptr;
 
 		static Ptr Create(Vector4 min, Vector4 max, unsigned int maxDepth = 6);
 
@@ -35,9 +35,9 @@ namespace fury
 
 	public:
 
-		OcTreeManager(Vector4 min, Vector4 max, unsigned int maxDepth);
+		OcTree(Vector4 min, Vector4 max, unsigned int maxDepth);
 
-		~OcTreeManager();
+		~OcTree();
 
 		virtual std::type_index GetTypeIndex() const;
 
@@ -80,4 +80,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_OCTREE_MANAGER_H_
+#endif // _FURY_OCTREE_H_

@@ -14,7 +14,7 @@
 #include <mutex>
 #include <chrono>
 
-#include "ThreadManager.h"
+#include "ThreadUtil.h"
 #include "Singleton.h"
 
 namespace fury
@@ -87,7 +87,7 @@ namespace fury
 		{
 			stream << "[" << record.level << "]";
 
-			if (!ThreadManager::Instance()->IsMainThread())
+			if (!ThreadUtil::Instance()->IsMainThread())
 				stream << "[" << std::this_thread::get_id() << "]";
 
 			stream << "[" << record.func << "][" << record.line << "]: ";
@@ -97,7 +97,7 @@ namespace fury
 		{
 			stream << "[" << record.level << "]";
 
-			if (!ThreadManager::Instance()->IsMainThread())
+			if (!ThreadUtil::Instance()->IsMainThread())
 				stream << "[" << std::this_thread::get_id() << "]";
 
 			stream << "[" << record.file << "][" << record.func << "][" << record.line << "]: ";

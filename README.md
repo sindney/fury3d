@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/dev-v0.1.3-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/release-v0.2.0-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -48,9 +48,7 @@ Should work with any graphic card that supports opengl 3.3 +
 
 ## Screenshots
 
-![Skeleton Animation](screenshots/skinAnim.jpg)
-
-![Dynamic Lighting](screenshots/dynamicLighting.jpg)
+![Dynamic Lighting](screenshots/simple-profile-window.jpg)
 
 ## Examples
 
@@ -70,14 +68,14 @@ importOptions.AnimCompressLevel = 0.25f;
 FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
 // You can iterate a certain type of imported resources.
-EntityManager::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 {
 	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 	return true;
 });
 
 // Or you can simply find an resource by it's name or hashcode.
-auto clip = EntityManager::Instance()->Get<AnimationClip>("James|Walk");
+auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
 
 // Setup octree
 auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);

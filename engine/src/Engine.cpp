@@ -1,26 +1,27 @@
 #include <SFML/Window.hpp>
 
-#include "EngineManager.h"
-#include "EntityManager.h"
+#include "Engine.h"
+#include "EntityUtil.h"
 #include "FbxParser.h"
 #include "GLLoader.h"
-#include "InputManager.h"
+#include "InputUtil.h"
 #include "Log.h"
 #include "MeshUtil.h"
-#include "ThreadManager.h"
+#include "RenderUtil.h"
+#include "ThreadUtil.h"
 #include "Vector4.h"
 
 namespace fury
 {
-	bool EngineManager::Initialize(sf::Window &window, int numThreads, LogLevel level, const char* logfile,
+	bool Engine::Initialize(sf::Window &window, int numThreads, LogLevel level, const char* logfile,
 		bool console, const LogFormatter &formatter, bool append)
 	{
 		Log<0>::Initialize(std::move(level), std::move(logfile), std::move(console), formatter, std::move(append));
 
-		ThreadManager::Initialize(std::move(numThreads));
-		ThreadManager::Instance()->SetMainThread();
+		ThreadUtil::Initialize(std::move(numThreads));
+		ThreadUtil::Instance()->SetMainThread();
 
-		FURYD << ThreadManager::Instance()->GetWorkerCount() << " thread launched!";
+		FURYD << ThreadUtil::Instance()->GetWorkerCount() << " thread launched!";
 
 		MeshUtil::m_UnitQuad = MeshUtil::CreateQuad("quad_mesh", Vector4(-1.0f, -1.0f, 0.0f), Vector4(1.0f, 1.0f, 0.0f));
 		MeshUtil::m_UnitCube = MeshUtil::CreateCube("cube_mesh", Vector4(-1.0f), Vector4(1.0f));
@@ -29,11 +30,14 @@ namespace fury
 		MeshUtil::m_UnitCylinder = MeshUtil::CreateCylinder("cylinder_mesh", 1.0f, 1.0f, 1.0f, 4, 10);
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
-		InputManager::Initialize(window.getSize().x, window.getSize().y);
-		EntityManager::Initialize();
+		InputUtil::Initialize(window.getSize().x, window.getSize().y);
+		EntityUtil::Initialize();
 		FbxParser::Initialize();
 
 		int flag = gl::LoadGLFunctions();
+
+		RenderUtil::Initialize();
+
 		if (flag == 1)
 		{
 			glEnable(GL_FRAMEBUFFER_SRGB);
@@ -44,7 +48,7 @@ namespace fury
 		{
 			FURYE << "Failed to load gl functions.";
 		}
-		else 
+		else
 		{
 			FURYE << "Failed to load " << flag - 1 << " gl functions.";
 		}
@@ -52,9 +56,9 @@ namespace fury
 		return false;
 	}
 
-	void EngineManager::HandleEvent(sf::Event &event)
+	void Engine::HandleEvent(sf::Event &event)
 	{
-		auto &inputMgr = InputManager::Instance();
+		auto &inputMgr = InputUtil::Instance();
 		switch (event.type)
 		{
 		case sf::Event::Closed:
@@ -117,7 +121,7 @@ namespace fury
 		}
 	}
 
-	std::pair<int, int> EngineManager::GetGLVersion()
+	std::pair<int, int> Engine::GetGLVersion()
 	{
 		return std::make_pair<int, int>(gl::GetMajorVersion(), gl::GetMinorVersion());
 	}

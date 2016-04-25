@@ -10,9 +10,13 @@
 
 namespace fury
 {
-	class FURY_API InputManager final : public Singleton<InputManager, int, int>
+	class FURY_API InputUtil final : public Singleton<InputUtil, int, int>
 	{
-		friend class EngineManager;
+		friend class Engine;
+
+	public:
+
+		typedef std::shared_ptr<InputUtil> Ptr;
 
 	private:
 
@@ -60,7 +64,7 @@ namespace fury
 
 		Signal<sf::Mouse::Button, int, int> OnMouseUp;
 
-		InputManager(unsigned int width, unsigned int height);
+		InputUtil(unsigned int width, unsigned int height);
 
 		std::pair<unsigned int, unsigned int> GetWindowSize();
 

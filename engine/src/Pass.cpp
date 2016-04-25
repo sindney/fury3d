@@ -6,7 +6,7 @@
 #include "Shader.h"
 #include "Texture.h"
 #include "EnumUtil.h"
-#include "EntityManager.h"
+#include "EntityUtil.h"
 
 namespace fury
 {
@@ -27,7 +27,7 @@ namespace fury
 
 	bool Pass::Load(const void* wrapper)
 	{
-		EntityManager::Ptr entityMgr = EntityManager::Instance();
+		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 
 		std::string str;
 
@@ -40,27 +40,31 @@ namespace fury
 		}
 		if (auto camNode = entityMgr->Get<SceneNode>(str))
 			SetCameraNode(camNode);
-
-		if (!LoadMemberValue(wrapper, "blendMode", str))
+		else
 		{
-			FURYE << "Pass param 'blendMode' not found!";
+			FURYE << "Camera node not found!";
 			return false;
 		}
-		SetBlendMode(EnumUtil::BlendModeFromString(str));
 
-		if (!LoadMemberValue(wrapper, "compareMode", str))
-		{
-			FURYE << "Pass param 'compareMode' not found!";
-			return false;
-		}
-		SetCompareMode(EnumUtil::CompareModeFromString(str));
+		if (LoadMemberValue(wrapper, "clearMode", str))
+			SetClearMode(EnumUtil::ClearModeFromString(str));
+		else
+			SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
 
-		if (!LoadMemberValue(wrapper, "cullMode", str))
-		{
-			FURYE << "Pass param 'cullMode' not found!";
-			return false;
-		}
-		SetCullMode(EnumUtil::CullModeFromString(str));
+		if (LoadMemberValue(wrapper, "blendMode", str))
+			SetBlendMode(EnumUtil::BlendModeFromString(str));
+		else 
+			SetBlendMode(BlendMode::REPLACE);
+
+		if (LoadMemberValue(wrapper, "compareMode", str))
+			SetCompareMode(EnumUtil::CompareModeFromString(str));
+		else
+			SetCompareMode(CompareMode::LESS);
+
+		if (LoadMemberValue(wrapper, "cullMode", str))
+			SetCullMode(EnumUtil::CullModeFromString(str));
+		else
+			SetCullMode(CullMode::BACK);
 
 		if (!LoadMemberValue(wrapper, "drawMode", str))
 		{
@@ -169,6 +173,9 @@ namespace fury
 		SaveKey(wrapper, "index");
 		SaveValue(wrapper, (int&)m_RenderIndex);
 
+		SaveKey(wrapper, "clearMode");
+		SaveValue(wrapper, EnumUtil::ClearModeToString(m_ClearMode));
+
 		SaveKey(wrapper, "blendMode");
 		SaveValue(wrapper, EnumUtil::BlendModeToString(m_BlendMode));
 
@@ -194,6 +201,16 @@ namespace fury
 	unsigned int Pass::GetRenderIndex() const
 	{
 		return m_RenderIndex;
+	}
+
+	void Pass::SetClearMode(ClearMode mode)
+	{
+		m_ClearMode = mode;
+	}
+
+	ClearMode Pass::GetClearMode() const
+	{
+		return m_ClearMode;
 	}
 
 	void Pass::SetCompareMode(CompareMode mode)
@@ -410,7 +427,33 @@ namespace fury
 		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
 
 		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+		switch (m_ClearMode)
+		{
+		case ClearMode::COLOR:
+			glClear(GL_COLOR_BUFFER_BIT);
+			break;
+		case ClearMode::COLOR_DEPTH:
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			break;
+		case ClearMode::COLOR_DEPTH_STENCIL:
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::COLOR_STENCIL:
+			glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::DEPTH:
+			glClear(GL_DEPTH_BUFFER_BIT);
+			break;
+		case ClearMode::STENCIL:
+			glClear(GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::STENCIL_DEPTH:
+			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::NONE:
+			break;
+		}
 
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(EnumUtil::CompareModeToUint(m_CompareMode));

@@ -38,7 +38,9 @@ namespace fury
 
 		std::vector<std::string> m_SortedPasses;
 
-		unsigned int m_DrawCall = 0;
+		bool m_DrawOpaqueBounds = true;
+
+		bool m_DrawLightBounds = true;
 
 	public:
 
@@ -55,10 +57,13 @@ namespace fury
 
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) = 0;
 		
-		unsigned int GetDrawCall() const
-		{
-			return m_DrawCall;
-		}
+		void SetDebugParams(bool drawOpaqueBounds, bool drawLightBounds);
+
+		std::shared_ptr<Pass> GetPassByName(const std::string &name);
+
+		std::shared_ptr<Texture> GetTextureByName(const std::string &name);
+
+		std::shared_ptr<Shader> GetShaderByName(const std::string &name);
 
 	protected: 
 

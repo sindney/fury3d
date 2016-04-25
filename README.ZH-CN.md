@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/dev-v0.1.3-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/release-v0.2.0-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -48,9 +48,7 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 ## 测试截图
 
-![骨骼动画](screenshots/skinAnim.jpg)
-
-![动态光照](screenshots/dynamicLighting.jpg)
+![动态光照](screenshots/simple-profile-window.jpg)
 
 ## 例子
 
@@ -70,14 +68,14 @@ importOptions.AnimCompressLevel = 0.25f;
 FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Path to fbx"), m_RootNode, importOptions);
 
 // 你可以遍历任意一种载入的资源列表
-EntityManager::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 {
 	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 	return true;
 });
 
 // 也可以通过名字或者名字的哈希值来得到某资源指针
-auto clip = EntityManager::Instance()->Get<AnimationClip>("James|Walk");
+auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
 
 // 初始化八叉树
 auto m_OcTree = OcTreeManager::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);

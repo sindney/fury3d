@@ -1,19 +1,19 @@
 #include <math.h>
 
 #include "OcTreeNode.h"
-#include "OcTreeManager.h"
+#include "OcTree.h"
 #include "Plane.h"
 #include "SceneNode.h"
 
 namespace fury
 {
-	OcTreeNode::Ptr OcTreeNode::Create(OcTreeManager &manager, const OcTreeNode::Ptr &parent, 
+	OcTreeNode::Ptr OcTreeNode::Create(OcTree &manager, const OcTreeNode::Ptr &parent, 
 		Vector4 min, Vector4 max)
 	{
 		return std::make_shared<OcTreeNode>(manager, parent, min, max);
 	}
 
-	OcTreeNode::OcTreeNode(OcTreeManager &manager, const OcTreeNode::Ptr &parent, Vector4 min, Vector4 max) :
+	OcTreeNode::OcTreeNode(OcTree &manager, const OcTreeNode::Ptr &parent, Vector4 min, Vector4 max) :
 		m_TypeIndex(typeid(OcTreeNode)), m_Manager(manager), m_Parent(parent), 
 		m_AABB(min, max), m_IsLeaf(false), m_TotalSceneNodeCount(0)
 	{
@@ -108,7 +108,7 @@ namespace fury
 		return child;
 	}
 
-	OcTreeManager &OcTreeNode::GetManager() const
+	OcTree &OcTreeNode::GetManager() const
 	{
 		return m_Manager;
 	}

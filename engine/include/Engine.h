@@ -1,5 +1,5 @@
-#ifndef _FURY_ENGINE_MANAGER_H_
-#define _FURY_ENGINE_MANAGER_H_
+#ifndef _FURY_ENGINE_H_
+#define _FURY_ENGINE_H_
 
 #include <iostream>
 #include <functional>
@@ -12,7 +12,7 @@
 
 namespace fury
 {
-	class FURY_API EngineManager 
+	class FURY_API Engine 
 	{
 	public:
 
@@ -25,4 +25,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_ENGINE_MANAGER_H_
+#endif // _FURY_ENGINE_H_

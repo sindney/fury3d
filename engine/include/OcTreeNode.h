@@ -5,7 +5,7 @@
 
 namespace fury
 {
-	class OcTreeManager;
+	class OcTree;
 
 	/**
 
@@ -20,13 +20,13 @@ namespace fury
 	*/
 	class FURY_API OcTreeNode : public TypeComparable, public std::enable_shared_from_this<OcTreeNode>
 	{
-		friend class OcTreeManager;
+		friend class OcTree;
 
 	public:
 
 		typedef std::shared_ptr<OcTreeNode> Ptr;
 
-		static Ptr Create(OcTreeManager &manager, const OcTreeNode::Ptr &parent, 
+		static Ptr Create(OcTree &manager, const OcTreeNode::Ptr &parent, 
 			Vector4 min, Vector4 max);
 
 	protected:
@@ -35,7 +35,7 @@ namespace fury
 
 		BoxBounds m_AABB;
 
-		OcTreeManager& m_Manager;
+		OcTree& m_Manager;
 
 		OcTreeNode::Ptr m_Childs[8];
 
@@ -49,7 +49,7 @@ namespace fury
 
 	public:
 
-		OcTreeNode(OcTreeManager &manager, const OcTreeNode::Ptr &parent, 
+		OcTreeNode(OcTree &manager, const OcTreeNode::Ptr &parent, 
 			Vector4 min, Vector4 max);
 
 		virtual ~OcTreeNode();
@@ -58,7 +58,7 @@ namespace fury
 
 		BoxBounds GetAABB() const;
 
-		OcTreeManager &GetManager() const;
+		OcTree &GetManager() const;
 
 		bool IsTwiceSize(BoxBounds other) const;
 

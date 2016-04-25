@@ -11,7 +11,19 @@
 
 namespace fury
 {
-	enum class CompareMode : int
+	enum class ClearMode : unsigned int
+	{
+		NONE = 0, 
+		COLOR, 
+		STENCIL, 
+		DEPTH, 
+		COLOR_DEPTH, 
+		COLOR_STENCIL, 
+		STENCIL_DEPTH, 
+		COLOR_DEPTH_STENCIL
+	};
+
+	enum class CompareMode : unsigned int
 	{
 		LESS = 0,
 		GREATER,
@@ -22,7 +34,7 @@ namespace fury
 		NOTEQUAL
 	};
 
-	enum class BlendMode : int
+	enum class BlendMode : unsigned int
 	{
 		REPLACE = 0,
 		ADD,
@@ -42,7 +54,7 @@ namespace fury
 		NONE
 	};
 
-	enum class TextureFormat : int
+	enum class TextureFormat : unsigned int
 	{
 		UNKNOW = 0, 
 		R8,
@@ -68,7 +80,7 @@ namespace fury
 		DEPTH24_STENCIL8
 	};
 
-	enum class FilterMode : int 
+	enum class FilterMode : unsigned int
 	{
 		NEAREST = 0,
 		LINEAR,
@@ -78,7 +90,7 @@ namespace fury
 		LINEAR_MIPMAP_LINEAR
 	};
 
-	enum class WrapMode : int
+	enum class WrapMode : unsigned int
 	{
 		REPEAT = 0,
 		MIRRORED_REPEAT,
@@ -93,7 +105,7 @@ namespace fury
 		STRADDLE
 	};
 
-	enum class LightType : int
+	enum class LightType : unsigned int
 	{
 		DIRECTIONAL = 0, 
 		POINT,
@@ -107,7 +119,7 @@ namespace fury
 		QUAD
 	};
 	
-	enum class ShaderType : int
+	enum class ShaderType : unsigned int
 	{
 		OTHER = 0, 
 		STATIC_MESH, 
@@ -126,9 +138,18 @@ namespace fury
 		NORMAL		= 0x0008
 	};
 
+	enum class LineMode : unsigned int
+	{
+		LINES = 0, 
+		LINE_LOOP, 
+		LINE_STRIP
+	};
+
 	class FURY_API EnumUtil final
 	{
 	private:
+
+		static const std::vector<std::pair<ClearMode, std::string>> m_ClearMode;
 
 		static const std::vector<std::tuple<CompareMode, unsigned int, std::string>> m_CompareMode;
 
@@ -150,7 +171,14 @@ namespace fury
 
 		static const std::vector<std::pair<ShaderTexture, std::string>> m_ShaderTexture;
 
+		static const std::vector<unsigned int> m_LineMode;
+
 	public:
+
+		static std::string ClearModeToString(ClearMode mode);
+
+		static ClearMode ClearModeFromString(const std::string &name);
+
 
 		static unsigned int CompareModeToUint(CompareMode mode);
 
@@ -214,6 +242,8 @@ namespace fury
 
 		static void GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures);
 
+
+		static unsigned int LineModeToUnit(LineMode mode);
 	};
 }
 

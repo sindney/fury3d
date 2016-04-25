@@ -13,7 +13,7 @@ namespace fury
 
 	class FURY_API MeshUtil final 
 	{
-		friend class EngineManager;
+		friend class Engine;
 
 	private:
 

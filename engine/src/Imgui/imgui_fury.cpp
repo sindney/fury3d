@@ -9,7 +9,7 @@
 #include "Shader.h"
 #include "Log.h"
 #include "EnumUtil.h"
-#include "InputManager.h"
+#include "InputUtil.h"
 
 #include "../GLLoader.h"
 
@@ -100,11 +100,9 @@ namespace fury
 
 			auto shaderId = m_Shader->GetProgram();
 
-			auto g_AttribLocationTex = glGetUniformLocation(shaderId, "Texture");
-			auto g_AttribLocationProjMtx = glGetUniformLocation(shaderId, "ProjMtx");
-			auto g_AttribLocationPosition = glGetAttribLocation(shaderId, "Position");
-			auto g_AttribLocationUV = glGetAttribLocation(shaderId, "UV");
-			auto g_AttribLocationColor = glGetAttribLocation(shaderId, "Color");
+			auto attribLocationPosition = glGetAttribLocation(shaderId, "Position");
+			auto attribLocationUV = glGetAttribLocation(shaderId, "UV");
+			auto attribLocationColor = glGetAttribLocation(shaderId, "Color");
 
 			glGenBuffers(1, &m_VBO);
 			glGenBuffers(1, &m_EAB);
@@ -115,14 +113,14 @@ namespace fury
 
 			glBindVertexArray(m_VAO);
 			glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
-			glEnableVertexAttribArray(g_AttribLocationPosition);
-			glEnableVertexAttribArray(g_AttribLocationUV);
-			glEnableVertexAttribArray(g_AttribLocationColor);
+			glEnableVertexAttribArray(attribLocationPosition);
+			glEnableVertexAttribArray(attribLocationUV);
+			glEnableVertexAttribArray(attribLocationColor);
 
 #define OFFSETOF(TYPE, ELEMENT) ((size_t)&(((TYPE *)0)->ELEMENT))
-			glVertexAttribPointer(g_AttribLocationPosition, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, pos));
-			glVertexAttribPointer(g_AttribLocationUV, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, uv));
-			glVertexAttribPointer(g_AttribLocationColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, col));
+			glVertexAttribPointer(attribLocationPosition, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, pos));
+			glVertexAttribPointer(attribLocationUV, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, uv));
+			glVertexAttribPointer(attribLocationColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, col));
 #undef OFFSETOF
 
 			// Load Font
@@ -296,7 +294,7 @@ namespace fury
 		void NewFrame(float frameTime)
 		{
 			auto &io = ImGui::GetIO();
-			auto &inputMgr = InputManager::Instance();
+			auto &inputMgr = InputUtil::Instance();
 			auto winSize = m_Window->getSize();
 
 			// Setup display size (every frame to accommodate for window resizing)
