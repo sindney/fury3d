@@ -28,7 +28,7 @@ void LoadFbxFile::Init(sf::Window &window)
 	}
 	else
 	{
-		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank.fbx"), m_RootNode, importOptions);
+		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank_shadow.fbx"), m_RootNode, importOptions);
 
 		EntityUtil::Instance()->Get<Mesh>("Grid")->SetCastShadows(false);
 	}
@@ -46,7 +46,7 @@ void LoadFbxFile::Init(sf::Window &window)
 
 	auto camera = Camera::Create();
 	camera->PerspectiveFov(0.7854f, 1.778f, 1, 100);
-	camera->SetShadowFar(20);
+	camera->SetShadowFar(30);
 
 	m_CamNode = SceneNode::Create("camNode");
 	m_CamNode->SetLocalPosition(Vector4(0.0f, 10.0f, 25.0f, 1.0f));

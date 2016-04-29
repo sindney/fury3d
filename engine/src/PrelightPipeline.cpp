@@ -37,7 +37,7 @@ namespace fury
 		m_ShadowMap = Texture::Create("shadow_buffer_0");
 		m_ShadowMap->SetFilterMode(FilterMode::LINEAR);
 		m_ShadowMap->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
-		m_ShadowMap->CreateEmpty(1024, 1024, TextureFormat::DEPTH16, false);
+		m_ShadowMap->CreateEmpty(1024, 1024, TextureFormat::DEPTH24, false);
 		m_ShadowMap->SetBorderColor(Color(1, 1, 1, 1));
 
 		m_TextureMap.emplace(m_ShadowMap->GetName(), m_ShadowMap);
@@ -543,13 +543,13 @@ namespace fury
 					auto light = node->GetComponent<Light>();
 					if (light->GetType() == LightType::SPOT)
 					{
-						renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), Color::Green);
+						renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), light->GetColor());
 					}
 					else if (light->GetType() == LightType::POINT)
 					{
 						Matrix4 worldMatrix = node->GetWorldMatrix();
 						worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
-						renderUtil->DrawMesh(light->GetMesh(), worldMatrix, Color::Green);
+						renderUtil->DrawMesh(light->GetMesh(), worldMatrix, light->GetColor());
 					}
 				}
 			}
