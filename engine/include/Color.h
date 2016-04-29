@@ -27,13 +27,19 @@ namespace fury
 
 		static Color Yellow;
 
-		float r, g, b;
+		float r, g, b, a;
 
-		Color(float r, float g, float b) : r(r), g(g), b(b) {}
+		Color(float r, float g, float b, float a = 1.0f) : r(r), g(g), b(b), a(a) {}
 
 		Color Lerp(Color color, float t) const;
 
 		Color Invert() const;
+
+		Color &operator = (Color other);
+
+		bool operator == (Color other) const;
+
+		bool operator != (Color other) const;
 
 	};
 }

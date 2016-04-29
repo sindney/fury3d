@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/release-v0.2.0-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/dev-v0.2.1-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -30,7 +30,7 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 计划:
 
-* 添加阴影.
+* 添加阴影. (实现中)
 
 * 添加骨骼动画. (已简单实现，仍需改进)
 

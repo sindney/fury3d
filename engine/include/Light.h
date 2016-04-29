@@ -35,6 +35,8 @@ namespace fury
 
 		float m_Radius = 0.0f;
 
+		bool m_CastShadows = false;
+
 		BoxBounds m_AABB;
 
 		std::shared_ptr<Mesh> m_Mesh;
@@ -74,6 +76,10 @@ namespace fury
 		void SetRadius(float value);
 
 		float GetRadius() const;
+
+		void SetCastShadows(bool cast);
+
+		bool GetCastShadows() const;
 
 		BoxBounds GetAABB() const;
 

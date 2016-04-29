@@ -100,6 +100,16 @@ namespace fury
 		return m_Radius;
 	}
 
+	void Light::SetCastShadows(bool cast)
+	{
+		m_CastShadows = cast;
+	}
+
+	bool Light::GetCastShadows() const
+	{
+		return m_CastShadows;
+	}
+
 	BoxBounds Light::GetAABB() const
 	{
 		return m_AABB;

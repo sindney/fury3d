@@ -24,6 +24,12 @@ namespace fury
 		for(int i = 0; i < 16; i++) Raw[i] = raw[i];
 	}
 
+	Matrix4::Matrix4(std::initializer_list<float> raw)
+	{
+		ASSERT_MSG(raw.size() == 16, "Incorrect matrix data size!");
+		std::copy(raw.begin(), raw.end(), Raw);
+	}
+
 	Matrix4::Matrix4(const Matrix4 &other) 
 	{
 		for(int i = 0; i < 16; i++) Raw[i] = other.Raw[i];

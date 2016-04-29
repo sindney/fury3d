@@ -1,3 +1,5 @@
+#include <array>
+
 #include "Log.h"
 #include "GLLoader.h"
 #include "FileUtil.h"
@@ -11,7 +13,8 @@ namespace fury
 		return std::make_shared<Texture>(name);
 	}
 
-	Texture::Texture(const std::string &name) : Entity(name)
+	Texture::Texture(const std::string &name)
+		: Entity(name), m_BorderColor(0, 0, 0, 0)
 	{
 		m_TypeIndex = typeid(Texture);
 	}
@@ -54,6 +57,21 @@ namespace fury
 			FURYE << "Texture param 'width/height' not found!";
 			return false;
 		}
+
+		std::vector<float> color;
+		LoadArray(wrapper, "border_color", [&](const void* node) -> bool 
+		{
+			float value;
+			if (!LoadValue(node, value))
+			{
+				FURYE << "border_color is a 4 float array!";
+				return false;
+			}
+			color.push_back(value);
+			return true;
+		});
+		while (color.size() < 4) color.push_back(0);
+		SetBorderColor(Color(color[0], color[1], color[2], color[3]));
 
 		bool mipmap = false;
 		LoadMemberValue(wrapper, "mipmap", mipmap);
@@ -145,6 +163,9 @@ namespace fury
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
 
+			float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
+			glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+
 			if (m_Mipmap)
 				glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -179,6 +200,9 @@ namespace fury
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
+
+		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
 
 		if (m_Mipmap)
 			glGenerateMipmap(GL_TEXTURE_2D);
@@ -263,6 +287,28 @@ namespace fury
 				unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
+
+				glBindTexture(GL_TEXTURE_2D, 0);
+			}
+		}
+	}
+
+	Color Texture::GetBorderColor() const
+	{
+		return m_BorderColor;
+	}
+
+	void Texture::SetBorderColor(Color color)
+	{
+		if (m_BorderColor != color)
+		{
+			m_BorderColor = color;
+			if (m_ID != 0)
+			{
+				glBindTexture(GL_TEXTURE_2D, m_ID);
+
+				float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
+				glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
 
 				glBindTexture(GL_TEXTURE_2D, 0);
 			}

@@ -43,12 +43,22 @@
             "name": "phong_shader",
             "path": "Resource/Shader/Phong.glsl",
             "type": "other"
+        },
+        {
+            "name": "draw_depth_shader",
+            "path": "Resource/Shader/DrawDepth.glsl",
+            "type": "other"
+        },
+        {
+            "name": "draw_shadow_shader",
+            "path": "Resource/Shader/DrawShadow.glsl",
+            "type": "other"
         }
     ],
-    "textures": [
+   "textures": [
         {
-            "name": "depth_buffer",
-            "format": "depth16",
+            "name": "gbuffer_depth",
+            "format": "depth24",
             "filter": "linear",
             "wrap": "repeat",
             "width": 1280,
@@ -57,14 +67,6 @@
         {
             "name": "gbuffer_normal",
             "format": "rgba16",
-            "filter": "linear",
-            "wrap": "repeat",
-            "width": 1280,
-            "height": 720
-        },
-        {
-            "name": "gbuffer_depth",
-            "format": "rgba8",
             "filter": "linear",
             "wrap": "repeat",
             "width": 1280,
@@ -100,9 +102,8 @@
             "index": 0,
             "input": [],
             "output": [
-                "depth_buffer",
-                "gbuffer_normal",
                 "gbuffer_depth",
+                "gbuffer_normal",
                 "gbuffer_diffuse"
             ],
             "blendMode": "replace",
@@ -124,7 +125,6 @@
                 "gbuffer_normal"
             ],
             "output": [
-                "depth_buffer",
                 "gbuffer_light"
             ],
             "blendMode": "add",

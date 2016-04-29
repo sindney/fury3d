@@ -82,10 +82,8 @@ void BasicScene::UpdateGUI(float dt)
 {
 	static bool showProfilerWindow = true, showBufferWindow = true;
 
-	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 150), 1.0f, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-		ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize);
-
-	ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 250), 1.0f, 
+		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders);
 
 	// fps graph
 	{
@@ -105,8 +103,8 @@ void BasicScene::UpdateGUI(float dt)
 			values_offset = (values_offset + 1) % values.size();
 		}
 
-		std::string hint = "0 - " + std::to_string((int)upper_bound);
-		ImGui::PlotLines("", &values[0], values.size(), values_offset, hint.c_str(), 1, upper_bound, ImVec2(235, 40));
+		std::string hint = "FPS: " + std::to_string((int)ImGui::GetIO().Framerate);
+		ImGui::PlotLines("", &values[0], values.size(), values_offset, hint.c_str(), 1, upper_bound, ImVec2(210, 40));
 	}
 
 	ImGui::Separator();
@@ -140,12 +138,24 @@ void BasicScene::UpdateGUI(float dt)
 
 		ImVec2 imgSize(ImGui::GetIO().DisplaySize.x / 4, ImGui::GetIO().DisplaySize.y / 4);
 
+		ImGui::Text("Depth buffer: ");
+		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_depth"))
+			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+
 		ImGui::Text("Normal buffer: ");
 		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_normal"))
 			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 
+		ImGui::Text("Diffuse buffer: ");
+		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_diffuse"))
+			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+
 		ImGui::Text("Light buffer: ");
 		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_light"))
+			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+
+		ImGui::Text("Shadow buffer 0: ");
+		if (auto ptr = m_Pipeline->GetTextureByName("shadow_buffer_0"))
 			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 
 		ImGui::End();

@@ -1,3 +1,4 @@
+#include <cmath>
 #include <unordered_map>
 
 #include "Angle.h"
@@ -32,6 +33,27 @@ namespace fury
 	PrelightPipeline::PrelightPipeline(const std::string &name) : Pipeline(name)
 	{
 		m_TypeIndex = typeid(PrelightPipeline);
+
+		m_ShadowMap = Texture::Create("shadow_buffer_0");
+		m_ShadowMap->SetFilterMode(FilterMode::LINEAR);
+		m_ShadowMap->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
+		m_ShadowMap->CreateEmpty(1024, 1024, TextureFormat::DEPTH16, false);
+		m_ShadowMap->SetBorderColor(Color(1, 1, 1, 1));
+
+		m_TextureMap.emplace(m_ShadowMap->GetName(), m_ShadowMap);
+
+		m_DrawDepthPass = Pass::Create("DrawDepthPass");
+		m_DrawDepthPass->AddTexture(m_ShadowMap, false);
+		m_DrawDepthPass->SetBlendMode(BlendMode::REPLACE);
+		m_DrawDepthPass->SetClearMode(ClearMode::DEPTH);
+		m_DrawDepthPass->SetCompareMode(CompareMode::LESS);
+		m_DrawDepthPass->SetCullMode(CullMode::BACK);
+
+		m_DrawShadowPass = Pass::Create("DrawShadowPass");
+		m_DrawShadowPass->SetBlendMode(BlendMode::MULTIPLY);
+		m_DrawShadowPass->SetClearMode(ClearMode::NONE);
+		m_DrawShadowPass->SetCompareMode(CompareMode::ALWAYS);
+		m_DrawShadowPass->SetCullMode(CullMode::BACK);
 	}
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
@@ -62,7 +84,7 @@ namespace fury
 			RenderQuery::Ptr query = RenderQuery::Create();
 
 			sceneManager->GetRenderQuery(camNode->GetComponent<Camera>()->GetFrustum(), query);
-			query->Sort(camNode->GetWorldPosition(), false);
+			query->Sort(camNode->GetWorldPosition());
 
 			queries.emplace(camNode->GetName(), query);
 		}
@@ -83,93 +105,44 @@ namespace fury
 				continue;
 
 			auto query = queries[m_CurrentCamera->GetName()];
-
-			pass->Bind();
+			auto camera = m_CurrentCamera->GetComponent<Camera>();
 
 			if (drawMode == DrawMode::RENDERABLE)
 			{
+				pass->Bind();
 				for (const auto &node : query->OpaqueNodes)
 					DrawRenderable(pass, node);
+				pass->UnBind();
+			}
+			else if (drawMode == DrawMode::QUAD)
+			{
+				pass->Bind();
+				DrawQuad(pass);
+				pass->UnBind();
 			}
 			else if (drawMode == DrawMode::LIGHT)
 			{
-				glDepthMask(GL_FALSE);
-
+				bool first = true;
 				for (const auto &node : query->LightNodes)
+				{
+					pass->Bind(first);
+					first = false;
+
+					glDepthMask(GL_FALSE);
+
 					DrawLight(pass, node);
 
-				glDepthMask(GL_TRUE);
-				glEnable(GL_DEPTH_TEST);
-				glCullFace(GL_BACK);
-			}
-			else 
-			{
-				DrawQuad(pass);
-			}
+					pass->UnBind();
 
-			pass->UnBind();
+					glDepthMask(GL_TRUE);
+
+					DrawShadow(sceneManager, pass, node);
+				}
+			}
 		}
 
-		// debug pass
 		if (m_DrawLightBounds || m_DrawOpaqueBounds)
-		{
-			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-			glEnable(GL_DEPTH_TEST);
-			glEnable(GL_CULL_FACE);
-			glCullFace(GL_BACK);
-			glDisable(GL_BLEND);
-
-			auto renderUtil = RenderUtil::Instance();
-
-			for (auto &pair : m_PassMap)
-			{
-				auto pass = pair.second;
-				auto camNode = pass->GetCameraNode();
-
-				if (camNode == nullptr || pass->GetDrawMode() == DrawMode::QUAD)
-					continue;
-
-				auto it = queries.find(camNode->GetName());
-				if (it == queries.end())
-					continue;
-
-				auto visibles = it->second;
-				renderUtil->BeginDrawLines(camNode);
-
-				if (m_DrawOpaqueBounds)
-				{
-					for (auto node : visibles->OpaqueNodes)
-						renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
-				}
-
-				renderUtil->EndDrawLines();
-
-				renderUtil->BeginDrawMeshs(camNode);
-
-				if (m_DrawLightBounds)
-				{
-					for (auto node : visibles->LightNodes)
-					{
-						auto light = node->GetComponent<Light>();
-						if (light->GetType() == LightType::SPOT)
-						{
-							renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), Color::Green);
-						}
-						else if (light->GetType() == LightType::POINT)
-						{
-							Matrix4 worldMatrix = node->GetWorldMatrix();
-							worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
-							renderUtil->DrawMesh(light->GetMesh(), worldMatrix, Color::Green);
-						}
-					}
-				}
-
-				renderUtil->EndDrawMeshes();
-			}
-
-			glDisable(GL_DEPTH_TEST);
-		}
+			DrawDebug(queries);
 
 		// post
 		m_CurrentCamera = nullptr;
@@ -213,7 +186,7 @@ namespace fury
 					auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
 					if (shader == nullptr)
-						shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH, 
+						shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
 						material->GetTextureFlags());
 
 					if (shader == nullptr)
@@ -251,7 +224,7 @@ namespace fury
 			auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
 			if (shader == nullptr)
-				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH, 
+				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
 				material->GetTextureFlags());
 
 			if (shader == nullptr)
@@ -294,7 +267,7 @@ namespace fury
 
 		if (light->GetType() == LightType::POINT)
 		{
-			float camNear = (camPtr->GetFrustum().GetWorldSpaceCorners()[0] - camPos).Length();
+			float camNear = (camPtr->GetFrustum().GetCurrentCorners()[0] - camPos).Length();
 			if (SphereBounds(node->GetWorldPosition(), light->GetRadius() + camNear).IsInsideFast(camPos))
 			{
 				glDisable(GL_DEPTH_TEST);
@@ -315,7 +288,7 @@ namespace fury
 			auto coneCenter = node->GetWorldPosition();
 			auto coneDir = worldMatrix.Multiply(Vector4(0, -1, 0, 0)).Normalized();
 
-			float camNear = (camPtr->GetFrustum().GetWorldSpaceCorners()[0] - camPos).Length();
+			float camNear = (camPtr->GetFrustum().GetCurrentCorners()[0] - camPos).Length();
 			float theta = light->GetOutterAngle() * 0.5f;
 			float height = light->GetRadius();
 			float extra = camNear / std::sin(theta);
@@ -384,7 +357,7 @@ namespace fury
 		}
 
 		shader->Bind();
-		
+
 		shader->BindMesh(mesh);
 		shader->BindCamera(m_CurrentCamera);
 
@@ -400,5 +373,190 @@ namespace fury
 
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
+	}
+
+	void PrelightPipeline::DrawShadow(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	{
+		auto light = node->GetComponent<Light>();
+		if (light->GetType() != LightType::DIRECTIONAL)
+			return;
+
+		auto camNode = pass->GetCameraNode();
+		auto camera = camNode->GetComponent<Camera>();
+
+		Matrix4 lightMatrix = node->GetInvertWorldMatrix();
+		lightMatrix.AppendRotation(Angle::AxisRadToQuat(Vector4::XAxis, Angle::DegToRad * 90.0f));
+
+		// get camera's frustum's worldspace aabb.
+		auto camAABB = camera->GetFrustum(camera->GetNear(), camera->GetShadowFar()).GetBoxBounds();
+
+		// find shadow casters
+		fury::SceneManager::SceneNodes casters;
+		sceneManager->GetVisibleShadowCasters(camAABB, casters);
+
+		// transform world space aabb to light space.
+		camAABB = node->GetInvertWorldMatrix().Multiply(camAABB);
+		// gen projection matrix for light.
+		Matrix4 projMatrix;
+		projMatrix.OrthoOffCenter(camAABB.GetMin().x, camAABB.GetMax().x,
+			camAABB.GetMin().y, camAABB.GetMax().y,
+			camAABB.GetMin().z, camAABB.GetMax().z);
+
+		// draw casters to depth map, aka shadow map.
+		{
+			auto shaderIt = m_ShaderMap.find("draw_depth_shader");
+			if (shaderIt == m_ShaderMap.end())
+			{
+				FURYE << "Shader draw_depth_shader not found! Provide one if you want use shadow mapping!";
+				return;
+			}
+			auto draw_depth_shader = shaderIt->second;
+
+			m_DrawDepthPass->Bind();
+
+			glEnable(GL_POLYGON_OFFSET_FILL);
+			glPolygonOffset(2.5f, 10.0f);
+
+			draw_depth_shader->Bind();
+			draw_depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
+			draw_depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+
+			for (auto &caster : casters)
+			{
+				auto casterRender = caster->GetComponent<MeshRender>();
+				auto casterMesh = casterRender->GetMesh();
+
+				draw_depth_shader->BindMesh(casterMesh);
+				draw_depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
+
+				unsigned int subMeshCount = casterMesh->GetSubMeshCount();
+				if (subMeshCount > 0)
+				{
+					for (unsigned int i = 0; i < subMeshCount; i++)
+					{
+						draw_depth_shader->BindSubMesh(casterMesh, i);
+						glDrawElements(GL_TRIANGLES, casterMesh->GetSubMeshAt(i)->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					}
+				}
+				else
+				{
+					draw_depth_shader->BindMesh(casterMesh);
+					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				}
+			}
+
+			glDisable(GL_POLYGON_OFFSET_FILL);
+			draw_depth_shader->UnBind();
+
+			m_DrawDepthPass->UnBind();
+		}
+
+		// bind our shadow map.
+		// use gbuffer to test pixels's visiblities.
+		// set invisible pixels to 0 in light_buffer, to disable lighting effect.
+		{
+			auto shaderIt = m_ShaderMap.find("draw_shadow_shader");
+			auto depthIt = m_TextureMap.find("gbuffer_depth");
+			auto lightIt = m_TextureMap.find("gbuffer_light");
+
+			if (shaderIt == m_ShaderMap.end() || depthIt == m_TextureMap.end() || lightIt == m_TextureMap.end())
+			{
+				FURYE << "draw_shadow_shader/gbuffer_depth/gbuffer_light not found, check your pipline json file!";
+				return;
+			}
+			
+			auto draw_shadow_shader = shaderIt->second;
+			auto gubffer_depth = depthIt->second;
+			auto gbuffer_light = lightIt->second;
+
+			if (!m_DrawShadowPass->GetTexture(gbuffer_light->GetName(), false))
+				m_DrawShadowPass->AddTexture(gbuffer_light, false);
+
+			m_DrawShadowPass->Bind();
+
+			draw_shadow_shader->Bind();
+
+			Matrix4 biasMatrix({
+				0.5, 0.0, 0.0, 0.0,
+				0.0, 0.5, 0.0, 0.0,
+				0.0, 0.0, 0.5, 0.0,
+				0.5, 0.5, 0.5, 1.0
+			});
+			lightMatrix = biasMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix();
+
+			draw_shadow_shader->BindCamera(m_CurrentCamera);
+			draw_shadow_shader->BindMatrix("light_matrix", &lightMatrix.Raw[0]);
+
+			draw_shadow_shader->BindTexture("gbuffer_depth", gubffer_depth);
+			draw_shadow_shader->BindTexture("shadow_buffer", m_ShadowMap);
+
+			draw_shadow_shader->BindMesh(MeshUtil::GetUnitQuad());
+
+			glDrawElements(GL_TRIANGLES, MeshUtil::GetUnitQuad()->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+			draw_shadow_shader->UnBind();
+
+			m_DrawShadowPass->UnBind();
+		}
+	}
+
+	void PrelightPipeline::DrawDebug(std::unordered_map<std::string, RenderQuery::Ptr> &queries)
+	{
+		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glCullFace(GL_BACK);
+		glDisable(GL_BLEND);
+
+		auto renderUtil = RenderUtil::Instance();
+
+		for (auto &pair : m_PassMap)
+		{
+			auto pass = pair.second;
+			auto camNode = pass->GetCameraNode();
+
+			if (camNode == nullptr || pass->GetDrawMode() == DrawMode::QUAD)
+				continue;
+
+			auto it = queries.find(camNode->GetName());
+			if (it == queries.end())
+				continue;
+
+			auto visibles = it->second;
+			renderUtil->BeginDrawLines(camNode);
+
+			if (m_DrawOpaqueBounds)
+			{
+				for (auto node : visibles->OpaqueNodes)
+					renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
+			}
+
+			renderUtil->EndDrawLines();
+
+			renderUtil->BeginDrawMeshs(camNode);
+
+			if (m_DrawLightBounds)
+			{
+				for (auto node : visibles->LightNodes)
+				{
+					auto light = node->GetComponent<Light>();
+					if (light->GetType() == LightType::SPOT)
+					{
+						renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), Color::Green);
+					}
+					else if (light->GetType() == LightType::POINT)
+					{
+						Matrix4 worldMatrix = node->GetWorldMatrix();
+						worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
+						renderUtil->DrawMesh(light->GetMesh(), worldMatrix, Color::Green);
+					}
+				}
+			}
+
+			renderUtil->EndDrawMeshes();
+		}
+
+		glDisable(GL_DEPTH_TEST);
 	}
 }

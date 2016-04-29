@@ -4,6 +4,9 @@
 #include "RenderQuery.h"
 #include "SceneNode.h"
 
+#include "Log.h"
+#include "Light.h"
+
 namespace fury
 {
 	RenderQuery::Ptr RenderQuery::Create()
@@ -11,28 +14,23 @@ namespace fury
 		return std::make_shared<RenderQuery>();
 	}
 
-	void RenderQuery::Sort(Vector4 camPos, bool farToNear)
+	void RenderQuery::Sort(Vector4 camPos)
 	{
-		std::function<bool(const SceneNode::Ptr &, const SceneNode::Ptr &)> compare = nullptr;
-
-		if (farToNear)
+		auto farToNear = [&camPos](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
 		{
-			compare = [&camPos](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
-			{
-				return a->GetWorldPosition().Distance(camPos) > b->GetWorldPosition().Distance(camPos);
-			};
-		}
-		else
+			return a->GetWorldPosition().Distance(camPos) > b->GetWorldPosition().Distance(camPos);
+		};
+		auto nearToFar = [&camPos](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
 		{
-			compare = [&camPos](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
-			{
-				return a->GetWorldPosition().Distance(camPos) < b->GetWorldPosition().Distance(camPos);
-			};
-		}
+			return a->GetWorldPosition().Distance(camPos) < b->GetWorldPosition().Distance(camPos);
+		};
 
-		std::sort(OpaqueNodes.begin(), OpaqueNodes.end(), compare);
-		std::sort(TransparentNodes.begin(), TransparentNodes.end(), compare);
-		std::sort(LightNodes.begin(), LightNodes.end(), compare);
+		std::sort(OpaqueNodes.begin(), OpaqueNodes.end(), nearToFar);
+		std::sort(TransparentNodes.begin(), TransparentNodes.end(), farToNear);
+		std::sort(LightNodes.begin(), LightNodes.end(), [](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
+		{
+			return a->GetComponent<Light>()->GetCastShadows();
+		});
 	}
 
 	void RenderQuery::Clear()

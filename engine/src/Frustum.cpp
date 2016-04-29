@@ -9,11 +9,12 @@
 
 namespace fury
 {
-	Frustum::Frustum(const Frustum &other) : Frustum() 
+	Frustum::Frustum(const Frustum &other)
 	{
-		m_Corners = other.m_Corners;
-		m_WorldSpaceCorners = other.m_WorldSpaceCorners;
+		m_BaseCorners = other.m_BaseCorners;
+		m_CurrentCorners = other.m_CurrentCorners;
 		m_Planes = other.m_Planes;
+		m_ProjectionParams = other.m_ProjectionParams;
 	}
 
 	void Frustum::Setup(float fov, float ratio, float near, float far)
@@ -30,44 +31,51 @@ namespace fury
 		near = -near;
 		far = -far;
 
+		m_ProjectionParams[0] = left;
+		m_ProjectionParams[1] = right;
+		m_ProjectionParams[2] = bottom;
+		m_ProjectionParams[3] = top;
+		m_ProjectionParams[4] = near;
+		m_ProjectionParams[5] = far;
+
 		float toFar = far / near;
 		float farTop = top * toFar;
 		float farRight = right * toFar;
 		float farBottom = -farTop;
 		float farLeft = -farRight;
 
-		// ntl, ntr, nbl, nbr
-		m_Corners[0] = Vector4(left, top, near, 1.0f);
-		m_Corners[1] = Vector4(right, top, near, 1.0f);
-		m_Corners[2] = Vector4(left, bottom, near, 1.0f);
-		m_Corners[3] = Vector4(right, bottom, near, 1.0f);
-		// ftl, ftr, fbl, fbr
-		m_Corners[4] = Vector4(farLeft, farTop, far, 1.0f);
-		m_Corners[5] = Vector4(farRight, farTop, far, 1.0f);
-		m_Corners[6] = Vector4(farLeft, farBottom, far, 1.0f);
-		m_Corners[7] = Vector4(farRight, farBottom, far, 1.0f);
+		m_BaseCorners[0] = Vector4(left, top, near, 1.0f);
+		m_BaseCorners[1] = Vector4(right, top, near, 1.0f);
+		m_BaseCorners[2] = Vector4(left, bottom, near, 1.0f);
+		m_BaseCorners[3] = Vector4(right, bottom, near, 1.0f);
+		m_BaseCorners[4] = Vector4(farLeft, farTop, far, 1.0f);
+		m_BaseCorners[5] = Vector4(farRight, farTop, far, 1.0f);
+		m_BaseCorners[6] = Vector4(farLeft, farBottom, far, 1.0f);
+		m_BaseCorners[7] = Vector4(farRight, farBottom, far, 1.0f);
 
 		Transform(Matrix4());
 	}
 
 	void Frustum::Transform(const Matrix4 &matrix)
 	{
+		m_Transform = matrix;
+
 		// transform corners to world space.
 		for (int i = 0; i < 8; i++)
-			m_WorldSpaceCorners[i] = matrix.Multiply(m_Corners[i]);
+			m_CurrentCorners[i] = matrix.Multiply(m_BaseCorners[i]);
 
 		// top : ftr, ntr, ntl
-		m_Planes[0].Set3Points(m_WorldSpaceCorners[5], m_WorldSpaceCorners[1], m_WorldSpaceCorners[0]);
+		m_Planes[0].Set3Points(m_CurrentCorners[5], m_CurrentCorners[1], m_CurrentCorners[0]);
 		// bottom : nbl, nbr, fbr
-		m_Planes[1].Set3Points(m_WorldSpaceCorners[2], m_WorldSpaceCorners[3], m_WorldSpaceCorners[7]);
+		m_Planes[1].Set3Points(m_CurrentCorners[2], m_CurrentCorners[3], m_CurrentCorners[7]);
 		// left : ntl, nbl, fbl
-		m_Planes[2].Set3Points(m_WorldSpaceCorners[0], m_WorldSpaceCorners[2], m_WorldSpaceCorners[6]);
+		m_Planes[2].Set3Points(m_CurrentCorners[0], m_CurrentCorners[2], m_CurrentCorners[6]);
 		// right : fbr, nbr, ntr
-		m_Planes[3].Set3Points(m_WorldSpaceCorners[7], m_WorldSpaceCorners[3], m_WorldSpaceCorners[1]);
+		m_Planes[3].Set3Points(m_CurrentCorners[7], m_CurrentCorners[3], m_CurrentCorners[1]);
 		// near : ntl, ntr, nbr
-		m_Planes[4].Set3Points(m_WorldSpaceCorners[0], m_WorldSpaceCorners[1], m_WorldSpaceCorners[3]);
+		m_Planes[4].Set3Points(m_CurrentCorners[0], m_CurrentCorners[1], m_CurrentCorners[3]);
 		// far : ftr, ftl, fbl
-		m_Planes[5].Set3Points(m_WorldSpaceCorners[5], m_WorldSpaceCorners[4], m_WorldSpaceCorners[6]);
+		m_Planes[5].Set3Points(m_CurrentCorners[5], m_CurrentCorners[4], m_CurrentCorners[6]);
 	}
 
 	Side Frustum::IsInside(const SphereBounds &bsphere) const
@@ -157,8 +165,26 @@ namespace fury
 		return true;
 	}
 
-	std::vector<Vector4> Frustum::GetWorldSpaceCorners() const
+	std::array<Vector4, 8> Frustum::GetCurrentCorners() const
 	{
-		return m_WorldSpaceCorners;
+		return m_CurrentCorners;
+	}
+
+	std::array<Vector4, 8> Frustum::GetBaseCorners() const
+	{
+		return m_BaseCorners;
+	}
+
+	Matrix4 Frustum::GetTransformMatrix() const
+	{
+		return m_Transform;
+	}
+
+	BoxBounds Frustum::GetBoxBounds() const
+	{
+		BoxBounds aabb;
+		for (const auto &ptn : m_CurrentCorners)
+			aabb.Encapsulate(ptn);
+		return aabb;
 	}
 }

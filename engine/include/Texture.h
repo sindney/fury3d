@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "Buffer.h"
+#include "Color.h"
 #include "Entity.h"
 #include "EnumUtil.h"
 #include "Serializable.h"
@@ -25,6 +26,8 @@ namespace fury
 		FilterMode m_FilterMode = FilterMode::LINEAR;
 
 		WrapMode m_WrapMode = WrapMode::REPEAT;
+
+		Color m_BorderColor;
 
 		bool m_Mipmap = false;
 
@@ -63,6 +66,10 @@ namespace fury
 		WrapMode GetWrapMode() const;
 
 		void SetWrapMode(WrapMode mode);
+
+		Color GetBorderColor() const;
+
+		void SetBorderColor(Color color);
 
 		bool GetMipmap() const;
 

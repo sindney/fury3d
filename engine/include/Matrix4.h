@@ -2,6 +2,7 @@
 #define _FURY_MATRIX4_H_
 
 #include <string>
+#include <initializer_list>
 
 #include "Macros.h"
 
@@ -37,6 +38,8 @@ namespace fury
 		Matrix4();
 
 		Matrix4(const float raw[]);
+
+		Matrix4(std::initializer_list<float> raw);
 
 		Matrix4(const Matrix4 &other);
 

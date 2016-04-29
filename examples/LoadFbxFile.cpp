@@ -29,22 +29,35 @@ void LoadFbxFile::Init(sf::Window &window)
 	else
 	{
 		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank.fbx"), m_RootNode, importOptions);
+
+		EntityUtil::Instance()->Get<Mesh>("Grid")->SetCastShadows(false);
+	}
+
+	if (auto sunLightNode = m_RootNode->FindChildRecursively("Sun"))
+	{
+		if (auto light = sunLightNode->GetComponent<Light>())
+		{
+			light->SetCastShadows(true);
+		}
 	}
 
 	// setup camera
 	m_CamSpeed = 1;
+
+	auto camera = Camera::Create();
+	camera->PerspectiveFov(0.7854f, 1.778f, 1, 100);
+	camera->SetShadowFar(20);
 
 	m_CamNode = SceneNode::Create("camNode");
 	m_CamNode->SetLocalPosition(Vector4(0.0f, 10.0f, 25.0f, 1.0f));
 	m_CamNode->SetLocalRoattion(Angle::EulerRadToQuat(0.0f, -Angle::DegToRad * 30.0f, 0.0f));
 	m_CamNode->Recompose();
 	m_CamNode->AddComponent(Transform::Create());
-	m_CamNode->AddComponent(Camera::Create());
-	m_CamNode->GetComponent<Camera>()->PerspectiveFov(0.7854f, 1.778f, 1, 500000);
+	m_CamNode->AddComponent(camera);
 	m_CamNode->Recompose(true);
 	EntityUtil::Instance()->Add(m_CamNode);
 
-	m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
+	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
 	m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 	// setup pipeline

@@ -1,6 +1,8 @@
 #ifndef _FURY_CAMERA_H_
 #define _FURY_CAMERA_H_
 
+#include <array>
+
 #include "Component.h"
 #include "Matrix4.h"
 #include "Frustum.h"
@@ -19,9 +21,10 @@ namespace fury
 
 		bool m_Perspective = true;
 
-		float m_Near = 0.0f;
+		// left, right, bottom, top, near, far
+		std::array<float, 6> m_ProjectionParams;
 
-		float m_Far = 0.0;
+		float m_ShadowFar = 0.0f;
 
 		size_t m_SignalKey = 0;
 
@@ -45,9 +48,15 @@ namespace fury
 
 		Frustum GetFrustum() const;
 
+		Frustum GetFrustum(float near, float far) const;
+
 		float GetNear() const;
 
 		float GetFar() const;
+
+		float GetShadowFar() const;
+
+		void SetShadowFar(float far);
 
 		bool IsPerspective() const;
 

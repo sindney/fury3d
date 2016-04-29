@@ -24,7 +24,7 @@ namespace fury
 
 		std::vector<std::shared_ptr<SceneNode>> LightNodes;
 
-		void Sort(Vector4 camPos, bool farToNear);
+		void Sort(Vector4 camPos);
 
 		void Clear();
 	};

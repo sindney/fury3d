@@ -58,6 +58,10 @@ namespace fury
 
 		unsigned int m_ColorAttachmentCount = 0;
 
+		int m_ViewPortWidth = 0;
+
+		int m_ViewPortHeight = 0;
+
 	public:
 
 		Pass(const std::string &name);
@@ -116,11 +120,11 @@ namespace fury
 
 		unsigned int GetTextureCount(bool input) const;
 
-		void CreateFrameBuffer();	
+		void CreateFrameBuffer();
 
 		void DeleteFrameBuffer();
 
-		void Bind();
+		void Bind(bool clear = true);
 
 		void UnBind();
 	};

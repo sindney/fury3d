@@ -74,6 +74,8 @@ namespace fury
 
 		std::shared_ptr<Joint> m_RootJoint;
 
+		bool m_CastShadows = false;
+
 	public:
 
 		ArrayBufferf Positions;
@@ -120,6 +122,10 @@ namespace fury
 		void CalculateAABB();
 
 		BoxBounds GetAABB() const;
+
+		bool GetCastShadows() const;
+
+		void SetCastShadows(bool state);
 	};
 }
 

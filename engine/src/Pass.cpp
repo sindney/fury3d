@@ -7,6 +7,7 @@
 #include "Texture.h"
 #include "EnumUtil.h"
 #include "EntityUtil.h"
+#include "InputUtil.h"
 
 namespace fury
 {
@@ -366,9 +367,17 @@ namespace fury
 			glGenFramebuffers(1, &m_FrameBuffer);
 			glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
 
+			m_ViewPortWidth = m_ViewPortHeight = 0;
+
 			for (auto texture : m_OutputTextures)
 			{
 				TextureFormat format = texture->GetFormat();
+
+				if (texture->GetWidth() > m_ViewPortWidth)
+					m_ViewPortWidth = texture->GetWidth();
+
+				if (texture->GetHeight() > m_ViewPortHeight)
+					m_ViewPortHeight = texture->GetHeight();
 
 				if (texture->GetDirty())
 				{
@@ -400,11 +409,18 @@ namespace fury
 				}
 			}
 
-			std::vector<unsigned int> m_ColorAttachs(m_ColorAttachmentCount);
-			for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
-				m_ColorAttachs[i] = GL_COLOR_ATTACHMENT0 + i;
+			if (m_ColorAttachmentCount > 0)
+			{
+				std::vector<unsigned int> m_ColorAttachs(m_ColorAttachmentCount);
+				for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
+					m_ColorAttachs[i] = GL_COLOR_ATTACHMENT0 + i;
 
-			glDrawBuffers(m_ColorAttachmentCount, &m_ColorAttachs[0]);
+				glDrawBuffers(m_ColorAttachmentCount, &m_ColorAttachs[0]);
+			}
+			else
+			{
+				glDrawBuffers(0, GL_NONE);
+			}
 		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -419,40 +435,51 @@ namespace fury
 		m_ColorAttachmentCount = 0;
 	}
 
-	void Pass::Bind()
+	void Pass::Bind(bool clear)
 	{
-		if (m_OutputTextures.size() > 0 && m_FrameBuffer == 0)
-			CreateFrameBuffer();
-
+		if (m_OutputTextures.size() > 0)
+		{
+			if (m_FrameBuffer == 0)
+				CreateFrameBuffer();
+		}
+		else
+		{
+			m_ViewPortWidth = InputUtil::Instance()->GetWindowSize().first;
+			m_ViewPortHeight = InputUtil::Instance()->GetWindowSize().second;
+		}
+		
 		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
-
+		glViewport(0, 0, m_ViewPortWidth, m_ViewPortHeight);
 		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-		switch (m_ClearMode)
+		if (clear)
 		{
-		case ClearMode::COLOR:
-			glClear(GL_COLOR_BUFFER_BIT);
-			break;
-		case ClearMode::COLOR_DEPTH:
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			break;
-		case ClearMode::COLOR_DEPTH_STENCIL:
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::COLOR_STENCIL:
-			glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::DEPTH:
-			glClear(GL_DEPTH_BUFFER_BIT);
-			break;
-		case ClearMode::STENCIL:
-			glClear(GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::STENCIL_DEPTH:
-			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::NONE:
-			break;
+			switch (m_ClearMode)
+			{
+			case ClearMode::COLOR:
+				glClear(GL_COLOR_BUFFER_BIT);
+				break;
+			case ClearMode::COLOR_DEPTH:
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				break;
+			case ClearMode::COLOR_DEPTH_STENCIL:
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+				break;
+			case ClearMode::COLOR_STENCIL:
+				glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+				break;
+			case ClearMode::DEPTH:
+				glClear(GL_DEPTH_BUFFER_BIT);
+				break;
+			case ClearMode::STENCIL:
+				glClear(GL_STENCIL_BUFFER_BIT);
+				break;
+			case ClearMode::STENCIL_DEPTH:
+				glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+				break;
+			case ClearMode::NONE:
+				break;
+			}
 		}
 
 		glEnable(GL_DEPTH_TEST);
@@ -463,6 +490,7 @@ namespace fury
 			glEnable(GL_BLEND);
 			glBlendFunc(EnumUtil::BlendModeSrc(m_BlendMode), 
 				EnumUtil::BlendModeDest(m_BlendMode));
+			glBlendEquation(EnumUtil::BlendModeOp(m_BlendMode));
 		}
 		else
 		{

@@ -1,10 +1,11 @@
 #ifndef _FURY_FRUSTUM_H_
 #define _FURY_FRUSTUM_H_
 
-#include <vector>
+#include <array>
 
 #include "Collidable.h"
 #include "Plane.h"
+#include "Matrix4.h"
 
 namespace fury
 {
@@ -12,22 +13,25 @@ namespace fury
 
 	class SphereBounds;
 
-	class Matrix4;
-
 	class FURY_API Frustum : public Collidable
 	{
 	private:
 
-		std::vector<Vector4> m_Corners;
+		std::array<Vector4, 8> m_BaseCorners;
 
-		std::vector<Vector4> m_WorldSpaceCorners;
+		std::array<Vector4, 8> m_CurrentCorners;
 
-		std::vector<Plane> m_Planes;
+		std::array<Plane, 6> m_Planes;
+
+		// left, right, bottom, top, near, far
+		std::array<float, 6> m_ProjectionParams;
+
+		Matrix4 m_Transform;
 
 	public:
 
-		Frustum() : m_Corners(8), m_WorldSpaceCorners(8), m_Planes(6) {}
-		
+		Frustum() {}
+
 		Frustum(const Frustum &other);
 
 		void Setup(float fov, float ratio, float near, float far);
@@ -49,7 +53,13 @@ namespace fury
 		virtual bool IsInsideFast(Vector4 point) const;
 
 		// ntl, ntr, nbl, nbr, ftl, ftr, fbl, fbr
-		std::vector<Vector4> GetWorldSpaceCorners() const;
+		std::array<Vector4, 8> GetCurrentCorners() const;
+
+		std::array<Vector4, 8> GetBaseCorners() const;
+
+		Matrix4 GetTransformMatrix() const;
+
+		BoxBounds GetBoxBounds() const;
 	};
 }
 

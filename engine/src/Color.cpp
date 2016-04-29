@@ -27,11 +27,30 @@ namespace fury
 			r * it + color.r * t,
 			g * it + color.g * t,
 			b * it + color.b * t
-		);
+			);
 	}
 
 	Color Color::Invert() const
 	{
 		return Color(1.0f - r, 1.0f - g, 1.0f - b);
+	}
+
+	Color &Color::operator = (Color other)
+	{
+		r = other.r;
+		b = other.b;
+		g = other.g;
+		a = other.a;
+		return *this;
+	}
+
+	bool Color::operator == (Color other) const
+	{
+		return r == other.r && g == other.g && b == other.b && a == other.a;
+	}
+
+	bool Color::operator != (Color other) const
+	{
+		return r != other.r || g != other.g || b != other.b || a != other.a;
 	}
 }

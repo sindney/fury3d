@@ -3,11 +3,11 @@
 #include "Frustum.h"
 #include "Light.h"
 #include "Material.h"
+#include "Mesh.h"
 #include "MeshRender.h"
 #include "OcTreeNode.h"
 #include "OcTree.h"
 #include "RenderQuery.h"
-//#include "RenderUtil.h"
 #include "SceneNode.h"
 #include "SphereBounds.h"
 #include "Log.h"
@@ -60,7 +60,7 @@ namespace fury
 		AddSceneNode(sceneNode);
 	}
 
-	void OcTree::GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool visualize) const
+	void OcTree::GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery) const
 	{
 		renderQuery->Clear();
 
@@ -84,10 +84,10 @@ namespace fury
 						renderQuery->TransparentNodes.push_back(sceneNode);
 				}
 			}
-		}, visualize);
+		});
 	}
 
-	void OcTree::GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes, bool visualize) const
+	void OcTree::GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes) const
 	{
 		sceneNodes.clear();
 
@@ -95,10 +95,10 @@ namespace fury
 		{
 			sceneNodes.push_back(sceneNode);
 
-		}, visualize);
+		});
 	}
 
-	void OcTree::GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool visualize) const
+	void OcTree::GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables) const
 	{
 		renderables.clear();
 
@@ -108,10 +108,22 @@ namespace fury
 			if (render != nullptr && render->GetRenderable())
 				renderables.push_back(sceneNode);
 
-		}, visualize);
+		});
 	}
 
-	void OcTree::GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool visualize) const
+	void OcTree::GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables) const
+	{
+		renderables.clear();
+
+		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
+		{
+			auto render = sceneNode->GetComponent<MeshRender>();
+			if (render != nullptr && render->GetRenderable() && render->GetMesh()->GetCastShadows())
+				renderables.push_back(sceneNode);
+		});
+	}
+
+	void OcTree::GetVisibleLights(const Collidable &collider, SceneNodes &lights) const
 	{
 		lights.clear();
 
@@ -120,10 +132,10 @@ namespace fury
 			if (sceneNode->GetComponent<Light>() != nullptr)
 				lights.push_back(sceneNode);
 
-		}, visualize);
+		});
 	}
 
-	void OcTree::GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool visualize) const
+	void OcTree::GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights) const
 	{
 		renderables.clear();
 		lights.clear();
@@ -136,10 +148,10 @@ namespace fury
 			else if (sceneNode->GetComponent<Light>() != nullptr)
 				lights.push_back(sceneNode);
 
-		}, visualize);
+		});
 	}
 
-	void OcTree::WalkScene(const Collidable &collider, const FilterFunc &filterFunc, bool visualize) const
+	void OcTree::WalkScene(const Collidable &collider, const FilterFunc &filterFunc) const
 	{
 		using TreeNodePair = std::pair<bool, OcTreeNode::Ptr>;
 
@@ -164,9 +176,6 @@ namespace fury
 				{
 					if (result == Side::IN)
 						tested = true;
-
-					/*if (visualize)
-						RenderUtil::Instance()->DrawBoxBounds(treeNode->GetAABB(), tested ? Color::Red : Color::Blue);*/
 
 					// test currentTreeNode's belonging sceneNodes
 					int sceneNodeCount = treeNode->GetSceneNodeCount();
@@ -199,23 +208,6 @@ namespace fury
 	{
 		m_Root->Clear();
 	}
-
-	/*void OcTree::DrawOcTree(Color color) const
-	{
-		DrawOcTreeNode(m_Root, color);
-	}
-
-	void OcTree::DrawOcTreeNode(const OcTreeNode::Ptr &treeNode, Color color) const
-	{
-		RenderUtil::Instance()->DrawBoxBounds(treeNode->GetAABB(), color);
-
-		for (int i = 0; i < 8; i++)
-		{
-			OcTreeNode::Ptr childNode = treeNode->GetChildAt(i);
-			if (childNode != nullptr)
-				DrawOcTreeNode(childNode, color);
-		}
-	}*/
 
 	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode, const OcTreeNode::Ptr &treeNode, unsigned int depth)
 	{

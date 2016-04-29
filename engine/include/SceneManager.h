@@ -35,17 +35,19 @@ namespace fury
 
 		virtual void UpdateSceneNode(const std::shared_ptr<SceneNode> &sceneNode) = 0;
 
-		virtual void GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool visualize = false) const = 0;
+		virtual void GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery) const = 0;
 
-		virtual void GetVisibleSceneNodes(const Collidable &collider, SceneNodes &visibleNodes, bool visualize = false) const = 0;
+		virtual void GetVisibleSceneNodes(const Collidable &collider, SceneNodes &visibleNodes) const = 0;
 
-		virtual void GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool visualize = false) const = 0;
+		virtual void GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables) const = 0;
 
-		virtual void GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool visualize = false) const = 0;
+		virtual void GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables) const = 0;
 
-		virtual void GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool visualize = false) const = 0;
+		virtual void GetVisibleLights(const Collidable &collider, SceneNodes &lights) const = 0;
 
-		virtual void WalkScene(const Collidable &collider, const FilterFunc &filterFunc, bool visualize = false) const = 0;
+		virtual void GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights) const = 0;
+
+		virtual void WalkScene(const Collidable &collider, const FilterFunc &filterFunc) const = 0;
 
 		virtual void Clear() = 0;
 	};

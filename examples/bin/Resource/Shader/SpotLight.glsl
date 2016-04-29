@@ -51,10 +51,7 @@ uniform sampler2D gbuffer_normal;
 
 vec3 pos_from_depth(const in vec2 screenUV)
 {
-	const vec4 bit_shift = vec4(1.0 / 16777216.0, 1.0 / 65536.0, 1.0 / 256.0, 1.0);
-
-	vec4 rgba_depth = texture(gbuffer_depth, screenUV);
-    float depth = dot(rgba_depth, bit_shift);
+ 	float depth = texture(gbuffer_depth, screenUV).r;
 
 	vec3 view_ray = vec3(vs_pos.xy * (camera_far / vs_pos.z), camera_far);
 

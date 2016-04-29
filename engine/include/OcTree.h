@@ -49,31 +49,25 @@ namespace fury
 
 		virtual void UpdateSceneNode(const std::shared_ptr<SceneNode> &sceneNode);
 
-		virtual void GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool visualize = false) const;
+		virtual void GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery) const;
 
-		virtual void GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes, bool visualize = false) const;
+		virtual void GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes) const;
 
-		virtual void GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool visualize = false) const;
+		virtual void GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables) const;
 
-		virtual void GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool visualize = false) const;
+		virtual void GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables) const;
 
-		virtual void GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool visualize = false) const;
+		virtual void GetVisibleLights(const Collidable &collider, SceneNodes &lights) const;
 
-		virtual void WalkScene(const Collidable &collider, const FilterFunc &filterFunc, bool visualize = false) const;
+		virtual void GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights) const;
+
+		virtual void WalkScene(const Collidable &collider, const FilterFunc &filterFunc) const;
 
 		virtual void Reset(Vector4 min, Vector4 max, unsigned int maxDepth);
 
 		virtual void Clear();
 
-		//void DrawOcTree(Color color = Color::White) const;
-
-		/*void SetVisualize(bool value);
-
-		bool GetVisualize();*/
-
 	protected:
-
-		//void DrawOcTreeNode(const std::shared_ptr<OcTreeNode> &treeNode, Color color) const;
 
 		void AddSceneNode(const std::shared_ptr<SceneNode> &sceneNode, const std::shared_ptr<OcTreeNode> &treeNode, unsigned int depth);
 

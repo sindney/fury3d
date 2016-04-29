@@ -34,9 +34,11 @@ int main(int argc, char *argv[])
 		sf::ContextSettings(24, 8, 0, 3, 3)
 		);
 	window.setKeyRepeatEnabled(true);
+	window.setVerticalSyncEnabled(false);
+	window.setActive();
 	//window.setFramerateLimit(60);
 
-	if (argc < 2) Pause();
+	//if (argc < 2) Pause();
 
 	if (!Engine::Initialize(window, 2, LogLevel::DBUG, FileUtil::GetAbsPath("Log.txt").c_str()))
 		return false;
@@ -91,7 +93,7 @@ int main(int argc, char *argv[])
 
 		example->Update(dt);
 
-		window.setActive();
+		//window.setActive();
 
 		example->Draw(window);
 
@@ -99,7 +101,7 @@ int main(int argc, char *argv[])
 		ImGui::Render();
 
 		window.display();
-		window.setActive(false);
+		//window.setActive(false);
 
 		RenderUtil::Instance()->EndFrame();
 	}

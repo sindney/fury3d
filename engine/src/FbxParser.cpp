@@ -320,7 +320,7 @@ namespace fury
 
 		// first, we test if ther's already a mesh asset exits with this name.
 		Mesh::Ptr mesh = EntityUtil::Instance()->Get<Mesh>(fbxMesh->GetName());
-
+		
 		if (mesh == nullptr)
 		{
 			// if not, we read the mesh data.
@@ -329,6 +329,7 @@ namespace fury
 		}
 
 		// attach mesh component to node.
+		mesh->SetCastShadows((bool)fbxMesh->CastShadow);
 		ntNode->AddComponent(MeshRender::Create(nullptr, mesh));
 
 		LoadMaterial(ntNode, fbxNode);
@@ -398,6 +399,7 @@ namespace fury
 		light->SetOutterAngle(Angle::DegToRad * (float)fbxLight->OuterAngle.Get());
 		light->SetFalloff((float)fbxLight->FarAttenuationEnd.Get() * m_ImportOptions.ScaleFactor);
 		light->SetRadius((float)fbxLight->DecayStart.Get() * m_ImportOptions.ScaleFactor);
+		light->SetCastShadows((bool)fbxLight->CastShadows.Get());
 		light->CalculateAABB();
 		FURYD << fbxLight->GetName();
 

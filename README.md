@@ -1,4 +1,4 @@
-![](https://img.shields.io/badge/release-v0.2.0-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
+![](https://img.shields.io/badge/dev-v0.2.1-green.svg) ![](https://img.shields.io/badge/build-passing-green.svg) ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # Fury3D
 
@@ -30,7 +30,7 @@ Features:
 
 Plans:
 
-* Add shadow maps.
+* Add shadow maps. (Implimenting)
 
 * Add skeleton animation support. (Done, but need improvements)
 

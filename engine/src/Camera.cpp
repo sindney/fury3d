@@ -17,8 +17,7 @@ namespace fury
 	Component::Ptr Camera::Clone() const
 	{
 		auto ptr = Camera::Create();
-		ptr->m_Far = m_Far;
-		ptr->m_Near = m_Near;
+		ptr->m_ProjectionParams = m_ProjectionParams;
 		ptr->m_Perspective = m_Perspective;
 		ptr->m_ProjectionMatrix = m_ProjectionMatrix;
 		ptr->m_Frustum = m_Frustum;
@@ -27,18 +26,30 @@ namespace fury
 
 	void Camera::PerspectiveFov(float fov, float ratio, float near, float far)
 	{
-		m_Far = far;
-		m_Near = near;
 		m_Perspective = true;
-		
-		m_ProjectionMatrix.PerspectiveFov(fov, ratio, near, far);
-		m_Frustum.Setup(fov, ratio, near, far);
+
+		float top = near * tan(fov / 2.0f);
+		float right = top * ratio;
+
+		m_ProjectionParams[0] = -right;
+		m_ProjectionParams[1] = right;
+		m_ProjectionParams[2] = -top;
+		m_ProjectionParams[3] = top;
+		m_ProjectionParams[4] = near;
+		m_ProjectionParams[5] = far;
+
+		m_ProjectionMatrix.PerspectiveOffCenter(-right, right, -top, top, near, far);
+		m_Frustum.Setup(-right, right, -top, top, near, far);
 	}
 
 	void Camera::PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far)
 	{
-		m_Far = far;
-		m_Near = near;
+		m_ProjectionParams[0] = left;
+		m_ProjectionParams[1] = right;
+		m_ProjectionParams[2] = bottom;
+		m_ProjectionParams[3] = top;
+		m_ProjectionParams[4] = near;
+		m_ProjectionParams[5] = far;
 		m_Perspective = true;
 
 		m_ProjectionMatrix.PerspectiveOffCenter(left, right, bottom, top, near, far);
@@ -47,9 +58,14 @@ namespace fury
 
 	void Camera::OrthoOffCenter(float left, float right, float bottom, float top, float near, float far)
 	{
-		m_Far = far;
-		m_Near = near;
 		m_Perspective = true;
+
+		m_ProjectionParams[0] = left;
+		m_ProjectionParams[1] = right;
+		m_ProjectionParams[2] = bottom;
+		m_ProjectionParams[3] = top;
+		m_ProjectionParams[4] = near;
+		m_ProjectionParams[5] = far;
 
 		m_ProjectionMatrix.OrthoOffCenter(left, right, bottom, top, near, far);
 		m_Frustum.Setup(left, right, bottom, top, near, far);
@@ -65,14 +81,32 @@ namespace fury
 		return m_Frustum;
 	}
 
+	Frustum Camera::GetFrustum(float near, float far) const
+	{
+		Frustum clone;
+		clone.Setup(m_ProjectionParams[0], m_ProjectionParams[1], m_ProjectionParams[2], m_ProjectionParams[3], near, far);
+		clone.Transform(m_Frustum.GetTransformMatrix());
+		return clone;
+	}
+
 	float Camera::GetNear() const
 	{
-		return m_Near;
+		return m_ProjectionParams[4];
 	}
 
 	float Camera::GetFar() const
 	{
-		return m_Far;
+		return m_ProjectionParams[5];
+	}
+
+	float Camera::GetShadowFar() const
+	{
+		return m_ShadowFar;
+	}
+
+	void Camera::SetShadowFar(float far)
+	{
+		m_ShadowFar = far;
 	}
 
 	bool Camera::IsPerspective() const

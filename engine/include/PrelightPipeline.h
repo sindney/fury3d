@@ -12,9 +12,13 @@
 
 namespace fury
 {
+	class Texture;
+
 	class Shader;
 
 	class Pass;
+
+	class RenderQuery;
 
 	class FURY_API PrelightPipeline : public Pipeline
 	{
@@ -29,6 +33,12 @@ namespace fury
 		std::shared_ptr<SceneNode> m_CurrentCamera;
 
 		std::shared_ptr<Shader> m_CurrentShader;
+
+		std::shared_ptr<Texture> m_ShadowMap;
+
+		std::shared_ptr<Pass> m_DrawDepthPass;
+
+		std::shared_ptr<Pass> m_DrawShadowPass;
 
 	public:
 
@@ -46,6 +56,9 @@ namespace fury
 
 		void DrawQuad(const std::shared_ptr<Pass> &pass);
 
+		void DrawShadow(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+
+		void DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries);
 	};
 }
 

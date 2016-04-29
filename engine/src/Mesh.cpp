@@ -256,4 +256,14 @@ namespace fury
 	{
 		return m_AABB;
 	}
+
+	bool Mesh::GetCastShadows() const
+	{
+		return m_CastShadows;
+	}
+
+	void Mesh::SetCastShadows(bool state)
+	{
+		m_CastShadows = state;
+	}
 }

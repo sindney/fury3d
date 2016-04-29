@@ -131,7 +131,7 @@ namespace fury
 
 	void RenderUtil::DrawFrustum(const Frustum &frustum, Color color)
 	{
-		std::vector<Vector4> corners = frustum.GetWorldSpaceCorners();
+		auto corners = frustum.GetCurrentCorners();
 
 		unsigned int indices[] = { 0, 4, 1, 5, 3, 7, 2, 6, 0, 2, 2, 3, 3, 1, 1, 0, 4, 6, 6, 7, 7, 5, 5, 4 };
 

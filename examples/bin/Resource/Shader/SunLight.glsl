@@ -8,6 +8,8 @@ out vec3 vs_dir;
 out vec3 vs_pos;
 out vec4 ss_pos;
 
+uniform float camera_far = 10000;
+
 uniform vec3 light_dir;
 
 uniform mat4 projection_matrix;
@@ -16,7 +18,7 @@ uniform mat4 invert_view_matrix;
 void main()
 {
 	vs_dir = normalize(invert_view_matrix * vec4(-light_dir, 0)).xyz;
-	vs_pos = (inverse(projection_matrix) * vec4(vertex_position, 1.0)).xyz;
+	vs_pos = (inverse(projection_matrix) * vec4(vertex_position.xy, 1.0, 1.0) * camera_far).xyz;
 	ss_pos = vec4(vertex_position.xyz, 1.0);
 	gl_Position = ss_pos;
 }
@@ -31,6 +33,9 @@ in vec3 vs_dir;
 in vec3 vs_pos;
 in vec4 ss_pos;
 
+uniform float camera_near = 1;
+uniform float camera_far = 10000;
+
 uniform vec3 light_color;
 uniform float light_intensity;
 
@@ -41,13 +46,8 @@ uniform sampler2D gbuffer_normal;
 
 vec3 pos_from_depth(const in vec2 screenUV)
 {
-	const vec4 bit_shift = vec4(1.0 / 16777216.0, 1.0 / 65536.0, 1.0 / 256.0, 1.0);
-
-	vec4 rgba_depth = texture(gbuffer_depth, screenUV);
-    float depth = dot(rgba_depth, bit_shift);
-
+	float depth = texture(gbuffer_depth, screenUV).r;
 	vec3 view_ray = vs_pos.xyz;
-
 	return view_ray * depth;
 }
 
