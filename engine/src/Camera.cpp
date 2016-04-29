@@ -75,6 +75,16 @@ namespace fury
 	{
 		return m_ProjectionMatrix;
 	}
+	
+	Matrix4 Camera::GetProjectionMatrix(float near, float far) const
+	{
+		Matrix4 pm;
+		if (m_Perspective)
+			pm.PerspectiveOffCenter(m_ProjectionParams[0], m_ProjectionParams[1], m_ProjectionParams[2], m_ProjectionParams[3], near, far);
+		else
+			pm.OrthoOffCenter(m_ProjectionParams[0], m_ProjectionParams[1], m_ProjectionParams[2], m_ProjectionParams[3], near, far);
+		return pm;
+	}
 
 	Frustum Camera::GetFrustum() const
 	{
