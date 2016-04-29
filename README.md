@@ -48,7 +48,9 @@ Should work with any graphic card that supports opengl 3.3 +
 
 ## Screenshots
 
-![Dynamic Lighting](screenshots/simple-profile-window.jpg)
+![Tank0](screenshots/tank_0.jpg)
+
+![Tank1](screenshots/tank_1.jpg)
 
 ## Examples
 
