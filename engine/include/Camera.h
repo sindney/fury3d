@@ -45,6 +45,8 @@ namespace fury
 		void OrthoOffCenter(float left, float right, float bottom, float top, float near, float far);
 
 		Matrix4 GetProjectionMatrix() const;
+		
+		Matrix4 GetProjectionMatrix(float near, float far) const;
 
 		Frustum GetFrustum() const;
 
