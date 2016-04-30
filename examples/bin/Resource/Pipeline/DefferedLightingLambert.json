@@ -61,7 +61,7 @@
             "format": "depth24",
             "filter": "linear",
             "wrap": "clamp_to_border",
-            "border_color": [1,1,1,1], 
+            "border_color": [1.0,1.0,1.0,1.0], 
             "width": 1024,
             "height": 1024
         },

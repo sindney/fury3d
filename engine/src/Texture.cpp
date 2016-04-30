@@ -100,6 +100,14 @@ namespace fury
 		SaveValue(wrapper, m_Width);
 		SaveKey(wrapper, "height");
 		SaveValue(wrapper, m_Height);
+
+		float color[4] = {m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a};
+		SaveKey(wrapper, "border_color");
+		SaveArray(wrapper, 4, [&](unsigned int index)
+		{
+			SaveValue(wrapper, color[index]);
+		});
+
 		SaveKey(wrapper, "mipmap");
 		SaveValue(wrapper, m_Mipmap);
 
