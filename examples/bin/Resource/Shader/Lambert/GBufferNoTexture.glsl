@@ -46,7 +46,6 @@ in vec3 out_normal;
 in float out_depth;
 
 uniform float camera_far = 10000;
-uniform float shininess = 0;
 
 uniform vec3 ambient_color;
 uniform vec3 diffuse_color;
@@ -62,9 +61,10 @@ layout (location = 1) out vec4 rt1;
 void main()
 {
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
-	rt0.a = shininess / 100;
+	rt0.a = 1.0;
 
-	rt1.rgb = diffuse_color.rgb * diffuse_factor + ambient_color.rgb * ambient_factor;
+	rt1.rgb = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;
+	rt1.a = 1.0;
 	
 	gl_FragDepth = out_depth / camera_far;
 }

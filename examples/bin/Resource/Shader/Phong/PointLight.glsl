@@ -27,7 +27,6 @@ out vec4 fragment_output;
 in vec3 vs_pos;
 in vec4 ss_pos;
 
-uniform vec3 camera_pos;
 uniform float camera_far = 10000;
 
 uniform mat4 invert_view_matrix;

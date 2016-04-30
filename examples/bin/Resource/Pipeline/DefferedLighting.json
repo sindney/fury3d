@@ -2,46 +2,46 @@
     "shaders": [
         {
             "name": "gbuffer_shader",
-            "path": "Resource/Shader/Gbuffer.glsl",
+            "path": "Resource/Shader/Phong/Gbuffer.glsl",
             "type": "static_mesh", 
             "textures" : ["diffuse"]
         },
         {
             "name": "gbuffer_notexture_shader",
-            "path": "Resource/Shader/GBufferNoTexture.glsl",
+            "path": "Resource/Shader/Phong/GBufferNoTexture.glsl",
             "type": "static_mesh", 
             "textures" : ["color_only"]
         },
         {
             "name": "gbuffer_skin_shader",
-            "path": "Resource/Shader/Gbuffer.glsl",
+            "path": "Resource/Shader/Phong/Gbuffer.glsl",
             "type": "skinned_mesh", 
             "textures" : ["diffuse"]
         },
         {
             "name": "gbuffer_notexture_skin_shader",
-            "path": "Resource/Shader/GBufferNoTexture.glsl",
+            "path": "Resource/Shader/Phong/GBufferNoTexture.glsl",
             "type": "skinned_mesh", 
             "textures" : ["color_only"]
         },
         {
             "name": "pointlight_shader",
-            "path": "Resource/Shader/PointLight.glsl",
+            "path": "Resource/Shader/Phong/PointLight.glsl",
             "type": "point_light"
         },
         {
             "name": "dirlight_shader",
-            "path": "Resource/Shader/SunLight.glsl",
+            "path": "Resource/Shader/Phong/SunLight.glsl",
             "type": "dir_light"
         },
         {
             "name": "spotlight_shader",
-            "path": "Resource/Shader/SpotLight.glsl",
+            "path": "Resource/Shader/Phong/SpotLight.glsl",
             "type": "spot_light"
         },
         {
             "name": "phong_shader",
-            "path": "Resource/Shader/Phong.glsl",
+            "path": "Resource/Shader/Phong/Phong.glsl",
             "type": "other"
         },
         {
