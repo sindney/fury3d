@@ -34,16 +34,7 @@ namespace fury
 	{
 		m_TypeIndex = typeid(PrelightPipeline);
 
-		m_ShadowMap = Texture::Create("shadow_buffer_0");
-		m_ShadowMap->SetFilterMode(FilterMode::LINEAR);
-		m_ShadowMap->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
-		m_ShadowMap->CreateEmpty(1024, 1024, TextureFormat::DEPTH24, false);
-		m_ShadowMap->SetBorderColor(Color(1, 1, 1, 1));
-
-		m_TextureMap.emplace(m_ShadowMap->GetName(), m_ShadowMap);
-
 		m_DrawDepthPass = Pass::Create("DrawDepthPass");
-		m_DrawDepthPass->AddTexture(m_ShadowMap, false);
 		m_DrawDepthPass->SetBlendMode(BlendMode::REPLACE);
 		m_DrawDepthPass->SetClearMode(ClearMode::DEPTH);
 		m_DrawDepthPass->SetCompareMode(CompareMode::LESS);
@@ -405,12 +396,19 @@ namespace fury
 		// draw casters to depth map, aka shadow map.
 		{
 			auto shaderIt = m_ShaderMap.find("draw_depth_shader");
-			if (shaderIt == m_ShaderMap.end())
+			auto shadowBufferIt = m_TextureMap.find("shadow_buffer_0");
+
+			if (shaderIt == m_ShaderMap.end() || shadowBufferIt == m_TextureMap.end())
 			{
-				FURYE << "Shader draw_depth_shader not found! Provide one if you want use shadow mapping!";
+				FURYE << "draw_depth_shader/shadow_buffer_0 not found! Check you json pipeline!";
 				return;
 			}
+
 			auto draw_depth_shader = shaderIt->second;
+			auto shadow_buffer_0 = shadowBufferIt->second;
+
+			if(!m_DrawDepthPass->GetTexture("shadow_buffer_0", false))
+				m_DrawDepthPass->AddTexture(shadow_buffer_0, false);
 
 			m_DrawDepthPass->Bind();
 
@@ -461,13 +459,14 @@ namespace fury
 
 			if (shaderIt == m_ShaderMap.end() || depthIt == m_TextureMap.end() || lightIt == m_TextureMap.end())
 			{
-				FURYE << "draw_shadow_shader/gbuffer_depth/gbuffer_light not found, check your pipline json file!";
+				FURYE << "draw_shadow_shader/gbuffer_depth/gbuffer_light not found, check your json pipline!";
 				return;
 			}
 			
 			auto draw_shadow_shader = shaderIt->second;
 			auto gubffer_depth = depthIt->second;
 			auto gbuffer_light = lightIt->second;
+			auto shadow_buffer_0 = m_TextureMap.find("shadow_buffer_0")->second;
 
 			if (!m_DrawShadowPass->GetTexture(gbuffer_light->GetName(), false))
 				m_DrawShadowPass->AddTexture(gbuffer_light, false);
@@ -488,7 +487,7 @@ namespace fury
 			draw_shadow_shader->BindMatrix("light_matrix", &lightMatrix.Raw[0]);
 
 			draw_shadow_shader->BindTexture("gbuffer_depth", gubffer_depth);
-			draw_shadow_shader->BindTexture("shadow_buffer", m_ShadowMap);
+			draw_shadow_shader->BindTexture("shadow_buffer", shadow_buffer_0);
 
 			draw_shadow_shader->BindMesh(MeshUtil::GetUnitQuad());
 

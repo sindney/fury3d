@@ -57,6 +57,15 @@
     ],
    "textures": [
         {
+            "name": "shadow_buffer_0",
+            "format": "depth24",
+            "filter": "linear",
+            "wrap": "clamp_to_border",
+            "border_color": [1,1,1,1], 
+            "width": 1024,
+            "height": 1024
+        },
+        {
             "name": "gbuffer_depth",
             "format": "depth24",
             "filter": "linear",

@@ -34,8 +34,6 @@ namespace fury
 
 		std::shared_ptr<Shader> m_CurrentShader;
 
-		std::shared_ptr<Texture> m_ShadowMap;
-
 		std::shared_ptr<Pass> m_DrawDepthPass;
 
 		std::shared_ptr<Pass> m_DrawShadowPass;
