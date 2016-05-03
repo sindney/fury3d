@@ -3,6 +3,9 @@
 
 #include "RenderQuery.h"
 #include "SceneNode.h"
+#include "MeshRender.h"
+#include "Material.h"
+#include "Mesh.h"
 
 #include "Log.h"
 #include "Light.h"
@@ -14,20 +17,53 @@ namespace fury
 		return std::make_shared<RenderQuery>();
 	}
 
+	void RenderQuery::AddRenderable(const std::shared_ptr<SceneNode> &node)
+	{
+		auto render = node->GetComponent<MeshRender>();
+		auto mesh = render->GetMesh();
+		auto subMeshCount = mesh->GetSubMeshCount();
+		if (subMeshCount > 0)
+		{
+			for (unsigned int i = 0; i < subMeshCount; i++)
+			{
+				auto subMesh = mesh->GetSubMeshAt(i);
+				auto material = render->GetMaterial(i);
+				if (material->GetOpaque())
+					opaqueUnits.push_back(RenderUnit(node, mesh, material, i));
+				else
+					transparentUnits.push_back(RenderUnit(node, mesh, material, i));
+			}
+		}
+		else
+		{
+			auto material = render->GetMaterial();
+			if (material->GetOpaque())
+				opaqueUnits.push_back(RenderUnit(node, mesh, material, -1));
+			else
+				transparentUnits.push_back(RenderUnit(node, mesh, material, -1));
+		}
+
+		renderableNodes.push_back(node);
+	}
+
+	void RenderQuery::AddLight(const std::shared_ptr<SceneNode> &node)
+	{
+		lightNodes.push_back(node);
+	}
+
 	void RenderQuery::Sort(Vector4 camPos)
 	{
-		auto farToNear = [&camPos](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
+		std::sort(opaqueUnits.begin(), opaqueUnits.end(), [&camPos](const RenderUnit &a, const RenderUnit &b) -> bool
 		{
-			return a->GetWorldPosition().Distance(camPos) > b->GetWorldPosition().Distance(camPos);
-		};
-		auto nearToFar = [&camPos](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
-		{
-			return a->GetWorldPosition().Distance(camPos) < b->GetWorldPosition().Distance(camPos);
-		};
+			return a.node->GetWorldPosition().Distance(camPos) < b.node->GetWorldPosition().Distance(camPos);
+		});
 
-		std::sort(OpaqueNodes.begin(), OpaqueNodes.end(), nearToFar);
-		std::sort(TransparentNodes.begin(), TransparentNodes.end(), farToNear);
-		std::sort(LightNodes.begin(), LightNodes.end(), [](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
+		std::sort(transparentUnits.begin(), transparentUnits.end(), [&camPos](const RenderUnit &a, const RenderUnit &b) -> bool
+		{
+			return a.node->GetWorldPosition().Distance(camPos) > b.node->GetWorldPosition().Distance(camPos);
+		});
+
+		std::sort(lightNodes.begin(), lightNodes.end(), [](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
 		{
 			return a->GetComponent<Light>()->GetCastShadows();
 		});
@@ -35,8 +71,9 @@ namespace fury
 
 	void RenderQuery::Clear()
 	{
-		OpaqueNodes.clear();
-		TransparentNodes.clear();
-		LightNodes.clear();
+		opaqueUnits.clear();
+		transparentUnits.clear();
+		renderableNodes.clear();
+		lightNodes.clear();
 	}
 }

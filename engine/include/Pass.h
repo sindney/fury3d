@@ -46,7 +46,7 @@ namespace fury
 
 		CullMode m_CullMode = CullMode::BACK;
 
-		DrawMode m_DrawMode = DrawMode::RENDERABLE;
+		DrawMode m_DrawMode = DrawMode::OPAQUE;
 
 		std::shared_ptr<SceneNode> m_CameraNode;
 

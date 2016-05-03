@@ -96,13 +96,19 @@ namespace fury
 				continue;
 
 			auto query = queries[m_CurrentCamera->GetName()];
-			auto camera = m_CurrentCamera->GetComponent<Camera>();
 
-			if (drawMode == DrawMode::RENDERABLE)
+			if (drawMode == DrawMode::OPAQUE)
 			{
 				pass->Bind();
-				for (const auto &node : query->OpaqueNodes)
-					DrawRenderable(pass, node);
+				for (const auto &unit : query->opaqueUnits)
+					DrawUnit(pass, unit);
+				pass->UnBind();
+			}
+			else if (drawMode == DrawMode::TRANSPARENT)
+			{
+				pass->Bind();
+				for (const auto &unit : query->transparentUnits)
+					DrawUnit(pass, unit);
 				pass->UnBind();
 			}
 			else if (drawMode == DrawMode::QUAD)
@@ -114,7 +120,7 @@ namespace fury
 			else if (drawMode == DrawMode::LIGHT)
 			{
 				bool first = true;
-				for (const auto &node : query->LightNodes)
+				for (const auto &node : query->lightNodes)
 				{
 					pass->Bind(first);
 					first = false;
@@ -155,95 +161,61 @@ namespace fury
 		return false;
 	}
 
-	void PrelightPipeline::DrawRenderable(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit)
 	{
-		auto render = node->GetComponent<MeshRender>();
-		auto mesh = render->GetMesh();
+		auto node = unit.node;
+		auto mesh = unit.mesh;
+		auto material = unit.material;
 
+		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
+
+		if (shader == nullptr)
+			shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
+			material->GetTextureFlags());
+
+		if (shader == nullptr)
+		{
+			FURYW << "Failed to draw " << node->GetName() << ", shader not found!";
+			return;
+		}
+
+		shader->Bind();
+		shader->BindCamera(m_CurrentCamera);
+		shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+
+		shader->BindMaterial(material);
+
+		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+		{
+			auto ptr = pass->GetTextureAt(i, true);
+			shader->BindTexture(ptr->GetName(), ptr);
+		}
+
+		if (mesh->GetSubMeshCount() > 0)
+		{
+			auto subMesh = mesh->GetSubMeshAt(unit.subMesh);
+			shader->BindSubMesh(mesh, unit.subMesh);
+			glDrawElements(GL_TRIANGLES, subMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+			RenderUtil::Instance()->IncreaseTriangleCount(subMesh->Indices.Data.size());
+		}
+		else
+		{
+			shader->BindMesh(mesh);
+			glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+			RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
+		}
+
+		shader->UnBind();
+
+		// TODO: Maybe subMeshCount ? 
 		if (mesh->IsSkinnedMesh())
 			RenderUtil::Instance()->IncreaseSkinnedMeshCount();
 		else
 			RenderUtil::Instance()->IncreaseMeshCount();
 
-		unsigned int subMeshCount = mesh->GetSubMeshCount();
-		if (subMeshCount > 0)
-		{
-			// with subMesh
-			for (unsigned int i = 0; i < subMeshCount; i++)
-			{
-				if (auto subMesh = mesh->GetSubMeshAt(i))
-				{
-					auto material = render->GetMaterial(i);
-					auto shader = material->GetShaderForPass(pass->GetRenderIndex());
-
-					if (shader == nullptr)
-						shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
-						material->GetTextureFlags());
-
-					if (shader == nullptr)
-					{
-						FURYW << "Failed to draw " << node->GetName() << ", shader not found!";
-						return;
-					}
-
-					shader->Bind();
-					shader->BindCamera(m_CurrentCamera);
-					shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
-
-					shader->BindSubMesh(mesh, i);
-					shader->BindMaterial(material);
-
-					for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
-					{
-						auto ptr = pass->GetTextureAt(i, true);
-						shader->BindTexture(ptr->GetName(), ptr);
-					}
-
-					glDrawElements(GL_TRIANGLES, subMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-
-					shader->UnBind();
-
-					RenderUtil::Instance()->IncreaseDrawCall();
-					RenderUtil::Instance()->IncreaseTriangleCount(subMesh->Indices.Data.size());
-				}
-			}
-		}
-		else
-		{
-			// no subMesh
-			auto material = render->GetMaterial();
-			auto shader = material->GetShaderForPass(pass->GetRenderIndex());
-
-			if (shader == nullptr)
-				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
-				material->GetTextureFlags());
-
-			if (shader == nullptr)
-			{
-				FURYW << "Failed to draw " << node->GetName() << ", shader not found!";
-				return;
-			}
-
-			shader->Bind();
-			shader->BindCamera(m_CurrentCamera);
-			shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
-
-			shader->BindMesh(mesh);
-			shader->BindMaterial(material);
-
-			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
-			{
-				auto ptr = pass->GetTextureAt(i, true);
-				shader->BindTexture(ptr->GetName(), ptr);
-			}
-
-			glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-
-			shader->UnBind();
-
-			RenderUtil::Instance()->IncreaseDrawCall();
-			RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
-		}
+		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
 	void PrelightPipeline::DrawLight(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
@@ -527,7 +499,7 @@ namespace fury
 
 			if (m_DrawOpaqueBounds)
 			{
-				for (auto node : visibles->OpaqueNodes)
+				for (auto node : visibles->renderableNodes)
 					renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
 			}
 
@@ -537,7 +509,7 @@ namespace fury
 
 			if (m_DrawLightBounds)
 			{
-				for (auto node : visibles->LightNodes)
+				for (auto node : visibles->lightNodes)
 				{
 					auto light = node->GetComponent<Light>();
 					if (light->GetType() == LightType::SPOT)

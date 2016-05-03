@@ -14,6 +14,8 @@ namespace fury
 
 	const std::string Material::SHININESS = "shininess";
 
+	const std::string Material::TRANSPARENCY = "transparency";
+
 	const std::string Material::AMBIENT_FACTOR = "ambient_factor";
 
 	const std::string Material::DIFFUSE_FACTOR = "diffuse_factor";

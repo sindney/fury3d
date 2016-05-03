@@ -1,6 +1,9 @@
 #include "EnumUtil.h"
 #include "GLLoader.h"
 
+#undef OPAQUE
+#undef TRANSPARENT
+
 namespace fury
 {
 	const std::vector<std::pair<ClearMode, std::string>> EnumUtil::m_ClearMode =
@@ -317,8 +320,10 @@ namespace fury
 	{
 		switch (mode)
 		{
-		case DrawMode::RENDERABLE:
-			return "renderable";
+		case DrawMode::OPAQUE:
+			return "opaque";
+		case DrawMode::TRANSPARENT:
+			return "transparent";
 		case DrawMode::LIGHT:
 			return "light";
 		case DrawMode::QUAD:
@@ -329,8 +334,10 @@ namespace fury
 
 	DrawMode EnumUtil::DrawModeFromString(const std::string &name)
 	{
-		if (name == "renderable")
-			return DrawMode::RENDERABLE;
+		if (name == "opaque")
+			return DrawMode::OPAQUE;
+		else if (name == "transparent")
+			return DrawMode::TRANSPARENT;
 		else if (name == "light")
 			return DrawMode::LIGHT;
 		else 

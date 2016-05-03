@@ -8,6 +8,8 @@
 #include "Macros.h"
 
 #undef DELETE
+#undef OPAQUE
+#undef TRANSPARENT
 
 namespace fury
 {
@@ -114,7 +116,8 @@ namespace fury
 
 	enum class DrawMode
 	{
-		RENDERABLE, 
+		OPAQUE, 
+		TRANSPARENT, 
 		LIGHT, 
 		QUAD
 	};

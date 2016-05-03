@@ -118,7 +118,7 @@
             "blendMode": "replace",
             "compareMode": "less",
             "cullMode": "back",
-            "drawMode": "renderable"
+            "drawMode": "opaque"
         },
         {
             "name": "pass_light",

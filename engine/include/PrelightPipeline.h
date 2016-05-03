@@ -20,6 +20,8 @@ namespace fury
 
 	class RenderQuery;
 
+	struct RenderUnit;
+
 	class FURY_API PrelightPipeline : public Pipeline
 	{
 	public:
@@ -48,7 +50,7 @@ namespace fury
 
 		bool PointInCone(Vector4 coneCenter, Vector4 coneDir, float height, float theta, Vector4 point);
 
-		void DrawRenderable(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		void DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit);
 
 		void DrawLight(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 

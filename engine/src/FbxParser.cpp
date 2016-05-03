@@ -419,6 +419,10 @@ namespace fury
 		material->SetUniform(Material::DIFFUSE_FACTOR, Uniform1f::Create({ (float)fbxPhong->DiffuseFactor }));
 		material->SetUniform(Material::SPECULAR_FACTOR, Uniform1f::Create({ (float)fbxPhong->SpecularFactor }));
 		material->SetUniform(Material::EMISSIVE_FACTOR, Uniform1f::Create({ (float)fbxPhong->EmissiveFactor }));
+		material->SetUniform(Material::TRANSPARENCY, Uniform1f::Create({ (float)fbxPhong->TransparencyFactor }));
+
+		if (fbxPhong->TransparencyFactor > 0)
+			material->SetOpaque(false);
 
 		auto GetUniform3f = [](FbxPropertyT<FbxDouble3> &data) -> UniformBase::Ptr
 		{
@@ -484,6 +488,10 @@ namespace fury
 		material->SetUniform(Material::AMBIENT_FACTOR, Uniform1f::Create({ (float)fbxLambert->AmbientFactor }));
 		material->SetUniform(Material::DIFFUSE_FACTOR, Uniform1f::Create({ (float)fbxLambert->DiffuseFactor }));
 		material->SetUniform(Material::EMISSIVE_FACTOR, Uniform1f::Create({ (float)fbxLambert->EmissiveFactor }));
+		material->SetUniform(Material::TRANSPARENCY, Uniform1f::Create({ (float)fbxLambert->TransparencyFactor }));
+
+		if (fbxLambert->TransparencyFactor > 0)
+			material->SetOpaque(false);
 
 		auto GetUniform3f = [](FbxPropertyT<FbxDouble3> &data) -> UniformBase::Ptr
 		{

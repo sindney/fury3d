@@ -35,6 +35,8 @@ namespace fury
 
 		static const std::string SHININESS;
 
+		static const std::string TRANSPARENCY;
+
 		static const std::string AMBIENT_FACTOR;
 
 		static const std::string DIFFUSE_FACTOR;

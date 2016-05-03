@@ -67,22 +67,12 @@ namespace fury
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
 			if (sceneNode->GetComponent<Light>() != nullptr)
-			{
-				renderQuery->LightNodes.push_back(sceneNode);
-				return;
-			}
+				renderQuery->AddLight(sceneNode);
 			
 			if (auto render = sceneNode->GetComponent<MeshRender>())
 			{
 				if (render->GetRenderable())
-				{
-					auto material = render->GetMaterial();
-
-					if (material->GetOpaque())
-						renderQuery->OpaqueNodes.push_back(sceneNode);
-					else 
-						renderQuery->TransparentNodes.push_back(sceneNode);
-				}
+					renderQuery->AddRenderable(sceneNode);
 			}
 		});
 	}
@@ -94,7 +84,6 @@ namespace fury
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode) 
 		{
 			sceneNodes.push_back(sceneNode);
-
 		});
 	}
 
@@ -107,7 +96,6 @@ namespace fury
 			auto render = sceneNode->GetComponent<MeshRender>();
 			if (render != nullptr && render->GetRenderable())
 				renderables.push_back(sceneNode);
-
 		});
 	}
 
