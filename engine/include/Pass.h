@@ -62,6 +62,8 @@ namespace fury
 
 		int m_ViewPortHeight = 0;
 
+		bool m_RenderTargetDirty = false;
+
 	public:
 
 		Pass(const std::string &name);
@@ -96,6 +98,10 @@ namespace fury
 
 		DrawMode GetDrawMode() const;
 
+		int GetViewPortWidth() const;
+
+		int GetViewPortHeight() const;
+
 		void SetCameraNode(const std::shared_ptr<SceneNode> &name);
 
 		std::shared_ptr<SceneNode> GetCameraNode() const;
@@ -120,7 +126,13 @@ namespace fury
 
 		unsigned int GetTextureCount(bool input) const;
 
+		void RemoveAllTextures();
+
 		void CreateFrameBuffer();
+
+		void BindRenderTargets();
+
+		void UnBindRenderTargets();
 
 		void DeleteFrameBuffer();
 

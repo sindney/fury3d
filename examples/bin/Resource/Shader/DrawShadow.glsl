@@ -44,7 +44,7 @@ void main()
 {
 	vec2 screenUV = ss_pos.xy * 0.5 + 0.5;
 	vec4 shadowCoord = light_matrix * vec4(pos_from_depth(screenUV), 1.0);
-	
+
 	float compare = 1.0 - float(texture(shadow_buffer, shadowCoord.xy).x < shadowCoord.z);
 	fragment_output = vec4(compare ,compare ,compare ,1);
 }

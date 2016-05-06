@@ -195,7 +195,7 @@ namespace fury
 		m_Dirty = false;
 		m_Width = width;
 		m_Height = height;
-
+		
 		unsigned int internalFormat = EnumUtil::TextureFormatToUint(format).second;
 
 		glGenTextures(1, &m_ID);
@@ -208,7 +208,7 @@ namespace fury
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
-
+		
 		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
 		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
 
@@ -321,6 +321,17 @@ namespace fury
 				glBindTexture(GL_TEXTURE_2D, 0);
 			}
 		}
+	}
+
+	void Texture::GenerateMipMap()
+	{
+		if (m_ID == 0)
+			return;
+
+		m_Mipmap = true;
+
+		glBindTexture(GL_TEXTURE_2D, m_ID);
+		glGenerateMipmap(GL_TEXTURE_2D);
 	}
 
 	bool Texture::GetMipmap() const

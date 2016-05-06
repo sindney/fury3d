@@ -75,7 +75,7 @@ namespace fury
 	{
 		return m_ProjectionMatrix;
 	}
-	
+
 	Matrix4 Camera::GetProjectionMatrix(float near, float far) const
 	{
 		Matrix4 pm;

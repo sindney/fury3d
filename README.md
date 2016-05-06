@@ -28,6 +28,8 @@ Features:
 
 * Intergates powerful gui library [ImGui](https://github.com/ocornut/imgui).
 
+* Support Variance Shadow Mapping.
+
 Plans:
 
 * Add shadow maps. (Implimenting)

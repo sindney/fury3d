@@ -53,25 +53,37 @@
             "name": "draw_shadow_shader",
             "path": "Resource/Shader/DrawShadow.glsl",
             "type": "other"
+        },
+        {
+            "name": "draw_vsm_depth_shader",
+            "path": "Resource/Shader/VarianceDrawDepth.glsl",
+            "type": "other"
+        },
+        {
+            "name": "draw_vsm_shadow_shader",
+            "path": "Resource/Shader/VarianceDrawShadow.glsl",
+            "type": "other"
         }
     ],
    "textures": [
         {
-            "name": "shadow_buffer_0",
+            "name": "depth24_buffer",
             "format": "depth24",
             "filter": "linear",
             "wrap": "clamp_to_border",
-            "border_color": [1.0,1.0,1.0,1.0], 
+            "border_color": [1.0,1.0,1.0,1.0],
             "width": 1024,
             "height": 1024
         },
         {
-            "name": "gbuffer_depth",
-            "format": "depth24",
-            "filter": "linear",
-            "wrap": "repeat",
-            "width": 1280,
-            "height": 720
+            "name": "vsm_shadow_buffer",
+            "format": "rg32f",
+            "filter": "linear_mipmap_linear",
+            "wrap": "clamp_to_border",
+            "border_color": [1.0,1.0,1.0,1.0], 
+            "mipmap": true, 
+            "width": 1024,
+            "height": 1024
         },
         {
             "name": "gbuffer_normal",

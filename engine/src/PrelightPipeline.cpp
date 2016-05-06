@@ -30,21 +30,19 @@ namespace fury
 		return std::make_shared<PrelightPipeline>(name);
 	}
 
-	PrelightPipeline::PrelightPipeline(const std::string &name) : Pipeline(name)
+	PrelightPipeline::PrelightPipeline(const std::string &name)
+		: Pipeline(name)
 	{
 		m_TypeIndex = typeid(PrelightPipeline);
 
-		m_DrawDepthPass = Pass::Create("DrawDepthPass");
-		m_DrawDepthPass->SetBlendMode(BlendMode::REPLACE);
-		m_DrawDepthPass->SetClearMode(ClearMode::DEPTH);
-		m_DrawDepthPass->SetCompareMode(CompareMode::LESS);
-		m_DrawDepthPass->SetCullMode(CullMode::BACK);
+		m_SharedPass = Pass::Create("SharedPass");
 
-		m_DrawShadowPass = Pass::Create("DrawShadowPass");
-		m_DrawShadowPass->SetBlendMode(BlendMode::MULTIPLY);
-		m_DrawShadowPass->SetClearMode(ClearMode::NONE);
-		m_DrawShadowPass->SetCompareMode(CompareMode::ALWAYS);
-		m_DrawShadowPass->SetCullMode(CullMode::BACK);
+		m_BiasMatrix = Matrix4({
+			0.5, 0.0, 0.0, 0.0,
+			0.0, 0.5, 0.0, 0.0,
+			0.0, 0.0, 0.5, 0.0,
+			0.5, 0.5, 0.5, 1.0 
+		});
 	}
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
@@ -344,6 +342,55 @@ namespace fury
 		if (light->GetType() != LightType::DIRECTIONAL)
 			return;
 
+		switch (m_ShadowType)
+		{
+		case ShadowType::NORMAL_SHADOW_MAP:
+			DrawNormalShadowMap(sceneManager, pass, node);
+			break;
+		case ShadowType::VARIANCE_SHADOW_MAP:
+			DrawVarianceShadowMap(sceneManager, pass, node);
+			break;
+		default:
+			break;
+		}
+	}
+
+	bool PrelightPipeline::CheckPipeline(std::initializer_list<std::string> textures, std::initializer_list<std::string> shaders)
+	{
+		for (auto name : textures)
+		{
+			if (m_TextureMap.find(name) == m_TextureMap.end())
+			{
+				FURYE << name << " not found! Check your json pipeline!";
+				return false;
+			}
+		}
+
+		for (auto name : shaders)
+		{
+			if (m_ShaderMap.find(name) == m_ShaderMap.end())
+			{
+				FURYE << name << " not found! Check your json pipeline!";
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	void PrelightPipeline::DrawNormalShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	{
+		// check data 
+		if (!CheckPipeline(
+			{ "depth24_buffer" },
+			{ "draw_depth_shader", "draw_shadow_shader" }))
+			return;
+
+		// get pointers
+		auto draw_depth_shader = m_ShaderMap["draw_depth_shader"];
+		auto draw_shadow_shader = m_ShaderMap["draw_shadow_shader"];
+		auto depth24_buffer = m_TextureMap["depth24_buffer"];
+
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
 
@@ -367,22 +414,15 @@ namespace fury
 
 		// draw casters to depth map, aka shadow map.
 		{
-			auto shaderIt = m_ShaderMap.find("draw_depth_shader");
-			auto shadowBufferIt = m_TextureMap.find("shadow_buffer_0");
+			m_SharedPass->RemoveAllTextures();
+			m_SharedPass->AddTexture(depth24_buffer, false);
 
-			if (shaderIt == m_ShaderMap.end() || shadowBufferIt == m_TextureMap.end())
-			{
-				FURYE << "draw_depth_shader/shadow_buffer_0 not found! Check you json pipeline!";
-				return;
-			}
+			m_SharedPass->SetBlendMode(BlendMode::REPLACE);
+			m_SharedPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
+			m_SharedPass->SetCompareMode(CompareMode::LESS);
+			m_SharedPass->SetCullMode(CullMode::BACK);
 
-			auto draw_depth_shader = shaderIt->second;
-			auto shadow_buffer_0 = shadowBufferIt->second;
-
-			if(!m_DrawDepthPass->GetTexture("shadow_buffer_0", false))
-				m_DrawDepthPass->AddTexture(shadow_buffer_0, false);
-
-			m_DrawDepthPass->Bind();
+			m_SharedPass->Bind();
 
 			glEnable(GL_POLYGON_OFFSET_FILL);
 			glPolygonOffset(2.5f, 10.0f);
@@ -390,6 +430,7 @@ namespace fury
 			draw_depth_shader->Bind();
 			draw_depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
 			draw_depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+			draw_depth_shader->BindFloat("camera_far", camAABB.GetMax().z);
 
 			for (auto &caster : casters)
 			{
@@ -418,48 +459,32 @@ namespace fury
 			glDisable(GL_POLYGON_OFFSET_FILL);
 			draw_depth_shader->UnBind();
 
-			m_DrawDepthPass->UnBind();
+			m_SharedPass->UnBind();
 		}
 
 		// bind our shadow map.
 		// use gbuffer to test pixels's visiblities.
 		// set invisible pixels to 0 in light_buffer, to disable lighting effect.
 		{
-			auto shaderIt = m_ShaderMap.find("draw_shadow_shader");
-			auto depthIt = m_TextureMap.find("gbuffer_depth");
-			auto lightIt = m_TextureMap.find("gbuffer_light");
+			m_SharedPass->SetBlendMode(BlendMode::MULTIPLY);
+			m_SharedPass->SetClearMode(ClearMode::NONE);
+			m_SharedPass->SetCompareMode(CompareMode::ALWAYS);
+			m_SharedPass->SetCullMode(CullMode::BACK);
 
-			if (shaderIt == m_ShaderMap.end() || depthIt == m_TextureMap.end() || lightIt == m_TextureMap.end())
-			{
-				FURYE << "draw_shadow_shader/gbuffer_depth/gbuffer_light not found, check your json pipline!";
-				return;
-			}
-			
-			auto draw_shadow_shader = shaderIt->second;
-			auto gubffer_depth = depthIt->second;
-			auto gbuffer_light = lightIt->second;
-			auto shadow_buffer_0 = m_TextureMap.find("shadow_buffer_0")->second;
+			m_SharedPass->RemoveAllTextures();
+			m_SharedPass->AddTexture(m_TextureMap["gbuffer_light"], false);
 
-			if (!m_DrawShadowPass->GetTexture(gbuffer_light->GetName(), false))
-				m_DrawShadowPass->AddTexture(gbuffer_light, false);
-
-			m_DrawShadowPass->Bind();
+			m_SharedPass->Bind();
 
 			draw_shadow_shader->Bind();
 
-			Matrix4 biasMatrix({
-				0.5, 0.0, 0.0, 0.0,
-				0.0, 0.5, 0.0, 0.0,
-				0.0, 0.0, 0.5, 0.0,
-				0.5, 0.5, 0.5, 1.0
-			});
-			lightMatrix = biasMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix();
+			lightMatrix = m_BiasMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix();
 
 			draw_shadow_shader->BindCamera(m_CurrentCamera);
 			draw_shadow_shader->BindMatrix("light_matrix", &lightMatrix.Raw[0]);
 
-			draw_shadow_shader->BindTexture("gbuffer_depth", gubffer_depth);
-			draw_shadow_shader->BindTexture("shadow_buffer", shadow_buffer_0);
+			draw_shadow_shader->BindTexture("gbuffer_depth", m_TextureMap["gbuffer_depth"]);
+			draw_shadow_shader->BindTexture("shadow_buffer", depth24_buffer);
 
 			draw_shadow_shader->BindMesh(MeshUtil::GetUnitQuad());
 
@@ -467,7 +492,124 @@ namespace fury
 
 			draw_shadow_shader->UnBind();
 
-			m_DrawShadowPass->UnBind();
+			m_SharedPass->UnBind();
+		}
+	}
+
+	void PrelightPipeline::DrawVarianceShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	{
+		// check data 
+		if (!CheckPipeline(
+			{ "depth24_buffer", "vsm_shadow_buffer" },
+			{ "draw_vsm_depth_shader", "draw_vsm_shadow_shader" })) 
+			return;
+
+		// get pointers
+		auto draw_vsm_depth_shader = m_ShaderMap["draw_vsm_depth_shader"];
+		auto draw_vsm_shadow_shader = m_ShaderMap["draw_vsm_shadow_shader"];
+
+		auto vsm_shadow_buffer = m_TextureMap["vsm_shadow_buffer"];
+		auto depth24_buffer = m_TextureMap["depth24_buffer"];
+
+		auto camNode = pass->GetCameraNode();
+		auto camera = camNode->GetComponent<Camera>();
+
+		Matrix4 lightMatrix = node->GetInvertWorldMatrix();
+		lightMatrix.AppendRotation(Angle::AxisRadToQuat(Vector4::XAxis, Angle::DegToRad * 90.0f));
+
+		// get camera's frustum's worldspace aabb.
+		auto camAABB = camera->GetFrustum(camera->GetNear(), camera->GetShadowFar()).GetBoxBounds();
+
+		// find shadow casters
+		fury::SceneManager::SceneNodes casters;
+		sceneManager->GetVisibleRenderables(camAABB, casters);
+
+		// transform world space aabb to light space.
+		camAABB = node->GetInvertWorldMatrix().Multiply(camAABB);
+		// gen projection matrix for light.
+		Matrix4 projMatrix;
+		projMatrix.OrthoOffCenter(camAABB.GetMin().x, camAABB.GetMax().x,
+			camAABB.GetMin().y, camAABB.GetMax().y,
+			camAABB.GetMin().z, camAABB.GetMax().z);
+
+		// draw casters to depth map, aka shadow map.
+		{
+			m_SharedPass->RemoveAllTextures();
+			m_SharedPass->AddTexture(vsm_shadow_buffer, false);
+			m_SharedPass->AddTexture(depth24_buffer, false);
+
+			m_SharedPass->SetBlendMode(BlendMode::REPLACE);
+			m_SharedPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
+			m_SharedPass->SetCompareMode(CompareMode::LESS);
+			m_SharedPass->SetCullMode(CullMode::BACK);
+
+			m_SharedPass->Bind();
+
+			draw_vsm_depth_shader->Bind();
+			draw_vsm_depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
+			draw_vsm_depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+			draw_vsm_depth_shader->BindFloat("camera_far", camAABB.GetMax().z);
+
+			for (auto &caster : casters)
+			{
+				auto casterRender = caster->GetComponent<MeshRender>();
+				auto casterMesh = casterRender->GetMesh();
+
+				draw_vsm_depth_shader->BindMesh(casterMesh);
+				draw_vsm_depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
+
+				unsigned int subMeshCount = casterMesh->GetSubMeshCount();
+				if (subMeshCount > 0)
+				{
+					for (unsigned int i = 0; i < subMeshCount; i++)
+					{
+						draw_vsm_depth_shader->BindSubMesh(casterMesh, i);
+						glDrawElements(GL_TRIANGLES, casterMesh->GetSubMeshAt(i)->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					}
+				}
+				else
+				{
+					draw_vsm_depth_shader->BindMesh(casterMesh);
+					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				}
+			}
+
+			draw_vsm_depth_shader->UnBind();
+
+			m_SharedPass->UnBind();
+		}
+
+		// bind our shadow map.
+		// use gbuffer to test pixels's visiblities.
+		// set invisible pixels to 0 in light_buffer, to disable lighting effect.
+		{
+			m_SharedPass->SetBlendMode(BlendMode::MULTIPLY);
+			m_SharedPass->SetClearMode(ClearMode::NONE);
+			m_SharedPass->SetCompareMode(CompareMode::ALWAYS);
+			m_SharedPass->SetCullMode(CullMode::BACK);
+
+			m_SharedPass->RemoveAllTextures();
+			m_SharedPass->AddTexture(m_TextureMap["gbuffer_light"], false);
+
+			m_SharedPass->Bind();
+
+			draw_vsm_shadow_shader->Bind();
+
+			lightMatrix = m_BiasMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix();
+
+			draw_vsm_shadow_shader->BindCamera(m_CurrentCamera);
+			draw_vsm_shadow_shader->BindMatrix("light_matrix", &lightMatrix.Raw[0]);
+
+			draw_vsm_shadow_shader->BindTexture("gbuffer_depth", m_TextureMap["gbuffer_depth"]);
+			draw_vsm_shadow_shader->BindTexture("shadow_buffer", vsm_shadow_buffer);
+
+			draw_vsm_shadow_shader->BindMesh(MeshUtil::GetUnitQuad());
+
+			glDrawElements(GL_TRIANGLES, MeshUtil::GetUnitQuad()->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+			draw_vsm_shadow_shader->UnBind();
+
+			m_SharedPass->UnBind();
 		}
 	}
 

@@ -12,6 +12,7 @@
 #include "Singleton.h"
 #include "Signal.h"
 #include "EnumUtil.h"
+#include "Pass.h"
 #include "Matrix4.h"
 
 namespace fury
@@ -26,6 +27,8 @@ namespace fury
 
 	class Shader;
 
+	class Texture;
+
 	class FURY_API RenderUtil final : public Singleton <RenderUtil>
 	{
 	public:
@@ -35,6 +38,10 @@ namespace fury
 	private:
 
 		std::shared_ptr<Shader> m_DebugShader;
+
+		std::shared_ptr<Shader> m_BlurShader;
+
+		std::shared_ptr<Pass> m_BlitPass;
 
 		unsigned int m_LineVAO = 0;
 
@@ -66,6 +73,12 @@ namespace fury
 		RenderUtil();
 
 		virtual ~RenderUtil();
+
+		void Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
+			const std::shared_ptr<Shader> &shader, ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL, 
+			BlendMode blendMode = BlendMode::REPLACE);
+
+		void Blur(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, float coef = 4.5f);
 
 		void BeginDrawLines(const std::shared_ptr<SceneNode> &camera);
 

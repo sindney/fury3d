@@ -8,12 +8,14 @@
 #include "SceneNode.h"
 #include "Frustum.h"
 #include "Mesh.h"
+#include "MeshUtil.h"
+#include "Texture.h"
 
 namespace fury
 {
 	RenderUtil::RenderUtil()
 	{
-		const char *vertex_shader =
+		const char *debug_vs =
 			"#version 330\n"
 			"in vec3 vertex_position;\n"
 			"uniform mat4 projection_matrix;\n"
@@ -23,7 +25,7 @@ namespace fury
 			"    gl_Position = projection_matrix * invert_view_matrix * world_matrix * vec4(vertex_position, 1.0);\n"
 			"}\n";
 
-		const char *fragment_shader =
+		const char *debug_fs =
 			"#version 330\n"
 			"uniform vec3 color;\n"
 			"out vec4 fragment_output;\n"
@@ -31,9 +33,40 @@ namespace fury
 			"    fragment_output = vec4(color, 1.0);\n"
 			"}\n";
 
+		const char *blur_vs =
+			"in vec3 vertex_position;"
+			"out vec2 out_uv;"
+			"void main()"
+			"{"
+			"	out_uv = vertex_position.xy * 0.5 + 0.5;"
+			"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
+			"}";
+
+		const char *blur_fs =
+			"uniform vec2 scaleU;"
+			"uniform sampler2D textureSrc;"
+			"in vec2 out_uv;"
+			"out vec4 fragment_output;"
+			"void main()"
+			"{"
+			"	vec4 color = vec4(0.0);"
+			"	color += texture2D(textureSrc, out_uv + vec2(-3.0 * scaleU.x, -3.0*scaleU.y)) * 0.015625;"
+			"	color += texture2D(textureSrc, out_uv + vec2(-2.0 * scaleU.x, -2.0*scaleU.y)) * 0.09375;"
+			"	color += texture2D(textureSrc, out_uv + vec2(-1.0 * scaleU.x, -1.0*scaleU.y)) * 0.234375;"
+			"	color += texture2D(textureSrc, out_uv + vec2(0.0, 0.0)) * 0.3125;"
+			"	color += texture2D(textureSrc, out_uv + vec2(1.0 * scaleU.x,  1.0*scaleU.y)) * 0.234375;"
+			"	color += texture2D(textureSrc, out_uv + vec2(2.0 * scaleU.x,  2.0*scaleU.y)) * 0.09375;"
+			"	color += texture2D(textureSrc, out_uv + vec2(3.0 * scaleU.x, -3.0*scaleU.y)) * 0.015625;"
+			"	fragment_output = color;"
+			"}";
+
 		m_DebugShader = Shader::Create("DebugShader", ShaderType::OTHER);
-		if (!m_DebugShader->Compile(vertex_shader, fragment_shader))
+		if (!m_DebugShader->Compile(debug_vs, debug_fs))
 			FURYE << "Failed to compile line shader!";
+
+		m_BlurShader = Shader::Create("BlurShader", ShaderType::OTHER);
+		if (!m_BlurShader->Compile(debug_vs, debug_fs))
+			FURYE << "Failed to compile blur shader!";
 
 		m_DebugShader->Bind();
 
@@ -54,6 +87,12 @@ namespace fury
 		glBindVertexArray(0);
 
 		m_DebugShader->UnBind();
+
+		m_BlitPass = Pass::Create("BlitPass");
+		m_BlitPass->SetBlendMode(BlendMode::REPLACE);
+		m_BlitPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
+		m_BlitPass->SetCompareMode(CompareMode::LESS);
+		m_BlitPass->SetCullMode(CullMode::NONE);
 	}
 
 	RenderUtil::~RenderUtil()
@@ -63,6 +102,40 @@ namespace fury
 
 		if (m_LineVBO != 0)
 			glDeleteBuffers(1, &m_LineVBO);
+	}
+
+	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
+		const std::shared_ptr<Shader> &shader, ClearMode clearMode, BlendMode blendMode)
+	{
+		m_BlitPass->AddTexture(dest, false);
+		m_BlitPass->SetClearMode(clearMode);
+		m_BlitPass->SetBlendMode(blendMode);
+
+		m_BlitPass->Bind();
+
+		shader->Bind();
+
+		shader->BindTexture(src);
+		shader->BindMesh(MeshUtil::GetUnitQuad());
+
+		glDrawElements(GL_TRIANGLES, MeshUtil::GetUnitQuad()->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+		shader->UnBind();
+
+		m_BlitPass->UnBind();
+
+		m_BlitPass->RemoveAllTextures();
+	}
+
+	void RenderUtil::Blur(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, float coef)
+	{
+		m_BlurShader->Bind();
+		m_BlurShader->BindFloat("scaleU", 1.0f / (src->GetWidth() * coef), 0.0f);
+		RenderUtil::Instance()->Blit(src, dest, m_BlurShader);
+
+		m_BlurShader->Bind();
+		m_BlurShader->BindFloat("scaleU", 0.0f, 1.0f / (src->GetHeight() * coef));
+		RenderUtil::Instance()->Blit(dest, src, m_BlurShader);
 	}
 
 	void RenderUtil::BeginDrawLines(const std::shared_ptr<SceneNode> &camera)

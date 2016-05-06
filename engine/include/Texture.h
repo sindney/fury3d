@@ -71,6 +71,8 @@ namespace fury
 
 		void SetBorderColor(Color color);
 
+		void GenerateMipMap();
+
 		bool GetMipmap() const;
 
 		int GetWidth() const;

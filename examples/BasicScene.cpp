@@ -80,9 +80,9 @@ void BasicScene::Update(float dt)
 
 void BasicScene::UpdateGUI(float dt)
 {
-	static bool showProfilerWindow = true, showBufferWindow = true;
+	static bool showProfilerWindow = true, showBufferWindow = true, useVSM = true;
 
-	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 250), 1.0f, 
+	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 260), 1.0f, 
 		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders);
 
 	// fps graph
@@ -125,6 +125,9 @@ void BasicScene::UpdateGUI(float dt)
 		ImGui::Checkbox("Draw Mesh Bounds", &draw_mesh_bounds);
 		m_Pipeline->SetDebugParams(draw_mesh_bounds, draw_light_bounds);
 
+		ImGui::Checkbox("Variance Shadow Mappping", &useVSM);
+		m_Pipeline->SetShadowType(useVSM ? ShadowType::VARIANCE_SHADOW_MAP : ShadowType::NORMAL_SHADOW_MAP);
+
 		ImGui::Checkbox("Show Buffer Window", &showBufferWindow);
 	}
 
@@ -136,27 +139,42 @@ void BasicScene::UpdateGUI(float dt)
 		ImGui::Begin("Buffers", &showBufferWindow, ImVec2(300, 300), 1.0f,
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders);
 
+		static bool showGBuffer = true, showShadowBuffer = false;
+
+		ImGui::Checkbox("Show GBuffer", &showGBuffer);
+		ImGui::Checkbox("Show Shadow Buffer", &showShadowBuffer);
+
 		ImVec2 imgSize(ImGui::GetIO().DisplaySize.x / 4, ImGui::GetIO().DisplaySize.y / 4);
 
-		ImGui::Text("Depth buffer: ");
-		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_depth"))
-			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+		if (showGBuffer)
+		{
+			ImGui::Text("Depth Buffer: ");
+			if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_depth"))
+				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 
-		ImGui::Text("Normal buffer: ");
-		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_normal"))
-			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+			ImGui::Text("Normal Buffer: ");
+			if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_normal"))
+				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 
-		ImGui::Text("Diffuse buffer: ");
-		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_diffuse"))
-			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+			ImGui::Text("Diffuse Buffer: ");
+			if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_diffuse"))
+				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 
-		ImGui::Text("Light buffer: ");
-		if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_light"))
-			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+			ImGui::Text("Light Buffer: ");
+			if (auto ptr = m_Pipeline->GetTextureByName("gbuffer_light"))
+				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+		}
 
-		ImGui::Text("Shadow buffer 0: ");
-		if (auto ptr = m_Pipeline->GetTextureByName("shadow_buffer_0"))
-			ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+		if (showShadowBuffer)
+		{
+			ImGui::Text("Shadow Buffer: ");
+			if (auto ptr = m_Pipeline->GetTextureByName("depth24_buffer"))
+				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+
+			ImGui::Text("VSM Shadow Buffer: ");
+			if (auto ptr = m_Pipeline->GetTextureByName("vsm_shadow_buffer"))
+				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+		}
 
 		ImGui::End();
 	}

@@ -254,6 +254,16 @@ namespace fury
 		return m_DrawMode;
 	}
 
+	int Pass::GetViewPortWidth() const
+	{
+		return m_ViewPortWidth;
+	}
+
+	int Pass::GetViewPortHeight() const
+	{
+		return m_ViewPortHeight;
+	}
+
 	void Pass::SetCameraNode(const std::shared_ptr<SceneNode> &cameraNode)
 	{
 		if (cameraNode->GetComponent<Camera>())
@@ -306,6 +316,9 @@ namespace fury
 	{
 		std::vector<std::shared_ptr<Texture>> &storage = input ? m_InputTextures : m_OutputTextures;
 		storage.push_back(texture);
+
+		if (!input)
+			m_RenderTargetDirty = true;
 	}
 
 	std::shared_ptr<Texture> Pass::GetTextureAt(unsigned int index, bool input) const
@@ -323,6 +336,9 @@ namespace fury
 
 		std::vector<std::shared_ptr<Texture>> &storage = input ? m_InputTextures : m_OutputTextures;
 		storage.erase(storage.begin() + index);
+
+		if (!input)
+			m_RenderTargetDirty = true;
 
 		return ptr;
 	}
@@ -357,71 +373,111 @@ namespace fury
 		return input ? m_InputTextures.size() : m_OutputTextures.size();
 	}
 
+	void Pass::RemoveAllTextures()
+	{
+		m_InputTextures.clear();
+		m_OutputTextures.clear();
+		UnBindRenderTargets();
+	}
+
 	void Pass::CreateFrameBuffer()
 	{
 		if (m_FrameBuffer != 0)
 			DeleteFrameBuffer();
 
-		if (m_OutputTextures.size() > 0)
+		glGenFramebuffers(1, &m_FrameBuffer);
+		BindRenderTargets();
+	}
+
+	void Pass::BindRenderTargets()
+	{
+		if (m_FrameBuffer == 0)
+			return;
+
+		if (m_OutputTextures.size() == 0)
 		{
-			glGenFramebuffers(1, &m_FrameBuffer);
-			glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+			m_RenderTargetDirty = false;
+			return;
+		}
 
-			m_ViewPortWidth = m_ViewPortHeight = 0;
+		UnBindRenderTargets();
 
-			for (auto texture : m_OutputTextures)
+		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+
+		m_ViewPortWidth = m_ViewPortHeight = 0;
+		m_ColorAttachmentCount = 0;
+
+		for (auto texture : m_OutputTextures)
+		{
+			TextureFormat format = texture->GetFormat();
+
+			if (texture->GetWidth() > m_ViewPortWidth)
+				m_ViewPortWidth = texture->GetWidth();
+
+			if (texture->GetHeight() > m_ViewPortHeight)
+				m_ViewPortHeight = texture->GetHeight();
+
+			if (texture->GetDirty())
 			{
-				TextureFormat format = texture->GetFormat();
-
-				if (texture->GetWidth() > m_ViewPortWidth)
-					m_ViewPortWidth = texture->GetWidth();
-
-				if (texture->GetHeight() > m_ViewPortHeight)
-					m_ViewPortHeight = texture->GetHeight();
-
-				if (texture->GetDirty())
-				{
-					FURYW << "Texture dirty!";
-					continue;
-				}
-
-				if (format == TextureFormat::DEPTH16 ||
-					format == TextureFormat::DEPTH24 ||
-					format == TextureFormat::DEPTH32F)
-				{
-					glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texture->GetID(), 0);
-				}
-				else if (format == TextureFormat::DEPTH24_STENCIL8 ||
-					format == TextureFormat::DEPTH32F_STENCIL8)
-				{
-					glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, texture->GetID(), 0);
-				}
-				else if (format != TextureFormat::UNKNOW)
-				{
-					glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + m_ColorAttachmentCount,
-						texture->GetID(), 0);
-
-					m_ColorAttachmentCount++;
-				}
-				else
-				{
-					FURYW << "Invalide texture type!";
-				}
+				FURYW << "Texture dirty!";
+				continue;
 			}
 
-			if (m_ColorAttachmentCount > 0)
+			if (format == TextureFormat::DEPTH16 ||
+				format == TextureFormat::DEPTH24 ||
+				format == TextureFormat::DEPTH32F)
 			{
-				std::vector<unsigned int> m_ColorAttachs(m_ColorAttachmentCount);
-				for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
-					m_ColorAttachs[i] = GL_COLOR_ATTACHMENT0 + i;
+				glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texture->GetID(), 0);
+			}
+			else if (format == TextureFormat::DEPTH24_STENCIL8 ||
+				format == TextureFormat::DEPTH32F_STENCIL8)
+			{
+				glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, texture->GetID(), 0);
+			}
+			else if (format != TextureFormat::UNKNOW)
+			{
+				glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + m_ColorAttachmentCount,
+					texture->GetID(), 0);
 
-				glDrawBuffers(m_ColorAttachmentCount, &m_ColorAttachs[0]);
+				m_ColorAttachmentCount++;
 			}
 			else
 			{
-				glDrawBuffers(0, GL_NONE);
+				FURYW << "Invalide texture type!";
 			}
 		}
+
+		if (m_ColorAttachmentCount > 0)
+		{
+			std::vector<unsigned int> m_ColorAttachs(m_ColorAttachmentCount);
+			for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
+				m_ColorAttachs[i] = GL_COLOR_ATTACHMENT0 + i;
+
+			glDrawBuffers(m_ColorAttachmentCount, &m_ColorAttachs[0]);
+		}
+		else
+		{
+			glDrawBuffers(0, GL_NONE);
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		m_RenderTargetDirty = false;
+	}
+
+	void Pass::UnBindRenderTargets()
+	{
+		if (m_FrameBuffer == 0)
+			return;
+
+		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+
+		glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
+		glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, 0, 0);
+		// TODO: optimize
+		for (int i = 0; i < GL_MAX_COLOR_ATTACHMENTS; i++)
+			glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, 0, 0);
+		glDrawBuffers(0, GL_NONE);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
@@ -441,13 +497,16 @@ namespace fury
 		{
 			if (m_FrameBuffer == 0)
 				CreateFrameBuffer();
+
+			if (m_RenderTargetDirty)
+				BindRenderTargets();
 		}
 		else
 		{
 			m_ViewPortWidth = InputUtil::Instance()->GetWindowSize().first;
 			m_ViewPortHeight = InputUtil::Instance()->GetWindowSize().second;
 		}
-		
+
 		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
 		glViewport(0, 0, m_ViewPortWidth, m_ViewPortHeight);
 		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -510,6 +569,11 @@ namespace fury
 
 	void Pass::UnBind()
 	{
+		for (auto texture : m_OutputTextures)
+		{
+			if (texture->GetMipmap())
+				texture->GenerateMipMap();
+		}
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 }

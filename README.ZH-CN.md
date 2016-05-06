@@ -28,6 +28,8 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 * 接入了强大的GUI库[ImGui](https://github.com/ocornut/imgui)
 
+* 支持 Variance Shadow Mapping
+
 计划:
 
 * 添加阴影. (实现中)

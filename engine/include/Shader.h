@@ -75,6 +75,12 @@ namespace fury
 
 		void BindLight(const std::shared_ptr<SceneNode> &lightNode);
 
+		// bind texture to 1st texture
+		void BindTexture(const std::shared_ptr<Texture> &texture);
+
+		// bind texture to 1st texture
+		void BindTexture(size_t textureId);
+
 		void BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture);
 
 		void BindTexture(const std::string &name, size_t textureId);
