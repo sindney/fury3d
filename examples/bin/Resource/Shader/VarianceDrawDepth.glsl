@@ -20,15 +20,12 @@ void main()
 
 #ifdef FRAGMENT_SHADER
 
-uniform float camera_far = 10000;
-
 in vec4 out_position;
 
 out vec4 fragment_output;
 
 void main()
 {
-	// float depth = out_depth / camera_far;
 	float depth = out_position.z / out_position.w;
 	depth = depth * 0.5 + 0.5;
 

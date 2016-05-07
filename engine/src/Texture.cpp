@@ -37,26 +37,20 @@ namespace fury
 		}
 		auto format = EnumUtil::TextureFormatFromString(str);
 		
-		if (!LoadMemberValue(wrapper, "filter", str))
-		{
-			FURYE << "Texture param 'filter' not found!";
-			return false;
-		}
-		auto filterMode = EnumUtil::FilterModeFromString(str);
-
-		if (!LoadMemberValue(wrapper, "wrap", str))
-		{
-			FURYE << "Texture param 'wrap' not found!";
-			return false;
-		}
-		auto wrapMode = EnumUtil::WrapModeFromString(str);
-
 		int width, height;
 		if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
 		{
 			FURYE << "Texture param 'width/height' not found!";
 			return false;
 		}
+		
+		auto filterMode = FilterMode::LINEAR;
+		if (LoadMemberValue(wrapper, "filter", str))
+			filterMode = EnumUtil::FilterModeFromString(str);
+
+		auto wrapMode = WrapMode::REPEAT;
+		if (LoadMemberValue(wrapper, "wrap", str))
+			wrapMode = EnumUtil::WrapModeFromString(str);
 
 		std::vector<float> color;
 		LoadArray(wrapper, "border_color", [&](const void* node) -> bool 

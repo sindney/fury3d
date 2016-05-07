@@ -40,7 +40,9 @@ namespace fury
 			return false;
 		}
 		if (auto camNode = entityMgr->Get<SceneNode>(str))
+		{
 			SetCameraNode(camNode);
+		}
 		else
 		{
 			FURYE << "Camera node not found!";

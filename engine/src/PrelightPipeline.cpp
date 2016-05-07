@@ -25,6 +25,8 @@
 
 namespace fury
 {
+	float PrelightPipeline::MinVariance = 0.00005f;
+
 	PrelightPipeline::Ptr PrelightPipeline::Create(const std::string &name)
 	{
 		return std::make_shared<PrelightPipeline>(name);
@@ -599,6 +601,7 @@ namespace fury
 
 			draw_vsm_shadow_shader->BindCamera(m_CurrentCamera);
 			draw_vsm_shadow_shader->BindMatrix("light_matrix", &lightMatrix.Raw[0]);
+			draw_vsm_shadow_shader->BindFloat("min_variance", MinVariance);
 
 			draw_vsm_shadow_shader->BindTexture("gbuffer_depth", m_TextureMap["gbuffer_depth"]);
 			draw_vsm_shadow_shader->BindTexture("shadow_buffer", vsm_shadow_buffer);

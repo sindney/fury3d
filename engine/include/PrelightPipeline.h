@@ -30,6 +30,8 @@ namespace fury
 
 		static Ptr Create(const std::string &name);
 
+		static float MinVariance;
+
 	protected:
 
 		std::shared_ptr<SceneNode> m_CurrentCamera;

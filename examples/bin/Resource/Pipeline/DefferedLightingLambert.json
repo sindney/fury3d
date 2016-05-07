@@ -41,35 +41,29 @@
         },
         {
             "name": "phong_shader",
-            "path": "Resource/Shader/Lambert/Lambert.glsl",
-            "type": "other"
+            "path": "Resource/Shader/Lambert/Lambert.glsl"
         },
         {
             "name": "draw_depth_shader",
-            "path": "Resource/Shader/DrawDepth.glsl",
-            "type": "other"
+            "path": "Resource/Shader/DrawDepth.glsl"
         },
         {
             "name": "draw_shadow_shader",
-            "path": "Resource/Shader/DrawShadow.glsl",
-            "type": "other"
+            "path": "Resource/Shader/DrawShadow.glsl"
         },
         {
             "name": "draw_vsm_depth_shader",
-            "path": "Resource/Shader/VarianceDrawDepth.glsl",
-            "type": "other"
+            "path": "Resource/Shader/VarianceDrawDepth.glsl"
         },
         {
             "name": "draw_vsm_shadow_shader",
-            "path": "Resource/Shader/VarianceDrawShadow.glsl",
-            "type": "other"
+            "path": "Resource/Shader/VarianceDrawShadow.glsl"
         }
     ],
     "textures": [
         {
             "name": "depth24_buffer",
             "format": "depth24",
-            "filter": "linear",
             "wrap": "clamp_to_border",
             "border_color": [1.0,1.0,1.0,1.0],
             "width": 1024,
@@ -88,32 +82,24 @@
         {
             "name": "gbuffer_depth",
             "format": "depth24",
-            "filter": "linear",
-            "wrap": "repeat",
             "width": 1280,
             "height": 720
         },
         {
             "name": "gbuffer_normal",
             "format": "rgba16",
-            "filter": "linear",
-            "wrap": "repeat",
             "width": 1280,
             "height": 720
         },
         {
             "name": "gbuffer_diffuse",
             "format": "rgba8",
-            "filter": "linear",
-            "wrap": "repeat",
             "width": 1280,
             "height": 720
         },
         {
             "name": "gbuffer_light",
             "format": "rgba8",
-            "filter": "linear",
-            "wrap": "repeat",
             "width": 1280,
             "height": 720
         }

@@ -50,9 +50,7 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 ## 测试截图
 
-![阴影和动态光照](screenshots/tank_0.jpg)
-
-![阴影和动态光照](screenshots/tank_1.jpg)
+![阴影和动态光照](screenshots/vsm.jpg)
 
 ## 例子
 

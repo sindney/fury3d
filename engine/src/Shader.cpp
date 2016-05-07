@@ -36,13 +36,10 @@ namespace fury
 		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
 
-		if (!LoadMemberValue(wrapper, "type", str))
-		{
-			FURYE << "Shader param 'type' not found!";
-			return false;
-		}
-		m_Type = EnumUtil::ShaderTypeFromString(str);
-
+		m_Type = ShaderType::OTHER;
+		if (LoadMemberValue(wrapper, "type", str))
+			m_Type = EnumUtil::ShaderTypeFromString(str);
+		
 		// read shader texture flags
 
 		std::vector<ShaderTexture> textures;

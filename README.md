@@ -50,9 +50,7 @@ Should work with any graphic card that supports opengl 3.3 +
 
 ## Screenshots
 
-![Tank0](screenshots/tank_0.jpg)
-
-![Tank1](screenshots/tank_1.jpg)
+![VSM](screenshots/vsm.jpg)
 
 ## Examples
 
