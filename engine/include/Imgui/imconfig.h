@@ -6,6 +6,24 @@
 
 #pragma once
 
+#include "../Macros.h"
+
+#define IM_ASSERT(_EXPR)  ASSERT_MSG(_EXPR, "ImGui Assert!")
+
+#if defined(_WIN32)
+
+	#ifdef FURY_API_EXPORT
+		#define IMGUI_API __declspec(dllexport)
+	#else
+		#define IMGUI_API __declspec(dllimport)
+	#endif
+
+#else
+	
+	#define IMGUI_API
+
+#endif
+
 //---- Define assertion handler. Defaults to calling assert().
 //#define IM_ASSERT(_EXPR)  MyAssert(_EXPR)
 

@@ -7,10 +7,8 @@
 
 	#ifdef FURY_API_EXPORT
 		#define FURY_API __declspec(dllexport)
-		#define IMGUI_API __declspec(dllexport)
 	#else
 		#define FURY_API __declspec(dllimport)
-		#define IMGUI_API __declspec(dllimport)
 	#endif
 
 	// For Visual C++ compilers, we also need to turn off this annoying C4251 warning
@@ -21,7 +19,6 @@
 #else
 	
 	#define FURY_API
-	#define IMGUI_API
 
 #endif
 

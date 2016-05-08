@@ -1,4 +1,5 @@
 #include <Imgui/imgui.h>
+#include <Imgui/imgui_fury.h>
 
 #include "BasicScene.h"
 
@@ -83,28 +84,17 @@ void BasicScene::UpdateGUI(float dt)
 	static bool showProfilerWindow = true, showBufferWindow = true, useVSM = true;
 
 	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 260), 1.0f, 
-		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders);
+		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 	// fps graph
 	{
-		static std::vector<float> values(30);
-		static int values_offset = 0;
-		static float refresh_time = ImGui::GetTime();
 		static float upper_bound = 100.0f;
 
 		float curFps = ImGui::GetIO().Framerate;
 		while (curFps > upper_bound) upper_bound += 50;
 		while (upper_bound - 50 > curFps) upper_bound -= 50;
 
-		// Create dummy data at fixed 30 hz rate
-		for (; ImGui::GetTime() > refresh_time + 1.0f / 30.0f; refresh_time += 1.0f / 30.0f)
-		{
-			values[values_offset] = curFps;
-			values_offset = (values_offset + 1) % values.size();
-		}
-
-		std::string hint = "FPS: " + std::to_string((int)ImGui::GetIO().Framerate);
-		ImGui::PlotLines("", &values[0], values.size(), values_offset, hint.c_str(), 1, upper_bound, ImVec2(210, 40));
+		ImGui::PlotVar("FPS", curFps, 1, upper_bound, 210, 30);
 	}
 
 	ImGui::Separator();
@@ -137,7 +127,7 @@ void BasicScene::UpdateGUI(float dt)
 	{
 		ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 300, 0), ImGuiSetCond_FirstUseEver);
 		ImGui::Begin("Buffers", &showBufferWindow, ImVec2(300, 300), 1.0f,
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders);
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 		static bool showGBuffer = true, showShadowBuffer = false;
 
@@ -145,6 +135,9 @@ void BasicScene::UpdateGUI(float dt)
 		ImGui::Checkbox("Show Shadow Buffer", &showShadowBuffer);
 
 		ImVec2 imgSize(ImGui::GetIO().DisplaySize.x / 4, ImGui::GetIO().DisplaySize.y / 4);
+
+		// ImGui::PushStyleVar(ImGuiStyleVar_ChildWindowRounding, 5.0f);
+		// ImGui::BeginChild("Buffers", ImVec2(0, 200), true);
 
 		if (showGBuffer)
 		{
@@ -167,7 +160,7 @@ void BasicScene::UpdateGUI(float dt)
 
 		if (showShadowBuffer)
 		{
-			ImGui::Text("Shadow Buffer: ");
+            ImGui::Text("Shadow Buffer: ");
 			if (auto ptr = m_Pipeline->GetTextureByName("depth24_buffer"))
 				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 
@@ -176,12 +169,17 @@ void BasicScene::UpdateGUI(float dt)
 				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
 		}
 
+		// ImGui::EndChild();
+		// ImGui::PopStyleVar();
+
 		ImGui::End();
 	}
 
-	/*static bool m_ShowProfilerWindow = true;
-	ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiSetCond_FirstUseEver);
-	ImGui::ShowTestWindow(&m_ShowProfilerWindow);*/
+	// static bool m_ShowProfilerWindow = true;
+	// ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiSetCond_FirstUseEver);
+	// ImGui::ShowTestWindow(&m_ShowProfilerWindow);
+
+	// ImGui::ShowStyleEditor(&ImGui::GetStyle());
 }
 
 void BasicScene::Draw(sf::Window &window)
