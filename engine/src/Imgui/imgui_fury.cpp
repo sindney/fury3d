@@ -63,6 +63,79 @@ namespace fury
 			io.DisplaySize = ImVec2((float)m_Window->getSize().x, (float)m_Window->getSize().y);
 			io.RenderDrawListsFn = RenderDrawLists;
 
+			ImGuiStyle& style = ImGui::GetStyle();
+
+			const ImGuiStyle def;
+			style = def;
+
+			style.Alpha                   = 1.0f;
+			style.WindowPadding           = ImVec2(8,8);
+			style.WindowMinSize           = ImVec2(32,32);
+			style.WindowRounding          = 0.0f;
+			style.WindowTitleAlign        = ImGuiAlign_Left;
+			style.ChildWindowRounding     = 0.0f;
+			style.FramePadding            = ImVec2(4,3);
+			style.FrameRounding           = 0.0f;
+			style.ItemSpacing             = ImVec2(8,4);
+			style.ItemInnerSpacing        = ImVec2(4,4);
+			style.TouchExtraPadding       = ImVec2(0,0);
+			style.WindowFillAlphaDefault  = 1.0f;
+			style.IndentSpacing           = 22.0f;
+			style.ColumnsMinSpacing       = 6.0f;
+			style.ScrollbarSize           = 16.0f;
+			style.ScrollbarRounding       = 9.0f;
+			style.GrabMinSize             = 10.0f;
+			style.GrabRounding            = 0.0f;
+			style.DisplayWindowPadding    = ImVec2(22,22);
+			style.DisplaySafeAreaPadding  = ImVec2(4,4);
+			style.AntiAliasedLines        = true;
+			style.AntiAliasedShapes       = true;
+			style.CurveTessellationTol    = 1.25f;
+
+			style.Colors[ImGuiCol_Text]                   = ImVec4(0.9f, 0.9f, 0.9f, 1.0f);
+			style.Colors[ImGuiCol_TextDisabled]           = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+			style.Colors[ImGuiCol_WindowBg]               = ImVec4(0.20f, 0.20f, 0.20f, 1.0f);
+			style.Colors[ImGuiCol_ChildWindowBg]          = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+			style.Colors[ImGuiCol_Border]                 = ImVec4(0.078f, 0.078f, 0.078f, 1.0f);
+			style.Colors[ImGuiCol_BorderShadow]           = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+			style.Colors[ImGuiCol_FrameBg]                = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
+			style.Colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_FrameBgActive]          = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_TitleBg]                = ImVec4(0.078f, 0.078f, 0.078f, 1.0f);
+			style.Colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.078f, 0.078f, 0.078f, 1.0f);
+			style.Colors[ImGuiCol_TitleBgActive]          = ImVec4(0.078f, 0.078f, 0.078f, 1.0f);
+			style.Colors[ImGuiCol_MenuBarBg]              = ImVec4(0.12f, 0.12f, 0.12f, 1.0f);
+			style.Colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.078f, 0.078f, 0.078f, 1.0f);
+			style.Colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_ComboBg]                = ImVec4(0.2f, 0.2f, 0.2f, 1.0f);
+			style.Colors[ImGuiCol_CheckMark]              = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_SliderGrab]             = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_SliderGrabActive]       = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_Button]                 = ImVec4(0.20f, 0.20f, 0.20f, 1.0f);
+			style.Colors[ImGuiCol_ButtonHovered]          = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_ButtonActive]           = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_Header]                 = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
+			style.Colors[ImGuiCol_HeaderHovered]          = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_HeaderActive]           = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_Column]                 = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_ColumnHovered]          = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_ColumnActive]           = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_ResizeGrip]             = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_ResizeGripHovered]      = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_ResizeGripActive]       = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_CloseButton]            = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
+			style.Colors[ImGuiCol_CloseButtonHovered]     = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_CloseButtonActive]      = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_PlotLines]              = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+			style.Colors[ImGuiCol_PlotLinesHovered]       = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_PlotHistogram]          = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(1.0f, 0.78f, 0.0f, 1.0f);
+			style.Colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
+			style.Colors[ImGuiCol_TooltipBg]              = ImVec4(0.04f, 0.04f, 0.04f, 1.0f);
+			style.Colors[ImGuiCol_ModalWindowDarkening]   = ImVec4(0.04f, 0.04f, 0.04f, 1.0f);
+
 			const char *vertex_shader =
 				"#version 330\n"
 				"uniform mat4 ProjMtx;\n"
