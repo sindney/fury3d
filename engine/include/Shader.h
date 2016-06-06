@@ -41,6 +41,8 @@ namespace fury
 
 		bool m_Dirty = true;
 
+		bool m_UseGeomShader = false;
+
 	public:
 
 		Shader(const std::string &name, ShaderType type, unsigned int textureFlags = 0);
@@ -63,9 +65,9 @@ namespace fury
 
 		void SetTextureFlags(unsigned int flags);
 
-		bool LoadAndCompile(const std::string &shaderPath);
+		bool LoadAndCompile(const std::string &shaderPath, bool useGeomShader = false);
 
-		bool Compile(const std::string &vsData, const std::string &fsData);
+		bool Compile(const std::string &vsData, const std::string &fsData, const std::string &gsData);
 
 		void DeleteProgram();
 
@@ -79,11 +81,11 @@ namespace fury
 		void BindTexture(const std::shared_ptr<Texture> &texture);
 
 		// bind texture to 1st texture
-		void BindTexture(size_t textureId);
+		void BindTexture(size_t textureId, TextureType type);
 
 		void BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture);
 
-		void BindTexture(const std::string &name, size_t textureId);
+		void BindTexture(const std::string &name, size_t textureId, TextureType type);
 
 		void BindMaterial(const std::shared_ptr<Material> &material);
 

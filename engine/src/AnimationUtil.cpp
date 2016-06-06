@@ -1,6 +1,6 @@
 #include <cmath>
 
-#include "Angle.h"
+#include "MathUtil.h"
 #include "AnimationClip.h"
 #include "AnimationUtil.h"
 #include "Log.h"
@@ -12,7 +12,7 @@ namespace fury
 		if (quality > 1.0f)
 			quality = 1.0f;
 
-		float maxAngle = quality * Angle::DegreeToRadian(45);
+		float maxAngle = quality * MathUtil::DegreeToRadian(45);
 		std::vector<KeyFrame> tempFrames;
 
 		auto ProcessKeyFrames = [&](std::vector<KeyFrame> &keyframes)

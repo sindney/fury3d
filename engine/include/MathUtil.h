@@ -7,7 +7,7 @@
 namespace fury
 {
 	// Euler in YXZ order.
-	class FURY_API Angle
+	class FURY_API MathUtil
 	{
 	public:
 
@@ -38,6 +38,8 @@ namespace fury
 		static Vector4 QuatToAxisRad(Quaternion quat);
 
 		static Vector4 QuatToEulerRad(Quaternion quat);
+
+		static bool PointInCone(Vector4 coneCenter, Vector4 coneDir, float height, float theta, Vector4 point);
 
 	};
 }

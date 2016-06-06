@@ -1,4 +1,4 @@
-#include "Angle.h"
+#include "MathUtil.h"
 #include "Component.h"
 #include "Log.h"
 #include "OcTreeNode.h"
@@ -212,13 +212,13 @@ namespace fury
 
 	void SceneNode::SetLocalRoattion(float x, float y, float z)
 	{
-		SetLocalRoattion(Angle::EulerRadToQuat(
-			Vector4(x * Angle::DegToRad, y * Angle::DegToRad, z * Angle::DegToRad)));
+		SetLocalRoattion(MathUtil::EulerRadToQuat(
+			Vector4(x * MathUtil::DegToRad, y * MathUtil::DegToRad, z * MathUtil::DegToRad)));
 	}
 
 	void SceneNode::SetLocalRoattion(Vector4 axis, float angle)
 	{
-		SetLocalRoattion(Angle::AxisRadToQuat(Vector4(axis, angle * Angle::DegToRad)));
+		SetLocalRoattion(MathUtil::AxisRadToQuat(Vector4(axis, angle * MathUtil::DegToRad)));
 	}
 
 	void SceneNode::SetLocalScale(Vector4 scale)

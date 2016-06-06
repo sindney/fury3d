@@ -163,7 +163,7 @@ namespace fury
 				"}\n";
 
 			m_Shader = Shader::Create("GUIShader", ShaderType::OTHER);
-			if (!m_Shader->Compile(vertex_shader, fragment_shader))
+			if (!m_Shader->Compile(vertex_shader, fragment_shader, ""))
 			{
 				FURYE << "Failed to compile gui shader!";
 				return false;

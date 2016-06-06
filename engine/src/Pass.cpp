@@ -54,9 +54,24 @@ namespace fury
 		else
 			SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
 
+		std::vector<float> color;
+		LoadArray(wrapper, "clearColor", [&](const void* node) -> bool
+		{
+			float value;
+			if (!LoadValue(node, value))
+			{
+				FURYE << "clearColor is a 4 float array!";
+				return false;
+			}
+			color.push_back(value);
+			return true;
+		});
+		while (color.size() < 4) color.push_back(0);
+		SetClearColor(Color(color[0], color[1], color[2], color[3]));
+
 		if (LoadMemberValue(wrapper, "blendMode", str))
 			SetBlendMode(EnumUtil::BlendModeFromString(str));
-		else 
+		else
 			SetBlendMode(BlendMode::REPLACE);
 
 		if (LoadMemberValue(wrapper, "compareMode", str))
@@ -179,6 +194,13 @@ namespace fury
 		SaveKey(wrapper, "clearMode");
 		SaveValue(wrapper, EnumUtil::ClearModeToString(m_ClearMode));
 
+		float color[4] = { m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a };
+		SaveKey(wrapper, "clearColor");
+		SaveArray(wrapper, 4, [&](unsigned int index)
+		{
+			SaveValue(wrapper, color[index]);
+		});
+
 		SaveKey(wrapper, "blendMode");
 		SaveValue(wrapper, EnumUtil::BlendModeToString(m_BlendMode));
 
@@ -214,6 +236,16 @@ namespace fury
 	ClearMode Pass::GetClearMode() const
 	{
 		return m_ClearMode;
+	}
+
+	void Pass::SetClearColor(Color color)
+	{
+		m_ClearColor = color;
+	}
+
+	Color Pass::GetClearColor() const
+	{
+		return m_ClearColor;
 	}
 
 	void Pass::SetCompareMode(CompareMode mode)
@@ -254,6 +286,16 @@ namespace fury
 	DrawMode Pass::GetDrawMode() const
 	{
 		return m_DrawMode;
+	}
+
+	int Pass::GetCubeMapIndex() const
+	{
+		return m_CubeMapIndex;
+	}
+
+	void Pass::SetCubeMapIndex(int index)
+	{
+		m_CubeMapIndex = index;
 	}
 
 	int Pass::GetViewPortWidth() const
@@ -375,6 +417,11 @@ namespace fury
 		return input ? m_InputTextures.size() : m_OutputTextures.size();
 	}
 
+	unsigned int Pass::GetFBO() const
+	{
+		return m_FrameBuffer;
+	}
+
 	void Pass::RemoveAllTextures()
 	{
 		m_InputTextures.clear();
@@ -402,16 +449,16 @@ namespace fury
 			return;
 		}
 
-		UnBindRenderTargets();
-
-		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+		if (!m_Binded)
+			glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
 
 		m_ViewPortWidth = m_ViewPortHeight = 0;
 		m_ColorAttachmentCount = 0;
 
 		for (auto texture : m_OutputTextures)
 		{
-			TextureFormat format = texture->GetFormat();
+			auto format = texture->GetFormat();
+			auto type = texture->GetType();
 
 			if (texture->GetWidth() > m_ViewPortWidth)
 				m_ViewPortWidth = texture->GetWidth();
@@ -425,28 +472,34 @@ namespace fury
 				continue;
 			}
 
+			unsigned int attachId = GL_DEPTH_ATTACHMENT;
+
 			if (format == TextureFormat::DEPTH16 ||
 				format == TextureFormat::DEPTH24 ||
 				format == TextureFormat::DEPTH32F)
 			{
-				glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texture->GetID(), 0);
+				attachId = GL_DEPTH_ATTACHMENT;
 			}
 			else if (format == TextureFormat::DEPTH24_STENCIL8 ||
 				format == TextureFormat::DEPTH32F_STENCIL8)
 			{
-				glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, texture->GetID(), 0);
+				attachId = GL_DEPTH_STENCIL_ATTACHMENT;
 			}
 			else if (format != TextureFormat::UNKNOW)
 			{
-				glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + m_ColorAttachmentCount,
-					texture->GetID(), 0);
-
+				attachId = GL_COLOR_ATTACHMENT0 + m_ColorAttachmentCount;
 				m_ColorAttachmentCount++;
 			}
 			else
 			{
 				FURYW << "Invalide texture type!";
+				continue;
 			}
+
+			if (type == TextureType::TEXTURE_CUBE_MAP || type == TextureType::TEXTURE_CUBE_MAP_ARRAY)
+				glFramebufferTexture2D(GL_FRAMEBUFFER, attachId, GL_TEXTURE_CUBE_MAP_POSITIVE_X + m_CubeMapIndex, texture->GetID(), 0);
+			else
+				glFramebufferTexture(GL_FRAMEBUFFER, attachId, texture->GetID(), 0);
 		}
 
 		if (m_ColorAttachmentCount > 0)
@@ -462,7 +515,8 @@ namespace fury
 			glDrawBuffers(0, GL_NONE);
 		}
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		if (!m_Binded)
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 		m_RenderTargetDirty = false;
 	}
@@ -472,16 +526,20 @@ namespace fury
 		if (m_FrameBuffer == 0)
 			return;
 
-		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+		if (!m_Binded)
+			glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
 
 		glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
 		glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, 0, 0);
-		// TODO: optimize
-		for (int i = 0; i < GL_MAX_COLOR_ATTACHMENTS; i++)
+
+		for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
 			glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, 0, 0);
 		glDrawBuffers(0, GL_NONE);
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		if (!m_Binded)
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		m_ViewPortWidth = m_ViewPortHeight = 0;
 	}
 
 	void Pass::DeleteFrameBuffer()
@@ -493,6 +551,37 @@ namespace fury
 		m_ColorAttachmentCount = 0;
 	}
 
+	void Pass::Clear(ClearMode mode, Color color)
+	{
+		glClearColor(color.r, color.g, color.b, color.a);
+		switch (mode)
+		{
+		case ClearMode::COLOR:
+			glClear(GL_COLOR_BUFFER_BIT);
+			break;
+		case ClearMode::COLOR_DEPTH:
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			break;
+		case ClearMode::COLOR_DEPTH_STENCIL:
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::COLOR_STENCIL:
+			glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::DEPTH:
+			glClear(GL_DEPTH_BUFFER_BIT);
+			break;
+		case ClearMode::STENCIL:
+			glClear(GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::STENCIL_DEPTH:
+			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			break;
+		case ClearMode::NONE:
+			break;
+		}
+	}
+
 	void Pass::Bind(bool clear)
 	{
 		if (m_OutputTextures.size() > 0)
@@ -501,7 +590,10 @@ namespace fury
 				CreateFrameBuffer();
 
 			if (m_RenderTargetDirty)
+			{
+				UnBindRenderTargets();
 				BindRenderTargets();
+			}
 		}
 		else
 		{
@@ -509,39 +601,13 @@ namespace fury
 			m_ViewPortHeight = InputUtil::Instance()->GetWindowSize().second;
 		}
 
+		m_Binded = true;
+
 		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
 		glViewport(0, 0, m_ViewPortWidth, m_ViewPortHeight);
-		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 		if (clear)
-		{
-			switch (m_ClearMode)
-			{
-			case ClearMode::COLOR:
-				glClear(GL_COLOR_BUFFER_BIT);
-				break;
-			case ClearMode::COLOR_DEPTH:
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				break;
-			case ClearMode::COLOR_DEPTH_STENCIL:
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-				break;
-			case ClearMode::COLOR_STENCIL:
-				glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-				break;
-			case ClearMode::DEPTH:
-				glClear(GL_DEPTH_BUFFER_BIT);
-				break;
-			case ClearMode::STENCIL:
-				glClear(GL_STENCIL_BUFFER_BIT);
-				break;
-			case ClearMode::STENCIL_DEPTH:
-				glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-				break;
-			case ClearMode::NONE:
-				break;
-			}
-		}
+			Clear(m_ClearMode, m_ClearColor);
 
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(EnumUtil::CompareModeToUint(m_CompareMode));
@@ -549,7 +615,7 @@ namespace fury
 		if (m_BlendMode != BlendMode::REPLACE)
 		{
 			glEnable(GL_BLEND);
-			glBlendFunc(EnumUtil::BlendModeSrc(m_BlendMode), 
+			glBlendFunc(EnumUtil::BlendModeSrc(m_BlendMode),
 				EnumUtil::BlendModeDest(m_BlendMode));
 			glBlendEquation(EnumUtil::BlendModeOp(m_BlendMode));
 		}
@@ -571,6 +637,7 @@ namespace fury
 
 	void Pass::UnBind()
 	{
+		m_Binded = false;
 		for (auto texture : m_OutputTextures)
 		{
 			if (texture->GetMipmap())

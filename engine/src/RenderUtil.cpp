@@ -61,11 +61,11 @@ namespace fury
 			"}";
 
 		m_DebugShader = Shader::Create("DebugShader", ShaderType::OTHER);
-		if (!m_DebugShader->Compile(debug_vs, debug_fs))
+		if (!m_DebugShader->Compile(debug_vs, debug_fs, ""))
 			FURYE << "Failed to compile line shader!";
 
 		m_BlurShader = Shader::Create("BlurShader", ShaderType::OTHER);
-		if (!m_BlurShader->Compile(debug_vs, debug_fs))
+		if (!m_BlurShader->Compile(debug_vs, debug_fs, ""))
 			FURYE << "Failed to compile blur shader!";
 
 		m_DebugShader->Bind();
@@ -125,6 +125,9 @@ namespace fury
 		m_BlitPass->UnBind();
 
 		m_BlitPass->RemoveAllTextures();
+
+		m_TriangleCount += 2;
+		m_DrawCall++;
 	}
 
 	void RenderUtil::Blur(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, float coef)

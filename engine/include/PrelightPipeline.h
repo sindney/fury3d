@@ -30,8 +30,6 @@ namespace fury
 
 		static Ptr Create(const std::string &name);
 
-		static float MinVariance;
-
 	protected:
 
 		std::shared_ptr<SceneNode> m_CurrentCamera;
@@ -50,21 +48,19 @@ namespace fury
 
 	protected:
 
-		bool PointInCone(Vector4 coneCenter, Vector4 coneDir, float height, float theta, Vector4 point);
-
 		void DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit);
 
-		void DrawLight(const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		void DrawLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
 		void DrawQuad(const std::shared_ptr<Pass> &pass);
 
-		void DrawShadow(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
-		bool CheckPipeline(std::initializer_list<std::string> textures, std::initializer_list<std::string> shaders);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawDirLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
-		void DrawNormalShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
-		void DrawVarianceShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
 		void DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries);
 	};

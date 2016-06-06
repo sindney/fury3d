@@ -56,6 +56,14 @@ namespace fury
 		NONE
 	};
 
+	enum class DrawMode
+	{
+		OPAQUE,
+		TRANSPARENT,
+		LIGHT,
+		QUAD
+	};
+
 	enum class TextureFormat : unsigned int
 	{
 		UNKNOW = 0, 
@@ -80,6 +88,18 @@ namespace fury
 		DEPTH32F,
 		DEPTH32F_STENCIL8,
 		DEPTH24_STENCIL8
+	};
+
+	enum class TextureType : unsigned int
+	{
+		TEXTURE_1D = 0, 
+		TEXTURE_1D_ARRAY, 
+		TEXTURE_2D, 
+		TEXTURE_2D_ARRAY, 
+		TEXTURE_CUBE_MAP, 
+		TEXTURE_CUBE_MAP_ARRAY, 
+		TEXTURE_2D_MULTISAMPLE, 
+		TEXTURE_2D_MULTISAMPLE_ARRAY
 	};
 
 	enum class FilterMode : unsigned int
@@ -113,14 +133,6 @@ namespace fury
 		POINT,
 		SPOT
 	};
-
-	enum class DrawMode
-	{
-		OPAQUE, 
-		TRANSPARENT, 
-		LIGHT, 
-		QUAD
-	};
 	
 	enum class ShaderType : unsigned int
 	{
@@ -130,6 +142,9 @@ namespace fury
 		POINT_LIGHT, 
 		SPOT_LIGHT, 
 		DIR_LIGHT, 
+		POINT_LIGHT_SHADOW,
+		SPOT_LIGHT_SHADOW,
+		DIR_LIGHT_SHADOW,
 		POST_EFFECT
 	};
 
@@ -165,6 +180,8 @@ namespace fury
 		static const std::vector<unsigned int> m_BlendModeOp;
 
 		static const std::vector<std::tuple<TextureFormat, std::string, unsigned int, unsigned int>> m_TextureFormat;
+
+		static const std::vector < std::tuple < TextureType, std::string, unsigned int >> m_TextureType;
 
 		static const std::vector<std::tuple<FilterMode, unsigned int, std::string>> m_FilterMode;
 
@@ -208,11 +225,23 @@ namespace fury
 		static CullMode CullModeFromString(const std::string &name);
 
 
+		static std::string DrawModeToString(DrawMode mode);
+
+		static DrawMode DrawModeFromString(const std::string &name);
+
+
 		static std::pair<bool, unsigned int> TextureFormatToUint(TextureFormat format, bool internalFormat = true);
 
 		static std::string TextureFormatToString(TextureFormat foramt);
 
 		static TextureFormat TextureFormatFromString(const std::string &name);
+
+
+		static unsigned int TextureTypeToUnit(TextureType type);
+
+		static std::string TextureTypeToString(TextureType type);
+
+		static TextureType TextureTypeFromString(const std::string &name);
 
 
 		static unsigned int FilterModeToUint(FilterMode mode);
@@ -227,11 +256,6 @@ namespace fury
 		static std::string WrapModeToString(WrapMode mode);
 
 		static WrapMode WrapModeFromString(const std::string &name);
-
-
-		static std::string DrawModeToString(DrawMode mode);
-
-		static DrawMode DrawModeFromString(const std::string &name);
 
 
 		static std::string ShaderTypeToString(ShaderType type);

@@ -7,7 +7,7 @@
 
 #include <algorithm>
 
-#include "Angle.h"
+#include "MathUtil.h"
 #include "Log.h"
 #include "Mesh.h"
 #include "MeshUtil.h"
@@ -231,8 +231,8 @@ namespace fury
 
 		Mesh::Ptr mesh = Mesh::Create(name);
 
-		float avgRadianH = Angle::PI / (segH - 1);
-		float avgRadianV = Angle::PI * 2.0f / segV;
+		float avgRadianH = MathUtil::PI / (segH - 1);
+		float avgRadianV = MathUtil::PI * 2.0f / segV;
 
 		float currentHeight = radius;
 		float currentRadius = 0.0f;
@@ -328,7 +328,7 @@ namespace fury
 		mesh->Positions.Data.reserve((segV * segH + 2) * 3);
 		mesh->Indices.Data.reserve((segV * segH * 2) * 3);
 
-		float avgRadian = Angle::PI * 2.0f / segV;
+		float avgRadian = MathUtil::PI * 2.0f / segV;
 
 		/*if (inclusive)
 		{

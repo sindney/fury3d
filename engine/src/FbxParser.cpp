@@ -5,7 +5,7 @@
 
 #include "AnimationClip.h"
 #include "AnimationUtil.h"
-#include "Angle.h"
+#include "MathUtil.h"
 #include "Log.h"
 #include "EntityUtil.h"
 #include "FileUtil.h"
@@ -225,7 +225,7 @@ namespace fury
 
 			auto EulerToQuat = [&](const FbxDouble3 &fbxDouble) -> Quaternion
 			{
-				return Angle::EulerRadToQuat(Vector4((float)fbxDouble[1], (float)fbxDouble[0], (float)fbxDouble[2]) * Angle::DegToRad);
+				return MathUtil::EulerRadToQuat(Vector4((float)fbxDouble[1], (float)fbxDouble[0], (float)fbxDouble[2]) * MathUtil::DegToRad);
 			};
 
 			auto impPosAnim = m_ImportOptions.Flags & FbxImportFlags::IMP_POS_ANIM;
@@ -258,7 +258,7 @@ namespace fury
 						FbxTime curTime;
 						curTime.SetFrame(i, FbxTime::eFrames24);
 
-						auto curRotation = link->EvaluateLocalRotation(curTime) * (double)Angle::DegToRad;
+						auto curRotation = link->EvaluateLocalRotation(curTime) * (double)MathUtil::DegToRad;
 						channel->rotations.push_back(KeyFrame(tick, (float)curRotation[1], (float)curRotation[0], (float)curRotation[2]));
 
 						if (impPosAnim)
@@ -395,8 +395,8 @@ namespace fury
 		light->SetType(type);
 		light->SetColor(Color((float)color.mData[0], (float)color.mData[1], (float)color.mData[2]));
 		light->SetIntensity((float)fbxLight->Intensity.Get() * m_ImportOptions.ScaleFactor);
-		light->SetInnerAngle(Angle::DegToRad * (float)fbxLight->InnerAngle.Get());
-		light->SetOutterAngle(Angle::DegToRad * (float)fbxLight->OuterAngle.Get());
+		light->SetInnerAngle(MathUtil::DegToRad * (float)fbxLight->InnerAngle.Get());
+		light->SetOutterAngle(MathUtil::DegToRad * (float)fbxLight->OuterAngle.Get());
 		light->SetFalloff((float)fbxLight->FarAttenuationEnd.Get() * m_ImportOptions.ScaleFactor);
 		light->SetRadius((float)fbxLight->DecayStart.Get() * m_ImportOptions.ScaleFactor);
 		light->SetCastShadows((bool)fbxLight->CastShadows.Get());

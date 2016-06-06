@@ -28,16 +28,20 @@ void LoadFbxFile::Init(sf::Window &window)
 	}
 	else
 	{
-		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank_shadow.fbx"), m_RootNode, importOptions);
+		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank.fbx"), m_RootNode, importOptions);
 
 		EntityUtil::Instance()->Get<Mesh>("Grid")->SetCastShadows(false);
 	}
 
-	if (auto sunLightNode = m_RootNode->FindChildRecursively("Sun"))
+	auto lights = { /*"Lamp.001", "Lamp.002", "Lamp.003", "Lamp.004",*/ "Sun", "Spot" };
+	for (auto lightName : lights)
 	{
-		if (auto light = sunLightNode->GetComponent<Light>())
+		if (auto lightNode = m_RootNode->FindChildRecursively(lightName))
 		{
-			light->SetCastShadows(true);
+			if (auto light = lightNode->GetComponent<Light>())
+			{
+				light->SetCastShadows(true);
+			}
 		}
 	}
 
@@ -50,7 +54,7 @@ void LoadFbxFile::Init(sf::Window &window)
 
 	m_CamNode = SceneNode::Create("camNode");
 	m_CamNode->SetLocalPosition(Vector4(0.0f, 10.0f, 25.0f, 1.0f));
-	m_CamNode->SetLocalRoattion(Angle::EulerRadToQuat(0.0f, -Angle::DegToRad * 30.0f, 0.0f));
+	m_CamNode->SetLocalRoattion(MathUtil::EulerRadToQuat(0.0f, -MathUtil::DegToRad * 30.0f, 0.0f));
 	m_CamNode->Recompose();
 	m_CamNode->AddComponent(Transform::Create());
 	m_CamNode->AddComponent(camera);

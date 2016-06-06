@@ -1,6 +1,6 @@
 #include <cmath>
 
-#include "Angle.h"
+#include "MathUtil.h"
 #include "BoxBounds.h"
 #include "Matrix4.h"
 #include "Plane.h"
@@ -192,13 +192,13 @@ namespace fury
 
 	Quaternion Matrix4::Multiply(Quaternion data) const
 	{
-		Vector4 axis = Angle::QuatToAxisRad(data);
+		Vector4 axis = MathUtil::QuatToAxisRad(data);
 		float radian = axis.w;
 		axis.w = 0.0f;
 
 		axis = Multiply(axis);
 
-		return Angle::AxisRadToQuat(axis, radian);
+		return MathUtil::AxisRadToQuat(axis, radian);
 	}
 
 	BoxBounds Matrix4::Multiply(const BoxBounds &aabb) const
@@ -313,22 +313,25 @@ namespace fury
 	{
 		Matrix4 output;
 		
-		output.Raw[0] = Raw[0] * other.Raw[0] + Raw[4] * other.Raw[1] + Raw[8] * other.Raw[2];
-		output.Raw[1] = Raw[1] * other.Raw[0] + Raw[5] * other.Raw[1] + Raw[9] * other.Raw[2];
-		output.Raw[2] = Raw[2] * other.Raw[0] + Raw[6] * other.Raw[1] + Raw[10] * other.Raw[2];
-		output.Raw[3] = 0.0f;
-		output.Raw[4] = Raw[0] * other.Raw[4] + Raw[4] * other.Raw[5] + Raw[8] * other.Raw[6];
-		output.Raw[5] = Raw[1] * other.Raw[4] + Raw[5] * other.Raw[5] + Raw[9] * other.Raw[6];
-		output.Raw[6] = Raw[2] * other.Raw[4] + Raw[6] * other.Raw[5] + Raw[10] * other.Raw[6];
-		output.Raw[7] = 0.0f;
-		output.Raw[8] = Raw[0] * other.Raw[8] + Raw[4] * other.Raw[9] + Raw[8] * other.Raw[10];
-		output.Raw[9] = Raw[1] * other.Raw[8] + Raw[5] * other.Raw[9] + Raw[9] * other.Raw[10];
-		output.Raw[10] = Raw[2] * other.Raw[8] + Raw[6] * other.Raw[9] + Raw[10] * other.Raw[10];
-		output.Raw[11] = 0.0f;
-		output.Raw[12] = Raw[0] * other.Raw[12] + Raw[4] * other.Raw[13] + Raw[8] * other.Raw[14] + Raw[12];
-		output.Raw[13] = Raw[1] * other.Raw[12] + Raw[5] * other.Raw[13] + Raw[9] * other.Raw[14] + Raw[13];
-		output.Raw[14] = Raw[2] * other.Raw[12] + Raw[6] * other.Raw[13] + Raw[10] * other.Raw[14] + Raw[14];
-		output.Raw[15] = 1.0f;
+		output.Raw[0] = Raw[0] * other.Raw[0] + Raw[4] * other.Raw[1] + Raw[8]	* other.Raw[2] + Raw[12] * other.Raw[3];
+		output.Raw[1] = Raw[1] * other.Raw[0] + Raw[5] * other.Raw[1] + Raw[9]	* other.Raw[2] + Raw[13] * other.Raw[3];
+		output.Raw[2] = Raw[2] * other.Raw[0] + Raw[6] * other.Raw[1] + Raw[10] * other.Raw[2] + Raw[14] * other.Raw[3];
+		output.Raw[3] = Raw[3] * other.Raw[0] + Raw[7] * other.Raw[1] + Raw[11] * other.Raw[2] + Raw[15] * other.Raw[3];
+
+		output.Raw[4] = Raw[0] * other.Raw[4] + Raw[4] * other.Raw[5] + Raw[8]	* other.Raw[6] + Raw[12] * other.Raw[7];
+		output.Raw[5] = Raw[1] * other.Raw[4] + Raw[5] * other.Raw[5] + Raw[9]	* other.Raw[6] + Raw[13] * other.Raw[7];
+		output.Raw[6] = Raw[2] * other.Raw[4] + Raw[6] * other.Raw[5] + Raw[10] * other.Raw[6] + Raw[14] * other.Raw[7];
+		output.Raw[7] = Raw[3] * other.Raw[4] + Raw[7] * other.Raw[5] + Raw[11] * other.Raw[6] + Raw[15] * other.Raw[7];
+
+		output.Raw[8] = Raw[0] * other.Raw[8] + Raw[4] * other.Raw[9] + Raw[8] * other.Raw[10] + Raw[12] * other.Raw[11];
+		output.Raw[9] = Raw[1] * other.Raw[8] + Raw[5] * other.Raw[9] + Raw[9] * other.Raw[10] + Raw[13] * other.Raw[11];
+		output.Raw[10] = Raw[2] * other.Raw[8] + Raw[6] * other.Raw[9] + Raw[10] * other.Raw[10] + Raw[14] * other.Raw[11];
+		output.Raw[11] = Raw[3] * other.Raw[8] + Raw[7] * other.Raw[9] + Raw[11] * other.Raw[10] + Raw[15] * other.Raw[11];
+
+		output.Raw[12] = Raw[0] * other.Raw[12] + Raw[4] * other.Raw[13] + Raw[8] * other.Raw[14] + Raw[12] * other.Raw[15];
+		output.Raw[13] = Raw[1] * other.Raw[12] + Raw[5] * other.Raw[13] + Raw[9] * other.Raw[14] + Raw[13] * other.Raw[15];
+		output.Raw[14] = Raw[2] * other.Raw[12] + Raw[6] * other.Raw[13] + Raw[10] * other.Raw[14] + Raw[14] * other.Raw[15];
+		output.Raw[15] = Raw[3] * other.Raw[12] + Raw[7] * other.Raw[13] + Raw[11] * other.Raw[14] + Raw[15] * other.Raw[15];
 		
 		return output;
 	}

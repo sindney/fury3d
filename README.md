@@ -28,7 +28,7 @@ Features:
 
 * Intergates powerful gui library [ImGui](https://github.com/ocornut/imgui).
 
-* Support Variance Shadow Mapping.
+* Support Shadow Mapping For Dir/Point/Spot Light.
 
 Plans:
 
@@ -151,7 +151,9 @@ signal->Emit(2, 3);
 
 * [Ogre3d](http://www.ogre3d.org) - for octree implimentation
 
-* [ImGui](https://github.com/ocornut/imgui) - for debug gui
+* [ImGui](https://github.com/ocornut/imgui) - for debuging gui
+
+* [RenderDoc](https://github.com/baldurk/renderdoc) - for debuging opengl
 
 ## One more thing
 

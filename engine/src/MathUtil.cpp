@@ -1,30 +1,30 @@
 #include <cmath>
 
-#include "Angle.h"
+#include "MathUtil.h"
 
 namespace fury
 {
-	const float Angle::PI = 3.1415926535897932384626433832795028841971693993751f;
+	const float MathUtil::PI = 3.1415926535897932384626433832795028841971693993751f;
 
-	const float Angle::HalfPI = 1.5707963267948966192313216916397514420985846996875f;
+	const float MathUtil::HalfPI = 1.5707963267948966192313216916397514420985846996875f;
 
 	// PI / 180
-	const float Angle::DegToRad = 0.017453292519943295769236907684886127134428718885417f;
+	const float MathUtil::DegToRad = 0.017453292519943295769236907684886127134428718885417f;
 
 	// 180 / PI
-	const float Angle::RadToDeg = 57.295779513082320876798154814105170332405472466565f;
+	const float MathUtil::RadToDeg = 57.295779513082320876798154814105170332405472466565f;
 
-	float Angle::DegreeToRadian(float deg)
+	float MathUtil::DegreeToRadian(float deg)
 	{
 		return deg * DegToRad;
 	}
 
-	float Angle::RadianToDegree(float rad)
+	float MathUtil::RadianToDegree(float rad)
 	{
 		return rad * RadToDeg;
 	}
 
-	Quaternion Angle::AxisRadToQuat(Vector4 axis, float rad)
+	Quaternion MathUtil::AxisRadToQuat(Vector4 axis, float rad)
 	{
 		float t2 = rad * .5f;
 		float st2 = std::sin(t2);
@@ -32,12 +32,12 @@ namespace fury
 			axis.z * st2, std::cos(t2));
 	}
 
-	Quaternion Angle::AxisRadToQuat(Vector4 axisRad)
+	Quaternion MathUtil::AxisRadToQuat(Vector4 axisRad)
 	{
 		return AxisRadToQuat(axisRad, axisRad.w);
 	}
 
-	Vector4 Angle::AxisRadToEulerRad(Vector4 axis, float rad)
+	Vector4 MathUtil::AxisRadToEulerRad(Vector4 axis, float rad)
 	{
 		Vector4 eulerRadian;
 
@@ -75,17 +75,17 @@ namespace fury
 		return eulerRadian;
 	}
 
-	Vector4 Angle::AxisRadToEulerRad(Vector4 axisRad)
+	Vector4 MathUtil::AxisRadToEulerRad(Vector4 axisRad)
 	{
 		return AxisRadToEulerRad(axisRad, axisRad.w);
 	}
 
-	Quaternion Angle::EulerRadToQuat(Vector4 eulerRad)
+	Quaternion MathUtil::EulerRadToQuat(Vector4 eulerRad)
 	{
 		return EulerRadToQuat(eulerRad.x, eulerRad.y, eulerRad.z);
 	}
 
-	Quaternion Angle::EulerRadToQuat(float yaw, float pitch, float roll)
+	Quaternion MathUtil::EulerRadToQuat(float yaw, float pitch, float roll)
 	{
 		float cx = std::cos(yaw / 2);
 		float sx = std::sin(yaw / 2);
@@ -102,7 +102,7 @@ namespace fury
 		);
 	}
 
-	Vector4 Angle::QuatToAxisRad(Quaternion quat)
+	Vector4 MathUtil::QuatToAxisRad(Quaternion quat)
 	{
 		Vector4 axisRadian;
 		axisRadian.w = std::acos(quat.w) * 2.0f;
@@ -124,8 +124,23 @@ namespace fury
 		return axisRadian;
 	}
 
-	Vector4 Angle::QuatToEulerRad(Quaternion quat)
+	Vector4 MathUtil::QuatToEulerRad(Quaternion quat)
 	{
 		return AxisRadToEulerRad(QuatToAxisRad(quat));
+	}
+
+	bool MathUtil::PointInCone(Vector4 coneCenter, Vector4 coneDir, float height, float theta, Vector4 point)
+	{
+		float cosTheta = std::cos(theta);
+		float cosTheta2 = cosTheta * cosTheta;
+
+		Vector4 dir = point - coneCenter;
+		float dot = coneDir * dir;
+
+		if (dot >= 0 && dot * dot >= cosTheta2 * (dir * dir) &&
+			(dir.Project(coneDir).SquareLength() <= height * height))
+			return true;
+
+		return false;
 	}
 }

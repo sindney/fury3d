@@ -63,10 +63,10 @@ namespace fury
 			return a.node->GetWorldPosition().Distance(camPos) > b.node->GetWorldPosition().Distance(camPos);
 		});
 
-		std::sort(lightNodes.begin(), lightNodes.end(), [](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
+		/*std::sort(lightNodes.begin(), lightNodes.end(), [](const SceneNode::Ptr &a, const SceneNode::Ptr &b) -> bool
 		{
-			return a->GetComponent<Light>()->GetCastShadows();
-		});
+			return b->GetComponent<Light>()->GetCastShadows();
+		});*/
 	}
 
 	void RenderQuery::Clear()

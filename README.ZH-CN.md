@@ -28,7 +28,7 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 * 接入了强大的GUI库[ImGui](https://github.com/ocornut/imgui)
 
-* 支持 Variance Shadow Mapping
+* 支持方向光，点光，聚光灯的阴影贴图
 
 计划:
 
@@ -152,6 +152,8 @@ signal->Emit(2, 3);
 * [Ogre3d](http://www.ogre3d.org) - 八叉树的实现
 
 * [ImGui](https://github.com/ocornut/imgui) - 测试用GUI库
+
+* [RenderDoc](https://github.com/baldurk/renderdoc) - 测试Opengl渲染
 
 ## 最后
 

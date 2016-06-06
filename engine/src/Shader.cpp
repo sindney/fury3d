@@ -67,7 +67,11 @@ namespace fury
 			FURYE << "Shader param 'path' not found!";
 			return false;
 		}
-		LoadAndCompile(FileUtil::GetAbsPath() + str);
+
+		if (!LoadMemberValue(wrapper, "geom", m_UseGeomShader))
+			m_UseGeomShader = false;
+
+		LoadAndCompile(FileUtil::GetAbsPath() + str, m_UseGeomShader);
 
 		return true;
 	}
@@ -93,6 +97,12 @@ namespace fury
 
 		SaveKey(wrapper, "path");
 		SaveValue(wrapper, m_FilePath);
+
+		if (m_UseGeomShader)
+		{
+			SaveKey(wrapper, "geom");
+			SaveValue(wrapper, m_UseGeomShader);
+		}
 
 		EndObject(wrapper);
 
@@ -129,13 +139,15 @@ namespace fury
 		m_TextureFlags = flags;
 	}
 
-	bool Shader::LoadAndCompile(const std::string &shaderPath)
+	bool Shader::LoadAndCompile(const std::string &shaderPath, bool useGeomShader)
 	{
+		m_UseGeomShader = useGeomShader;
+
 		std::string dataStr;
 		if (FileUtil::LoadString(shaderPath, dataStr))
 		{
 			m_FilePath = shaderPath;
-			return Compile(dataStr, dataStr);
+			return Compile(dataStr, dataStr, m_UseGeomShader ? dataStr : "");
 		}
 		else
 		{
@@ -144,16 +156,21 @@ namespace fury
 		}
 	}
 
-	bool Shader::Compile(const std::string &vsData, const std::string &fsData)
+	bool Shader::Compile(const std::string &vsData, const std::string &fsData, const std::string &gsData)
 	{
 		DeleteProgram();
+
+		m_UseGeomShader = gsData.size() > 0;
 
 		std::string defines;
 		GetDefines(defines);
 
 		std::string vsVersion, vsMain;
 		GetVersionInfo(vsData, vsVersion, vsMain);
-		vsVersion += "#define VERTEX_SHADER\n";
+		vsVersion += "\n#define VERTEX_SHADER\n";
+
+		char logbuffer[1024];
+		int logbufferLen;
 
 		// compile vertex shader
 		unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -168,8 +185,11 @@ namespace fury
 			glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &status);
 			if (status != GL_TRUE)
 			{
-				vertexShader = 0;
+				glGetShaderInfoLog(vertexShader, sizeof(logbuffer), &logbufferLen, logbuffer);
 				FURYE << m_Name << "'s vertex shader compile failed!";
+				FURYE << std::string(logbuffer, logbufferLen);
+
+				vertexShader = 0;
 				return false;
 			}
 		}
@@ -181,7 +201,7 @@ namespace fury
 
 		std::string fsVersion, fsMain;
 		GetVersionInfo(fsData, fsVersion, fsMain);
-		fsVersion += "#define FRAGMENT_SHADER\n";
+		fsVersion += "\n#define FRAGMENT_SHADER\n";
 
 		// compile fragment shader
 		unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -196,9 +216,12 @@ namespace fury
 			glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &status);
 			if (status != GL_TRUE)
 			{
+				glGetShaderInfoLog(fragmentShader, sizeof(logbuffer), &logbufferLen, logbuffer);
+				FURYE << m_Name << "'s fragment compile failed!";
+				FURYE << std::string(logbuffer, logbufferLen);
+
 				glDeleteShader(vertexShader);
 				vertexShader = fragmentShader = 0;
-				FURYE << m_Name << "'s fragment compile failed!";
 				return false;
 			}
 		}
@@ -208,12 +231,44 @@ namespace fury
 			return false;
 		}
 
+		// compile geometry shader
+		unsigned int geometryShader = 0;
+		if (m_UseGeomShader)
+		{
+			std::string gsVersion, gsMain;
+			GetVersionInfo(gsData, gsVersion, gsMain);
+			gsVersion += "\n#define GEOMETRY_SHADER\n";
+
+			geometryShader = glCreateShader(GL_GEOMETRY_SHADER);
+			const char *sources[3] = { gsVersion.c_str(), defines.c_str(), gsMain.c_str() };
+			const int counts[3] = { (int)gsVersion.size(), (int)defines.size(), (int)gsMain.size() };
+			glShaderSource(geometryShader, 3, sources, counts);
+			glCompileShader(geometryShader);
+
+			GLint status;
+			glGetShaderiv(geometryShader, GL_COMPILE_STATUS, &status);
+			if (status != GL_TRUE)
+			{
+				glGetShaderInfoLog(geometryShader, sizeof(logbuffer), &logbufferLen, logbuffer);
+				FURYE << m_Name << "'s geometry compile failed!";
+				FURYE << std::string(logbuffer, logbufferLen);
+
+				glDeleteShader(vertexShader);
+				glDeleteShader(fragmentShader);
+				vertexShader = fragmentShader = geometryShader = 0;
+				return false;
+			}
+		}
+
 		// link to program
 		m_Program = glCreateProgram();
 		if (m_Program != 0)
 		{
 			glAttachShader(m_Program, vertexShader);
 			glAttachShader(m_Program, fragmentShader);
+			if (m_UseGeomShader)
+				glAttachShader(m_Program, geometryShader);
+
 			glLinkProgram(m_Program);
 
 			glDetachShader(m_Program, vertexShader);
@@ -221,13 +276,22 @@ namespace fury
 			glDeleteShader(vertexShader);
 			glDeleteShader(fragmentShader);
 
+			if (m_UseGeomShader)
+			{
+				glDetachShader(m_Program, geometryShader);
+				glDeleteShader(geometryShader);
+			}
+
 			GLint status;
 			glGetProgramiv(m_Program, GL_LINK_STATUS, &status);
 			if (status != GL_TRUE)
 			{
-				glDeleteProgram(m_Program);
-				m_Program = fragmentShader = vertexShader = 0;
+				glGetProgramInfoLog(m_Program, sizeof(logbuffer), &logbufferLen, logbuffer);
 				FURYE << m_Name << " link failed!";
+				FURYE << std::string(logbuffer, logbufferLen);
+				
+				glDeleteProgram(m_Program);
+				m_Program = fragmentShader = vertexShader = geometryShader = 0;
 				return false;
 			}
 		}
@@ -300,13 +364,13 @@ namespace fury
 	void Shader::BindTexture(const std::shared_ptr<Texture> &texture)
 	{
 		glActiveTexture(m_TextureID);
-		glBindTexture(GL_TEXTURE_2D, texture->GetID());
+		glBindTexture(texture->GetTypeUint(), texture->GetID());
 	}
 
-	void Shader::BindTexture(size_t textureId)
+	void Shader::BindTexture(size_t textureId, TextureType type)
 	{
 		glActiveTexture(m_TextureID);
-		glBindTexture(GL_TEXTURE_2D, textureId);
+		glBindTexture(EnumUtil::TextureTypeToUnit(type), textureId);
 	}
 
 	void Shader::BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture)
@@ -322,21 +386,21 @@ namespace fury
 		if (id != -1)
 		{
 			glActiveTexture(m_TextureID);
-			glBindTexture(GL_TEXTURE_2D, texture->GetID());
+			glBindTexture(texture->GetTypeUint(), texture->GetID());
 			glUniform1i(id, m_TextureID - GL_TEXTURE0);
 
 			m_TextureID++;
 		}
 	}
 
-	void Shader::BindTexture(const std::string &name, size_t textureId)
+	void Shader::BindTexture(const std::string &name, size_t textureId, TextureType type)
 	{
 		int id = GetUniformLocation(name);
 
 		if (id != -1)
 		{
 			glActiveTexture(m_TextureID);
-			glBindTexture(GL_TEXTURE_2D, textureId);
+			glBindTexture(EnumUtil::TextureTypeToUnit(type), textureId);
 			glUniform1i(id, m_TextureID - GL_TEXTURE0);
 
 			m_TextureID++;
@@ -714,8 +778,6 @@ namespace fury
 
 		glUseProgram(0);
 
-		glBindTexture(GL_TEXTURE_2D, 0);
-
 		glBindVertexArray(0);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	}
@@ -742,7 +804,7 @@ namespace fury
 
 		if (versionStr.size() == 0)
 		{
-			versionStr = "#version 330";
+			versionStr = "#version 330 core";
 			mainStr = source;
 		}
 		else
@@ -765,6 +827,15 @@ namespace fury
 			break;
 		case ShaderType::SPOT_LIGHT:
 			definesStr = "#define SPOT_LIGHT\n";
+			break;
+		case ShaderType::DIR_LIGHT_SHADOW:
+			definesStr = "#define DIR_LIGHT\n#define SHADOW\n";
+			break;
+		case ShaderType::POINT_LIGHT_SHADOW:
+			definesStr = "#define POINT_LIGHT\n#define SHADOW\n";
+			break;
+		case ShaderType::SPOT_LIGHT_SHADOW:
+			definesStr = "#define SPOT_LIGHT\n#define SHADOW\n";
 			break;
 		case ShaderType::STATIC_MESH:
 			definesStr = "#define STATIC_MESH\n";

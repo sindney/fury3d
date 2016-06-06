@@ -1,4 +1,4 @@
-#include "Angle.h"
+#include "MathUtil.h"
 #include "AnimationClip.h"
 #include "AnimationPlayer.h"
 #include "Log.h"
@@ -137,7 +137,7 @@ namespace fury
 					rotation.x = frame.x;
 					rotation.y = frame.y;
 					rotation.z = frame.z;
-					quatRotation = Angle::EulerRadToQuat(rotation);
+					quatRotation = MathUtil::EulerRadToQuat(rotation);
 				}
 				else
 				{
@@ -153,8 +153,8 @@ namespace fury
 						if (first.tick <= current && second.tick >= current)
 						{
 							ratio = (current - first.tick) / (second.tick - first.tick);
-							auto q0 = Angle::EulerRadToQuat(Vector4(first.x, first.y, first.z));
-							auto q1 = Angle::EulerRadToQuat(Vector4(second.x, second.y, second.z));
+							auto q0 = MathUtil::EulerRadToQuat(Vector4(first.x, first.y, first.z));
+							auto q1 = MathUtil::EulerRadToQuat(Vector4(second.x, second.y, second.z));
 							quatRotation = q0.Slerp(q1, ratio);
 							break;
 						}

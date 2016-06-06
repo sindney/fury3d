@@ -81,6 +81,7 @@ namespace fury
 
 		Plane Multiply(const Plane &data) const;
 
+		// No projection term
 		Matrix4 Inverse() const;
 
 		Matrix4 Clone() const;

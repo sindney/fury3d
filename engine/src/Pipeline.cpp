@@ -138,16 +138,6 @@ namespace fury
 		return true;
 	}
 
-	void Pipeline::SetShadowType(ShadowType type)
-	{
-		m_ShadowType = type;
-	}
-
-	ShadowType Pipeline::GetShadowType()
-	{
-		return m_ShadowType;
-	}
-
 	void Pipeline::SortPassByIndex()
 	{
 		using DataPair = std::pair<unsigned int, std::string>;

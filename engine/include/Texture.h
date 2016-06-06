@@ -23,6 +23,10 @@ namespace fury
 
 		TextureFormat m_Format = TextureFormat::UNKNOW;
 
+		TextureType m_Type = TextureType::TEXTURE_2D;
+
+		unsigned int m_TypeUint = 0;
+
 		FilterMode m_FilterMode = FilterMode::LINEAR;
 
 		WrapMode m_WrapMode = WrapMode::REPEAT;
@@ -58,6 +62,10 @@ namespace fury
 		virtual void DeleteBuffer() override;
 
 		TextureFormat GetFormat() const;
+
+		TextureType GetType() const;
+
+		unsigned int GetTypeUint() const;
 
 		FilterMode GetFilterMode() const;
 

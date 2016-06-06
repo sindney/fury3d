@@ -107,6 +107,18 @@ namespace fury
 		std::make_tuple(TextureFormat::DEPTH24_STENCIL8, "depth24_stencil8", GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL)
 	};
 
+	const std::vector<std::tuple<TextureType, std::string, unsigned int>> EnumUtil::m_TextureType =
+	{
+		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D), 
+		std::make_tuple(TextureType::TEXTURE_1D_ARRAY, "1d_array", GL_TEXTURE_1D_ARRAY), 
+		std::make_tuple(TextureType::TEXTURE_2D, "2d", GL_TEXTURE_2D), 
+		std::make_tuple(TextureType::TEXTURE_2D_ARRAY, "2d_array", GL_TEXTURE_2D_ARRAY), 
+		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP), 
+		std::make_tuple(TextureType::TEXTURE_CUBE_MAP_ARRAY, "cube_array", GL_TEXTURE_CUBE_MAP), 
+		std::make_tuple(TextureType::TEXTURE_2D_MULTISAMPLE, "2d_ms", GL_TEXTURE_2D_MULTISAMPLE), 
+		std::make_tuple(TextureType::TEXTURE_2D_MULTISAMPLE_ARRAY, "2d_ms_array", GL_TEXTURE_2D_MULTISAMPLE_ARRAY)
+	};
+
 	const std::vector<std::tuple<FilterMode, unsigned int, std::string>> EnumUtil::m_FilterMode =
 	{
 		std::make_tuple(FilterMode::NEAREST, GL_NEAREST, "nearest"),
@@ -133,6 +145,9 @@ namespace fury
 		std::make_pair(ShaderType::POINT_LIGHT, "point_light"), 
 		std::make_pair(ShaderType::SPOT_LIGHT, "spot_light"), 
 		std::make_pair(ShaderType::DIR_LIGHT, "dir_light"), 
+		std::make_pair(ShaderType::POINT_LIGHT_SHADOW, "point_light_shadow"), 
+		std::make_pair(ShaderType::SPOT_LIGHT_SHADOW, "spot_light_shadow"),
+		std::make_pair(ShaderType::DIR_LIGHT_SHADOW, "dir_light_shadow"),
 		std::make_pair(ShaderType::POST_EFFECT, "post_effect")
 	};
 
@@ -253,6 +268,34 @@ namespace fury
 			return CullMode::NONE;
 	}
 
+	std::string EnumUtil::DrawModeToString(DrawMode mode)
+	{
+		switch (mode)
+		{
+		case DrawMode::OPAQUE:
+			return "opaque";
+		case DrawMode::TRANSPARENT:
+			return "transparent";
+		case DrawMode::LIGHT:
+			return "light";
+		case DrawMode::QUAD:
+		default:
+			return "quad";
+		}
+	}
+
+	DrawMode EnumUtil::DrawModeFromString(const std::string &name)
+	{
+		if (name == "opaque")
+			return DrawMode::OPAQUE;
+		else if (name == "transparent")
+			return DrawMode::TRANSPARENT;
+		else if (name == "light")
+			return DrawMode::LIGHT;
+		else
+			return DrawMode::QUAD;
+	}
+
 	std::pair<bool, unsigned int> EnumUtil::TextureFormatToUint(TextureFormat format, bool internalFormat)
 	{
 		auto data = m_TextureFormat[(int)format];
@@ -274,6 +317,28 @@ namespace fury
 				return std::get<0>(format);
 		}
 		return TextureFormat::RGBA8;
+	}
+
+	unsigned int EnumUtil::TextureTypeToUnit(TextureType type)
+	{
+		auto data = m_TextureType[(int)type];
+		return std::get<2>(data);
+	}
+
+	std::string EnumUtil::TextureTypeToString(TextureType type)
+	{
+		auto data = m_TextureType[(int)type];
+		return std::get<1>(data);
+	}
+
+	TextureType EnumUtil::TextureTypeFromString(const std::string &name)
+	{
+		for (auto const &type : m_TextureType)
+		{
+			if (std::get<1>(type) == name)
+				return std::get<0>(type);
+		}
+		return TextureType::TEXTURE_2D;
 	}
 
 	unsigned int EnumUtil::FilterModeToUint(FilterMode mode)
@@ -314,34 +379,6 @@ namespace fury
 				return std::get<0>(mode);
 		}
 		return WrapMode::CLAMP_TO_EDGE;
-	}
-
-	std::string EnumUtil::DrawModeToString(DrawMode mode)
-	{
-		switch (mode)
-		{
-		case DrawMode::OPAQUE:
-			return "opaque";
-		case DrawMode::TRANSPARENT:
-			return "transparent";
-		case DrawMode::LIGHT:
-			return "light";
-		case DrawMode::QUAD:
-		default:
-			return "quad";
-		}
-	}
-
-	DrawMode EnumUtil::DrawModeFromString(const std::string &name)
-	{
-		if (name == "opaque")
-			return DrawMode::OPAQUE;
-		else if (name == "transparent")
-			return DrawMode::TRANSPARENT;
-		else if (name == "light")
-			return DrawMode::LIGHT;
-		else 
-			return DrawMode::QUAD;
 	}
 
 	std::string EnumUtil::ShaderTypeToString(ShaderType type)

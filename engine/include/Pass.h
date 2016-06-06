@@ -40,6 +40,8 @@ namespace fury
 
 		ClearMode m_ClearMode = ClearMode::COLOR_DEPTH_STENCIL;
 
+		Color m_ClearColor = Color(0, 0, 0, 0);
+
 		CompareMode m_CompareMode = CompareMode::LESS;
 
 		BlendMode m_BlendMode = BlendMode::REPLACE;
@@ -64,6 +66,10 @@ namespace fury
 
 		bool m_RenderTargetDirty = false;
 
+		bool m_Binded = false;
+
+		int m_CubeMapIndex = 0;
+
 	public:
 
 		Pass(const std::string &name);
@@ -82,6 +88,10 @@ namespace fury
 
 		ClearMode GetClearMode() const;
 
+		void SetClearColor(Color color);
+
+		Color GetClearColor() const;
+
 		void SetCompareMode(CompareMode mode);
 
 		CompareMode GetCompareMode() const;
@@ -97,6 +107,10 @@ namespace fury
 		void SetDrawMode(DrawMode mode);
 
 		DrawMode GetDrawMode() const;
+
+		int GetCubeMapIndex() const;
+
+		void SetCubeMapIndex(int index);
 
 		int GetViewPortWidth() const;
 
@@ -126,6 +140,8 @@ namespace fury
 
 		unsigned int GetTextureCount(bool input) const;
 
+		unsigned int GetFBO() const;
+
 		void RemoveAllTextures();
 
 		void CreateFrameBuffer();
@@ -135,6 +151,8 @@ namespace fury
 		void UnBindRenderTargets();
 
 		void DeleteFrameBuffer();
+
+		void Clear(ClearMode mode, Color color = Color(0.0f, 0.0f, 0.0f, 0.0f));
 
 		void Bind(bool clear = true);
 

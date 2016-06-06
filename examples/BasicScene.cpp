@@ -52,7 +52,7 @@ void BasicScene::FixedUpdate()
 		float ty = (m_OldMouseY - mousePos.second) * m_MouseSensitivity;
 
 		Transform::Ptr camTrans = m_CamNode->GetComponent<Transform>();
-		Vector4 euler = Angle::QuatToEulerRad(camTrans->GetPostRotation());
+		Vector4 euler = MathUtil::QuatToEulerRad(camTrans->GetPostRotation());
 		euler.x += tx;
 		euler.y += ty;
 
@@ -63,7 +63,7 @@ void BasicScene::FixedUpdate()
 		else if (euler.y <= -DEGREE_90)
 			euler.y = -DEGREE_90;
 
-		camTrans->SetPostRotation(Angle::EulerRadToQuat(euler));
+		camTrans->SetPostRotation(MathUtil::EulerRadToQuat(euler));
 	}
 	m_OldMouseX = mousePos.first;
 	m_OldMouseY = mousePos.second;
@@ -81,7 +81,7 @@ void BasicScene::Update(float dt)
 
 void BasicScene::UpdateGUI(float dt)
 {
-	static bool showProfilerWindow = true, showBufferWindow = true, useVSM = true;
+	static bool showProfilerWindow = true, showBufferWindow = true;
 
 	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 260), 1.0f, 
 		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
@@ -114,9 +114,6 @@ void BasicScene::UpdateGUI(float dt)
 		ImGui::Checkbox("Draw Light Bounds", &draw_light_bounds);
 		ImGui::Checkbox("Draw Mesh Bounds", &draw_mesh_bounds);
 		m_Pipeline->SetDebugParams(draw_mesh_bounds, draw_light_bounds);
-
-		ImGui::Checkbox("Variance Shadow Mappping", &useVSM);
-		m_Pipeline->SetShadowType(useVSM ? ShadowType::VARIANCE_SHADOW_MAP : ShadowType::NORMAL_SHADOW_MAP);
 
 		ImGui::Checkbox("Show Buffer Window", &showBufferWindow);
 	}
@@ -160,13 +157,11 @@ void BasicScene::UpdateGUI(float dt)
 
 		if (showShadowBuffer)
 		{
-            ImGui::Text("Shadow Buffer: ");
+            ImGui::Text("Depth24 Buffer: ");
 			if (auto ptr = m_Pipeline->GetTextureByName("depth24_buffer"))
-				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
-
-			ImGui::Text("VSM Shadow Buffer: ");
-			if (auto ptr = m_Pipeline->GetTextureByName("vsm_shadow_buffer"))
-				ImGui::Image((ImTextureID)ptr->GetID(), imgSize, ImVec2(0, 1), ImVec2(1, 0));
+			{
+				ImGui::Image((ImTextureID)ptr->GetID(), ImVec2(ptr->GetWidth() / 4, ptr->GetHeight() / 4), ImVec2(0, 1), ImVec2(1, 0));
+			}
 		}
 
 		// ImGui::EndChild();

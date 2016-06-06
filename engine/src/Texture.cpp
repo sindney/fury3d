@@ -17,6 +17,7 @@ namespace fury
 		: Entity(name), m_BorderColor(0, 0, 0, 0)
 	{
 		m_TypeIndex = typeid(Texture);
+		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
 	}
 
 	Texture::~Texture()
@@ -37,6 +38,13 @@ namespace fury
 		}
 		auto format = EnumUtil::TextureFormatFromString(str);
 		
+		if (!LoadMemberValue(wrapper, "type", str))
+			m_Type = TextureType::TEXTURE_2D;
+		else
+			m_Type = EnumUtil::TextureTypeFromString(str);
+
+		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
+
 		int width, height;
 		if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
 		{
@@ -53,7 +61,7 @@ namespace fury
 			wrapMode = EnumUtil::WrapModeFromString(str);
 
 		std::vector<float> color;
-		LoadArray(wrapper, "border_color", [&](const void* node) -> bool 
+		LoadArray(wrapper, "borderColor", [&](const void* node) -> bool 
 		{
 			float value;
 			if (!LoadValue(node, value))
@@ -86,6 +94,8 @@ namespace fury
 		SaveValue(wrapper, m_Name);
 		SaveKey(wrapper, "format");
 		SaveValue(wrapper, EnumUtil::TextureFormatToString(m_Format));
+		SaveKey(wrapper, "type");
+		SaveValue(wrapper, EnumUtil::TextureTypeToString(m_Type));
 		SaveKey(wrapper, "filter");
 		SaveValue(wrapper, EnumUtil::FilterModeToString(m_FilterMode));
 		SaveKey(wrapper, "wrap");
@@ -96,7 +106,7 @@ namespace fury
 		SaveValue(wrapper, m_Height);
 
 		float color[4] = {m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a};
-		SaveKey(wrapper, "border_color");
+		SaveKey(wrapper, "borderColor");
 		SaveArray(wrapper, 4, [&](unsigned int index)
 		{
 			SaveValue(wrapper, color[index]);
@@ -153,27 +163,29 @@ namespace fury
 			m_Dirty = false;
 
 			glGenTextures(1, &m_ID);
-			glBindTexture(GL_TEXTURE_2D, m_ID);
+			glBindTexture(m_TypeUint, m_ID);
 
-			glTexStorage2D(GL_TEXTURE_2D, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, &pixels[0]);
+			glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
+			glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, &pixels[0]);
 			
 			unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 			unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
+			glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
+			glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
+			glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
+			glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
+			glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
 
 			float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-			glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+			glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
 
 			if (m_Mipmap)
-				glGenerateMipmap(GL_TEXTURE_2D);
+				glGenerateMipmap(m_TypeUint);
 
-			glBindTexture(GL_TEXTURE_2D, 0);
+			glBindTexture(m_TypeUint, 0);
 
-			FURYD << m_Name << " [" << m_Width << " x " << m_Height << "]";
+			FURYD << m_Name << " [" << m_Width << " x " << m_Height <<  " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
 		}
 	}
 
@@ -193,25 +205,27 @@ namespace fury
 		unsigned int internalFormat = EnumUtil::TextureFormatToUint(format).second;
 
 		glGenTextures(1, &m_ID);
-		glBindTexture(GL_TEXTURE_2D, m_ID);
-		glTexStorage2D(GL_TEXTURE_2D, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height);
+		glBindTexture(m_TypeUint, m_ID);
+		glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height);
 
 		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
 		
 		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+		glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
 
 		if (m_Mipmap)
-			glGenerateMipmap(GL_TEXTURE_2D);
+			glGenerateMipmap(m_TypeUint);
 
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(m_TypeUint, 0);
 
-		FURYD << m_Name << " [" << m_Width << " x " << m_Height << "]";
+		FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
 	}
 
 	void Texture::Update(const void* pixels)
@@ -222,13 +236,13 @@ namespace fury
 			return;
 		}
 
-		glBindTexture(GL_TEXTURE_2D, m_ID);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_Width, m_Height, EnumUtil::TextureFormatToUint(m_Format).second, GL_UNSIGNED_BYTE, pixels);
+		glBindTexture(m_TypeUint, m_ID);
+		glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, EnumUtil::TextureFormatToUint(m_Format).second, GL_UNSIGNED_BYTE, pixels);
 
 		if (m_Mipmap)
-			glGenerateMipmap(GL_TEXTURE_2D);
+			glGenerateMipmap(m_TypeUint);
 
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(m_TypeUint, 0);
 	}
 
 	void Texture::DeleteBuffer()
@@ -250,6 +264,16 @@ namespace fury
 		return m_Format;
 	}
 
+	TextureType Texture::GetType() const
+	{
+		return m_Type;
+	}
+
+	unsigned int Texture::GetTypeUint() const
+	{
+		return m_TypeUint;
+	}
+
 	FilterMode Texture::GetFilterMode() const
 	{
 		return m_FilterMode;
@@ -262,12 +286,13 @@ namespace fury
 			m_FilterMode = mode;
 			if (m_ID != 0)
 			{
-				glBindTexture(GL_TEXTURE_2D, m_ID);
+				glBindTexture(m_TypeUint, m_ID);
 
 				unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode);
+				glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
+				glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
 
-				glBindTexture(GL_TEXTURE_2D, 0);
+				glBindTexture(m_TypeUint, 0);
 			}
 		}
 	}
@@ -284,13 +309,14 @@ namespace fury
 			m_WrapMode = mode;
 			if (m_ID != 0)
 			{
-				glBindTexture(GL_TEXTURE_2D, m_ID);
+				glBindTexture(m_TypeUint, m_ID);
 
 				unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
+				glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
+				glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
+				glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
 
-				glBindTexture(GL_TEXTURE_2D, 0);
+				glBindTexture(m_TypeUint, 0);
 			}
 		}
 	}
@@ -307,12 +333,12 @@ namespace fury
 			m_BorderColor = color;
 			if (m_ID != 0)
 			{
-				glBindTexture(GL_TEXTURE_2D, m_ID);
+				glBindTexture(m_TypeUint, m_ID);
 
 				float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-				glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+				glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
 
-				glBindTexture(GL_TEXTURE_2D, 0);
+				glBindTexture(m_TypeUint, 0);
 			}
 		}
 	}
@@ -324,8 +350,8 @@ namespace fury
 
 		m_Mipmap = true;
 
-		glBindTexture(GL_TEXTURE_2D, m_ID);
-		glGenerateMipmap(GL_TEXTURE_2D);
+		glBindTexture(m_TypeUint, m_ID);
+		glGenerateMipmap(m_TypeUint);
 	}
 
 	bool Texture::GetMipmap() const
