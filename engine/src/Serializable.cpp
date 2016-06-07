@@ -6,6 +6,7 @@
 
 #include "Log.h"
 #include "Serializable.h"
+#include "Color.h"
 
 namespace fury
 {
@@ -56,6 +57,35 @@ namespace fury
 			return false;
 
 		value = std::string(it->value.GetString(), it->value.GetStringLength());
+		return true;
+	}
+
+	bool Serializable::LoadMemberValue(const void* wrapper, const std::string &name, Color &color)
+	{
+		std::vector<float> channels;
+		bool ok = LoadArray(wrapper, name, [&](const void* node) -> bool
+		{
+			float value;
+			if (!LoadValue(node, value))
+			{
+				FURYW << "color is a 4 float array!";
+				return false;
+			}
+			channels.push_back(value);
+			return true;
+		});
+
+		if (!ok)
+			return false;
+
+		while (channels.size() < 4)
+			channels.push_back(0);
+
+		color.r = channels[0];
+		color.g = channels[1];
+		color.b = channels[2];
+		color.a = channels[3];
+
 		return true;
 	}
 
@@ -154,6 +184,15 @@ namespace fury
 	void Serializable::SaveValue(void* wrapper, const std::string &value)
 	{
 		static_cast<PrettyWriter<StringBuffer>*>(wrapper)->String(value.c_str(), value.size());
+	}
+
+	void Serializable::SaveValue(void* wrapper, const Color &color)
+	{
+		float channels[4] = { color.r, color.g, color.b, color.a };
+		SaveArray(wrapper, 4, [&](unsigned int index)
+		{
+			SaveValue(wrapper, channels[index]);
+		});
 	}
 
 	void Serializable::SaveArray(void *wrapper, unsigned int count, std::function<void(unsigned int)> walker)

@@ -19,6 +19,10 @@ namespace fury
 
 		static Ptr Create(const std::string &name);
 
+		// get tetxure from texture pool.
+		// stores cached textures in EntityUtil with names like 512x512xrgba8x2d.
+		static Ptr Get(int width, int height, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
+
 	protected:
 
 		TextureFormat m_Format = TextureFormat::UNKNOW;
@@ -55,7 +59,7 @@ namespace fury
 
 		void CreateFromImage(std::string filePath, bool mipMap = false);
 
-		void CreateEmpty(int width, int height, TextureFormat format = TextureFormat::RGBA8, bool mipMap = false);
+		void CreateEmpty(int width, int height, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
 
 		void Update(const void* pixels);
 

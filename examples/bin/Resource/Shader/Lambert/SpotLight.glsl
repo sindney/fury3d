@@ -49,12 +49,16 @@ uniform sampler2D gbuffer_depth;
 // normal, shniness
 uniform sampler2D gbuffer_normal;
 
-vec3 pos_from_depth(const in vec2 screenUV)
+#ifdef SHADOW
+uniform float bias = 0.002;
+uniform mat4 shadow_matrix;
+uniform sampler2D shadow_buffer;
+#endif
+
+vec3 pos_from_depth(const in vec2 screenUV) 
 {
  	float depth = texture(gbuffer_depth, screenUV).r;
-
 	vec3 view_ray = vec3(vs_pos.xy * (camera_far / vs_pos.z), camera_far);
-
 	return -view_ray * depth;
 }
 
@@ -99,6 +103,12 @@ void main()
 	vec3 vs_normal = raw_normal.xyz * 2.0 - 1.0;
 
 	fragment_output = apply_lighting(vs_normal, vs_surface_pos);
+
+#ifdef SHADOW
+	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);
+	shadowCoord = shadowCoord / shadowCoord.w;
+	fragment_output *= float(shadowCoord.z - bias < texture(shadow_buffer, shadowCoord.xy).x);
+#endif
 }
 
 #endif

@@ -358,7 +358,9 @@ namespace fury
 	{
 		// get pointers
 		auto depth_shader = m_ShaderMap["leagcy_depth_shader"];
-		auto depth_buffer = m_TextureMap["depth24_buffer"];
+		auto depth_buffer = Texture::Get(1024, 1024, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		depth_buffer->SetBorderColor(Color::White);
+		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
@@ -443,7 +445,7 @@ namespace fury
 	std::pair<std::shared_ptr<Texture>, Matrix4> PrelightPipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		auto depth_shader = m_ShaderMap["cube_depth_shader"];
-		auto depth_buffer = m_TextureMap["depth24_cube_buffer"];
+		auto depth_buffer = Texture::Get(512, 512, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
@@ -540,7 +542,9 @@ namespace fury
 	{
 		// get pointers
 		auto depth_shader = m_ShaderMap["leagcy_depth_shader"];
-		auto depth_buffer = m_TextureMap["depth24_buffer"];
+		auto depth_buffer = Texture::Get(1024, 1024, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		depth_buffer->SetBorderColor(Color::White);
+		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
 		auto light = node->GetComponent<Light>();
 		auto radius = light->GetRadius();

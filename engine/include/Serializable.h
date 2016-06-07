@@ -10,6 +10,8 @@
 
 namespace fury
 {
+	class Color;
+
 	class FURY_API Serializable
 	{
 	public:
@@ -32,6 +34,8 @@ namespace fury
 
 		static bool LoadMemberValue(const void* wrapper, const std::string &name, std::string &value);
 
+		static bool LoadMemberValue(const void* wrapper, const std::string &name, Color &color);
+
 		static bool LoadValue(const void* wrapper, bool &value);
 
 		static bool LoadValue(const void* wrapper, int &value);
@@ -51,6 +55,8 @@ namespace fury
 		static void SaveValue(void* wrapper, float value);
 
 		static void SaveValue(void* wrapper, const std::string &value);
+
+		static void SaveValue(void* wrapper, const Color &color);
 
 		static void SaveArray(void *wrapper, unsigned int count, std::function<void(unsigned int)> walker);
 

@@ -158,7 +158,7 @@ void BasicScene::UpdateGUI(float dt)
 		if (showShadowBuffer)
 		{
             ImGui::Text("Depth24 Buffer: ");
-			if (auto ptr = m_Pipeline->GetTextureByName("depth24_buffer"))
+			if (auto ptr = EntityUtil::Instance()->Get<Texture>("1024*1024*depth24*2d"))
 			{
 				ImGui::Image((ImTextureID)ptr->GetID(), ImVec2(ptr->GetWidth() / 4, ptr->GetHeight() / 4), ImVec2(0, 1), ImVec2(1, 0));
 			}

@@ -1,16 +1,36 @@
 #include <array>
+#include <sstream>
 
 #include "Log.h"
 #include "GLLoader.h"
 #include "FileUtil.h"
 #include "Texture.h"
 #include "EnumUtil.h"
+#include "EntityUtil.h"
 
 namespace fury
 {
 	Texture::Ptr Texture::Create(const std::string &name)
 	{
 		return std::make_shared<Texture>(name);
+	}
+
+	Texture::Ptr Texture::Get(int width, int height, TextureFormat format, TextureType type)
+	{
+		std::stringstream ss;
+		ss << width << "*" << height << "*" << EnumUtil::TextureFormatToString(format) << 
+			"*" << EnumUtil::TextureTypeToString(type);
+		std::string name = ss.str();
+
+		auto match = EntityUtil::Instance()->Get<Texture>(name);
+		if (match == nullptr)
+		{
+			match = Texture::Create(name);
+			match->CreateEmpty(width, height, format, type);
+			EntityUtil::Instance()->Add(match);
+		}
+
+		return match;
 	}
 
 	Texture::Texture(const std::string &name)
@@ -39,11 +59,8 @@ namespace fury
 		auto format = EnumUtil::TextureFormatFromString(str);
 		
 		if (!LoadMemberValue(wrapper, "type", str))
-			m_Type = TextureType::TEXTURE_2D;
-		else
-			m_Type = EnumUtil::TextureTypeFromString(str);
-
-		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
+			str = EnumUtil::TextureTypeToString(TextureType::TEXTURE_2D);
+		auto type = EnumUtil::TextureTypeFromString(str);
 
 		int width, height;
 		if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
@@ -60,20 +77,9 @@ namespace fury
 		if (LoadMemberValue(wrapper, "wrap", str))
 			wrapMode = EnumUtil::WrapModeFromString(str);
 
-		std::vector<float> color;
-		LoadArray(wrapper, "borderColor", [&](const void* node) -> bool 
-		{
-			float value;
-			if (!LoadValue(node, value))
-			{
-				FURYE << "border_color is a 4 float array!";
-				return false;
-			}
-			color.push_back(value);
-			return true;
-		});
-		while (color.size() < 4) color.push_back(0);
-		SetBorderColor(Color(color[0], color[1], color[2], color[3]));
+		auto color = Color::Black;
+		LoadMemberValue(wrapper, "borderColor", color);
+		SetBorderColor(color);
 
 		bool mipmap = false;
 		LoadMemberValue(wrapper, "mipmap", mipmap);
@@ -81,7 +87,7 @@ namespace fury
 		SetFilterMode(filterMode);
 		SetWrapMode(wrapMode);
 
-		CreateEmpty(width, height, format, mipmap);
+		CreateEmpty(width, height, format, type, mipmap);
 
 		return true;
 	}
@@ -104,14 +110,8 @@ namespace fury
 		SaveValue(wrapper, m_Width);
 		SaveKey(wrapper, "height");
 		SaveValue(wrapper, m_Height);
-
-		float color[4] = {m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a};
 		SaveKey(wrapper, "borderColor");
-		SaveArray(wrapper, 4, [&](unsigned int index)
-		{
-			SaveValue(wrapper, color[index]);
-		});
-
+		SaveValue(wrapper, m_BorderColor);
 		SaveKey(wrapper, "mipmap");
 		SaveValue(wrapper, m_Mipmap);
 
@@ -189,7 +189,7 @@ namespace fury
 		}
 	}
 
-	void Texture::CreateEmpty(int width, int height, TextureFormat format, bool mipMap)
+	void Texture::CreateEmpty(int width, int height, TextureFormat format, TextureType type, bool mipMap)
 	{
 		DeleteBuffer();
 
@@ -202,6 +202,9 @@ namespace fury
 		m_Width = width;
 		m_Height = height;
 		
+		m_Type = type;
+		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
+
 		unsigned int internalFormat = EnumUtil::TextureFormatToUint(format).second;
 
 		glGenTextures(1, &m_ID);

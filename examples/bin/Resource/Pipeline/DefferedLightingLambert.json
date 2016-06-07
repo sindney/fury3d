@@ -40,45 +40,38 @@
             "type": "spot_light"
         },
         {
-            "name": "phong_shader",
+            "name": "pointlight_shadow_shader", 
+            "path": "Resource/Shader/Lambert/PointLight.glsl", 
+            "type": "point_light_shadow"
+        },
+        {
+            "name": "dirlight_shadow_shader",
+            "path": "Resource/Shader/Lambert/SunLight.glsl",
+            "type": "dir_light_shadow"
+        },
+        {
+            "name": "spotlight_shadow_shader",
+            "path": "Resource/Shader/Lambert/SpotLight.glsl",
+            "type": "spot_light_shadow"
+        },
+        {
+            "name": "lambert_shader",
             "path": "Resource/Shader/Lambert/Lambert.glsl"
         },
         {
-            "name": "draw_depth_shader",
+            "name": "depth_shader",
             "path": "Resource/Shader/DrawDepth.glsl"
         },
         {
-            "name": "draw_shadow_shader",
-            "path": "Resource/Shader/DrawShadow.glsl"
+            "name": "leagcy_depth_shader",
+            "path": "Resource/Shader/DrawDepthLeagcy.glsl"
         },
         {
-            "name": "draw_vsm_depth_shader",
-            "path": "Resource/Shader/VarianceDrawDepth.glsl"
-        },
-        {
-            "name": "draw_vsm_shadow_shader",
-            "path": "Resource/Shader/VarianceDrawShadow.glsl"
+            "name": "cube_depth_shader",
+            "path": "Resource/Shader/DrawDepthCube.glsl"
         }
     ],
     "textures": [
-        {
-            "name": "depth24_buffer",
-            "format": "depth24",
-            "wrap": "clamp_to_border",
-            "border_color": [1.0,1.0,1.0,1.0],
-            "width": 1024,
-            "height": 1024
-        },
-        {
-            "name": "vsm_shadow_buffer",
-            "format": "rg32f",
-            "filter": "linear_mipmap_linear",
-            "wrap": "clamp_to_border",
-            "border_color": [1.0,1.0,1.0,1.0], 
-            "mipmap": true, 
-            "width": 1024,
-            "height": 1024
-        },
         {
             "name": "gbuffer_depth",
             "format": "depth24",
@@ -122,8 +115,6 @@
                 "gbuffer_diffuse"
             ],
             "blendMode": "replace",
-            "compareMode": "less",
-            "cullMode": "back",
             "drawMode": "opaque"
         },
         {
@@ -132,7 +123,10 @@
             "shaders": [
                 "pointlight_shader",
                 "dirlight_shader",
-                "spotlight_shader"
+                "spotlight_shader",
+                "pointlight_shadow_shader",
+                "dirlight_shadow_shader",
+                "spotlight_shadow_shader"
             ],
             "index": 1,
             "input": [
@@ -143,15 +137,15 @@
                 "gbuffer_light"
             ],
             "blendMode": "add",
-            "compareMode": "less",
-            "cullMode": "back",
+            "clearMode": "color",
+            "clearColor": [0.01, 0.01, 0.01, 1.0],
             "drawMode": "light"
         },
         {
             "name": "pass_final",
             "camera": "camNode",
             "shaders": [
-                "phong_shader"
+                "lambert_shader"
             ],
             "index": 2,
             "input": [
@@ -160,8 +154,6 @@
             ],
             "output": [],
             "blendMode": "replace",
-            "compareMode": "less",
-            "cullMode": "back",
             "drawMode": "quad"
         }
     ]

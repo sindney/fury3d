@@ -26,11 +26,9 @@ uniform float camera_far = 10000;
 
 in float out_depth;
 
-out vec4 fragment_output;
-
 void main()
 {
-	fragment_output = vec4(vec3(out_depth / camera_far), 1.0);
+	gl_FragDepth = out_depth / camera_far;
 }
 
 #endif
