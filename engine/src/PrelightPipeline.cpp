@@ -38,7 +38,7 @@ namespace fury
 
 		m_SharedPass = Pass::Create("SharedPass");
 
-		m_BiasMatrix = Matrix4({
+		m_OffsetMatrix = Matrix4({
 			0.5, 0.0, 0.0, 0.0,
 			0.0, 0.5, 0.0, 0.0,
 			0.0, 0.0, 0.5, 0.0,
@@ -365,25 +365,31 @@ namespace fury
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
 
+		auto lightPos = node->GetWorldPosition();
+
 		Matrix4 lightMatrix;
 		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
 		lightMatrix = lightMatrix * node->GetInvertWorldMatrix();
 
-		// get camera's frustum's worldspace aabb.
-		auto camAABB = camera->GetFrustum(camera->GetNear(), camera->GetShadowFar()).GetBoxBounds();
+		auto camFrustum = camera->GetFrustum(camera->GetNear(), camera->GetShadowFar());
 
 		// find shadow casters
 		fury::SceneManager::SceneNodes casters;
-		sceneManager->GetVisibleShadowCasters(camAABB, casters);
+		sceneManager->GetVisibleShadowCasters(camFrustum, casters);
 
 		// transform world space aabb to light space.
-		camAABB = node->GetInvertWorldMatrix().Multiply(camAABB);
+		BoxBounds camAABB;
+		camAABB.Zero(true);
+
+		auto corners = camFrustum.GetCurrentCorners();
+		for (auto corner : corners)
+			camAABB.Encapsulate(lightMatrix.Multiply(corner));
 
 		// gen projection matrix for light.
 		Matrix4 projMatrix;
 		projMatrix.OrthoOffCenter(camAABB.GetMin().x, camAABB.GetMax().x,
 			camAABB.GetMin().y, camAABB.GetMax().y,
-			camAABB.GetMin().z, camAABB.GetMax().z);
+			-camAABB.GetMax().z, -camAABB.GetMin().z);
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -392,6 +398,7 @@ namespace fury
 
 			m_SharedPass->SetBlendMode(BlendMode::REPLACE);
 			m_SharedPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
+			m_SharedPass->SetClearColor(Color::White);
 			m_SharedPass->SetCompareMode(CompareMode::LESS);
 			m_SharedPass->SetCullMode(CullMode::BACK);
 
@@ -403,7 +410,6 @@ namespace fury
 			depth_shader->Bind();
 			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
 			depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
-			depth_shader->BindFloat("camera_far", camAABB.GetMax().z);
 
 			for (auto &caster : casters)
 			{
@@ -439,7 +445,7 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
-		return std::make_pair(depth_buffer, m_BiasMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
+		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
 	}
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> PrelightPipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
@@ -480,6 +486,7 @@ namespace fury
 
 			m_SharedPass->SetBlendMode(BlendMode::REPLACE);
 			m_SharedPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
+			m_SharedPass->SetClearColor(Color::White);
 			m_SharedPass->SetCompareMode(CompareMode::LESS);
 			m_SharedPass->SetCullMode(CullMode::BACK);
 
@@ -573,7 +580,7 @@ namespace fury
 
 			m_SharedPass->SetBlendMode(BlendMode::REPLACE);
 			m_SharedPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
-			m_SharedPass->SetClearColor(Color::Black);
+			m_SharedPass->SetClearColor(Color::White);
 			m_SharedPass->SetCompareMode(CompareMode::LESS);
 			m_SharedPass->SetCullMode(CullMode::BACK);
 
@@ -585,7 +592,6 @@ namespace fury
 			depth_shader->Bind();
 			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
 			depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
-			depth_shader->BindFloat("camera_far", radius);
 
 			for (auto &caster : casters)
 			{
@@ -621,7 +627,7 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
-		return std::make_pair(depth_buffer, m_BiasMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
+		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
 	}
 
 	void PrelightPipeline::DrawDebug(std::unordered_map<std::string, RenderQuery::Ptr> &queries)

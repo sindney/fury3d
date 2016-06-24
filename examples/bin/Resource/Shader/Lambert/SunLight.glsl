@@ -79,7 +79,8 @@ void main()
 #ifdef SHADOW
 	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
-	fragment_output *= float(shadowCoord.z - bias < texture(shadow_buffer, shadowCoord.xy).x);
+	float depth = shadowCoord.z - bias;
+	fragment_output *= depth > 1.0 ? 0.0 : float(depth < texture(shadow_buffer, shadowCoord.xy).x);
 #endif
 }
 

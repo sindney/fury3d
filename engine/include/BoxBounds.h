@@ -31,7 +31,7 @@ namespace fury
 
 		void SetMinMax(Vector4 min, Vector4 max);
 
-		void Zero();
+		void Zero(bool dirty = false);
 
 		void SetInfinite(bool value);
 

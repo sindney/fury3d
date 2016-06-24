@@ -38,7 +38,7 @@ namespace fury
 
 		std::shared_ptr<Pass> m_SharedPass;
 		
-		Matrix4 m_BiasMatrix;
+		Matrix4 m_OffsetMatrix;
 
 	public:
 

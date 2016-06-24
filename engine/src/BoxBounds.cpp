@@ -25,9 +25,11 @@ namespace fury
 		m_Dirty = false;
 	}
 
-	void BoxBounds::Zero()
+	void BoxBounds::Zero(bool dirty)
 	{
 		SetMinMax(Vector4(), Vector4());
+		if (dirty)
+			SetDirty(true);
 	}
 
 	void BoxBounds::SetInfinite(bool value)
