@@ -389,7 +389,7 @@ namespace fury
 		Matrix4 projMatrix;
 		projMatrix.OrthoOffCenter(camAABB.GetMin().x, camAABB.GetMax().x,
 			camAABB.GetMin().y, camAABB.GetMax().y,
-			-camAABB.GetMax().z, -camAABB.GetMin().z);
+			camAABB.GetMax().z, camAABB.GetMin().z);
 
 		// draw casters to depth map, aka shadow map.
 		{

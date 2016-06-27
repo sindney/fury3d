@@ -1,6 +1,8 @@
 #ifndef _FURY_VECTOR4_H_
 #define _FURY_VECTOR4_H_
 
+#include <ostream>
+
 #include "Macros.h"
 
 namespace fury
@@ -97,6 +99,8 @@ namespace fury
 		Vector4 operator / (const float other) const;
 		
 	};
+
+	std::ostream FURY_API &operator << (std::ostream &os, const Vector4 &data);
 }
 
 #endif // _FURY_VECTOR4_H_

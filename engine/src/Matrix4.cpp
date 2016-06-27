@@ -138,9 +138,9 @@ namespace fury
 		Raw[5] = 2 * near / (top - bottom);
 		Raw[8] = (right + left) / (right - left);
 		Raw[9] = (top + bottom) / (top - bottom);
-		Raw[10] = (far + near) / (near - far);
+		Raw[10] = - (far + near) / (far - near);
 		Raw[11] = -1;
-		Raw[14] = 2 * far * near / (near - far);
+		Raw[14] = - 2 * far * near / (far - near);
 	}
 	
 	void Matrix4::OrthoOffCenter(float left, float right, float bottom, float top, float near, float far)
@@ -149,10 +149,10 @@ namespace fury
 
 		Raw[0] = 2 / (right - left);
 		Raw[5] = 2 / (top - bottom);
-		Raw[10] = -2 / (far - near);
-		Raw[12] = (right + left) / (left - right);
-		Raw[13] = (top + bottom) / (bottom - top);
-		Raw[14] = (far + near) / (near - far);
+		Raw[10] = 2 / (far - near);
+		Raw[12] = - (right + left) / (right - left);
+		Raw[13] = - (top + bottom) / (top - bottom);
+		Raw[14] = - (far + near) / (far - near);
 		Raw[15] = 1;
 	}
 

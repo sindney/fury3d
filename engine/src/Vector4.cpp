@@ -152,4 +152,9 @@ namespace fury
 		float i = 1.0f / other;
 		return Vector4(x * i, y * i, z * i, 1.0f);
 	}
+
+	std::ostream &operator << (std::ostream &os, const Vector4 &data)
+	{
+		return os << "Vector4(" << data.x << ", " << data.y << ", " << data.z << ", " << data.w << ")";
+	}
 }
