@@ -223,15 +223,15 @@ namespace fury
 		{
 			if (vt.x > max.x)
 				max.x = vt.x;
-			else if (vt.x < min.x)
+			if (vt.x < min.x)
 				min.x = vt.x;
 			if (vt.y > max.y)
 				max.y = vt.y;
-			else if (vt.y < min.y)
+			if (vt.y < min.y)
 				min.y = vt.y;
 			if (vt.z > max.z)
 				max.z = vt.z;
-			else if (vt.z < min.z)
+			if (vt.z < min.z)
 				min.z = vt.z;
 		}
 

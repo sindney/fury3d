@@ -8,6 +8,7 @@
 #include "Entity.h"
 #include "EnumUtil.h"
 #include "Serializable.h"
+#include "ObjectPool.h"
 
 namespace fury
 {
@@ -19,9 +20,10 @@ namespace fury
 
 		static Ptr Create(const std::string &name);
 
-		// get tetxure from texture pool.
-		// stores cached textures in EntityUtil with names like 512x512xrgba8x2d.
-		static Ptr Get(int width, int height, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
+		// create textures named like 512x512xrgba8x2d.
+		static Ptr Create(int width, int height, int depth, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
+
+		static ObjectPool<std::string, Texture::Ptr, int, int, int, TextureFormat, TextureType> Pool;
 
 	protected:
 
@@ -43,6 +45,8 @@ namespace fury
 
 		int m_Height = 0;
 
+		int m_Depth = 0;
+
 		unsigned int m_ID = 0;
 
 		std::string m_FilePath;
@@ -59,7 +63,7 @@ namespace fury
 
 		void CreateFromImage(std::string filePath, bool mipMap = false);
 
-		void CreateEmpty(int width, int height, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
+		void CreateEmpty(int width, int height, int depth, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
 
 		void Update(const void* pixels);
 
@@ -90,6 +94,8 @@ namespace fury
 		int GetWidth() const;
 
 		int GetHeight() const;
+
+		int GetDepth() const;
 
 		unsigned int GetID() const;
 

@@ -33,40 +33,9 @@ namespace fury
 			"    fragment_output = vec4(color, 1.0);\n"
 			"}\n";
 
-		const char *blur_vs =
-			"in vec3 vertex_position;"
-			"out vec2 out_uv;"
-			"void main()"
-			"{"
-			"	out_uv = vertex_position.xy * 0.5 + 0.5;"
-			"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
-			"}";
-
-		const char *blur_fs =
-			"uniform vec2 scaleU;"
-			"uniform sampler2D textureSrc;"
-			"in vec2 out_uv;"
-			"out vec4 fragment_output;"
-			"void main()"
-			"{"
-			"	vec4 color = vec4(0.0);"
-			"	color += texture2D(textureSrc, out_uv + vec2(-3.0 * scaleU.x, -3.0*scaleU.y)) * 0.015625;"
-			"	color += texture2D(textureSrc, out_uv + vec2(-2.0 * scaleU.x, -2.0*scaleU.y)) * 0.09375;"
-			"	color += texture2D(textureSrc, out_uv + vec2(-1.0 * scaleU.x, -1.0*scaleU.y)) * 0.234375;"
-			"	color += texture2D(textureSrc, out_uv + vec2(0.0, 0.0)) * 0.3125;"
-			"	color += texture2D(textureSrc, out_uv + vec2(1.0 * scaleU.x,  1.0*scaleU.y)) * 0.234375;"
-			"	color += texture2D(textureSrc, out_uv + vec2(2.0 * scaleU.x,  2.0*scaleU.y)) * 0.09375;"
-			"	color += texture2D(textureSrc, out_uv + vec2(3.0 * scaleU.x, -3.0*scaleU.y)) * 0.015625;"
-			"	fragment_output = color;"
-			"}";
-
 		m_DebugShader = Shader::Create("DebugShader", ShaderType::OTHER);
 		if (!m_DebugShader->Compile(debug_vs, debug_fs, ""))
 			FURYE << "Failed to compile line shader!";
-
-		m_BlurShader = Shader::Create("BlurShader", ShaderType::OTHER);
-		if (!m_BlurShader->Compile(debug_vs, debug_fs, ""))
-			FURYE << "Failed to compile blur shader!";
 
 		m_DebugShader->Bind();
 
@@ -111,7 +80,7 @@ namespace fury
 		m_BlitPass->SetClearMode(clearMode);
 		m_BlitPass->SetBlendMode(blendMode);
 
-		m_BlitPass->Bind();
+		m_BlitPass->Bind(true);
 
 		shader->Bind();
 
@@ -128,17 +97,6 @@ namespace fury
 
 		m_TriangleCount += 2;
 		m_DrawCall++;
-	}
-
-	void RenderUtil::Blur(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, float coef)
-	{
-		m_BlurShader->Bind();
-		m_BlurShader->BindFloat("scaleU", 1.0f / (src->GetWidth() * coef), 0.0f);
-		RenderUtil::Instance()->Blit(src, dest, m_BlurShader);
-
-		m_BlurShader->Bind();
-		m_BlurShader->BindFloat("scaleU", 0.0f, 1.0f / (src->GetHeight() * coef));
-		RenderUtil::Instance()->Blit(dest, src, m_BlurShader);
 	}
 
 	void RenderUtil::BeginDrawLines(const std::shared_ptr<SceneNode> &camera)

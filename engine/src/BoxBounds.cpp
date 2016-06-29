@@ -5,9 +5,9 @@
 
 namespace fury
 {
-	BoxBounds::BoxBounds()
+	BoxBounds::BoxBounds(bool dirty)
 	{
-		Zero();
+		Zero(dirty);
 	}
 
 	BoxBounds::BoxBounds(Vector4 min, Vector4 max) : m_Dirty(false)
@@ -256,6 +256,22 @@ namespace fury
 	Vector4 BoxBounds::GetSize() const
 	{
 		return m_Size;
+	}
+
+	std::array<Vector4, 8> BoxBounds::GetCorners() const
+	{
+		std::array<Vector4, 8> corners = 
+		{
+			Vector4(m_Min, 1.0f),
+			Vector4(m_Max.x, m_Min.y, m_Min.z, 1.0f),
+			Vector4(m_Min.x, m_Max.y, m_Min.z, 1.0f),
+			Vector4(m_Max.x, m_Max.y, m_Min.z, 1.0f),
+			Vector4(m_Min.x, m_Min.y, m_Max.z, 1.0f),
+			Vector4(m_Max.x, m_Min.y, m_Max.z, 1.0f),
+			Vector4(m_Min.x, m_Max.y, m_Max.z, 1.0f),
+			Vector4(m_Max, 1.0f)
+		};
+		return corners;
 	}
 
 	bool BoxBounds::Valid() const

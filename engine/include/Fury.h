@@ -29,6 +29,7 @@
 #include "MeshUtil.h"
 #include "OcTree.h"
 #include "OcTreeNode.h"
+#include "ObjectPool.h"
 #include "Plane.h"
 #include "Quaternion.h"
 #include "Pass.h"

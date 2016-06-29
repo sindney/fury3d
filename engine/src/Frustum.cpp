@@ -41,8 +41,8 @@ namespace fury
 		float toFar = far / near;
 		float farTop = top * toFar;
 		float farRight = right * toFar;
-		float farBottom = -farTop;
-		float farLeft = -farRight;
+		float farBottom = bottom * toFar;
+		float farLeft = left * toFar;
 
 		m_BaseCorners[0] = Vector4(left, top, near, 1.0f);
 		m_BaseCorners[1] = Vector4(right, top, near, 1.0f);

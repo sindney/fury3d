@@ -97,7 +97,7 @@ namespace fury
 			return false;
 		}
 
-		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
+		LoadArray(wrapper, "shaders", [&](const void* node) -> bool
 		{
 			if (!LoadValue(node, str))
 			{
@@ -114,7 +114,7 @@ namespace fury
 				FURYW << "Shader " << str << " not found!";
 				return false;
 			}
-		})) return false;
+		});
 
 		if (!LoadArray(wrapper, "input", [&](const void* node) -> bool
 		{
@@ -133,7 +133,11 @@ namespace fury
 				FURYW << "Input Texture " << str << " not found!";
 				return false;
 			}
-		})) return false;
+		}))
+		{
+			FURYW << "Input texture array empty!";
+			return false;
+		}
 
 		if (!LoadArray(wrapper, "output", [&](const void* node) -> bool
 		{
@@ -152,7 +156,11 @@ namespace fury
 				FURYW << "Output Texture " << str << " not found!";
 				return false;
 			}
-		})) return false;
+		}))
+		{
+			FURYW << "Output texture array empty!";
+			return false;
+		}
 
 		return true;
 	}
@@ -288,14 +296,40 @@ namespace fury
 		return m_DrawMode;
 	}
 
-	int Pass::GetCubeMapIndex() const
+	void Pass::SetArrayTextureLayer(const std::string &name, int index)
 	{
-		return m_CubeMapIndex;
+		for (auto &pair : m_LayerTextures)
+		{
+			if (pair.second->GetName() == name)
+			{
+				glFramebufferTextureLayer(GL_FRAMEBUFFER, pair.first, pair.second->GetID(), 0, index);
+				break;
+			}
+		}
 	}
 
-	void Pass::SetCubeMapIndex(int index)
+	void Pass::SetArrayTextureLayer(int index)
 	{
-		m_CubeMapIndex = index;
+		for (auto &pair : m_LayerTextures)
+			glFramebufferTextureLayer(GL_FRAMEBUFFER, pair.first, pair.second->GetID(), 0, index);
+	}
+
+	void Pass::SetCubeTextureIndex(const std::string &name, int index)
+	{
+		for (auto &pair : m_CubeTextures)
+		{
+			if (pair.second->GetName() == name)
+			{
+				glFramebufferTexture2D(GL_FRAMEBUFFER, pair.first, GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, pair.second->GetID(), 0);
+				break;
+			}
+		}
+	}
+
+	void Pass::SetCubeTextureIndex(int index)
+	{
+		for (auto &pair : m_CubeTextures)
+			glFramebufferTexture2D(GL_FRAMEBUFFER, pair.first, GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, pair.second->GetID(), 0);
 	}
 
 	int Pass::GetViewPortWidth() const
@@ -384,6 +418,26 @@ namespace fury
 		if (!input)
 			m_RenderTargetDirty = true;
 
+		// remove from cube textures
+		for (unsigned int i = 0; i < m_CubeTextures.size(); i++)
+		{
+			if (m_CubeTextures[i].second == ptr)
+			{
+				m_CubeTextures.erase(m_CubeTextures.begin() + i);
+				break;
+			}
+		}
+
+		// remove from layer textures
+		for (unsigned int i = 0; i < m_LayerTextures.size(); i++)
+		{
+			if (m_LayerTextures[i].second == ptr)
+			{
+				m_LayerTextures.erase(m_LayerTextures.begin() + i);
+				break;
+			}
+		}
+
 		return ptr;
 	}
 
@@ -426,6 +480,8 @@ namespace fury
 	{
 		m_InputTextures.clear();
 		m_OutputTextures.clear();
+		m_LayerTextures.clear();
+		m_CubeTextures.clear();
 		UnBindRenderTargets();
 	}
 
@@ -454,6 +510,9 @@ namespace fury
 
 		m_ViewPortWidth = m_ViewPortHeight = 0;
 		m_ColorAttachmentCount = 0;
+
+		m_LayerTextures.clear();
+		m_CubeTextures.clear();
 
 		for (auto texture : m_OutputTextures)
 		{
@@ -496,10 +555,20 @@ namespace fury
 				continue;
 			}
 
-			if (type == TextureType::TEXTURE_CUBE_MAP || type == TextureType::TEXTURE_CUBE_MAP_ARRAY)
-				glFramebufferTexture2D(GL_FRAMEBUFFER, attachId, GL_TEXTURE_CUBE_MAP_POSITIVE_X + m_CubeMapIndex, texture->GetID(), 0);
+			if (type == TextureType::TEXTURE_2D_ARRAY)
+			{
+				glFramebufferTextureLayer(GL_FRAMEBUFFER, attachId, texture->GetID(), 0, 0);
+				m_LayerTextures.push_back(std::make_pair(attachId, texture));
+			}
+			if (type == TextureType::TEXTURE_CUBE_MAP)
+			{
+				glFramebufferTexture2D(GL_FRAMEBUFFER, attachId, GL_TEXTURE_CUBE_MAP_POSITIVE_X, texture->GetID(), 0);
+				m_CubeTextures.push_back(std::make_pair(attachId, texture));
+			}
 			else
+			{
 				glFramebufferTexture(GL_FRAMEBUFFER, attachId, texture->GetID(), 0);
+			}
 		}
 
 		if (m_ColorAttachmentCount > 0)

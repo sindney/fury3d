@@ -62,6 +62,17 @@ namespace fury
 
 		// end: read shader texture flags
 
+		LoadArray(wrapper, "defines", [&](const void* node) -> bool
+		{
+			if (!LoadValue(node, str))
+			{
+				FURYE << "Shader's define must be string!";
+				return false;
+			}
+			m_Defines.push_back(str);
+			return true;
+		});
+
 		if (!LoadMemberValue(wrapper, "path", str))
 		{
 			FURYE << "Shader param 'path' not found!";
@@ -93,6 +104,12 @@ namespace fury
 		SaveArray(wrapper, enums.size(), [&](unsigned int index)
 		{
 			SaveValue(wrapper, EnumUtil::ShaderTextureToString(enums[index]));
+		});
+
+		SaveKey(wrapper, "defines");
+		SaveArray(wrapper, m_Defines.size(), [&](unsigned int index)
+		{
+			SaveValue(wrapper, m_Defines[index]);
 		});
 
 		SaveKey(wrapper, "path");
@@ -139,6 +156,11 @@ namespace fury
 		m_TextureFlags = flags;
 	}
 
+	void Shader::AddDefine(std::string define)
+	{
+		m_Defines.push_back(define);
+	}
+
 	bool Shader::LoadAndCompile(const std::string &shaderPath, bool useGeomShader)
 	{
 		m_UseGeomShader = useGeomShader;
@@ -162,8 +184,12 @@ namespace fury
 
 		m_UseGeomShader = gsData.size() > 0;
 
-		std::string defines;
-		GetDefines(defines);
+		std::stringstream defineStream;
+		for (auto define : m_Defines)
+			defineStream << "#define " << define << "\n";
+
+		std::string defines = defineStream.str();
+		defineStream.clear();
 
 		std::string vsVersion, vsMain;
 		GetVersionInfo(vsData, vsVersion, vsMain);
@@ -613,6 +639,21 @@ namespace fury
 			glUniformMatrix4fv(id, count, false, raw);
 	}
 
+	void Shader::BindMatrices(const std::string &name, const int count, const Matrix4 *matrices)
+	{
+		std::vector<float> raw(count * 16);
+		for (int i = 0; i < count; i++)
+		{
+			auto &matrix = matrices[i];
+			for (int j = 0; j < 16; j++)
+				raw[i * 16 + j] = matrix.Raw[j];
+		}
+
+		int id = GetUniformLocation(name);
+		if (id != -1)
+			glUniformMatrix4fv(id, count, false, &raw[0]);
+	}
+
 	void Shader::BindFloat(const std::string &name, float v0)
 	{
 		int id = GetUniformLocation(name);
@@ -812,39 +853,6 @@ namespace fury
 			auto start = index + versionStr.size();
 			auto size = source.size() - start;
 			mainStr = source.substr(0, index) + source.substr(start, size);
-		}
-	}
-
-	void Shader::GetDefines(std::string &definesStr)
-	{
-		switch (m_Type)
-		{
-		case ShaderType::DIR_LIGHT:
-			definesStr = "#define DIR_LIGHT\n";
-			break;
-		case ShaderType::POINT_LIGHT:
-			definesStr = "#define POINT_LIGHT\n";
-			break;
-		case ShaderType::SPOT_LIGHT:
-			definesStr = "#define SPOT_LIGHT\n";
-			break;
-		case ShaderType::DIR_LIGHT_SHADOW:
-			definesStr = "#define DIR_LIGHT\n#define SHADOW\n";
-			break;
-		case ShaderType::POINT_LIGHT_SHADOW:
-			definesStr = "#define POINT_LIGHT\n#define SHADOW\n";
-			break;
-		case ShaderType::SPOT_LIGHT_SHADOW:
-			definesStr = "#define SPOT_LIGHT\n#define SHADOW\n";
-			break;
-		case ShaderType::STATIC_MESH:
-			definesStr = "#define STATIC_MESH\n";
-			break;
-		case ShaderType::SKINNED_MESH:
-			definesStr = "#define SKINNED_MESH\n";
-			break;
-		default:
-			break;
 		}
 	}
 }

@@ -93,13 +93,9 @@ namespace fury
 	enum class TextureType : unsigned int
 	{
 		TEXTURE_1D = 0, 
-		TEXTURE_1D_ARRAY, 
 		TEXTURE_2D, 
 		TEXTURE_2D_ARRAY, 
-		TEXTURE_CUBE_MAP, 
-		TEXTURE_CUBE_MAP_ARRAY, 
-		TEXTURE_2D_MULTISAMPLE, 
-		TEXTURE_2D_MULTISAMPLE_ARRAY
+		TEXTURE_CUBE_MAP
 	};
 
 	enum class FilterMode : unsigned int
@@ -138,14 +134,7 @@ namespace fury
 	{
 		OTHER = 0, 
 		STATIC_MESH, 
-		SKINNED_MESH, 
-		POINT_LIGHT, 
-		SPOT_LIGHT, 
-		DIR_LIGHT, 
-		POINT_LIGHT_SHADOW,
-		SPOT_LIGHT_SHADOW,
-		DIR_LIGHT_SHADOW,
-		POST_EFFECT
+		SKINNED_MESH
 	};
 
 	enum class ShaderTexture : unsigned int

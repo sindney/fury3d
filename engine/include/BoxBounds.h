@@ -1,6 +1,8 @@
 #ifndef _FURY_BOXBOUNDS_H_
 #define _FURY_BOXBOUNDS_H_
 
+#include <array>
+
 #include "Collidable.h"
 #include "Vector4.h"
 
@@ -25,7 +27,7 @@ namespace fury
 
 	public:
 
-		BoxBounds();
+		BoxBounds(bool dirty = false);
 
 		BoxBounds(Vector4 min, Vector4 max);
 
@@ -85,6 +87,8 @@ namespace fury
 		Vector4 GetMin() const;
 
 		Vector4 GetSize() const;
+
+		std::array<Vector4, 8> GetCorners() const;
 
 		bool Valid() const;
 

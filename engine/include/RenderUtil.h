@@ -78,8 +78,6 @@ namespace fury
 			const std::shared_ptr<Shader> &shader, ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL, 
 			BlendMode blendMode = BlendMode::REPLACE);
 
-		void Blur(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, float coef = 4.5f);
-
 		void BeginDrawLines(const std::shared_ptr<SceneNode> &camera);
 
 		void DrawLines(const float* positions, unsigned int size, Color color, LineMode lineMode = LineMode::LINES);

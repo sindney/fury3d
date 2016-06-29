@@ -35,6 +35,8 @@ namespace fury
 
 		unsigned int m_TextureFlags;
 
+		std::vector<std::string> m_Defines;
+
 		unsigned int m_Program = 0;
 
 		unsigned int m_TextureID = 0;
@@ -64,6 +66,8 @@ namespace fury
 		unsigned int GetTextureFlags() const;
 
 		void SetTextureFlags(unsigned int flags);
+
+		void AddDefine(std::string define);
 
 		bool LoadAndCompile(const std::string &shaderPath, bool useGeomShader = false);
 
@@ -98,6 +102,8 @@ namespace fury
 		void BindMatrix(const std::string &name, const float *raw);
 
 		void BindMatrices(const std::string &name, int count, const float *raw);
+
+		void BindMatrices(const std::string &name, int count, const Matrix4 *matrices);
 
 		void BindFloat(const std::string &name, float v0);
 
@@ -138,8 +144,6 @@ namespace fury
 		int GetUniformLocation(const std::string &name) const;
 
 		void GetVersionInfo(const std::string &source, std::string &versionStr, std::string &mainStr);
-
-		void GetDefines(std::string &definesStr);
 
 	};
 }

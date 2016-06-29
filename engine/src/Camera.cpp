@@ -94,7 +94,19 @@ namespace fury
 	Frustum Camera::GetFrustum(float near, float far) const
 	{
 		Frustum clone;
-		clone.Setup(m_ProjectionParams[0], m_ProjectionParams[1], m_ProjectionParams[2], m_ProjectionParams[3], near, far);
+		float curNear = GetNear();
+		float curLeft = m_ProjectionParams[0];
+		float curRight = m_ProjectionParams[1];
+		float curBottom = m_ProjectionParams[2];
+		float curTop = m_ProjectionParams[3];
+
+		float toNear = near / curNear;
+		float top = curTop * toNear;
+		float right = curRight * toNear;
+		float bottom = curBottom * toNear;
+		float left = curLeft * toNear;
+
+		clone.Setup(left, right, bottom, top, near, far);
 		clone.Transform(m_Frustum.GetTransformMatrix());
 		return clone;
 	}

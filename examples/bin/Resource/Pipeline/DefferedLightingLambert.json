@@ -4,55 +4,61 @@
             "name": "gbuffer_shader",
             "path": "Resource/Shader/Lambert/Gbuffer.glsl",
             "type": "static_mesh", 
-            "textures" : ["diffuse"]
+            "textures" : ["diffuse"], 
+            "defines": ["STATIC_MESH"]
         },
         {
             "name": "gbuffer_notexture_shader",
             "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
             "type": "static_mesh", 
-            "textures" : ["color_only"]
+            "textures" : ["color_only"], 
+            "defines": ["STATIC_MESH"]
         },
         {
             "name": "gbuffer_skin_shader",
             "path": "Resource/Shader/Lambert/Gbuffer.glsl",
             "type": "skinned_mesh", 
-            "textures" : ["diffuse"]
+            "textures" : ["diffuse"], 
+            "defines": ["SKINNED_MESH"]
         },
         {
             "name": "gbuffer_notexture_skin_shader",
             "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
             "type": "skinned_mesh", 
-            "textures" : ["color_only"]
+            "textures" : ["color_only"], 
+            "defines": ["SKINNED_MESH"]
         },
         {
             "name": "pointlight_shader", 
-            "path": "Resource/Shader/Lambert/PointLight.glsl", 
-            "type": "point_light"
+            "path": "Resource/Shader/Lambert/PointLight.glsl"
         },
         {
             "name": "dirlight_shader",
-            "path": "Resource/Shader/Lambert/SunLight.glsl",
-            "type": "dir_light"
+            "path": "Resource/Shader/Lambert/SunLight.glsl"
         },
         {
             "name": "spotlight_shader",
-            "path": "Resource/Shader/Lambert/SpotLight.glsl",
-            "type": "spot_light"
+            "path": "Resource/Shader/Lambert/SpotLight.glsl"
         },
         {
             "name": "pointlight_shadow_shader", 
             "path": "Resource/Shader/Lambert/PointLight.glsl", 
-            "type": "point_light_shadow"
+            "defines": ["SHADOW"]
         },
         {
             "name": "dirlight_shadow_shader",
             "path": "Resource/Shader/Lambert/SunLight.glsl",
-            "type": "dir_light_shadow"
+            "defines": ["SHADOW"]
         },
         {
             "name": "spotlight_shadow_shader",
             "path": "Resource/Shader/Lambert/SpotLight.glsl",
-            "type": "spot_light_shadow"
+            "defines": ["SHADOW"]
+        },
+        {
+            "name": "dirlight_csm_shader",
+            "path": "Resource/Shader/Lambert/SunLight.glsl",
+            "defines": ["CSM"]
         },
         {
             "name": "lambert_shader",
@@ -120,14 +126,6 @@
         {
             "name": "pass_light",
             "camera": "camNode",
-            "shaders": [
-                "pointlight_shader",
-                "dirlight_shader",
-                "spotlight_shader",
-                "pointlight_shadow_shader",
-                "dirlight_shadow_shader",
-                "spotlight_shadow_shader"
-            ],
             "index": 1,
             "input": [
                 "gbuffer_depth",

@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include "MathUtil.h"
+#include "SceneNode.h"
 
 namespace fury
 {
@@ -142,5 +143,82 @@ namespace fury
 			return true;
 
 		return false;
+	}
+
+	Matrix4 MathUtil::GetCropMatrix(Matrix4 lightMatrix, Frustum frustum, std::vector<std::shared_ptr<SceneNode>> &casters)
+	{
+		// limit z
+		auto corners = frustum.GetCurrentCorners();
+		auto pos = lightMatrix.Multiply(corners[0]);
+		float minZ = pos.z, maxZ = pos.z;
+		for (auto corner : corners)
+		{
+			pos = lightMatrix.Multiply(corner);
+			if (pos.z > maxZ) maxZ = pos.z;
+			if (pos.z < minZ) minZ = pos.z;
+		}
+
+		for (auto caster : casters)
+		{
+			auto corners = caster->GetWorldAABB().GetCorners();
+			for (auto corner : corners)
+			{
+				pos = lightMatrix.Multiply(corner);
+				if (pos.z > maxZ) maxZ = pos.z;
+			}
+		}
+
+		Matrix4 projMatrix;
+		projMatrix.OrthoOffCenter(-1.0f, 1.0f, -1.0f, 1.0f, maxZ, minZ);
+
+		// limit xy
+		float maxX = 0.0f, maxY = 0.0f;
+		float minX = 0.0f, minY = 0.0f;
+
+		auto mvp = projMatrix * lightMatrix;
+
+		pos = mvp.Multiply(corners[0]);
+		maxX = minX = pos.x / pos.w;
+		maxY = minY = pos.y / pos.w;
+
+		for (auto corner : corners)
+		{
+			pos = mvp.Multiply(corner);
+
+			pos.x /= pos.w;
+			pos.y /= pos.w;
+
+			if (pos.x > maxX) maxX = pos.x;
+			if (pos.x < minX) minX = pos.x;
+			if (pos.y > maxY) maxY = pos.y;
+			if (pos.y < minY) minY = pos.y;
+		}
+
+		// build crop matrix
+		float scaleX = 2.0f / (maxX - minX);
+		float scaleY = 2.0f / (maxY - minY);
+		float offsetX = -0.5f * (maxX + minX) * scaleX;
+		float offsetY = -0.5f * (maxY + minY) * scaleY;
+
+		Matrix4 cropMatrix(
+		{
+			scaleX, 0.0f, 0.0f, 0.0f, 
+			0.0f, scaleY, 0.0f, 0.0f, 
+			0.0f, 0.0f, 1.0f, 0.0f, 
+			offsetX, offsetY, 0.0f, 1.0f
+		});
+
+		return projMatrix * cropMatrix;
+	}
+
+	void MathUtil::FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions)
+	{
+		collisions.erase(collisions.begin(), collisions.end());
+
+		for (auto possible : possibles)
+		{
+			if (collider.IsInsideFast(possible->GetWorldAABB()))
+				collisions.push_back(possible);
+		}
 	}
 }

@@ -38,9 +38,9 @@ namespace fury
 
 		std::vector<std::string> m_SortedPasses;
 
-		bool m_DrawOpaqueBounds = true;
+		bool m_DrawOpaqueBounds = false;
 
-		bool m_DrawLightBounds = true;
+		bool m_DrawLightBounds = false;
 
 	public:
 

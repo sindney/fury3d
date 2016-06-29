@@ -110,13 +110,9 @@ namespace fury
 	const std::vector<std::tuple<TextureType, std::string, unsigned int>> EnumUtil::m_TextureType =
 	{
 		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D), 
-		std::make_tuple(TextureType::TEXTURE_1D_ARRAY, "1d_array", GL_TEXTURE_1D_ARRAY), 
 		std::make_tuple(TextureType::TEXTURE_2D, "2d", GL_TEXTURE_2D), 
 		std::make_tuple(TextureType::TEXTURE_2D_ARRAY, "2d_array", GL_TEXTURE_2D_ARRAY), 
-		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP), 
-		std::make_tuple(TextureType::TEXTURE_CUBE_MAP_ARRAY, "cube_array", GL_TEXTURE_CUBE_MAP), 
-		std::make_tuple(TextureType::TEXTURE_2D_MULTISAMPLE, "2d_ms", GL_TEXTURE_2D_MULTISAMPLE), 
-		std::make_tuple(TextureType::TEXTURE_2D_MULTISAMPLE_ARRAY, "2d_ms_array", GL_TEXTURE_2D_MULTISAMPLE_ARRAY)
+		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP)
 	};
 
 	const std::vector<std::tuple<FilterMode, unsigned int, std::string>> EnumUtil::m_FilterMode =
@@ -141,14 +137,7 @@ namespace fury
 	{
 		std::make_pair(ShaderType::OTHER, "other"), 
 		std::make_pair(ShaderType::STATIC_MESH, "static_mesh"), 
-		std::make_pair(ShaderType::SKINNED_MESH, "skinned_mesh"), 
-		std::make_pair(ShaderType::POINT_LIGHT, "point_light"), 
-		std::make_pair(ShaderType::SPOT_LIGHT, "spot_light"), 
-		std::make_pair(ShaderType::DIR_LIGHT, "dir_light"), 
-		std::make_pair(ShaderType::POINT_LIGHT_SHADOW, "point_light_shadow"), 
-		std::make_pair(ShaderType::SPOT_LIGHT_SHADOW, "spot_light_shadow"),
-		std::make_pair(ShaderType::DIR_LIGHT_SHADOW, "dir_light_shadow"),
-		std::make_pair(ShaderType::POST_EFFECT, "post_effect")
+		std::make_pair(ShaderType::SKINNED_MESH, "skinned_mesh")
 	};
 
 	const std::vector<std::pair<ShaderTexture, std::string>> EnumUtil::m_ShaderTexture =

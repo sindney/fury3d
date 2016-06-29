@@ -15,23 +15,42 @@ namespace fury
 		return std::make_shared<Texture>(name);
 	}
 
-	Texture::Ptr Texture::Get(int width, int height, TextureFormat format, TextureType type)
+	Texture::Ptr Texture::Create(int width, int height, int depth, TextureFormat format, TextureType type)
 	{
 		std::stringstream ss;
-		ss << width << "*" << height << "*" << EnumUtil::TextureFormatToString(format) << 
+		ss << width << "*" << height << "*" << depth << "*" << EnumUtil::TextureFormatToString(format) << 
 			"*" << EnumUtil::TextureTypeToString(type);
-		std::string name = ss.str();
 
-		auto match = EntityUtil::Instance()->Get<Texture>(name);
-		if (match == nullptr)
-		{
-			match = Texture::Create(name);
-			match->CreateEmpty(width, height, format, type);
-			EntityUtil::Instance()->Add(match);
-		}
+		auto result = Texture::Create(ss.str());
+		result->CreateEmpty(width, height, depth, format, type);
 
-		return match;
+		return result;
 	}
+
+	ObjectPool<std::string, Texture::Ptr, int, int, int, TextureFormat, TextureType> Texture::Pool(
+			[](int w, int h, int d, TextureFormat fmt, TextureType type) -> std::string
+		{
+			std::stringstream ss;
+			ss << w << "*" << h << "*" << d << "*" << EnumUtil::TextureFormatToString(fmt) <<
+				"*" << EnumUtil::TextureTypeToString(type);
+			return ss.str();
+		}, 
+			[](std::shared_ptr<Texture> ptr) -> std::string
+		{
+			std::stringstream ss;
+			ss << ptr->GetWidth() << "*" << ptr->GetHeight() << "*" << ptr->GetDepth() << "*" << EnumUtil::TextureFormatToString(ptr->GetFormat()) <<
+				"*" << EnumUtil::TextureTypeToString(ptr->GetType());
+			return ss.str();
+		}, 
+			[](int w, int h, int d, TextureFormat fmt, TextureType type) -> std::shared_ptr<Texture>
+		{
+			return Texture::Create(w, h, d, fmt, type);
+		}, 
+			[](std::shared_ptr<Texture> ptr)
+		{
+			// maybe destory ? 
+		}
+	);
 
 	Texture::Texture(const std::string &name)
 		: Entity(name), m_BorderColor(0, 0, 0, 0)
@@ -69,6 +88,9 @@ namespace fury
 			return false;
 		}
 		
+		int depth = 0;
+		LoadMemberValue(wrapper, "depth", depth);
+
 		auto filterMode = FilterMode::LINEAR;
 		if (LoadMemberValue(wrapper, "filter", str))
 			filterMode = EnumUtil::FilterModeFromString(str);
@@ -87,7 +109,7 @@ namespace fury
 		SetFilterMode(filterMode);
 		SetWrapMode(wrapMode);
 
-		CreateEmpty(width, height, format, type, mipmap);
+		CreateEmpty(width, height, depth, format, type, mipmap);
 
 		return true;
 	}
@@ -110,6 +132,8 @@ namespace fury
 		SaveValue(wrapper, m_Width);
 		SaveKey(wrapper, "height");
 		SaveValue(wrapper, m_Height);
+		SaveKey(wrapper, "depth");
+		SaveValue(wrapper, m_Depth);
 		SaveKey(wrapper, "borderColor");
 		SaveValue(wrapper, m_BorderColor);
 		SaveKey(wrapper, "mipmap");
@@ -158,6 +182,7 @@ namespace fury
 				return;
 			}
 
+			m_Depth = 0;
 			m_Mipmap = mipMap;
 			m_FilePath = filePath;
 			m_Dirty = false;
@@ -189,7 +214,7 @@ namespace fury
 		}
 	}
 
-	void Texture::CreateEmpty(int width, int height, TextureFormat format, TextureType type, bool mipMap)
+	void Texture::CreateEmpty(int width, int height, int depth, TextureFormat format, TextureType type, bool mipMap)
 	{
 		DeleteBuffer();
 
@@ -201,6 +226,7 @@ namespace fury
 		m_Dirty = false;
 		m_Width = width;
 		m_Height = height;
+		m_Depth = depth;
 		
 		m_Type = type;
 		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
@@ -209,7 +235,15 @@ namespace fury
 
 		glGenTextures(1, &m_ID);
 		glBindTexture(m_TypeUint, m_ID);
-		glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height);
+
+		if (m_Type == TextureType::TEXTURE_2D_ARRAY)
+		{
+			glTexStorage3D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height, depth);
+		}
+		else
+		{
+			glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height);
+		}
 
 		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
@@ -370,6 +404,11 @@ namespace fury
 	int Texture::GetHeight() const
 	{
 		return m_Height;
+	}
+
+	int Texture::GetDepth() const
+	{
+		return m_Depth;
 	}
 
 	unsigned int Texture::GetID() const

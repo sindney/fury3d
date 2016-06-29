@@ -68,7 +68,9 @@ namespace fury
 
 		bool m_Binded = false;
 
-		int m_CubeMapIndex = 0;
+		std::vector<std::pair<unsigned int, std::shared_ptr<Texture>>> m_LayerTextures;
+
+		std::vector<std::pair<unsigned int, std::shared_ptr<Texture>>> m_CubeTextures;
 
 	public:
 
@@ -108,9 +110,15 @@ namespace fury
 
 		DrawMode GetDrawMode() const;
 
-		int GetCubeMapIndex() const;
+		// After binding, call this to specify the layer of the texture array to render to.
+		void SetArrayTextureLayer(const std::string &name, int index);
 
-		void SetCubeMapIndex(int index);
+		// After binding, call this to specify the layer of all texture array to render to.
+		void SetArrayTextureLayer(int index);
+
+		void SetCubeTextureIndex(const std::string &name, int index);
+
+		void SetCubeTextureIndex(int index);
 
 		int GetViewPortWidth() const;
 
