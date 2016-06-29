@@ -46,6 +46,8 @@ uniform sampler2D gbuffer_normal;
 uniform mat4 projection_matrix;
 uniform mat4 shadow_matrix[4];
 uniform sampler2DArray shadow_buffer;
+
+uniform float bias = 0.002;
 uniform vec4 shadow_far;
 
 #endif
@@ -100,9 +102,9 @@ void main()
 
 	vec4 shadowCoord = shadow_matrix[index] * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
-
+	float depth = shadowCoord.z - bias;
 	vec3 crood = vec3(shadowCoord.x, shadowCoord.y, float(index));
-	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z < texture(shadow_buffer, crood).x);
+	fragment_output *= depth > 1.0 ? 1.0 : float(depth < texture(shadow_buffer, crood).x);
 
 #endif
 
@@ -110,7 +112,8 @@ void main()
 
 	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
-	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z < texture(shadow_buffer, shadowCoord.xy).x);
+	float depth = shadowCoord.z - bias;
+	fragment_output *= depth > 1.0 ? 1.0 : float(depth < texture(shadow_buffer, shadowCoord.xy).x);
 
 #endif
 }

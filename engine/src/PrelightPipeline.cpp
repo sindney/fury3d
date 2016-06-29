@@ -538,8 +538,8 @@ namespace fury
 
 			m_SharedPass->Bind();
 
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(2.5f, 10.0f);
+			// glEnable(GL_POLYGON_OFFSET_FILL);
+			// glPolygonOffset(2.5f, 10.0f);
 			
 			depth_shader->Bind();
 			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
@@ -580,7 +580,7 @@ namespace fury
 				}
 			}
 			
-			glDisable(GL_POLYGON_OFFSET_FILL);
+			// glDisable(GL_POLYGON_OFFSET_FILL);
 			depth_shader->UnBind();
 
 			m_SharedPass->UnBind();
@@ -631,8 +631,8 @@ namespace fury
 
 			m_SharedPass->Bind();
 
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(2.5f, 10.0f);
+			// glEnable(GL_POLYGON_OFFSET_FILL);
+			// glPolygonOffset(2.5f, 10.0f);
 
 			depth_shader->Bind();
 			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
@@ -666,7 +666,7 @@ namespace fury
 				RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
 			}
 
-			glDisable(GL_POLYGON_OFFSET_FILL);
+			// glDisable(GL_POLYGON_OFFSET_FILL);
 			depth_shader->UnBind();
 
 			m_SharedPass->UnBind();
@@ -720,8 +720,8 @@ namespace fury
 
 			m_SharedPass->Bind();
 
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(2.5f, 10.0f);
+			// glEnable(GL_POLYGON_OFFSET_FILL);
+			// glPolygonOffset(2.5f, 10.0f);
 
 			depth_shader->Bind();
 			depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
@@ -766,7 +766,7 @@ namespace fury
 				}
 			}
 
-			glDisable(GL_POLYGON_OFFSET_FILL);
+			// glDisable(GL_POLYGON_OFFSET_FILL);
 			depth_shader->UnBind();
 
 			m_SharedPass->UnBind();
