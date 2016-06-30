@@ -43,7 +43,7 @@ uniform sampler2D gbuffer_depth;
 uniform sampler2D gbuffer_normal;
 
 #ifdef SHADOW
-uniform float bias = 0.2;
+uniform mat4 shadow_proj;
 uniform mat4 shadow_matrix;
 uniform samplerCube shadow_buffer;
 #endif
@@ -92,7 +92,7 @@ void main()
 	float closest = texture(shadow_buffer, dir).x * light_radius;
 	float current = length(dir);
 
-	fragment_output *= float(current - bias < closest);
+	fragment_output *= float(current - 0.002 < closest);
 #endif
 }
 

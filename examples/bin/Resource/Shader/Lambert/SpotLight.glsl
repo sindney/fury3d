@@ -50,7 +50,6 @@ uniform sampler2D gbuffer_depth;
 uniform sampler2D gbuffer_normal;
 
 #ifdef SHADOW
-uniform float bias = 0.002;
 uniform mat4 shadow_matrix;
 uniform sampler2D shadow_buffer;
 #endif
@@ -107,7 +106,7 @@ void main()
 #ifdef SHADOW
 	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
-	fragment_output *= float(shadowCoord.z - bias < texture(shadow_buffer, shadowCoord.xy).x);
+	fragment_output *= float(shadowCoord.z < texture(shadow_buffer, shadowCoord.xy).x);
 #endif
 }
 
