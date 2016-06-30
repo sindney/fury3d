@@ -46,7 +46,7 @@ namespace fury
 		AddSceneNode(sceneNode);
 
 		for (unsigned int i = 0; i < sceneNode->GetChildCount(); i++)
-			AddSceneNode(sceneNode->GetChildAt(i));
+			AddSceneNodeRecursively(sceneNode->GetChildAt(i));
 	}
 
 	void OcTree::RemoveSceneNode(const SceneNode::Ptr &sceneNode)

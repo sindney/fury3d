@@ -99,7 +99,7 @@ namespace fury
 
 		Matrix4 FbxMatrixToFuryMatrix(const FbxAMatrix &fbxMatrix);
 
-		void ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix);
+		void ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix, bool scale = true);
 	};
 }
 

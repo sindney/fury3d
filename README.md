@@ -50,7 +50,9 @@ Should work with any graphic card that supports opengl 3.3 +
 
 ## Screenshots
 
-![VSM](screenshots/vsm.jpg)
+![Shadows](screenshots/1.jpg)
+
+![PolyScene](screenshots/2.jpg)
 
 ## Examples
 

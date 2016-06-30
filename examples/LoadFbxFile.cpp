@@ -8,7 +8,7 @@ void LoadFbxFile::Init(sf::Window &window)
 
 	// load scene
 	FbxImportOptions importOptions;
-	importOptions.ScaleFactor = 0.01f;
+	importOptions.ScaleFactor = 1.0f;
 	importOptions.AnimCompressLevel = 0.25f;
 
 	if (false)

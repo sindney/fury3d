@@ -84,6 +84,8 @@ namespace fury
 				auto fbxRootNode = m_FbxScene->GetRootNode();
 				if (fbxRootNode)
 				{
+					ApplyFbxAMatrixToNode(rootNode, fbxRootNode->EvaluateLocalTransform(), true);
+
 					for (int i = 0; i < fbxRootNode->GetChildCount(); i++)
 						LoadNode(rootNode, fbxRootNode->GetChild(i));
 
@@ -289,7 +291,7 @@ namespace fury
 	void FbxParser::LoadNode(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
 	{
 		SceneNode::Ptr childNode = SceneNode::Create(fbxNode->GetName());
-		ApplyFbxAMatrixToNode(childNode, fbxNode->EvaluateLocalTransform());
+		ApplyFbxAMatrixToNode(childNode, fbxNode->EvaluateLocalTransform(), false);
 
 		// add to scene graph
 		ntNode->AddChild(childNode);
@@ -309,9 +311,12 @@ namespace fury
 			}
 		}
 
+		//FURYD << childNode->GetName() << " P: " << childNode->GetLocalPosition() << " S: " << childNode->GetLocalScale();
+		//FURYD << "Parent: " << ntNode->GetName() << " P: " << ntNode->GetLocalPosition() << " S: " << ntNode->GetLocalScale();
+
 		// read child nodes.
 		for (int i = 0; i < fbxNode->GetChildCount(); i++)
-			LoadNode(ntNode, fbxNode->GetChild(i));
+			LoadNode(childNode, fbxNode->GetChild(i));
 	}
 
 	void FbxParser::LoadMesh(const SceneNode::Ptr &ntNode, FbxNode* fbxNode)
@@ -394,14 +399,15 @@ namespace fury
 		FbxDouble3 color = fbxLight->Color.Get();
 		light->SetType(type);
 		light->SetColor(Color((float)color.mData[0], (float)color.mData[1], (float)color.mData[2]));
-		light->SetIntensity((float)fbxLight->Intensity.Get() * m_ImportOptions.ScaleFactor);
+		light->SetIntensity((float)fbxLight->Intensity.Get() * 0.01f);
 		light->SetInnerAngle(MathUtil::DegToRad * (float)fbxLight->InnerAngle.Get());
 		light->SetOutterAngle(MathUtil::DegToRad * (float)fbxLight->OuterAngle.Get());
 		light->SetFalloff((float)fbxLight->FarAttenuationEnd.Get() * m_ImportOptions.ScaleFactor);
 		light->SetRadius((float)fbxLight->DecayStart.Get() * m_ImportOptions.ScaleFactor);
 		light->SetCastShadows((bool)fbxLight->CastShadows.Get());
 		light->CalculateAABB();
-		FURYD << fbxLight->GetName();
+
+		FURYD << fbxLight->GetName() << " Radius: " << light->GetRadius() << " Intensity: " << light->GetIntensity();
 
 		ntNode->AddComponent(light);
 	}
@@ -806,7 +812,7 @@ namespace fury
 		return mesh;
 	}
 
-	void DisplayTree(Joint::Ptr root)
+	/*void DisplayTree(Joint::Ptr root)
 	{
 		std::stack<Joint::Ptr> jointStack;
 		jointStack.push(root);
@@ -832,7 +838,7 @@ namespace fury
 
 			FURYD << desc;
 		}
-	}
+	}*/
 
 	bool FbxParser::CreateSkeleton(const SceneNode::Ptr &ntNode, const Mesh::Ptr &mesh, FbxMesh *fbxMesh)
 	{
@@ -989,7 +995,7 @@ namespace fury
 		return furyMatrix;
 	}
 
-	void FbxParser::ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix)
+	void FbxParser::ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix, bool scale)
 	{
 		FbxQuaternion fbxQ;
 		fbxQ.ComposeSphericalXYZ(fbxMatrix.GetR());
@@ -1000,8 +1006,11 @@ namespace fury
 		Vector4 furyS((float)fbxS.mData[0], (float)fbxS.mData[1], (float)fbxS.mData[2], 1.0f);
 		Quaternion furyR((float)fbxQ.mData[0], (float)fbxQ.mData[1], (float)fbxQ.mData[2], (float)fbxQ.mData[3]);
 
-		furyT = furyT * m_ImportOptions.ScaleFactor;
-		furyS = furyS * m_ImportOptions.ScaleFactor;
+		if (scale)
+		{
+			furyT = furyT * m_ImportOptions.ScaleFactor;
+			furyS = furyS * m_ImportOptions.ScaleFactor;
+		}
 
 		ntNode->SetLocalPosition(furyT);
 		ntNode->SetLocalRoattion(furyR);
