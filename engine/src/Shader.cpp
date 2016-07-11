@@ -31,10 +31,16 @@ namespace fury
 		DeleteProgram();
 	}
 
-	bool Shader::Load(const void* wrapper)
+	bool Shader::Load(const void* wrapper, bool object)
 	{
 		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
+
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
 
 		m_Type = ShaderType::OTHER;
 		if (LoadMemberValue(wrapper, "type", str))
@@ -87,9 +93,10 @@ namespace fury
 		return true;
 	}
 
-	bool Shader::Save(void* wrapper)
+	bool Shader::Save(void* wrapper, bool object)
 	{
-		StartObject(wrapper);
+		if (object)
+			StartObject(wrapper);
 
 		SaveKey(wrapper, "name");
 		SaveValue(wrapper, m_Name);
@@ -121,7 +128,8 @@ namespace fury
 			SaveValue(wrapper, m_UseGeomShader);
 		}
 
-		EndObject(wrapper);
+		if (object)
+			EndObject(wrapper);
 
 		return true;
 	}

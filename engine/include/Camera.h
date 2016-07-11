@@ -3,6 +3,7 @@
 
 #include <array>
 
+#include "BoxBounds.h"
 #include "Component.h"
 #include "Matrix4.h"
 #include "Frustum.h"
@@ -18,6 +19,8 @@ namespace fury
 		Matrix4 m_ProjectionMatrix;
 
 		Frustum m_Frustum;
+
+		BoxBounds m_ShadowAABB;
 
 		bool m_Perspective = true;
 
@@ -59,6 +62,10 @@ namespace fury
 		float GetShadowFar() const;
 
 		void SetShadowFar(float far);
+
+		BoxBounds GetShadowBounds(bool worldSpace = true) const;
+
+		void SetShadowBounds(Vector4 min, Vector4 max);
 
 		bool IsPerspective() const;
 

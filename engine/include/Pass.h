@@ -78,9 +78,9 @@ namespace fury
 
 		virtual ~Pass();
 
-		virtual bool Load(const void* wrapper) override;
+		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper) override;
+		virtual bool Save(void* wrapper, bool object = true) override;
 
 		void SetRenderIndex(unsigned int index);
 

@@ -30,6 +30,10 @@ namespace fury
 
 		PrelightPipeline(const std::string &name);
 
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual bool Save(void* wrapper, bool object = true) override;
+
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) override;
 
 	protected:

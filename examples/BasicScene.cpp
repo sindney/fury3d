@@ -83,7 +83,7 @@ void BasicScene::UpdateGUI(float dt)
 {
 	static bool showProfilerWindow = true, showGBufferWindow = false, showShadowBufferWindow = false;
 
-	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 290), 1.0f, 
+	ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 310), 1.0f, 
 		ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 	// fps graph
@@ -115,11 +115,15 @@ void BasicScene::UpdateGUI(float dt)
 		ImGui::Checkbox("Draw Mesh Bounds", &draw_mesh_bounds);
 		ImGui::Checkbox("Draw Custom Bounds", &draw_custom_bounds);
 
-		unsigned int debugFlags = 0;
-		if (draw_light_bounds) debugFlags |= PipelineDebugFlags::LIGHT_BOUNDS;
-		if (draw_mesh_bounds) debugFlags |= PipelineDebugFlags::MESH_BOUNDS;
-		if (draw_custom_bounds) debugFlags |= PipelineDebugFlags::CUSTOM_BOUNDS;
-		m_Pipeline->SetDebugFlags(debugFlags);
+		m_Pipeline->SetOption(Pipeline::OPT_CUSTOM_BOUNDS, draw_custom_bounds);
+		m_Pipeline->SetOption(Pipeline::OPT_LIGHT_BOUNDS, draw_light_bounds);
+		m_Pipeline->SetOption(Pipeline::OPT_MESH_BOUNDS, draw_mesh_bounds);
+
+		static bool use_csm = true;
+		ImGui::Checkbox("Use Cascaded Shadow Map", &use_csm);
+		m_Pipeline->SetOption(Pipeline::OPT_CASCADED_SHADOW_MAP, use_csm);
+
+		ImGui::Separator();
 
 		ImGui::Checkbox("Show GBuffer Window", &showGBufferWindow);
 		ImGui::Checkbox("Show ShadowBuffer Window", &showShadowBufferWindow);

@@ -60,9 +60,10 @@ namespace fury
 		AddSceneNode(sceneNode);
 	}
 
-	void OcTree::GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery) const
+	void OcTree::GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool clear) const
 	{
-		renderQuery->Clear();
+		if (clear)
+			renderQuery->Clear();
 
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
@@ -77,9 +78,10 @@ namespace fury
 		});
 	}
 
-	void OcTree::GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes) const
+	void OcTree::GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes, bool clear) const
 	{
-		sceneNodes.clear();
+		if (clear)
+			sceneNodes.clear();
 
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode) 
 		{
@@ -87,9 +89,10 @@ namespace fury
 		});
 	}
 
-	void OcTree::GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables) const
+	void OcTree::GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool clear) const
 	{
-		renderables.clear();
+		if (clear)
+			renderables.clear();
 
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
@@ -99,9 +102,10 @@ namespace fury
 		});
 	}
 
-	void OcTree::GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables) const
+	void OcTree::GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables, bool clear) const
 	{
-		renderables.clear();
+		if (clear)
+			renderables.clear();
 
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
@@ -111,9 +115,10 @@ namespace fury
 		});
 	}
 
-	void OcTree::GetVisibleLights(const Collidable &collider, SceneNodes &lights) const
+	void OcTree::GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool clear) const
 	{
-		lights.clear();
+		if (clear)
+			lights.clear();
 
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
@@ -123,10 +128,13 @@ namespace fury
 		});
 	}
 
-	void OcTree::GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights) const
+	void OcTree::GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool clear) const
 	{
-		renderables.clear();
-		lights.clear();
+		if (clear)
+		{
+			renderables.clear();
+			lights.clear();
+		}
 
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{

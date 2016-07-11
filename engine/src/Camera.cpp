@@ -12,6 +12,7 @@ namespace fury
 	Camera::Camera() : m_Perspective(false)
 	{
 		m_TypeIndex = typeid(Camera);
+		m_ShadowAABB = BoxBounds(Vector4(0), Vector4(0));
 	}
 
 	Component::Ptr Camera::Clone() const
@@ -21,6 +22,7 @@ namespace fury
 		ptr->m_Perspective = m_Perspective;
 		ptr->m_ProjectionMatrix = m_ProjectionMatrix;
 		ptr->m_Frustum = m_Frustum;
+		ptr->m_ShadowAABB = m_ShadowAABB;
 		return ptr;
 	}
 
@@ -129,6 +131,19 @@ namespace fury
 	void Camera::SetShadowFar(float far)
 	{
 		m_ShadowFar = far;
+	}
+
+	BoxBounds Camera::GetShadowBounds(bool worldSpace) const
+	{
+		if (worldSpace)
+			return m_Frustum.GetTransformMatrix().Multiply(m_ShadowAABB);
+		else
+			return m_ShadowAABB;
+	}
+
+	void Camera::SetShadowBounds(Vector4 min, Vector4 max)
+	{
+		m_ShadowAABB.SetMinMax(min, max);
 	}
 
 	bool Camera::IsPerspective() const

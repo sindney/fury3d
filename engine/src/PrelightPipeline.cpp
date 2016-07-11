@@ -37,6 +37,43 @@ namespace fury
 		m_TypeIndex = typeid(PrelightPipeline);
 	}
 
+	bool PrelightPipeline::Load(const void* wrapper, bool object)
+	{
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
+
+		if (!Pipeline::Load(wrapper, false))
+			return false;
+
+		PipelineOption opt;
+		if (LoadMemberValue(wrapper, OPT_CASCADED_SHADOW_MAP, opt.boolValue))
+			SetOption(OPT_CASCADED_SHADOW_MAP, opt.boolValue);
+		else
+			SetOption(OPT_CASCADED_SHADOW_MAP, true);
+
+		return true;
+	}
+
+	bool PrelightPipeline::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		if (!Pipeline::Save(wrapper, false))
+			return false;
+
+		SaveKey(wrapper, OPT_CASCADED_SHADOW_MAP);
+		SaveValue(wrapper, GetOption(OPT_CASCADED_SHADOW_MAP).second.boolValue);
+
+		if (object)
+			EndObject(wrapper);
+
+		return true;
+	}
+
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
 		// pre
@@ -110,7 +147,6 @@ namespace fury
 			else if (drawMode == DrawMode::LIGHT)
 			{
 				pass->Bind(true);
-				//glDepthMask(GL_FALSE);
 
 				for (const auto &node : query->lightNodes)
 				{
@@ -124,14 +160,13 @@ namespace fury
 							DrawSpotLight(sceneManager, pass, node);
 					}
 				}
-				//DrawLight(sceneManager, pass, node);
-
-				//glDepthMask(GL_TRUE);
 			}
 		}
 
 		// draw debug
-		if (m_DebugFlags != 0)
+		if (GetOption(OPT_CUSTOM_BOUNDS).second.boolValue || 
+			GetOption(OPT_LIGHT_BOUNDS).second.boolValue || 
+			GetOption(OPT_MESH_BOUNDS).second.boolValue)
 			DrawDebug(queries);
 
 		// post
@@ -284,9 +319,11 @@ namespace fury
 
 		Shader::Ptr shader = nullptr;
 		bool castShadows = light->GetCastShadows();
+		bool useCascaded = GetOption(OPT_CASCADED_SHADOW_MAP).second.boolValue;
 
 		// find correct shader.
-		shader = GetShaderByName(castShadows ? "dirlight_csm_shader" : "dirlight_shader");
+		shader = GetShaderByName(castShadows ? 
+			(useCascaded ? "dirlight_csm_shader" : "dirlight_shadow_shader") : "dirlight_shader");
 		if (shader == nullptr)
 		{
 			FURYW << "Shader for light " << node->GetName() << " not found!";
@@ -294,9 +331,15 @@ namespace fury
 		}
 
 		// draw shadowMap if we castShadows.
-		std::pair<Texture::Ptr, std::vector<Matrix4>> shadowData;
+		std::pair<Texture::Ptr, std::vector<Matrix4>> cascadedShadowData;
+		std::pair<Texture::Ptr, Matrix4> shadowData;
 		if (castShadows)
-			shadowData = DrawCascadedShadowMap(sceneManager, pass, node);
+		{
+			if (useCascaded)
+				cascadedShadowData = DrawCascadedShadowMap(sceneManager, pass, node);
+			else
+				shadowData = DrawDirLightShadowMap(sceneManager, pass, node);
+		}
 
 		// ready to draw light volumn
 		pass->Bind(false);
@@ -310,15 +353,22 @@ namespace fury
 		shader->BindCamera(m_CurrentCamera);
 		shader->BindMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
 
-		if (castShadows && shadowData.first != nullptr)
+		if (castShadows)
 		{
-			shader->BindTexture("shadow_buffer", shadowData.first);
-
-			// for cacasded shadow maps
-			shader->BindMatrices("shadow_matrix", shadowData.second.size(), &shadowData.second[0]);
-			float base = camPtr->GetFar() - camPtr->GetNear();
-			float average = base / 4.0f;
-			shader->BindFloat("shadow_far", average, average * 2, average * 3, average * 4);
+			if (useCascaded && cascadedShadowData.first != nullptr)
+			{
+				shader->BindTexture("shadow_buffer", cascadedShadowData.first);
+				// for cacasded shadow maps
+				shader->BindMatrices("shadow_matrix", cascadedShadowData.second.size(), &cascadedShadowData.second[0]);
+				float base = camPtr->GetFar() - camPtr->GetNear();
+				float average = base / 4.0f;
+				shader->BindFloat("shadow_far", average, average * 2, average * 3, average * 4);
+			}
+			else if (shadowData.first != nullptr)
+			{
+				shader->BindTexture("shadow_buffer", shadowData.first);
+				shader->BindMatrix("shadow_matrix", &shadowData.second.Raw[0]);
+			}
 		}
 
 		shader->BindLight(node);
@@ -341,7 +391,12 @@ namespace fury
 
 		// collect used shadow buffer
 		if (castShadows)
-			Texture::Pool.Collect(shadowData.first);
+		{
+			if (useCascaded)
+				Texture::Pool.Collect(cascadedShadowData.first);
+			else 
+				Texture::Pool.Collect(shadowData.first);
+		}
 	}
 
 	void PrelightPipeline::DrawSpotLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)

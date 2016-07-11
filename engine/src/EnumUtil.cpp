@@ -171,8 +171,6 @@ namespace fury
 		return ClearMode::COLOR_DEPTH_STENCIL;
 	}
 
-
-
 	unsigned int EnumUtil::CompareModeToUint(CompareMode mode)
 	{
 		return std::get<1>(m_CompareMode[(int)mode]);

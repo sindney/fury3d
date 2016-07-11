@@ -19,10 +19,10 @@ namespace fury
 		typedef std::shared_ptr<Serializable> Ptr;
 
 		// wrapper's type should be rapidjson::Value
-		virtual bool Load(const void* wrapper) = 0;
+		virtual bool Load(const void* wrapper, bool object = true) = 0;
 
 		// wrapper's type should be rapidjson::Writer<rapidjson::StringBuffer>
-		virtual bool Save(void* wrapper) = 0;
+		virtual bool Save(void* wrapper, bool object = true) = 0;
 
 	protected:
 

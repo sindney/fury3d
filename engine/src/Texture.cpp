@@ -64,11 +64,15 @@ namespace fury
 		DeleteBuffer();
 	}
 
-	bool Texture::Load(const void* wrapper)
+	bool Texture::Load(const void* wrapper, bool object)
 	{
 		std::string str;
 
-		if (!IsObject(wrapper)) return false;
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
 
 		if (!LoadMemberValue(wrapper, "format", str))
 		{
@@ -114,9 +118,10 @@ namespace fury
 		return true;
 	}
 
-	bool Texture::Save(void* wrapper)
+	bool Texture::Save(void* wrapper, bool object)
 	{
-		StartObject(wrapper);
+		if (object)
+			StartObject(wrapper);
 
 		SaveKey(wrapper, "name");
 		SaveValue(wrapper, m_Name);
@@ -139,7 +144,8 @@ namespace fury
 		SaveKey(wrapper, "mipmap");
 		SaveValue(wrapper, m_Mipmap);
 
-		EndObject(wrapper);
+		if (object)
+			EndObject(wrapper);
 
 		return true;
 	}

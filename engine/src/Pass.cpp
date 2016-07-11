@@ -26,13 +26,16 @@ namespace fury
 		DeleteFrameBuffer();
 	}
 
-	bool Pass::Load(const void* wrapper)
+	bool Pass::Load(const void* wrapper, bool object)
 	{
 		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
-
 		std::string str;
 
-		if (!IsObject(wrapper)) return false;
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
 
 		if (!LoadMemberValue(wrapper, "camera", str))
 		{
@@ -165,12 +168,13 @@ namespace fury
 		return true;
 	}
 
-	bool Pass::Save(void* wrapper)
+	bool Pass::Save(void* wrapper, bool object)
 	{
 		std::vector<std::string> strs;
 		std::string emptyStr;
 
-		StartObject(wrapper);
+		if (object)
+			StartObject(wrapper);
 
 		SaveKey(wrapper, "name");
 		SaveValue(wrapper, m_Name);
@@ -221,7 +225,8 @@ namespace fury
 		SaveKey(wrapper, "drawMode");
 		SaveValue(wrapper, EnumUtil::DrawModeToString(m_DrawMode));
 
-		EndObject(wrapper);
+		if (object)
+			EndObject(wrapper);
 
 		return true;
 	}

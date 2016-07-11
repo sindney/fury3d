@@ -30,12 +30,13 @@ namespace fury
 
 	class RenderQuery;
 
-	// assume int takes 16bits
-	enum PipelineDebugFlags : unsigned int
+	union PipelineOption
 	{
-		MESH_BOUNDS = 0x0001,
-		LIGHT_BOUNDS = 0x0002,
-		CUSTOM_BOUNDS = 0x0004
+		int intValue;
+
+		float floatValue;
+
+		bool boolValue;
 	};
 
 	class FURY_API Pipeline : public Entity, public Serializable
@@ -45,6 +46,14 @@ namespace fury
 	public:
 
 		typedef std::shared_ptr<Pipeline> Ptr;
+
+		static const std::string OPT_CASCADED_SHADOW_MAP;
+
+		static const std::string OPT_MESH_BOUNDS;
+
+		static const std::string OPT_LIGHT_BOUNDS;
+
+		static const std::string OPT_CUSTOM_BOUNDS;
 
 	protected:
 
@@ -68,13 +77,13 @@ namespace fury
 
 		// end rendering
 
+		std::unordered_map<std::string, PipelineOption> m_Options;
+
 		// debug
 
 		std::vector<BoxBounds> m_DebugBoxBounds;
 
 		std::vector<Frustum> m_DebugFrustum;
-
-		unsigned int m_DebugFlags = 0;
 
 		// end debug
 
@@ -84,13 +93,19 @@ namespace fury
 
 		virtual ~Pipeline();
 
-		virtual bool Load(const void* wrapper);
+		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper);
+		virtual bool Save(void* wrapper, bool object = true) override;
 
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) = 0;
 		
-		void SetDebugFlags(unsigned int flags);
+		void SetOption(const std::string &name, bool value);
+
+		void SetOption(const std::string &name, float value);
+
+		void SetOption(const std::string &name, int value);
+
+		std::pair<bool, PipelineOption> GetOption(const std::string &name);
 
 		void ClearDebugCollidables();
 
@@ -106,6 +121,10 @@ namespace fury
 
 		// begin shaodw mapping
 
+		void FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions);
+
+		Matrix4 GetCropMatrix(Matrix4 lightMatrix, Frustum frustum, std::vector<std::shared_ptr<SceneNode>> &casters);
+
 		std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
 		std::pair<std::shared_ptr<Texture>, Matrix4> DrawDirLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
@@ -114,9 +133,9 @@ namespace fury
 
 		std::pair<std::shared_ptr<Texture>, Matrix4> DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
-		void DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries);
-
 		// en shaodw mapping
+
+		void DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries);
 
 	protected: 
 

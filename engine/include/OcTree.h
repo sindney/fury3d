@@ -49,17 +49,17 @@ namespace fury
 
 		virtual void UpdateSceneNode(const std::shared_ptr<SceneNode> &sceneNode);
 
-		virtual void GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery) const;
+		virtual void GetRenderQuery(const Collidable &collider, const std::shared_ptr<RenderQuery> &renderQuery, bool clear = true) const;
 
-		virtual void GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes) const;
+		virtual void GetVisibleSceneNodes(const Collidable &collider, SceneNodes &sceneNodes, bool clear = true) const;
 
-		virtual void GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables) const;
+		virtual void GetVisibleRenderables(const Collidable &collider, SceneNodes &renderables, bool clear = true) const;
 
-		virtual void GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables) const;
+		virtual void GetVisibleShadowCasters(const Collidable &collider, SceneNodes &renderables, bool clear = true) const;
 
-		virtual void GetVisibleLights(const Collidable &collider, SceneNodes &lights) const;
+		virtual void GetVisibleLights(const Collidable &collider, SceneNodes &lights, bool clear = true) const;
 
-		virtual void GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights) const;
+		virtual void GetVisibleRenderableAndLights(const Collidable &collider, SceneNodes &renderables, SceneNodes &lights, bool clear = true) const;
 
 		virtual void WalkScene(const Collidable &collider, const FilterFunc &filterFunc) const;
 

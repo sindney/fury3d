@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <sstream>
 
 #include "BoxBounds.h"
 #include "Camera.h"
@@ -25,6 +26,14 @@
 
 namespace fury
 {
+	const std::string Pipeline::OPT_CASCADED_SHADOW_MAP = "cascaded_shadow_map";
+
+	const std::string Pipeline::OPT_MESH_BOUNDS = "mesh_bounds";
+
+	const std::string Pipeline::OPT_LIGHT_BOUNDS = "light_bounds";
+
+	const std::string Pipeline::OPT_CUSTOM_BOUNDS = "custom_bounds";
+
 	Pipeline::Pipeline(const std::string &name) : Entity(name)
 	{
 		m_TypeIndex = typeid(Pipeline);
@@ -37,6 +46,10 @@ namespace fury
 			0.0, 0.0, 0.5, 0.0,
 			0.5, 0.5, 0.5, 1.0
 		});
+
+		SetOption(OPT_CUSTOM_BOUNDS, false);
+		SetOption(OPT_LIGHT_BOUNDS, false);
+		SetOption(OPT_MESH_BOUNDS, false);
 	}
 
 	Pipeline::~Pipeline()
@@ -44,10 +57,16 @@ namespace fury
 		FURYD << "Pipeline " << m_Name << " destoried!";
 	}
 
-	bool Pipeline::Load(const void* wrapper)
+	bool Pipeline::Load(const void* wrapper, bool object)
 	{
 		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
+
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
 
 		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
 		{
@@ -117,11 +136,12 @@ namespace fury
 		return true;
 	}
 
-	bool Pipeline::Save(void* wrapper)
+	bool Pipeline::Save(void* wrapper, bool object)
 	{
 		std::vector<std::string> strs;
 
-		StartObject(wrapper);
+		if (object)
+			StartObject(wrapper);
 
 		std::vector<Texture::Ptr> textures;
 		textures.reserve(m_TextureMap.size());
@@ -158,7 +178,8 @@ namespace fury
 			passes[index]->Save(wrapper);
 		});
 
-		EndObject(wrapper);
+		if (object)
+			EndObject(wrapper);
 
 		return true;
 	}
@@ -184,9 +205,25 @@ namespace fury
 			m_SortedPasses.push_back(pair.second);
 	}
 
-	void Pipeline::SetDebugFlags(unsigned int flags)
+	void Pipeline::SetOption(const std::string &name, bool value)
 	{
-		m_DebugFlags = flags;
+		m_Options[name].boolValue = value;
+	}
+
+	void Pipeline::SetOption(const std::string &name, float value)
+	{
+		m_Options[name].floatValue = value;
+	}
+
+	void Pipeline::SetOption(const std::string &name, int value)
+	{
+		m_Options[name].intValue = value;
+	}
+
+	std::pair<bool, PipelineOption> Pipeline::GetOption(const std::string &name)
+	{
+		auto it = m_Options.find(name);
+		return std::make_pair(it != m_Options.end(), it->second);
 	}
 
 	void Pipeline::ClearDebugCollidables()
@@ -232,6 +269,83 @@ namespace fury
 		return nullptr;
 	}
 
+	void Pipeline::FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions)
+	{
+		collisions.erase(collisions.begin(), collisions.end());
+
+		for (auto possible : possibles)
+		{
+			if (collider.IsInsideFast(possible->GetWorldAABB()))
+				collisions.push_back(possible);
+		}
+	}
+
+	Matrix4 Pipeline::GetCropMatrix(Matrix4 lightMatrix, Frustum frustum, std::vector<std::shared_ptr<SceneNode>> &casters)
+	{
+		// limit z
+		auto corners = frustum.GetCurrentCorners();
+		auto pos = lightMatrix.Multiply(corners[0]);
+		float minZ = pos.z, maxZ = pos.z;
+		for (auto corner : corners)
+		{
+			pos = lightMatrix.Multiply(corner);
+			if (pos.z > maxZ) maxZ = pos.z;
+			if (pos.z < minZ) minZ = pos.z;
+		}
+
+		for (auto caster : casters)
+		{
+			auto corners = caster->GetWorldAABB().GetCorners();
+			for (auto corner : corners)
+			{
+				pos = lightMatrix.Multiply(corner);
+				if (pos.z > maxZ) maxZ = pos.z;
+			}
+		}
+
+		Matrix4 projMatrix;
+		projMatrix.OrthoOffCenter(-1.0f, 1.0f, -1.0f, 1.0f, maxZ, minZ);
+
+		// limit xy
+		float maxX = 0.0f, maxY = 0.0f;
+		float minX = 0.0f, minY = 0.0f;
+
+		auto mvp = projMatrix * lightMatrix;
+
+		pos = mvp.Multiply(corners[0]);
+		maxX = minX = pos.x / pos.w;
+		maxY = minY = pos.y / pos.w;
+
+		for (auto corner : corners)
+		{
+			pos = mvp.Multiply(corner);
+
+			pos.x /= pos.w;
+			pos.y /= pos.w;
+
+			if (pos.x > maxX) maxX = pos.x;
+			if (pos.x < minX) minX = pos.x;
+			if (pos.y > maxY) maxY = pos.y;
+			if (pos.y < minY) minY = pos.y;
+		}
+
+		// build crop matrix
+		float scaleX = 2.0f / (maxX - minX);
+		float scaleY = 2.0f / (maxY - minY);
+		float offsetX = -0.5f * (maxX + minX) * scaleX;
+		float offsetY = -0.5f * (maxY + minY) * scaleY;
+
+		Matrix4 cropMatrix(
+		{
+			scaleX, 0.0f, 0.0f, 0.0f,
+			0.0f, scaleY, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			offsetX, offsetY, 0.0f, 1.0f
+		});
+
+		return projMatrix * cropMatrix;
+	}
+
 	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		const int numSplit = 4;
@@ -273,8 +387,12 @@ namespace fury
 		{
 			auto &casters = casterArrays[i];
 			auto &frustum = frustums[i];
-			MathUtil::FilterNodes(frustum, casterAll, casters);
+			FilterNodes(frustum, casterAll, casters);
 		}
+
+		// use camera aabb to include more possible shadow casters to cast shadows.
+		if (camera->GetShadowBounds(false).GetExtents().SquareLength() > 0)
+			sceneManager->GetVisibleShadowCasters(camera->GetShadowBounds(), casterArrays[0], false);
 
 		// build projection/crop matrices
 		std::array<Matrix4, numSplit> projMatrices;
@@ -283,7 +401,7 @@ namespace fury
 			auto &matrix = projMatrices[i];
 			auto &frustum = frustums[i];
 			auto &casters = casterArrays[i];
-			matrix = MathUtil::GetCropMatrix(lightMatrix, frustum, casters);
+			matrix = GetCropMatrix(lightMatrix, frustum, casters);
 		}
 
 		// draw casters to depth map, aka shadow map.
@@ -377,10 +495,14 @@ namespace fury
 
 		// find shadow casters
 		fury::SceneManager::SceneNodes casters;
-		sceneManager->GetVisibleShadowCasters(camFrustum, casters);
+		sceneManager->GetVisibleShadowCasters(camFrustum, casters, false);
+
+		// use camera aabb to include more possible shadow casters to cast shadows.
+		if (camera->GetShadowBounds(false).GetExtents().SquareLength() > 0)
+			sceneManager->GetVisibleShadowCasters(camera->GetShadowBounds(), casters, false);
 
 		// gen projection matrix for light.
-		Matrix4 projMatrix = MathUtil::GetCropMatrix(lightMatrix, camFrustum, casters);
+		Matrix4 projMatrix = GetCropMatrix(lightMatrix, camFrustum, casters);
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -640,6 +762,10 @@ namespace fury
 		glCullFace(GL_BACK);
 		glDisable(GL_BLEND);
 
+		auto optMeshBounds = GetOption(OPT_MESH_BOUNDS);
+		auto optCustomBounds = GetOption(OPT_CUSTOM_BOUNDS);
+		auto optLightBounds = GetOption(OPT_LIGHT_BOUNDS);
+
 		auto renderUtil = RenderUtil::Instance();
 
 		for (auto &pair : m_PassMap)
@@ -657,13 +783,13 @@ namespace fury
 			auto visibles = it->second;
 			renderUtil->BeginDrawLines(camNode);
 
-			if (m_DebugFlags & PipelineDebugFlags::MESH_BOUNDS)
+			if (optMeshBounds.second.boolValue)
 			{
 				for (auto node : visibles->renderableNodes)
 					renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
 			}
 
-			if (m_DebugFlags & PipelineDebugFlags::CUSTOM_BOUNDS)
+			if (optCustomBounds.second.boolValue)
 			{
 				for (const auto &bounds : m_DebugFrustum)
 					renderUtil->DrawFrustum(bounds, Color::Green);
@@ -676,7 +802,7 @@ namespace fury
 
 			renderUtil->BeginDrawMeshs(camNode);
 
-			if (m_DebugFlags & PipelineDebugFlags::LIGHT_BOUNDS)
+			if (optLightBounds.second.boolValue)
 			{
 				for (auto node : visibles->lightNodes)
 				{

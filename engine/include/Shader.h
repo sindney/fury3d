@@ -51,9 +51,9 @@ namespace fury
 
 		virtual ~Shader();
 
-		virtual bool Load(const void* wrapper) override;
+		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper) override;
+		virtual bool Save(void* wrapper, bool object = true) override;
 
 		unsigned int GetProgram() const;
 
