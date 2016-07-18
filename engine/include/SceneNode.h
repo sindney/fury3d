@@ -31,6 +31,9 @@ namespace fury
 
 		static Ptr Create(const std::string &name);
 
+		// to enable serialization of custom component, registe to this map.
+		static std::unordered_map<std::string, std::function<std::shared_ptr<Component>()>> ComponentRegistry;
+
 	protected:
 
 		std::weak_ptr<OcTreeNode> m_OcTreeNode;
@@ -76,6 +79,10 @@ namespace fury
 		SceneNode(const std::string &name);
 
 		virtual ~SceneNode();
+
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		// copies components and translations.
 		Ptr Clone(const std::string &name) const;

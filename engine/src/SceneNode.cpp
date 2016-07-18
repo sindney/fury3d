@@ -1,12 +1,24 @@
 #include "MathUtil.h"
 #include "Component.h"
 #include "Log.h"
+#include "Light.h"
 #include "OcTreeNode.h"
 #include "OcTree.h"
 #include "SceneNode.h"
+#include "EntityManager.h"
+#include "Scene.h"
+#include "MeshRender.h"
+#include "Mesh.h"
+#include "Material.h"
 
 namespace fury
 {
+	std::unordered_map<std::string, std::function<Component::Ptr()>> SceneNode::ComponentRegistry = 
+	{
+		{ "MeshRender", []() -> Component::Ptr { return MeshRender::Create(nullptr, nullptr); } },
+		{ "Light", []() -> Component::Ptr { return Light::Create(); } }
+	};
+
 	SceneNode::Ptr SceneNode::Create(const std::string &name)
 	{
 		return std::make_shared<SceneNode>(name);
@@ -24,6 +36,142 @@ namespace fury
 		RemoveAllComponents(true);
 		RemoveAllChilds();
 		//FURYD << m_Name << " destoried.";
+	}
+
+	bool SceneNode::Load(const void* wrapper, bool object)
+	{
+		if (Scene::Active == nullptr)
+		{
+			FURYE << "Active Pipeline is null!";
+			return false;
+		}
+
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
+
+		if (!Entity::Load(wrapper, false))
+			return false;
+
+		// local translation
+		if (!LoadMemberValue(wrapper, "pos", m_LocalPosition))
+		{
+			FURYE << "pos not found!";
+			return false;
+		}
+
+		if (!LoadMemberValue(wrapper, "scl", m_LocalScale))
+		{
+			FURYE << "scl not found!";
+			return false;
+		}
+
+		if (!LoadMemberValue(wrapper, "rot", m_LocalRotation))
+		{
+			FURYE << "rot not found!";
+			return false;
+		}
+
+		// model aabb
+		LoadMemberValue(wrapper, "aabb", m_ModelAABB);
+
+		// apply transforms
+		Recompose(true);
+
+		// load components
+		std::string type;
+		if (!LoadArray(wrapper, "components", [&](const void* node) -> bool
+		{
+			if (!IsObject(node))
+			{
+				FURYE << "Component is an object!";
+				return false;
+			}
+
+			if (!LoadMemberValue(node, "type", type))
+			{
+				FURYE << "type not found!";
+				return false;
+			}
+
+			auto it = ComponentRegistry.find(type);
+			if (it == ComponentRegistry.end())
+			{
+				FURYW << "Component " << type << " not found in SceneNode::ComponentRegistry!";
+				return true;
+			}
+
+			auto component = it->second();
+			if (component->Load(node))
+			{
+				AddComponent(component);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}))
+		{
+			return false;
+		}
+
+		// load childs
+		if (!LoadArray(wrapper, "childs", [&](const void* node) -> bool
+		{
+			auto child = SceneNode::Create("temp");
+			if (child->Load(node))
+			{
+				AddChild(child);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}))
+		{
+			return false;
+		}
+		
+		return true;
+	}
+
+	void SceneNode::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		Entity::Save(wrapper, false);
+
+		SaveKey(wrapper, "pos");
+		SaveValue(wrapper, m_LocalPosition);
+
+		SaveKey(wrapper, "rot");
+		SaveValue(wrapper, m_LocalRotation);
+
+		SaveKey(wrapper, "scl");
+		SaveValue(wrapper, m_LocalScale);
+
+		SaveKey(wrapper, "aabb");
+		SaveValue(wrapper, m_ModelAABB);
+
+		SaveKey(wrapper, "components");
+		StartArray(wrapper);
+		for (auto pair : m_Components)
+			pair.second->Save(wrapper);
+		EndArray(wrapper);
+
+		SaveKey(wrapper, "childs");
+		SaveArray(wrapper, m_Childs.size(), [&](unsigned int index)
+		{
+			m_Childs[index]->Save(wrapper);
+		});
+
+		if (object)
+			EndObject(wrapper);
 	}
 
 	SceneNode::Ptr SceneNode::Clone(const std::string &name) const

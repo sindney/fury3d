@@ -9,12 +9,12 @@ namespace fury
 	const std::vector<std::pair<ClearMode, std::string>> EnumUtil::m_ClearMode =
 	{
 		std::make_pair(ClearMode::NONE, "none"),
-		std::make_pair(ClearMode::COLOR, "color"), 
-		std::make_pair(ClearMode::DEPTH, "depth"), 
-		std::make_pair(ClearMode::STENCIL, "stencil"), 
-		std::make_pair(ClearMode::COLOR_DEPTH, "color_depth"), 
-		std::make_pair(ClearMode::COLOR_STENCIL, "color_stencil"), 
-		std::make_pair(ClearMode::STENCIL_DEPTH, "stencil_depth"), 
+		std::make_pair(ClearMode::COLOR, "color"),
+		std::make_pair(ClearMode::DEPTH, "depth"),
+		std::make_pair(ClearMode::STENCIL, "stencil"),
+		std::make_pair(ClearMode::COLOR_DEPTH, "color_depth"),
+		std::make_pair(ClearMode::COLOR_STENCIL, "color_stencil"),
+		std::make_pair(ClearMode::STENCIL_DEPTH, "stencil_depth"),
 		std::make_pair(ClearMode::COLOR_DEPTH_STENCIL, "color_depth_stencil")
 	};
 
@@ -68,7 +68,7 @@ namespace fury
 		GL_ONE
 	};
 
-	const std::vector<unsigned int> EnumUtil::m_BlendModeOp = 
+	const std::vector<unsigned int> EnumUtil::m_BlendModeOp =
 	{
 		GL_FUNC_ADD,
 		GL_FUNC_ADD,
@@ -109,9 +109,9 @@ namespace fury
 
 	const std::vector<std::tuple<TextureType, std::string, unsigned int>> EnumUtil::m_TextureType =
 	{
-		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D), 
-		std::make_tuple(TextureType::TEXTURE_2D, "2d", GL_TEXTURE_2D), 
-		std::make_tuple(TextureType::TEXTURE_2D_ARRAY, "2d_array", GL_TEXTURE_2D_ARRAY), 
+		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D),
+		std::make_tuple(TextureType::TEXTURE_2D, "2d", GL_TEXTURE_2D),
+		std::make_tuple(TextureType::TEXTURE_2D_ARRAY, "2d_array", GL_TEXTURE_2D_ARRAY),
 		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP)
 	};
 
@@ -131,6 +131,13 @@ namespace fury
 		std::make_tuple(WrapMode::MIRRORED_REPEAT, GL_MIRRORED_REPEAT, "mirrored_repeat"),
 		std::make_tuple(WrapMode::CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, "clamp_to_edge"),
 		std::make_tuple(WrapMode::CLAMP_TO_BORDER, GL_CLAMP_TO_BORDER, "clamp_to_border")
+	};
+
+	const std::vector<std::pair<LightType, std::string>> EnumUtil::m_LightType =
+	{
+		std::make_pair(LightType::DIRECTIONAL, "directional"),
+		std::make_pair(LightType::POINT, "point"),
+		std::make_pair(LightType::SPOT, "spot")
 	};
 
 	const std::vector<std::pair<ShaderType, std::string>> EnumUtil::m_ShaderType =
@@ -366,6 +373,21 @@ namespace fury
 				return std::get<0>(mode);
 		}
 		return WrapMode::CLAMP_TO_EDGE;
+	}
+
+	std::string EnumUtil::LightTypeToString(LightType type)
+	{
+		return m_LightType[(int)type].second;
+	}
+
+	LightType EnumUtil::LightTypeFromString(const std::string &name)
+	{
+		for (const auto &pair : m_LightType)
+		{
+			if (pair.second == name)
+				return pair.first;
+		}
+		return LightType::DIRECTIONAL;
 	}
 
 	std::string EnumUtil::ShaderTypeToString(ShaderType type)

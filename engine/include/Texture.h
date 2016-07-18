@@ -12,7 +12,7 @@
 
 namespace fury
 {
-	class FURY_API Texture : public Entity, public Buffer, public Serializable
+	class FURY_API Texture : public Entity, public Buffer
 	{
 	public:
 
@@ -59,7 +59,7 @@ namespace fury
 
 		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper, bool object = true) override;
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		void CreateFromImage(std::string filePath, bool mipMap = false);
 

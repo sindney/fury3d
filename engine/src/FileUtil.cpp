@@ -14,6 +14,7 @@
 #include <stb_image.h>
 
 #include <rapidjson/document.h>
+#include <rapidjson/writer.h>
 #include <rapidjson/PrettyWriter.h>
 #include <rapidjson/stringbuffer.h>
 
@@ -149,10 +150,14 @@ namespace fury
 			FURYD << filePath << " successfully deserialized!";
 			return true;
 		}
-		return false;
+		else
+		{
+			FURYE << "Path " << filePath << " not found!";
+			return false;
+		}
 	}
 
-	bool FileUtil::SaveToFile(const Serializable::Ptr &source, const std::string &filePath)
+	bool FileUtil::SaveToFile(const Serializable::Ptr &source, const std::string &filePath, int maxDecimalPlaces)
 	{
 		using namespace rapidjson;
 
@@ -161,12 +166,9 @@ namespace fury
 		{
 			StringBuffer sb;
 			PrettyWriter<StringBuffer> writer(sb);
+			writer.SetMaxDecimalPlaces(maxDecimalPlaces);
 
-			if (!source->Save(&writer))
-			{
-				FURYE << "Serialization failed!";
-				return false;
-			}
+			source->Save(&writer);
 
 			output << sb.GetString();
 			output.close();
@@ -174,6 +176,10 @@ namespace fury
 			FURYD << filePath << " successfully serialized!";
 			return true;
 		}
-		return false;
+		else
+		{
+			FURYE << "Path " << filePath << " not found!";
+			return false;
+		}
 	}
 }

@@ -176,6 +176,8 @@ namespace fury
 
 		static const std::vector<std::tuple<WrapMode, unsigned int, std::string>> m_WrapMode;
 
+		static const std::vector<std::pair<LightType, std::string>> m_LightType;
+
 		static const std::vector<std::pair<ShaderType, std::string>> m_ShaderType;
 
 		static const std::vector<std::pair<ShaderTexture, std::string>> m_ShaderTexture;
@@ -245,6 +247,11 @@ namespace fury
 		static std::string WrapModeToString(WrapMode mode);
 
 		static WrapMode WrapModeFromString(const std::string &name);
+
+
+		static std::string LightTypeToString(LightType type);
+
+		static LightType LightTypeFromString(const std::string &name);
 
 
 		static std::string ShaderTypeToString(ShaderType type);

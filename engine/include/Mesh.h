@@ -96,6 +96,10 @@ namespace fury
 
 		virtual ~Mesh();
 
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual void Save(void* wrapper, bool object = true) override;
+
 		void AddSubMesh(const SubMesh::Ptr &subMesh);
 
 		SubMesh::Ptr GetSubMeshAt(unsigned int index) const;

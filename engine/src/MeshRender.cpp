@@ -1,7 +1,9 @@
+#include "EntityManager.h"
 #include "Log.h"
 #include "Mesh.h"
 #include "MeshRender.h"
 #include "Material.h"
+#include "Scene.h"
 #include "SceneNode.h"
 #include "Joint.h"
 
@@ -17,7 +19,113 @@ namespace fury
 	{
 		m_TypeIndex = typeid(MeshRender);
 		SetMaterial(material);
+		SetMesh(mesh);
 	};
+
+	bool MeshRender::Load(const void* wrapper, bool object)
+	{
+		if (Scene::Active == nullptr)
+		{
+			FURYE << "Active Pipeline is null!";
+			return false;
+		}
+
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
+
+		// check type
+		std::string str;
+		if (!LoadMemberValue(wrapper, "type", str) || str != "MeshRender")
+		{
+			FURYE << "Invalide type " << str << "!";
+			return false;
+		}
+
+		// load mesh
+		if (LoadMemberValue(wrapper, "mesh", str))
+		{
+			if (auto mesh = Scene::Active->GetEntityManager()->Get<Mesh>(str))
+			{
+				SetMesh(mesh);
+			}
+			else
+			{
+				FURYE << "Mesh " << str << " not found!";
+				return false;
+			}
+		}
+		else
+		{
+			FURYE << "mesh " << str << " not found!";
+			return false;
+		}
+
+		// 次数有问题
+		// load materials
+		m_Materials.clear();
+		if (!LoadArray(wrapper, "materials", [&](const void* node) -> bool
+		{
+			if (!LoadValue(node, str))
+			{
+				FURYE << "materials is a string array!";
+				return false;
+			}
+			if (auto material = Scene::Active->GetEntityManager()->Get<Material>(str))
+			{
+				m_Materials.push_back(material);
+				return true;
+			}
+			else
+			{
+				FURYE << "Material " << str << " not found!";
+				return false;
+			}
+		}))
+		{
+			return false;
+		}
+
+		return true;
+	}
+
+	void MeshRender::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		// save typeinfo
+		SaveKey(wrapper, "type");
+		SaveValue(wrapper, "MeshRender");
+		
+		// save mesh
+		if (auto ptr = m_Mesh.lock())
+		{
+			SaveKey(wrapper, "mesh");
+			SaveValue(wrapper, ptr->GetName());
+		}
+
+		// save materials
+		SaveKey(wrapper, "materials");
+		StartArray(wrapper);
+		for (unsigned int i = 0; i < m_Materials.size(); i++)
+		{
+			if (auto ptr = m_Materials[i].lock())
+			{
+				SaveValue(wrapper, ptr->GetName());
+			}
+			else
+			{
+				FURYW << "Found empty material pointer at " << i << "!";
+			}
+		}
+		EndArray(wrapper);
+
+		if (object)
+			EndObject(wrapper);
+	}
 
 	Component::Ptr MeshRender::Clone() const
 	{

@@ -1,4 +1,5 @@
 {
+    "name": "deffered_lighting_pipeline", 
     "shaders": [
         {
             "name": "gbuffer_shader",

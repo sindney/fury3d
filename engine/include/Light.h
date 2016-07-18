@@ -45,6 +45,10 @@ namespace fury
 
 		Light();
 
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual void Save(void* wrapper, bool object = true) override;
+
 		Component::Ptr Clone() const override;
 
 		LightType GetType() const;

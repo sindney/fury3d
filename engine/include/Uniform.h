@@ -4,12 +4,14 @@
 #include <memory>
 #include <string>
 #include <initializer_list>
+#include <unordered_map>
 
 #include "TypeComparable.h"
+#include "Serializable.h"
 
 namespace fury
 {
-	class FURY_API UniformBase : public TypeComparable
+	class FURY_API UniformBase : public TypeComparable, public Serializable
 	{
 	public:
 
@@ -18,6 +20,10 @@ namespace fury
 		UniformBase();
 
 		virtual void Bind(unsigned int program, const std::string &name) = 0;
+
+		virtual bool Load(const void* wrapper, bool object = true) override = 0;
+
+		virtual void Save(void* wrapper, bool object = true) override = 0;
 
 		virtual std::type_index GetTypeIndex() const override;
 
@@ -28,6 +34,8 @@ namespace fury
 		std::type_index m_TypeIndex;
 
 		unsigned int m_Size;
+
+		static const std::unordered_map<std::type_index, std::string> m_UniformTypeMap;
 	};
 
 	template<typename Datatype, unsigned int Size>
@@ -39,13 +47,17 @@ namespace fury
 
 	public:
 
-		using Ptr = std::shared_ptr < Uniform<Datatype, Size> > ;
+		typedef std::shared_ptr<Uniform<Datatype, Size>> Ptr;
 
 		static Ptr Create(std::initializer_list<Datatype> data);
 
 		Uniform();
 
 		virtual void Bind(unsigned int program, const std::string &name) override;
+
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		void SetData(std::initializer_list<Datatype> data);
 

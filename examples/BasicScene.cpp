@@ -11,7 +11,6 @@ BasicScene::BasicScene()
 BasicScene::~BasicScene()
 {
 	m_OcTree->Clear();
-	m_RootNode->RemoveAllChilds();
 }
 
 void BasicScene::Init(sf::Window &window)
@@ -137,14 +136,14 @@ void BasicScene::UpdateGUI(float dt)
 		ImGui::Begin("Shadow Buffers", &showShadowBufferWindow, ImVec2(300, 300), 1.0f, 
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
-		if (auto ptr = EntityUtil::Instance()->Get<Texture>("1024*1024*0*depth24*2d"))
+		if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*0*depth24*2d"))
 		{
 			ImGui::Text("2DTexture Buffer: ");
 			ImGui::Image((ImTextureID)ptr->GetID(), ImVec2(256, 256), ImVec2(0, 1), ImVec2(1, 0));
 		}
 
 		// cube_texture
-		if (auto ptr = EntityUtil::Instance()->Get<Texture>("512*512*0*depth24*cube"))
+		if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("512*512*0*depth24*cube"))
 		{
 			static auto img0 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
 			static auto img1 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
@@ -234,7 +233,7 @@ void BasicScene::UpdateGUI(float dt)
 		}
 
 		// texture_array
-		if (auto ptr = EntityUtil::Instance()->Get<Texture>("1024*1024*4*depth24*2d_array"))
+		if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*4*depth24*2d_array"))
 		{
 			static auto img0 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
 			static auto img1 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);

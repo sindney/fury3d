@@ -6,7 +6,8 @@
 #include "Shader.h"
 #include "Texture.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
+#include "EntityManager.h"
+#include "Pipeline.h"
 #include "InputUtil.h"
 
 namespace fury
@@ -28,7 +29,13 @@ namespace fury
 
 	bool Pass::Load(const void* wrapper, bool object)
 	{
-		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
+		if (Pipeline::Active == nullptr)
+		{
+			FURYE << "Active Pipeline is null!";
+			return false;
+		}
+
+		auto entityMgr = Pipeline::Active->GetEntityManager();
 		std::string str;
 
 		if (object && !IsObject(wrapper))
@@ -36,6 +43,9 @@ namespace fury
 			FURYE << "Json node is not an object!";
 			return false;
 		}
+
+		if (!Entity::Load(wrapper, false))
+			return false;
 
 		if (!LoadMemberValue(wrapper, "camera", str))
 		{
@@ -168,7 +178,7 @@ namespace fury
 		return true;
 	}
 
-	bool Pass::Save(void* wrapper, bool object)
+	void Pass::Save(void* wrapper, bool object)
 	{
 		std::vector<std::string> strs;
 		std::string emptyStr;
@@ -176,8 +186,7 @@ namespace fury
 		if (object)
 			StartObject(wrapper);
 
-		SaveKey(wrapper, "name");
-		SaveValue(wrapper, m_Name);
+		Entity::Save(wrapper, false);
 
 		SaveKey(wrapper, "camera");
 		SaveValue(wrapper, m_CameraNode == nullptr ? "" : m_CameraNode->GetName());
@@ -206,12 +215,8 @@ namespace fury
 		SaveKey(wrapper, "clearMode");
 		SaveValue(wrapper, EnumUtil::ClearModeToString(m_ClearMode));
 
-		float color[4] = { m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a };
 		SaveKey(wrapper, "clearColor");
-		SaveArray(wrapper, 4, [&](unsigned int index)
-		{
-			SaveValue(wrapper, color[index]);
-		});
+		SaveValue(wrapper, m_ClearColor);
 
 		SaveKey(wrapper, "blendMode");
 		SaveValue(wrapper, EnumUtil::BlendModeToString(m_BlendMode));
@@ -227,8 +232,6 @@ namespace fury
 
 		if (object)
 			EndObject(wrapper);
-
-		return true;
 	}
 
 	void Pass::SetRenderIndex(unsigned int index)

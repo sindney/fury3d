@@ -36,7 +36,7 @@ namespace fury
 	{
 		m_Infinite = value;
 		if (m_Infinite)
-			SetMinMax(Vector4(std::numeric_limits<float>::min()),
+			SetMinMax(Vector4(-std::numeric_limits<float>::max()),
 			Vector4(std::numeric_limits<float>::max()));
 	}
 

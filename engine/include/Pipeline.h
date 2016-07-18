@@ -6,7 +6,6 @@
 #include <string>
 
 #include "Entity.h"
-#include "Serializable.h"
 
 namespace fury
 {
@@ -21,6 +20,8 @@ namespace fury
 	class SceneNode;
 
 	class SceneManager;
+
+	class EntityManager;
 
 	class Texture;
 
@@ -39,13 +40,23 @@ namespace fury
 		bool boolValue;
 	};
 
-	class FURY_API Pipeline : public Entity, public Serializable
+	class FURY_API Pipeline : public Entity
 	{
 		friend class FileUtil;
 
 	public:
 
 		typedef std::shared_ptr<Pipeline> Ptr;
+
+		static Ptr Active;
+
+		typedef std::unordered_map<std::string, std::shared_ptr<Texture>> TextureMap;
+
+		typedef std::unordered_map<std::string, std::shared_ptr<Shader>> ShaderMap;
+
+		typedef std::unordered_map<std::string, std::shared_ptr<Pass>> PassMap;
+
+		typedef std::unordered_map<std::string, PipelineOption> OptionMap;
 
 		static const std::string OPT_CASCADED_SHADOW_MAP;
 
@@ -57,11 +68,13 @@ namespace fury
 
 	protected:
 
-		std::unordered_map<std::string, std::shared_ptr<Texture>> m_TextureMap;
+		std::shared_ptr<EntityManager> m_EntityManager;
 
-		std::unordered_map<std::string, std::shared_ptr<Pass>> m_PassMap;
+		TextureMap m_TextureMap;
 
-		std::unordered_map<std::string, std::shared_ptr<Shader>> m_ShaderMap;
+		PassMap m_PassMap;
+
+		ShaderMap m_ShaderMap;
 
 		std::vector<std::string> m_SortedPasses;
 
@@ -77,7 +90,7 @@ namespace fury
 
 		// end rendering
 
-		std::unordered_map<std::string, PipelineOption> m_Options;
+		OptionMap m_Options;
 
 		// debug
 
@@ -95,10 +108,13 @@ namespace fury
 
 		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper, bool object = true) override;
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) = 0;
 		
+		// basiclly saves all pipeline && pass's textures, shaders
+		std::shared_ptr<EntityManager> GetEntityManager() const;
+
 		void SetOption(const std::string &name, bool value);
 
 		void SetOption(const std::string &name, float value);

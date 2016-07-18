@@ -2,7 +2,6 @@
 #include "Log.h"
 #include "GLLoader.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
 #include "FileUtil.h"
 #include "Joint.h"
 #include "Light.h"
@@ -33,7 +32,6 @@ namespace fury
 
 	bool Shader::Load(const void* wrapper, bool object)
 	{
-		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
 
 		if (object && !IsObject(wrapper))
@@ -41,6 +39,9 @@ namespace fury
 			FURYE << "Json node is not an object!";
 			return false;
 		}
+
+		if (!Entity::Load(wrapper, false))
+			return false;
 
 		m_Type = ShaderType::OTHER;
 		if (LoadMemberValue(wrapper, "type", str))
@@ -93,13 +94,12 @@ namespace fury
 		return true;
 	}
 
-	bool Shader::Save(void* wrapper, bool object)
+	void Shader::Save(void* wrapper, bool object)
 	{
 		if (object)
 			StartObject(wrapper);
 
-		SaveKey(wrapper, "name");
-		SaveValue(wrapper, m_Name);
+		Entity::Save(wrapper, false);
 
 		SaveKey(wrapper, "type");
 		SaveValue(wrapper, EnumUtil::ShaderTypeToString(m_Type));
@@ -130,8 +130,6 @@ namespace fury
 
 		if (object)
 			EndObject(wrapper);
-
-		return true;
 	}
 
 	unsigned int Shader::GetProgram() const

@@ -96,6 +96,112 @@ namespace fury
 		FURYD << "Mesh: " << m_Name << " Destoried!";
 	}
 
+	bool Mesh::Load(const void* wrapper, bool object)
+	{
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
+
+		if (!Entity::Load(wrapper, false))
+			return false;
+
+		if (!LoadArray(wrapper, "positions", Positions.Data))
+		{
+			FURYE << "positions not found!";
+			return false;
+		}
+
+		LoadArray(wrapper, "normals", Normals.Data);
+		LoadArray(wrapper, "tangents", Tangents.Data);
+		LoadArray(wrapper, "uvs", UVs.Data);
+
+		// TODO: no joints yet
+		// LoadArray(wrapper, "weights", Weights.Data);
+		// LoadArray(wrapper, "ids", IDs.Data);
+		
+		if (!LoadArray(wrapper, "indices", Indices.Data))
+		{
+			FURYE << "indices not found!";
+			return false;
+		}
+
+		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
+
+		// model aabb
+		LoadMemberValue(wrapper, "aabb", m_AABB);
+
+		// subMeshes
+		if (!LoadArray(wrapper, "submeshes", [&](const void* node) -> bool
+		{
+			auto subMesh = SubMesh::Create();
+			if (LoadArray(node, subMesh->Indices.Data))
+			{
+				AddSubMesh(subMesh);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}))
+		{
+			return false;
+		}
+
+		return true;
+	}
+
+	void Mesh::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		Entity::Save(wrapper, false);
+
+		SaveKey(wrapper, "cast_shadows");
+		SaveValue(wrapper, m_CastShadows);
+
+		SaveKey(wrapper, "positions");
+		SaveArray(wrapper, Positions.Data);
+
+		if (Normals.Data.size() > 0)
+		{
+			SaveKey(wrapper, "normals");
+			SaveArray(wrapper, Normals.Data);
+		}
+
+		if (Tangents.Data.size() > 0)
+		{
+			SaveKey(wrapper, "tangents");
+			SaveArray(wrapper, Tangents.Data);
+		}
+
+		if (UVs.Data.size() > 0)
+		{
+			SaveKey(wrapper, "uvs");
+			SaveArray(wrapper, UVs.Data);
+		}
+		
+		// TODO: no joints yet
+
+		SaveKey(wrapper, "indices");
+		SaveArray(wrapper, Indices.Data);
+
+		SaveKey(wrapper, "submeshes");
+		SaveArray(wrapper, m_SubMeshes.size(), [&](unsigned int index)
+		{
+			SaveArray(wrapper, m_SubMeshes[index]->Indices.Data);
+		});
+
+		SaveKey(wrapper, "aabb");
+		SaveValue(wrapper, m_AABB);
+
+		if (object)
+			EndObject(wrapper);
+	}
+
 	void Mesh::AddSubMesh(const SubMesh::Ptr &subMesh)
 	{
 		m_SubMeshes.push_back(subMesh);

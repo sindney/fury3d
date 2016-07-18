@@ -3,6 +3,8 @@
 #include "Mesh.h"
 #include "MeshUtil.h"
 #include "SceneNode.h"
+#include "Scene.h"
+#include "EntityManager.h"
 
 namespace fury
 {
@@ -15,6 +17,81 @@ namespace fury
 	{
 		m_TypeIndex = typeid(Light);
 	};
+
+	bool Light::Load(const void* wrapper, bool object)
+	{
+		if (Scene::Active == nullptr)
+		{
+			FURYE << "Active Pipeline is null!";
+			return false;
+		}
+
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
+
+		// check type
+		std::string str;
+		if (!LoadMemberValue(wrapper, "type", str) || str != "Light")
+		{
+			FURYE << "Invalide type " << str << "!";
+			return false;
+		}
+
+		if (!LoadMemberValue(wrapper, "light_type", str))
+		{
+			FURYE << "light_type not found!";
+			return false;
+		}
+		else
+		{
+			SetType(EnumUtil::LightTypeFromString(str));
+		}
+
+		LoadMemberValue(wrapper, "color", m_Color);
+		LoadMemberValue(wrapper, "intensity", m_Intensity);
+		LoadMemberValue(wrapper, "inner_angle", m_InnerAngle);
+		LoadMemberValue(wrapper, "outter_angle", m_OutterAngle);
+		LoadMemberValue(wrapper, "falloff", m_Falloff);
+		LoadMemberValue(wrapper, "radius", m_Radius);
+		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
+
+		CalculateAABB();
+
+		return true;
+	}
+
+	void Light::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		// save typeinfo
+		SaveKey(wrapper, "type");
+		SaveValue(wrapper, "Light");
+
+		SaveKey(wrapper, "light_type");
+		SaveValue(wrapper, EnumUtil::LightTypeToString(m_Type));
+		SaveKey(wrapper, "color");
+		SaveValue(wrapper, m_Color);
+		SaveKey(wrapper, "intensity");
+		SaveValue(wrapper, m_Intensity);
+		SaveKey(wrapper, "inner_angle");
+		SaveValue(wrapper, m_InnerAngle);
+		SaveKey(wrapper, "outter_angle");
+		SaveValue(wrapper, m_OutterAngle);
+		SaveKey(wrapper, "falloff");
+		SaveValue(wrapper, m_Falloff);
+		SaveKey(wrapper, "radius");
+		SaveValue(wrapper, m_Radius);
+		SaveKey(wrapper, "cast_shadows");
+		SaveValue(wrapper, m_CastShadows);
+
+		if (object)
+			EndObject(wrapper);
+	}
 
 	Component::Ptr Light::Clone() const
 	{

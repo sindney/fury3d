@@ -5,12 +5,13 @@
 #include <memory>
 
 #include "TypeComparable.h"
+#include "Serializable.h"
 
 namespace fury
 {
 	class SceneNode;
 
-	class FURY_API Component : public TypeComparable
+	class FURY_API Component : public TypeComparable, public Serializable
 	{
 		friend class SceneNode;
 
@@ -25,6 +26,13 @@ namespace fury
 		virtual std::type_index GetTypeIndex() const;
 
 		virtual Ptr Clone() const = 0;
+
+		virtual bool Load(const void* wrapper, bool object = true) 
+		{
+			return true;
+		}
+
+		virtual void Save(void* wrapper, bool object = true) {}
 
 		bool HasOwner() const;
 

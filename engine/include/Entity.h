@@ -5,10 +5,11 @@
 #include <string>
 
 #include "TypeComparable.h"
+#include "Serializable.h"
 
 namespace fury
 {
-	class FURY_API Entity : public TypeComparable
+	class FURY_API Entity : public TypeComparable, public Serializable
 	{
 	public:
 
@@ -21,6 +22,10 @@ namespace fury
 		virtual ~Entity() {}
 
 		virtual std::type_index GetTypeIndex() const;
+
+		virtual bool Load(const void* wrapper, bool object = true);
+
+		virtual void Save(void* wrapper, bool object = true);
 
 		std::string GetName() const;
 

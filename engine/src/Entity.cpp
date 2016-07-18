@@ -1,4 +1,5 @@
 #include "Entity.h"
+#include "Log.h"
 
 namespace fury
 {
@@ -15,6 +16,36 @@ namespace fury
 	std::type_index Entity::GetTypeIndex() const
 	{
 		return m_TypeIndex;
+	}
+
+	bool Entity::Load(const void* wrapper, bool object)
+	{
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Json node is not an object!";
+			return false;
+		}
+
+		if (!LoadMemberValue(wrapper, "name", m_Name))
+		{
+			FURYE << "Name not found!";
+			return false;
+		}
+		SetName(m_Name);
+
+		return true;
+	}
+
+	void Entity::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		SaveKey(wrapper, "name");
+		SaveValue(wrapper, m_Name);
+
+		if (object)
+			EndObject(wrapper);
 	}
 
 	std::string Entity::GetName() const

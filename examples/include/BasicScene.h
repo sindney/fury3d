@@ -14,7 +14,7 @@ public:
 
 	SceneNode::Ptr m_CamNode;
 
-	SceneNode::Ptr m_RootNode;
+	Scene::Ptr m_Scene;
 
 	Pipeline::Ptr m_Pipeline;
 

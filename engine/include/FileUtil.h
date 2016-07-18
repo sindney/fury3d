@@ -39,7 +39,7 @@ namespace fury
 
 		static bool LoadFromFile(const std::shared_ptr<Serializable> &source, const std::string &filePath);
 
-		static bool SaveToFile(const std::shared_ptr<Serializable> &source, const std::string &filePath);
+		static bool SaveToFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
 	};
 }
 

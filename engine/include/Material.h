@@ -83,7 +83,11 @@ namespace fury
 
 		virtual ~Material();
 
-		virtual void DeleteBuffer();
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual void Save(void* wrapper, bool object = true) override;
+
+		virtual void DeleteBuffer() override;
 
 		unsigned int GetTextureFlags() const;
 

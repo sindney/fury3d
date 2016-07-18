@@ -7,7 +7,8 @@
 #include "AnimationUtil.h"
 #include "MathUtil.h"
 #include "Log.h"
-#include "EntityUtil.h"
+#include "Scene.h"
+#include "EntityManager.h"
 #include "FileUtil.h"
 #include "Joint.h"
 #include "Light.h"
@@ -24,6 +25,12 @@ namespace fury
 {
 	void FbxParser::LoadScene(const std::string &filePath, const std::shared_ptr<SceneNode> &rootNode, FbxImportOptions importOptions)
 	{
+		if (Scene::Active == nullptr)
+		{
+			FURYW << "Active Scene is null!";
+			return;
+		}
+
 		m_ImportOptions = importOptions;
 		m_FbxManager = FbxManager::Create();
 
@@ -111,7 +118,7 @@ namespace fury
 								continue;
 
 							auto meshName = stackName.substr(0, index);
-							if (auto matchMesh = EntityUtil::Instance()->Get<Mesh>(meshName))
+							if (auto matchMesh = Scene::Active->GetEntityManager()->Get<Mesh>(meshName))
 							{
 								auto it = linkMap.find(meshName);
 								FURYD << "Found Clip " << stackName << " for " << meshName;
@@ -283,7 +290,7 @@ namespace fury
 					AnimationUtil::OptimizeAnimClip(clip, 0.5f);
 
 				clip->CalculateDuration();
-				EntityUtil::Instance()->Add(clip);
+				Scene::Active->GetEntityManager()->Add(clip);
 			}
 		}
 	}
@@ -324,13 +331,13 @@ namespace fury
 		FbxMesh* fbxMesh = static_cast<FbxMesh*>(fbxNode->GetNodeAttribute());
 
 		// first, we test if ther's already a mesh asset exits with this name.
-		Mesh::Ptr mesh = EntityUtil::Instance()->Get<Mesh>(fbxMesh->GetName());
+		Mesh::Ptr mesh = Scene::Active->GetEntityManager()->Get<Mesh>(fbxMesh->GetName());
 		
 		if (mesh == nullptr)
 		{
 			// if not, we read the mesh data.
 			mesh = CreateMesh(ntNode, fbxNode);
-			EntityUtil::Instance()->Add(mesh);
+			Scene::Active->GetEntityManager()->Add(mesh);
 		}
 
 		// attach mesh component to node.
@@ -353,13 +360,13 @@ namespace fury
 
 			if (isPhong || isLambert)
 			{
-				Material::Ptr material = EntityUtil::Instance()->Get<Material>(fbxMaterial->GetName());
+				Material::Ptr material = Scene::Active->GetEntityManager()->Get<Material>(fbxMaterial->GetName());
 
 				if (material == nullptr)
 				{
 					material = isPhong ? CreatePhongMaterial((FbxSurfacePhong*)fbxMaterial) :
 						CreateLambertMaterial((FbxSurfaceLambert*)fbxMaterial);
-					EntityUtil::Instance()->Add(material);
+					Scene::Active->GetEntityManager()->Add(material);
 				}
 
 				if (auto ptr = ntNode->GetComponent<MeshRender>())

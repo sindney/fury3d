@@ -6,7 +6,8 @@
 #include "Log.h"
 #include "Light.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
+#include "EntityManager.h"
+#include "Scene.h"
 #include "FileUtil.h"
 #include "Frustum.h"
 #include "GLLoader.h"
@@ -26,6 +27,8 @@
 
 namespace fury
 {
+	Pipeline::Ptr Pipeline::Active = nullptr;
+
 	const std::string Pipeline::OPT_CASCADED_SHADOW_MAP = "cascaded_shadow_map";
 
 	const std::string Pipeline::OPT_MESH_BOUNDS = "mesh_bounds";
@@ -50,6 +53,8 @@ namespace fury
 		SetOption(OPT_CUSTOM_BOUNDS, false);
 		SetOption(OPT_LIGHT_BOUNDS, false);
 		SetOption(OPT_MESH_BOUNDS, false);
+
+		m_EntityManager = EntityManager::Create();
 	}
 
 	Pipeline::~Pipeline()
@@ -59,7 +64,6 @@ namespace fury
 
 	bool Pipeline::Load(const void* wrapper, bool object)
 	{
-		EntityUtil::Ptr entityMgr = EntityUtil::Instance();
 		std::string str;
 
 		if (object && !IsObject(wrapper))
@@ -67,6 +71,9 @@ namespace fury
 			FURYE << "Json node is not an object!";
 			return false;
 		}
+
+		if (!Entity::Load(wrapper, false))
+			return false;
 
 		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
 		{
@@ -81,7 +88,7 @@ namespace fury
 				return false;
 
 			m_TextureMap.emplace(texture->GetName(), texture);
-			entityMgr->Add(texture);
+			m_EntityManager->Add(texture);
 
 			return true;
 		}))
@@ -103,7 +110,7 @@ namespace fury
 				return false;
 
 			m_ShaderMap.emplace(shader->GetName(), shader);
-			entityMgr->Add(shader);
+			m_EntityManager->Add(shader);
 
 			return true;
 		}))
@@ -136,52 +143,41 @@ namespace fury
 		return true;
 	}
 
-	bool Pipeline::Save(void* wrapper, bool object)
+	void Pipeline::Save(void* wrapper, bool object)
 	{
 		std::vector<std::string> strs;
 
 		if (object)
 			StartObject(wrapper);
 
-		std::vector<Texture::Ptr> textures;
-		textures.reserve(m_TextureMap.size());
-		for (auto pair : m_TextureMap)
-			textures.push_back(pair.second);
+		Entity::Save(wrapper, false);
 
+		// TODO: maybe save to entityManager?
 		SaveKey(wrapper, "textures");
-		SaveArray(wrapper, m_TextureMap.size(), [&](unsigned int index)
+		SaveArray<TextureMap>(wrapper, m_TextureMap, [&](TextureMap::const_iterator it)
 		{
-			textures[index]->Save(wrapper);
+			it->second->Save(wrapper);
 		});
-		textures.clear();
-
-		std::vector<Shader::Ptr> shaders;
-		shaders.reserve(m_ShaderMap.size());
-		for (auto pair : m_ShaderMap)
-			shaders.push_back(pair.second);
 
 		SaveKey(wrapper, "shaders");
-		SaveArray(wrapper, m_ShaderMap.size(), [&](unsigned int index)
+		SaveArray<ShaderMap>(wrapper, m_ShaderMap, [&](ShaderMap::const_iterator it)
 		{
-			shaders[index]->Save(wrapper);
+			it->second->Save(wrapper);
 		});
-		shaders.clear();
-
-		std::vector<Pass::Ptr> passes;
-		passes.reserve(m_PassMap.size());
-		for (auto pair : m_PassMap)
-			passes.push_back(pair.second);
 
 		SaveKey(wrapper, "passes");
-		SaveArray(wrapper, m_PassMap.size(), [&](unsigned int index) 
+		SaveArray<PassMap>(wrapper, m_PassMap, [&](PassMap::const_iterator it)
 		{
-			passes[index]->Save(wrapper);
+			it->second->Save(wrapper);
 		});
 
 		if (object)
 			EndObject(wrapper);
+	}
 
-		return true;
+	std::shared_ptr<EntityManager> Pipeline::GetEntityManager() const
+	{
+		return m_EntityManager;
 	}
 
 	void Pipeline::SortPassByIndex()
@@ -357,7 +353,7 @@ namespace fury
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
 		// for debug
-		EntityUtil::Instance()->Add(depth_buffer);
+		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
@@ -481,7 +477,7 @@ namespace fury
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
 		// for debug
-		EntityUtil::Instance()->Add(depth_buffer);
+		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
@@ -567,7 +563,7 @@ namespace fury
 		auto depth_buffer = Texture::Pool.Get(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
 		// for debug
-		EntityUtil::Instance()->Add(depth_buffer);
+		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
 		auto camNode = pass->GetCameraNode();
 		auto camera = camNode->GetComponent<Camera>();
@@ -671,7 +667,7 @@ namespace fury
 		auto depth_buffer = Texture::Pool.Get(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 
 		// for debug
-		EntityUtil::Instance()->Add(depth_buffer);
+		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);

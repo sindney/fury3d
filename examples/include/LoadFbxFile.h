@@ -9,6 +9,8 @@ class LoadFbxFile : public BasicScene
 {
 public:
 
+	~LoadFbxFile();
+
 	virtual void Init(sf::Window &window);
 
 	virtual void Update(float dt);

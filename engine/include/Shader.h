@@ -6,7 +6,6 @@
 #include "Entity.h"
 #include "EnumUtil.h"
 #include "Matrix4.h"
-#include "Serializable.h"
 
 namespace fury
 {
@@ -19,7 +18,7 @@ namespace fury
 	class Texture;
 
 	// always bind shader first. then material and meshes.
-	class FURY_API Shader : public Entity, public Serializable
+	class FURY_API Shader : public Entity
 	{
 	public:
 
@@ -53,7 +52,7 @@ namespace fury
 
 		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper, bool object = true) override;
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		unsigned int GetProgram() const;
 

@@ -6,7 +6,6 @@
 #include "FileUtil.h"
 #include "Texture.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
 
 namespace fury
 {
@@ -74,26 +73,8 @@ namespace fury
 			return false;
 		}
 
-		if (!LoadMemberValue(wrapper, "format", str))
-		{
-			FURYE << "Texture param 'format' not found!";
+		if (!Entity::Load(wrapper, false))
 			return false;
-		}
-		auto format = EnumUtil::TextureFormatFromString(str);
-		
-		if (!LoadMemberValue(wrapper, "type", str))
-			str = EnumUtil::TextureTypeToString(TextureType::TEXTURE_2D);
-		auto type = EnumUtil::TextureTypeFromString(str);
-
-		int width, height;
-		if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
-		{
-			FURYE << "Texture param 'width/height' not found!";
-			return false;
-		}
-		
-		int depth = 0;
-		LoadMemberValue(wrapper, "depth", depth);
 
 		auto filterMode = FilterMode::LINEAR;
 		if (LoadMemberValue(wrapper, "filter", str))
@@ -113,41 +94,77 @@ namespace fury
 		SetFilterMode(filterMode);
 		SetWrapMode(wrapMode);
 
-		CreateEmpty(width, height, depth, format, type, mipmap);
+		if (LoadMemberValue(wrapper, "path", str))
+		{
+			CreateFromImage(FileUtil::GetAbsPath() + str, mipmap);
+		}
+		else
+		{
+			if (!LoadMemberValue(wrapper, "format", str))
+			{
+				FURYE << "Texture param 'format' not found!";
+				return false;
+			}
+			auto format = EnumUtil::TextureFormatFromString(str);
+
+			if (!LoadMemberValue(wrapper, "type", str))
+				str = EnumUtil::TextureTypeToString(TextureType::TEXTURE_2D);
+			auto type = EnumUtil::TextureTypeFromString(str);
+
+			int width, height;
+			if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
+			{
+				FURYE << "Texture param 'width/height' not found!";
+				return false;
+			}
+
+			int depth = 0;
+			LoadMemberValue(wrapper, "depth", depth);
+
+			CreateEmpty(width, height, depth, format, type, mipmap);
+		}
 
 		return true;
 	}
 
-	bool Texture::Save(void* wrapper, bool object)
+	void Texture::Save(void* wrapper, bool object)
 	{
 		if (object)
 			StartObject(wrapper);
 
-		SaveKey(wrapper, "name");
-		SaveValue(wrapper, m_Name);
-		SaveKey(wrapper, "format");
-		SaveValue(wrapper, EnumUtil::TextureFormatToString(m_Format));
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, EnumUtil::TextureTypeToString(m_Type));
-		SaveKey(wrapper, "filter");
-		SaveValue(wrapper, EnumUtil::FilterModeToString(m_FilterMode));
-		SaveKey(wrapper, "wrap");
-		SaveValue(wrapper, EnumUtil::WrapModeToString(m_WrapMode));
-		SaveKey(wrapper, "width");
-		SaveValue(wrapper, m_Width);
-		SaveKey(wrapper, "height");
-		SaveValue(wrapper, m_Height);
-		SaveKey(wrapper, "depth");
-		SaveValue(wrapper, m_Depth);
+		Entity::Save(wrapper, false);
+
+		if (m_FilePath.empty())
+		{
+			SaveKey(wrapper, "format");
+			SaveValue(wrapper, EnumUtil::TextureFormatToString(m_Format));
+			SaveKey(wrapper, "type");
+			SaveValue(wrapper, EnumUtil::TextureTypeToString(m_Type));
+			SaveKey(wrapper, "width");
+			SaveValue(wrapper, m_Width);
+			SaveKey(wrapper, "height");
+			SaveValue(wrapper, m_Height);
+			SaveKey(wrapper, "depth");
+			SaveValue(wrapper, m_Depth);
+		}
+		else
+		{
+			SaveKey(wrapper, "path");
+			SaveValue(wrapper, m_FilePath);
+		}
+
 		SaveKey(wrapper, "borderColor");
 		SaveValue(wrapper, m_BorderColor);
 		SaveKey(wrapper, "mipmap");
 		SaveValue(wrapper, m_Mipmap);
 
+		SaveKey(wrapper, "filter");
+		SaveValue(wrapper, EnumUtil::FilterModeToString(m_FilterMode));
+		SaveKey(wrapper, "wrap");
+		SaveValue(wrapper, EnumUtil::WrapModeToString(m_WrapMode));
+
 		if (object)
 			EndObject(wrapper);
-
-		return true;
 	}
 
 	void Texture::CreateFromImage(std::string filePath, bool mipMap)

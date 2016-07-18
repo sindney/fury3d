@@ -1,7 +1,6 @@
 #include <SFML/Window.hpp>
 
 #include "Engine.h"
-#include "EntityUtil.h"
 #include "FbxParser.h"
 #include "GLLoader.h"
 #include "InputUtil.h"
@@ -31,7 +30,6 @@ namespace fury
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
-		EntityUtil::Initialize();
 		FbxParser::Initialize();
 
 		int flag = gl::LoadGLFunctions();

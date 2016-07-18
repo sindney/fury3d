@@ -8,7 +8,6 @@
 #include "Entity.h"
 #include "EnumUtil.h"
 #include "Vector4.h"
-#include "Serializable.h"
 
 #undef OPAQUE
 #undef TRANSPARENT
@@ -22,7 +21,7 @@ namespace fury
 
 	class Texture;
 	
-	class FURY_API Pass : public Entity, public Serializable
+	class FURY_API Pass : public Entity
 	{
 		friend class FileUtil;
 
@@ -80,7 +79,7 @@ namespace fury
 
 		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		virtual bool Save(void* wrapper, bool object = true) override;
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		void SetRenderIndex(unsigned int index);
 

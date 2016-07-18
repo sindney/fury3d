@@ -5,6 +5,7 @@
 #include <Imgui/imgui.h>
 
 #include "LoadFbxFile.h"
+#include "LoadScene.h"
 
 using namespace std;
 using namespace fury;
@@ -46,7 +47,8 @@ int main(int argc, char *argv[])
 	if (!ImGuiBridge::Initialize(&window))
 		return false;
 
-	FrameWork::Ptr example = std::make_shared<LoadFbxFile>();
+	FrameWork::Ptr example = std::make_shared<LoadScene>();
+	//FrameWork::Ptr example = std::make_shared<LoadFbxFile>();
 	example->Init(window);
 
 	// Game Loop

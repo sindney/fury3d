@@ -5,7 +5,6 @@
 #include "Camera.h"
 #include "Log.h"
 #include "EnumUtil.h"
-#include "EntityUtil.h"
 #include "Frustum.h"
 #include "GLLoader.h"
 #include "Light.h"
@@ -35,6 +34,7 @@ namespace fury
 		: Pipeline(name)
 	{
 		m_TypeIndex = typeid(PrelightPipeline);
+		SetOption(OPT_CASCADED_SHADOW_MAP, true);
 	}
 
 	bool PrelightPipeline::Load(const void* wrapper, bool object)
@@ -57,21 +57,18 @@ namespace fury
 		return true;
 	}
 
-	bool PrelightPipeline::Save(void* wrapper, bool object)
+	void PrelightPipeline::Save(void* wrapper, bool object)
 	{
 		if (object)
 			StartObject(wrapper);
 
-		if (!Pipeline::Save(wrapper, false))
-			return false;
+		Pipeline::Save(wrapper, false);
 
 		SaveKey(wrapper, OPT_CASCADED_SHADOW_MAP);
 		SaveValue(wrapper, GetOption(OPT_CASCADED_SHADOW_MAP).second.boolValue);
 
 		if (object)
 			EndObject(wrapper);
-
-		return true;
 	}
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)

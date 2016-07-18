@@ -54,5 +54,4 @@ namespace fury
 		}
 	};
 }
-
 #endif //_FURY_OBJECTPOOL_H_
