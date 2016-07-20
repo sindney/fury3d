@@ -61,7 +61,7 @@ namespace fury
 
 		virtual void Save(void* wrapper, bool object = true) override;
 
-		void CreateFromImage(std::string filePath, bool mipMap = false);
+		void CreateFromImage(const std::string &filePath, bool mipMap = false);
 
 		void CreateEmpty(int width, int height, int depth, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
 

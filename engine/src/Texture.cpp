@@ -4,6 +4,7 @@
 #include "Log.h"
 #include "GLLoader.h"
 #include "FileUtil.h"
+#include "Scene.h"
 #include "Texture.h"
 #include "EnumUtil.h"
 
@@ -96,7 +97,7 @@ namespace fury
 
 		if (LoadMemberValue(wrapper, "path", str))
 		{
-			CreateFromImage(FileUtil::GetAbsPath() + str, mipmap);
+			CreateFromImage(str, mipmap);
 		}
 		else
 		{
@@ -167,13 +168,15 @@ namespace fury
 			EndObject(wrapper);
 	}
 
-	void Texture::CreateFromImage(std::string filePath, bool mipMap)
+	void Texture::CreateFromImage(const std::string &filePath, bool mipMap)
 	{
 		DeleteBuffer();
 
 		int channels;
 		std::vector<unsigned char> pixels;
-		if (FileUtil::LoadImage(filePath, pixels, m_Width, m_Height, channels))
+		std::string prepend = Scene::Active == nullptr ? "" : Scene::Active->GetWorkingDir();
+
+		if (FileUtil::LoadImage(prepend + filePath, pixels, m_Width, m_Height, channels))
 		{
 			unsigned int internalFormat, imageFormat;
 

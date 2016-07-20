@@ -17,6 +17,7 @@ void LoadFbxFile::Init(sf::Window &window)
 
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
 	Scene::Active = m_Scene = Scene::Create("main", m_OcTree);
+	m_Scene->SetWorkingDir(FileUtil::GetAbsPath());
 
 	if (false)
 	{

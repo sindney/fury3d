@@ -15,6 +15,7 @@ void LoadScene::Init(sf::Window &window)
 
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
 	Scene::Active = m_Scene = Scene::Create("main", m_OcTree);
+	m_Scene->SetWorkingDir(FileUtil::GetAbsPath());
 	FileUtil::LoadFromFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.json"));
 
 	auto lights = { /*"Lamp.001", "Lamp.002", "Lamp.003", */"Lamp.004", "Sun", "Spot", "Fire" };

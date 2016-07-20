@@ -158,7 +158,7 @@ namespace fury
 		return m_WorkingDir;
 	}
 
-	void Scene::SetWorkingDIr(const std::string &path)
+	void Scene::SetWorkingDir(const std::string &path)
 	{
 		m_WorkingDir = path;
 	}

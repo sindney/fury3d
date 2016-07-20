@@ -56,10 +56,10 @@ namespace fury
 
 		std::shared_ptr<EntityManager> GetEntityManager() const;
 
-		// TODO: use working dir to unify resource path.
+		// extra resources prepends this to filepath when loading.
 		std::string GetWorkingDir() const;
 
-		void SetWorkingDIr(const std::string &path);
+		void SetWorkingDir(const std::string &path);
 		
 	};
 }
