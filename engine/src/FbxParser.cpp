@@ -1,3 +1,5 @@
+#ifdef _FURY_FBXPARSER_IMP_
+
 #include <vector>
 #include <unordered_map>
 #include <stack>
@@ -1025,3 +1027,5 @@ namespace fury
 		ntNode->Recompose();
 	}
 }
+
+#endif // _FURY_FBXPARSER_IMP_

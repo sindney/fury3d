@@ -17,9 +17,13 @@ set(RAPIDJSON_INCLUDE "/usr/local/include" CACHE PATH "Path to rapidjson headers
 set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
 set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
 
-set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
-set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
-set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")
+option(FBXPARSER_IMP "Build FbxParser.")
+if(FBXPARSER_IMP)
+	add_definitions(-D_FURY_FBXPARSER_IMP)
+	set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
+	set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
+	set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")
+endif()
 
 set(FBXSDK_LIB optimized ${FBXSDK_LIB_RELEASE} debug ${FBXSDK_LIB_DEBUG})
 

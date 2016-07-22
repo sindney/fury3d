@@ -30,7 +30,10 @@ namespace fury
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
+
+#ifdef _FURY_FBXPARSER_IMP_
 		FbxParser::Initialize();
+#endif
 
 		int flag = gl::LoadGLFunctions();
 

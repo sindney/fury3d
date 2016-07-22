@@ -1,6 +1,8 @@
 #ifndef _FURY_IMGUI_H_
 #define _FURY_IMGUI_H_
 
+#include <float.h>
+
 #include <SFML/Window/Window.hpp>
 #include <SFML/Window/Event.hpp>
 

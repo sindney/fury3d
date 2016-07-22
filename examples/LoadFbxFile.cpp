@@ -1,3 +1,5 @@
+#ifdef _FURY_FBXPARSER_IMP_
+
 #include "LoadFbxFile.h"
 
 AnimationPlayer::Ptr m_AnimPlayer = nullptr;
@@ -102,3 +104,5 @@ void LoadFbxFile::Draw(sf::Window &window)
 {
 	m_Pipeline->Execute(m_OcTree);
 }
+
+#endif // _FURY_FBXPARSER_IMP_

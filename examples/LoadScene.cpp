@@ -9,10 +9,6 @@ LoadScene::~LoadScene()
 void LoadScene::Init(sf::Window &window)
 {
 	// load scene
-	FbxImportOptions importOptions;
-	importOptions.ScaleFactor = 1.0f;
-	importOptions.AnimCompressLevel = 0.25f;
-
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
 	Scene::Active = m_Scene = Scene::Create("main", m_OcTree);
 	m_Scene->SetWorkingDir(FileUtil::GetAbsPath());

@@ -1,6 +1,8 @@
 #ifndef _FURY_FBXPARSER_H_
 #define _FURY_FBXPARSER_H_
 
+#ifdef _FURY_FBXPARSER_IMP_
+
 #include <unordered_map>
 
 #include <fbxsdk.h>
@@ -102,5 +104,7 @@ namespace fury
 		void ApplyFbxAMatrixToNode(const std::shared_ptr<SceneNode> &ntNode, const FbxAMatrix &fbxMatrix, bool scale = true);
 	};
 }
+
+#endif // _FURY_FBXPARSER_IMP_
 
 #endif // _FURY_FBXPARSER_H_
