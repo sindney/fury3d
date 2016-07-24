@@ -1,7 +1,7 @@
 #ifndef _LOADSCENE_H_
 #define _LOADSCENE_H_
 
-#include "Fury.h"
+#include "Fury/Fury.h"
 
 #include "BasicScene.h"
 

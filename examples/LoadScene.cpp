@@ -10,9 +10,9 @@ void LoadScene::Init(sf::Window &window)
 {
 	// load scene
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
-	Scene::Active = m_Scene = Scene::Create("main", m_OcTree);
-	m_Scene->SetWorkingDir(FileUtil::GetAbsPath());
-	FileUtil::LoadFromFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.json"));
+	Scene::Active = m_Scene = Scene::Create("main", FileUtil::GetAbsPath(), m_OcTree);
+	FileUtil::LoadCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
+	// FileUtil::LoadFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.json"));
 
 	auto lights = { /*"Lamp.001", "Lamp.002", "Lamp.003", */"Lamp.004", "Sun", "Spot", "Fire" };
 	for (auto lightName : lights)
@@ -47,13 +47,13 @@ void LoadScene::Init(sf::Window &window)
 	Pipeline::Active = m_Pipeline = PrelightPipeline::Create("pipeline");
 	Pipeline::Active->GetEntityManager()->Add(m_CamNode);
 
-	FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
+	FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
 
 	m_Pipeline->AddDebugCollidable(m_CamNode->GetComponent<Camera>()->GetFrustum());
 	m_Pipeline->AddDebugCollidable(m_CamNode->GetComponent<Camera>()->GetShadowBounds());
 
-	//FileUtil::SaveToFile(m_Scene, "Resource/scene.json");
-	//FileUtil::SaveToFile(m_Pipeline, "Resource/pipeline.json");
+	// FileUtil::SaveCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
+	//FileUtil::SaveCompressedFile(m_Pipeline, "Resource/pipeline.json");
 }
 
 void LoadScene::FixedUpdate()

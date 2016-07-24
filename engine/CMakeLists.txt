@@ -10,8 +10,6 @@ else()
 	message(SEND_ERROR "Only support windows && osx currentlly.")
 endif()
 
-set(STB_INCLUDE "/usr/local/include" CACHE PATH "Path to stb_library headers.")
-
 set(RAPIDJSON_INCLUDE "/usr/local/include" CACHE PATH "Path to rapidjson headers.")
 
 set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
@@ -23,9 +21,8 @@ if(FBXPARSER_IMP)
 	set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
 	set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
 	set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")
+	set(FBXSDK_LIB optimized ${FBXSDK_LIB_RELEASE} debug ${FBXSDK_LIB_DEBUG})
 endif()
-
-set(FBXSDK_LIB optimized ${FBXSDK_LIB_RELEASE} debug ${FBXSDK_LIB_DEBUG})
 
 set(CMAKE_CXX_FLAGS "-std=c++11")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
@@ -40,4 +37,47 @@ if(OS_WINDOWS)
 	endif()
 endif()
 
-add_subdirectory(src)
+# add_subdirectory(src)
+
+include_directories(${PROJECT_SOURCE_DIR})
+
+include_directories(${RAPIDJSON_INCLUDE})
+
+include_directories(${SFML_INCLUDE})
+link_directories(${SFML_LIB})
+
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty)
+
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/STB)
+
+file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
+
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
+file(GLOB LZ4_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4/*.c)
+
+if(FBXPARSER_IMP)
+	include_directories(${FBXSDK_INCLUDE})
+endif()
+
+if(OS_MACOSX)
+	find_library(COREFOUNDATION_LIB CoreFoundation)
+	find_package(OpenGL REQUIRED)
+	include_directories(${OPENGL_INCLUDE_DIR})
+endif()
+
+file(GLOB_RECURSE FURY_SRC ${PROJECT_SOURCE_DIR}/Fury "*.cpp")
+list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC})
+
+if(BUILD_SHARED_LIBS)
+	add_library(fury SHARED ${FURY_SRC})
+	if(OS_WINDOWS)
+		target_link_libraries(fury sfml-window sfml-system opengl32 ${FBXSDK_LIB})
+	elseif(OS_MACOSX)
+		target_link_libraries(fury sfml-window sfml-system ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} ${FBXSDK_LIB})
+		set_target_properties(fury PROPERTIES BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
+	endif()
+else()
+	add_library(fury STATIC ${FURY_SRC})
+endif()
+
+install(TARGETS fury DESTINATION lib)

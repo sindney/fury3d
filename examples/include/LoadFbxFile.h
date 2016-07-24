@@ -1,9 +1,9 @@
+#ifdef _FURY_FBXPARSER_IMP_
+
 #ifndef _LOADFBXFILE_H_
 #define _LOADFBXFILE_H_
 
-#ifdef _FURY_FBXPARSER_IMP_
-
-#include "Fury.h"
+#include "Fury/Fury.h"
 
 #include "BasicScene.h"
 
@@ -22,6 +22,6 @@ public:
 	virtual void Draw(sf::Window &window);
 };
 
-#endif // _FURY_FBXPARSER_IMP_
-
 #endif // _LOADFBXFILE_H_
+
+#endif // _FURY_FBXPARSER_IMP_

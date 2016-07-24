@@ -18,8 +18,7 @@ void LoadFbxFile::Init(sf::Window &window)
 	importOptions.AnimCompressLevel = 0.25f;
 
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
-	Scene::Active = m_Scene = Scene::Create("main", m_OcTree);
-	m_Scene->SetWorkingDir(FileUtil::GetAbsPath());
+	Scene::Active = m_Scene = Scene::Create("main", FileUtil::GetAbsPath(), m_OcTree);
 
 	if (false)
 	{
@@ -77,13 +76,13 @@ void LoadFbxFile::Init(sf::Window &window)
 	Pipeline::Active = m_Pipeline = PrelightPipeline::Create("pipeline");
 	Pipeline::Active->GetEntityManager()->Add(m_CamNode);
 
-	FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
+	FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
 
 	m_Pipeline->AddDebugCollidable(m_CamNode->GetComponent<Camera>()->GetFrustum());
 	m_Pipeline->AddDebugCollidable(m_CamNode->GetComponent<Camera>()->GetShadowBounds());
 
-	//FileUtil::SaveToFile(m_Scene, "Resource/scene.json");
-	//FileUtil::SaveToFile(m_Pipeline, "Resource/pipeline.json");
+	//FileUtil::SaveFile(m_Scene, "Resource/scene.json");
+	//FileUtil::SaveFile(m_Pipeline, "Resource/pipeline.json");
 }
 
 void LoadFbxFile::FixedUpdate()
@@ -105,4 +104,4 @@ void LoadFbxFile::Draw(sf::Window &window)
 	m_Pipeline->Execute(m_OcTree);
 }
 
-#endif // _FURY_FBXPARSER_IMP_
+#endif // _FURY_FBXPARSER_IMP_ 

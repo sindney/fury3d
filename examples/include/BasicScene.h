@@ -1,7 +1,7 @@
 #ifndef _BASIC_SCENE_H_
 #define _BASIC_SCENE_H_
 
-#include "Fury.h"
+#include "Fury/Fury.h"
 
 #include "FrameWork.h"
 

@@ -1,8 +1,6 @@
 #include <SFML/Window.hpp>
 
-// #define _FURY_FBXPARSER_IMP_
-
-#include <Fury.h>
+#include <Fury/Fury.h>
 #include <Imgui/imgui_fury.h>
 #include <Imgui/imgui.h>
 
