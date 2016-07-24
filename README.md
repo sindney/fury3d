@@ -15,24 +15,18 @@ Please note, this is just a simple project for study purpose.
 Features: 
 
 * Use modern opengl.
-
 * C++11 smart pointers made memory management easier.
-
 * Flexible signal message system. (use function pointers, so it won't accept lambdas, sry)
-
 * Support fbx model format, you can load static meshes, skinned meshes and lights directlly.
-
 * Easy rendering pipeline management through json serialization functionality.
-
 * Build-in light-pre pass rendering pipeling.
-
 * Intergates powerful gui library [ImGui](https://github.com/ocornut/imgui).
-
 * Support Shadow Mapping For Dir/Point/Spot Light.
+* Support custom scene format, can save to json and can be compressed.
 
 Plans:
 
-* Add shadow maps. (Implimenting)
+* Add shadow maps. (Done, need improvements)
 
 * Add skeleton animation support. (Done, but need improvements)
 
@@ -44,7 +38,7 @@ Tested compilers:
 
 * Apple LLVM version 7.0.2 (clang-700.1.81)
 
-Because fbxsdk only offers MSVC builds on windows, so you must use MSVC to build the library.
+Because fbxsdk only offers MSVC builds on windows (FBXSDK is optional, you can load scene using engine's custom scene format), so you must use MSVC to build the library.
 
 Should work with any graphic card that supports opengl 3.3 +
 
@@ -87,7 +81,7 @@ m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 // Load pipeline
 auto m_Pipeline = PrelightPipeline::Create("pipeline");
-FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
+FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
 
 // Draw scene
 m_Pipeline->Execute(m_OcTree);
@@ -138,23 +132,15 @@ signal->Emit(2, 3);
 ## Special thanks
 
 * [FbxSdk](http://www.autodesk.com/products/fbx/overview) - for loading fbx model
-
 * [Rapidjson](https://github.com/miloyip/rapidjson) - for loading pipeline setups
-
 * [Plog](https://github.com/SergiusTheBest/plog) - for log implimentation
-
 * [ThreadPool](https://github.com/progschj/ThreadPool) - for threadpool implimentation
-
 * [Stbimage](https://github.com/nothings/stb) - for image loading
-
+* [LZ4](https://github.com/Cyan4973/lz4) - for file compressing/decompressing
 * [Sfml](http://www.sfml-dev.org) - for os related window/input/context handling
-
 * [ASSIMP](https://github.com/assimp/assimp) - for mesh optimization
-
 * [Ogre3d](http://www.ogre3d.org) - for octree implimentation
-
 * [ImGui](https://github.com/ocornut/imgui) - for debuging gui
-
 * [RenderDoc](https://github.com/baldurk/renderdoc) - for debuging opengl
 
 ## One more thing

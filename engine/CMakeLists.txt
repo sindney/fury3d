@@ -65,7 +65,7 @@ if(OS_MACOSX)
 	include_directories(${OPENGL_INCLUDE_DIR})
 endif()
 
-file(GLOB_RECURSE FURY_SRC ${PROJECT_SOURCE_DIR}/Fury "*.cpp")
+file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)
 list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC})
 
 if(BUILD_SHARED_LIBS)

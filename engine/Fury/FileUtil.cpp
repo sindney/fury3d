@@ -197,9 +197,9 @@ namespace fury
 			Document dom;
 
 			{
-				int orgSize, compressSize;
-				stream.read((char*)&orgSize, sizeof(int));
-				stream.read((char*)&compressSize, sizeof(int));
+				uint32_t orgSize, compressSize;
+				stream.read((char*)&orgSize, sizeof(orgSize));
+				stream.read((char*)&compressSize, sizeof(compressSize));
 
 				char *srcBuffer = new char[compressSize];
 				stream.read(srcBuffer, compressSize);
@@ -255,9 +255,9 @@ namespace fury
 			source->Save(&writer);
 
 			const char *src = sb.GetString();
-			int srcSize = sb.GetSize();
+			uint32_t srcSize = sb.GetSize();
 
-			int bufferSize = LZ4_compressBound(srcSize);
+			uint32_t bufferSize = LZ4_compressBound(srcSize);
 			char* buffer = new char[bufferSize];
 
 			int size = LZ4_compress_default(src, buffer, srcSize, bufferSize);

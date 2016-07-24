@@ -15,24 +15,18 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 特性: 
 
 * 使用现代的Opengl
-
 * C++11的智能指针简化了内存管理的复杂度
-
 * 灵活的Signal消息系统 (使用函数指针，所以不支持lambda函数)
-
 * 支持FBX模型文件的读取，可直接读取场景的灯光，静态模型，以及带有蒙皮骨骼动画的模型
-
 * 可使用json自由配置的渲染管线
-
 * 内置阉割版light-pre pass渲染管线
-
 * 接入了强大的GUI库[ImGui](https://github.com/ocornut/imgui)
-
 * 支持方向光，点光，聚光灯的阴影贴图
+* 拥有自己的场景文件，支持输出json，支持压缩解压缩
 
 计划:
 
-* 添加阴影. (实现中)
+* 添加阴影. (已实现，需改进)
 
 * 添加骨骼动画. (已简单实现，仍需改进)
 
@@ -44,7 +38,7 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 * Apple LLVM version 7.0.2 (clang-700.1.81)
 
-由于FBX SDK在Windows系统上，只有MSVC编译的版本，所以在Windows上必须用MSVC编译Fury3D。
+由于FBX SDK在Windows系统上 (FBXSDK为可选编译选项，可通过引擎的场景文件载入场景)，只有MSVC编译的版本，所以在Windows上必须用MSVC编译Fury3D。
 
 应该支持所有支持Opengl3.3+的显卡
 
@@ -87,7 +81,7 @@ m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 // 载入渲染管线
 auto m_Pipeline = PrelightPipeline::Create("pipeline");
-FileUtil::LoadFromFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
+FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
 
 // 绘制场景
 m_Pipeline->Execute(m_OcTree);
@@ -138,23 +132,15 @@ signal->Emit(2, 3);
 ## 非常感谢
 
 * [FbxSdk](http://www.autodesk.com/products/fbx/overview) - Fbx模型加载
-
 * [Rapidjson](https://github.com/miloyip/rapidjson) - Json的序列化反序列化
-
 * [Plog](https://github.com/SergiusTheBest/plog) - 日志的实现
-
 * [ThreadPool](https://github.com/progschj/ThreadPool) - 线程池的实现
-
 * [Stbimage](https://github.com/nothings/stb) - 载入图像
-
+* [LZ4](https://github.com/Cyan4973/lz4) - 文件压缩与解压缩
 * [Sfml](http://www.sfml-dev.org) - 解决平台相关的窗口相关需求
-
 * [ASSIMP](https://github.com/assimp/assimp) - Mesh的物理资源优化
-
 * [Ogre3d](http://www.ogre3d.org) - 八叉树的实现
-
 * [ImGui](https://github.com/ocornut/imgui) - 测试用GUI库
-
 * [RenderDoc](https://github.com/baldurk/renderdoc) - 测试Opengl渲染
 
 ## 最后
