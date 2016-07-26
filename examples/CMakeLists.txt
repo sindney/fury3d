@@ -21,6 +21,16 @@ set(FURY3D_LIB "" CACHE PATH "Location of fury3d lib.")
 set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
 set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
 
+option(FBXPARSER_IMP "Fury Use FbxParser." OFF)
+if(FBXPARSER_IMP)
+	add_definitions(-D_FURY_FBXPARSER_IMP_)
+endif()
+
+option(GUI_IMP "Fury Use ImGui." ON)
+if(GUI_IMP)
+	add_definitions(-D_FURY_GUI_IMP_)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 include_directories(${PLOG_INCLUDE})

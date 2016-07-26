@@ -1,8 +1,7 @@
 #include <SFML/Window.hpp>
 
 #include <Fury/Fury.h>
-#include <Imgui/imgui_fury.h>
-#include <Imgui/imgui.h>
+#include <Fury/Gui.h>
 
 #include "LoadFbxFile.h"
 #include "LoadScene.h"
@@ -44,9 +43,6 @@ int main(int argc, char *argv[])
 	if (!Engine::Initialize(window, 2, LogLevel::DBUG, FileUtil::GetAbsPath("Log.txt").c_str()))
 		return false;
 
-	if (!ImGuiBridge::Initialize(&window))
-		return false;
-
 	FrameWork::Ptr example = std::make_shared<LoadScene>();
 	//FrameWork::Ptr example = std::make_shared<LoadFbxFile>();
 	example->Init(window);
@@ -77,7 +73,7 @@ int main(int argc, char *argv[])
 				}
 
 				Engine::HandleEvent(event);
-				ImGuiBridge::HandleEvent(event);
+				Gui::HandleEvent(event);
 			}
 
 			example->FixedUpdate();
@@ -91,19 +87,15 @@ int main(int argc, char *argv[])
 		float dt = float(elapsed + SKIP_TICKS - next_game_tick) / float(SKIP_TICKS);
 		next_game_tick -= elapsed;
 
-		ImGuiBridge::NewFrame(clock.restart().asSeconds());
+		Gui::NewFrame(clock.restart().asSeconds());
 
 		example->Update(dt);
-
-		//window.setActive();
-
 		example->Draw(window);
 
 		example->UpdateGUI(dt);
-		ImGui::Render();
+		Gui::Render();
 
 		window.display();
-		//window.setActive(false);
 
 		RenderUtil::Instance()->EndFrame();
 	}

@@ -17,6 +17,7 @@
 #include "Fury/FileUtil.h"
 #include "Fury/FbxParser.h"
 #include "Fury/Frustum.h"
+#include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Joint.h"
 #include "Fury/Light.h"

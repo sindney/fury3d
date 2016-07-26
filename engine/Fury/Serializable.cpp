@@ -16,6 +16,12 @@ namespace fury
 {
 	using namespace rapidjson;
 
+	std::string Serializable::GetValueType(const void* wrapper)
+	{
+		static const char* kTypeNames[] = { "Null", "False", "True", "Object", "Array", "String", "Number" };
+		return kTypeNames[static_cast<const Value*>(wrapper)->GetType()];
+	}
+
 	const void* Serializable::FindMember(const void* wrapper, const std::string &name)
 	{
 		const Value &dom = *static_cast<const Value*>(wrapper);
@@ -68,7 +74,7 @@ namespace fury
 		const Value &dom = *static_cast<const Value*>(wrapper);
 
 		Value::ConstMemberIterator it = dom.FindMember(name.c_str());
-		if (it == dom.MemberEnd() || !it->value.IsFloat())
+		if (it == dom.MemberEnd() || !it->value.IsDouble())
 			return false;
 
 		value = it->value.GetFloat();
@@ -195,6 +201,7 @@ namespace fury
 		}
 		else
 		{
+			FURYE << "Except bool not " << GetValueType(wrapper);
 			return false;
 		}
 	}
@@ -209,6 +216,7 @@ namespace fury
 		}
 		else
 		{
+			FURYE << "Except int not " << GetValueType(wrapper);
 			return false;
 		}
 	}
@@ -223,6 +231,7 @@ namespace fury
 		}
 		else
 		{
+			FURYE << "Except uint not " << GetValueType(wrapper);
 			return false;
 		}
 	}
@@ -230,13 +239,15 @@ namespace fury
 	bool Serializable::LoadValue(const void* wrapper, float &value)
 	{
 		const Value &dom = *static_cast<const Value*>(wrapper);
-		if (dom.IsFloat())
+
+		if (dom.IsDouble())
 		{
 			value = dom.GetFloat();
 			return true;
 		}
 		else
 		{
+			FURYE << "Except float not " << GetValueType(wrapper);
 			return false;
 		}
 	}
@@ -251,6 +262,7 @@ namespace fury
 		}
 		else
 		{
+			FURYE << "Except string not " << GetValueType(wrapper);
 			return false;
 		}
 	}
@@ -412,7 +424,7 @@ namespace fury
 	{
 		auto max = aabb.GetMax(), min = aabb.GetMin();
 		float raw[6] = { min.x, min.y, min.z, max.x, max.y, max.z };
-		SaveArray(wrapper, aabb.GetInfinite() ? 1 : 6, [&](unsigned int index)
+		SaveArray(wrapper, aabb.GetInfinite() ? 2 : 6, [&](unsigned int index)
 		{
 			SaveValue(wrapper, raw[index]);
 		});

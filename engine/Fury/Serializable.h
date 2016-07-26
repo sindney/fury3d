@@ -6,7 +6,7 @@
 #include <functional>
 #include <memory>
 
-#include "Macros.h"
+#include "Fury/Macros.h"
 
 namespace fury
 {
@@ -33,6 +33,8 @@ namespace fury
 		virtual void Save(void* wrapper, bool object = true) = 0;
 
 	protected:
+
+		static std::string GetValueType(const void* wrapper);
 
 		static const void* FindMember(const void* wrapper, const std::string &name);
 

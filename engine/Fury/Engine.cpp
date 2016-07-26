@@ -3,6 +3,7 @@
 #include "Fury/Engine.h"
 #include "Fury/FbxParser.h"
 #include "Fury/GLLoader.h"
+#include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
 #include "Fury/MeshUtil.h"
@@ -38,6 +39,10 @@ namespace fury
 		int flag = gl::LoadGLFunctions();
 
 		RenderUtil::Initialize();
+
+#ifdef _FURY_GUI_IMP_
+		Gui::Initialize(&window);
+#endif
 
 		if (flag == 1)
 		{

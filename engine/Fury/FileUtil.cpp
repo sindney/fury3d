@@ -2,6 +2,12 @@
 #include <sstream>
 #include <algorithm>
 
+#if defined(_WIN32)
+#include <winsock.h>
+#else 
+#include <arpa/inet.h>
+#endif
+
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
 #endif
@@ -35,20 +41,20 @@ namespace fury
 
 	std::string FileUtil::GetAbsPath()
 	{
-		#if defined(__APPLE__)
+#if defined(__APPLE__)
 		if (m_AbsPath.size() == 0)
 		{
 			CFBundleRef mainBundle = CFBundleGetMainBundle();
-		    CFURLRef resourcesURL = CFBundleCopyResourcesDirectoryURL(mainBundle);
-		    char path[512];
-		    if (!CFURLGetFileSystemRepresentation(resourcesURL, TRUE, (UInt8*)path, 512))
-		    {
-		        FURYE << "Absolute Path Not Found!";
-		    }
-		    CFRelease(resourcesURL);
-		    m_AbsPath = std::string(path) + '/';
+			CFURLRef resourcesURL = CFBundleCopyResourcesDirectoryURL(mainBundle);
+			char path[512];
+			if (!CFURLGetFileSystemRepresentation(resourcesURL, TRUE, (UInt8*)path, 512))
+			{
+				FURYE << "Absolute Path Not Found!";
+			}
+			CFRelease(resourcesURL);
+			m_AbsPath = std::string(path) + '/';
 		}
-		#endif
+#endif
 		return m_AbsPath;
 	}
 
@@ -61,7 +67,7 @@ namespace fury
 		return GetAbsPath() + clone;
 	}
 
-	bool FileUtil::FileExist(const std::string &path) 
+	bool FileUtil::FileExist(const std::string &path)
 	{
 		std::ifstream stream(path.c_str());
 		if (stream.good())
@@ -138,7 +144,7 @@ namespace fury
 			stream.close();
 
 			dom.Parse(buffer.str().c_str());
-			
+
 			if (dom.HasParseError())
 			{
 				FURYE << "Error parsing json file " << filePath << ": " << dom.GetParseError();
@@ -191,15 +197,19 @@ namespace fury
 	{
 		using namespace rapidjson;
 
-		std::ifstream stream(filePath);
+		std::ifstream stream(filePath, std::ios_base::binary);
 		if (stream)
 		{
 			Document dom;
 
 			{
-				uint32_t orgSize, compressSize;
-				stream.read((char*)&orgSize, sizeof(orgSize));
-				stream.read((char*)&compressSize, sizeof(compressSize));
+				uint32_t orgSize, compressSize, netOrgSize, netCompressSize;
+
+				stream.read((char*)&netOrgSize, sizeof(uint32_t));
+				orgSize = ntohl(netOrgSize);
+
+				stream.read((char*)&netCompressSize, sizeof(uint32_t));
+				compressSize = ntohl(netCompressSize);
 
 				char *srcBuffer = new char[compressSize];
 				stream.read(srcBuffer, compressSize);
@@ -218,7 +228,7 @@ namespace fury
 				delete[] buffer;
 				delete[] srcBuffer;
 			}
-			
+
 			if (dom.HasParseError())
 			{
 				FURYE << "Error parsing json file " << filePath << ": " << dom.GetParseError();
@@ -245,8 +255,8 @@ namespace fury
 	{
 		using namespace rapidjson;
 
-		std::ofstream output(filePath);
-		if (output)
+		std::ofstream stream(filePath, std::ios_base::binary);
+		if (stream)
 		{
 			StringBuffer sb;
 			PrettyWriter<StringBuffer> writer(sb);
@@ -260,17 +270,25 @@ namespace fury
 			uint32_t bufferSize = LZ4_compressBound(srcSize);
 			char* buffer = new char[bufferSize];
 
-			int size = LZ4_compress_default(src, buffer, srcSize, bufferSize);
+			uint32_t size = LZ4_compress_default(src, buffer, srcSize, bufferSize);
 			if (size == 0)
 			{
 				FURYE << "Failed to compress json string!";
 				return false;
 			}
+			else
+			{
+				FURYD << "Before: " << srcSize << " After: " << size;
+			}
 
-			output.write((char*)&srcSize, sizeof(srcSize));
-			output.write((char*)&size, sizeof(size));
-			output.write(buffer, size);
-			output.close();
+			uint32_t netSrcSize = htonl(srcSize);
+			uint32_t netSize = htonl(size);
+
+			stream.write((char*)&netSrcSize, sizeof(uint32_t));
+			stream.write((char*)&netSize, sizeof(uint32_t));
+			stream.write(buffer, size);
+			stream.flush();
+			stream.close();
 
 			delete[] buffer;
 

@@ -15,16 +15,21 @@ set(RAPIDJSON_INCLUDE "/usr/local/include" CACHE PATH "Path to rapidjson headers
 set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
 set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
 
-option(FBXPARSER_IMP "Build FbxParser.")
+option(FBXPARSER_IMP "Use FbxParser." OFF)
 if(FBXPARSER_IMP)
-	add_definitions(-D_FURY_FBXPARSER_IMP)
+	add_definitions(-D_FURY_FBXPARSER_IMP_)
 	set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
 	set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
 	set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")
 	set(FBXSDK_LIB optimized ${FBXSDK_LIB_RELEASE} debug ${FBXSDK_LIB_DEBUG})
 endif()
 
-set(CMAKE_CXX_FLAGS "-std=c++11")
+option(GUI_IMP "Use ImGui." ON)
+if(GUI_IMP)
+	add_definitions(-D_FURY_GUI_IMP_)
+endif()
+
+set(CMAKE_CXX_FLAGS "-std=c++11 -Wno-int-to-void-pointer-cast")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -NDEBUG")
 

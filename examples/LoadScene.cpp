@@ -12,7 +12,7 @@ void LoadScene::Init(sf::Window &window)
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
 	Scene::Active = m_Scene = Scene::Create("main", FileUtil::GetAbsPath(), m_OcTree);
 	FileUtil::LoadCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
-	// FileUtil::LoadFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.json"));
+	//FileUtil::LoadFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.json"));
 
 	auto lights = { /*"Lamp.001", "Lamp.002", "Lamp.003", */"Lamp.004", "Sun", "Spot", "Fire" };
 	for (auto lightName : lights)

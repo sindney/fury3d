@@ -1,7 +1,7 @@
+#ifdef _FURY_FBXPARSER_IMP_
+
 #ifndef _FURY_FBXPARSER_H_
 #define _FURY_FBXPARSER_H_
-
-#ifdef _FURY_FBXPARSER_IMP_
 
 #include <unordered_map>
 
@@ -105,6 +105,6 @@ namespace fury
 	};
 }
 
-#endif // _FURY_FBXPARSER_IMP_
-
 #endif // _FURY_FBXPARSER_H_
+
+#endif // _FURY_FBXPARSER_IMP_

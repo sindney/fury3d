@@ -466,11 +466,10 @@ namespace fury
 				if (fileTexture)
 				{
 					bool mipMap = (bool)fileTexture->UseMipMap;
-					std::string filePath = m_FbxFolder + fileTexture->GetRelativeFileName();
 
 					auto texture = Texture::Create(fileTexture->GetName());
 					texture->SetFilterMode(mipMap ? FilterMode::LINEAR_MIPMAP_LINEAR : FilterMode::LINEAR);
-					texture->CreateFromImage(filePath, mipMap);
+					texture->CreateFromImage(fileTexture->GetRelativeFileName(), mipMap);
 
 					return texture;
 				}
@@ -534,11 +533,10 @@ namespace fury
 				if (fileTexture)
 				{
 					bool mipMap = (bool)fileTexture->UseMipMap;
-					std::string filePath = m_FbxFolder + fileTexture->GetRelativeFileName();
 
 					auto texture = Texture::Create(fileTexture->GetName());
 					texture->SetFilterMode(mipMap ? FilterMode::LINEAR_MIPMAP_LINEAR : FilterMode::LINEAR);
-					texture->CreateFromImage(filePath, mipMap);
+					texture->CreateFromImage(fileTexture->GetRelativeFileName(), mipMap);
 
 					return texture;
 				}

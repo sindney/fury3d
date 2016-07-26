@@ -18,11 +18,11 @@ void LoadFbxFile::Init(sf::Window &window)
 	importOptions.AnimCompressLevel = 0.25f;
 
 	m_OcTree = OcTree::Create(Vector4(-1000, -1000, -1000, 1), Vector4(1000, 1000, 1000, 1), 2);
-	Scene::Active = m_Scene = Scene::Create("main", FileUtil::GetAbsPath(), m_OcTree);
+	Scene::Active = m_Scene = Scene::Create("main", FileUtil::GetAbsPath("Resource/Scene/"), m_OcTree);
 
 	if (false)
 	{
-		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/james.fbx"), m_Scene->GetRootNode(), importOptions);
+		FbxParser::Instance()->LoadScene("Resource/Scene/james.fbx", m_Scene->GetRootNode(), importOptions);
 
 		Scene::Active->GetEntityManager()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 		{
