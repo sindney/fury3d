@@ -27,7 +27,6 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 计划:
 
 * 添加阴影. (已实现，需改进)
-
 * 添加骨骼动画. (已简单实现，仍需改进)
 
 ## 兼容性
@@ -35,7 +34,6 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 测试编译器: 
 
 * MSVC 2013 Community
-
 * Apple LLVM version 7.0.2 (clang-700.1.81)
 
 由于FBX SDK在Windows系统上 (FBXSDK为可选编译选项，可通过引擎的场景文件载入场景)，只有MSVC编译的版本，所以在Windows上必须用MSVC编译Fury3D。

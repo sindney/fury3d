@@ -27,7 +27,6 @@ Features:
 Plans:
 
 * Add shadow maps. (Done, need improvements)
-
 * Add skeleton animation support. (Done, but need improvements)
 
 ## Compatibility
@@ -35,7 +34,6 @@ Plans:
 Tested compilers: 
 
 * MSVC 2013 Community
-
 * Apple LLVM version 7.0.2 (clang-700.1.81)
 
 Because fbxsdk only offers MSVC builds on windows (FBXSDK is optional, you can load scene using engine's custom scene format), so you must use MSVC to build the library.
