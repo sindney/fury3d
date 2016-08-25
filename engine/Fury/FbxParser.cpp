@@ -456,7 +456,7 @@ namespace fury
 
 		material->SetUniform(Material::MATERIAL_ID, Uniform1ui::Create({ material->GetID() }));
 
-		auto GetTexture = [&](FbxPropertyT<FbxDouble3> prop) -> Texture::Ptr
+		auto GetTexture = [&](FbxPropertyT<FbxDouble3> prop, bool srgb) -> Texture::Ptr
 		{
 			if (prop.IsValid() && prop.GetSrcObjectCount<FbxTexture>() > 0)
 			{
@@ -469,7 +469,7 @@ namespace fury
 
 					auto texture = Texture::Create(fileTexture->GetName());
 					texture->SetFilterMode(mipMap ? FilterMode::LINEAR_MIPMAP_LINEAR : FilterMode::LINEAR);
-					texture->CreateFromImage(fileTexture->GetRelativeFileName(), mipMap);
+					texture->CreateFromImage(fileTexture->GetRelativeFileName(), srgb, mipMap);
 
 					return texture;
 				}
@@ -483,11 +483,11 @@ namespace fury
 		};
 
 		// read tetxures.
-		material->SetTexture(Material::DIFFUSE_TEXTURE, GetTexture(fbxPhong->Diffuse));
+		material->SetTexture(Material::DIFFUSE_TEXTURE, GetTexture(fbxPhong->Diffuse, true));
 		if (m_ImportOptions.Flags & FbxImportFlags::SPECULAR_MAP)
-			material->SetTexture(Material::SPECULAR_TEXTURE, GetTexture(fbxPhong->Specular));
+			material->SetTexture(Material::SPECULAR_TEXTURE, GetTexture(fbxPhong->Specular, false));
 		if (m_ImportOptions.Flags & FbxImportFlags::NORMAL_MAP)
-			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxPhong->NormalMap));
+			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxPhong->NormalMap, false));
 
 		FURYD << fbxPhong->GetName();
 
@@ -523,7 +523,7 @@ namespace fury
 
 		material->SetUniform(Material::MATERIAL_ID, Uniform1ui::Create({ material->GetID() }));
 
-		auto GetTexture = [&](FbxPropertyT<FbxDouble3> prop) -> Texture::Ptr
+		auto GetTexture = [&](FbxPropertyT<FbxDouble3> prop, bool srgb) -> Texture::Ptr
 		{
 			if (prop.IsValid() && prop.GetSrcObjectCount<FbxTexture>() > 0)
 			{
@@ -536,7 +536,7 @@ namespace fury
 
 					auto texture = Texture::Create(fileTexture->GetName());
 					texture->SetFilterMode(mipMap ? FilterMode::LINEAR_MIPMAP_LINEAR : FilterMode::LINEAR);
-					texture->CreateFromImage(fileTexture->GetRelativeFileName(), mipMap);
+					texture->CreateFromImage(fileTexture->GetRelativeFileName(), srgb, mipMap);
 
 					return texture;
 				}
@@ -550,9 +550,9 @@ namespace fury
 		};
 
 		// read tetxures.
-		material->SetTexture(Material::DIFFUSE_TEXTURE, GetTexture(fbxLambert->Diffuse));
+		material->SetTexture(Material::DIFFUSE_TEXTURE, GetTexture(fbxLambert->Diffuse, true));
 		if (m_ImportOptions.Flags & FbxImportFlags::NORMAL_MAP)
-			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxLambert->NormalMap));
+			material->SetTexture(Material::NORMAL_TEXTURE, GetTexture(fbxLambert->NormalMap, false));
 
 		FURYD << fbxLambert->GetName();
 

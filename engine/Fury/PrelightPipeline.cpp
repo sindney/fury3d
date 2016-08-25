@@ -106,7 +106,8 @@ namespace fury
 
 		// draw passes
 
-		for (unsigned int i = 0; i < m_SortedPasses.size(); i++)
+		unsigned int passCount = m_SortedPasses.size();
+		for (unsigned int i = 0; i < passCount; i++)
 		{
 			auto passName = m_SortedPasses[i];
 			auto pass = m_PassMap[passName];
@@ -120,6 +121,10 @@ namespace fury
 				continue;
 
 			auto query = queries[m_CurrentCamera->GetName()];
+
+			// enable gamma correction on last pass
+			if (i == passCount - 1)
+				glEnable(GL_FRAMEBUFFER_SRGB);
 
 			if (drawMode == DrawMode::OPAQUE)
 			{
@@ -158,6 +163,9 @@ namespace fury
 					}
 				}
 			}
+
+			if (i == passCount - 1)
+				glDisable(GL_FRAMEBUFFER_SRGB);
 		}
 
 		// draw debug

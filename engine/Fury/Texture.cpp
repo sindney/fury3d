@@ -97,7 +97,9 @@ namespace fury
 
 		if (LoadMemberValue(wrapper, "path", str))
 		{
-			CreateFromImage(str, mipmap);
+			bool srgb = false;
+			LoadMemberValue(wrapper, "srgb", srgb);
+			CreateFromImage(str, srgb, mipmap);
 		}
 		else
 		{
@@ -152,6 +154,9 @@ namespace fury
 		{
 			SaveKey(wrapper, "path");
 			SaveValue(wrapper, m_FilePath);
+			SaveKey(wrapper, "srgb");
+			SaveValue(wrapper, m_Format == TextureFormat::SRGB || m_Format == TextureFormat::SRGB8 ||
+				m_Format == TextureFormat::SRGB8_ALPHA8 || m_Format == TextureFormat::SRGB_ALPHA);
 		}
 
 		SaveKey(wrapper, "borderColor");
@@ -168,7 +173,7 @@ namespace fury
 			EndObject(wrapper);
 	}
 
-	void Texture::CreateFromImage(const std::string &filePath, bool mipMap)
+	void Texture::CreateFromImage(const std::string &filePath, bool srgb, bool mipMap)
 	{
 		DeleteBuffer();
 
@@ -182,24 +187,14 @@ namespace fury
 
 			switch (channels)
 			{
-			case 1:
-				m_Format = TextureFormat::R8;
-				internalFormat = GL_R8;
-				imageFormat = GL_RED;
-				break;
-			case 2:
-				m_Format = TextureFormat::RG8;
-				internalFormat = GL_RG8;
-				imageFormat = GL_RG;
-				break;
 			case 3:
-				m_Format = TextureFormat::RGB8;
-				internalFormat = GL_RGB8;
+				m_Format = srgb ? TextureFormat::SRGB8 : TextureFormat::RGB8;
+				internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
 				imageFormat = GL_RGB;
 				break;
 			case 4: 
-				m_Format = TextureFormat::RGBA8;
-				internalFormat = GL_RGBA8;
+				m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
+				internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
 				imageFormat = GL_RGBA;
 				break;
 			default:
