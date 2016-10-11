@@ -1,5 +1,5 @@
-#ifndef _FURY_ANGLE_H_
-#define _FURY_ANGLE_H_
+#ifndef _FURY_MATHUTIL_H_
+#define _FURY_MATHUTIL_H_
 
 #include <vector>
 #include <memory>
@@ -50,4 +50,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_ANGLE_H_
+#endif // _FURY_MATHUTIL_H_
