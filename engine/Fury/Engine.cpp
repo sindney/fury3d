@@ -45,10 +45,7 @@ namespace fury
 #endif
 
 		if (flag == 1)
-		{
-			//glEnable(GL_FRAMEBUFFER_SRGB);
 			return true;
-		}
 
 		if (flag < 1)
 		{

@@ -22,11 +22,7 @@ public:
 
 	virtual void Init(sf::Window &window) = 0;
 
-	virtual void PreFixedUpdate() = 0;
-
 	virtual void FixedUpdate() = 0;
-
-	virtual void PostFixedUpdate() = 0;
 
 	virtual void Update(float dt) = 0;
 

@@ -520,7 +520,6 @@ namespace fury
 		}));
 		material->SetUniform(Material::DIFFUSE_COLOR, GetUniform3f(fbxLambert->Diffuse));
 		material->SetUniform(Material::EMISSIVE_COLOR, GetUniform3f(fbxLambert->Emissive));
-
 		material->SetUniform(Material::MATERIAL_ID, Uniform1ui::Create({ material->GetID() }));
 
 		auto GetTexture = [&](FbxPropertyT<FbxDouble3> prop, bool srgb) -> Texture::Ptr

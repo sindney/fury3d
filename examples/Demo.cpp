@@ -58,27 +58,24 @@ int main(int argc, char *argv[])
 	{
 		RenderUtil::Instance()->BeginFrame();
 
+		// Sync event
+		while (window.pollEvent(event))
+		{
+			if (event.type == sf::Event::Closed)
+			{
+				example->running = false;
+				break;
+			}
+
+			Engine::HandleEvent(event);
+			Gui::HandleEvent(event);
+		}
+
 		// Update game logic TICKS_PER_SECOND times per second.
 		int numLoops = 0;
 		while (clock.getElapsedTime().asMilliseconds() > next_game_tick && numLoops < MAX_FRAMESKIP && example->running)
 		{
-			example->PreFixedUpdate();
-
-			while (window.pollEvent(event))
-			{
-				if (event.type == sf::Event::Closed)
-				{
-					example->running = false;
-					break;
-				}
-
-				Engine::HandleEvent(event);
-				Gui::HandleEvent(event);
-			}
-
 			example->FixedUpdate();
-			example->PostFixedUpdate();
-
 			next_game_tick += SKIP_TICKS;
 			numLoops++;
 		}

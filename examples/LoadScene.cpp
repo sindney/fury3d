@@ -52,7 +52,7 @@ void LoadScene::Init(sf::Window &window)
 	m_Pipeline->AddDebugCollidable(m_CamNode->GetComponent<Camera>()->GetFrustum());
 	m_Pipeline->AddDebugCollidable(m_CamNode->GetComponent<Camera>()->GetShadowBounds());
 
-	// FileUtil::SaveCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
+	//FileUtil::SaveCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
 	//FileUtil::SaveCompressedFile(m_Pipeline, "Resource/pipeline.json");
 }
 

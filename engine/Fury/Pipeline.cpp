@@ -29,14 +29,6 @@ namespace fury
 {
 	Pipeline::Ptr Pipeline::Active = nullptr;
 
-	const std::string Pipeline::OPT_CASCADED_SHADOW_MAP = "cascaded_shadow_map";
-
-	const std::string Pipeline::OPT_MESH_BOUNDS = "mesh_bounds";
-
-	const std::string Pipeline::OPT_LIGHT_BOUNDS = "light_bounds";
-
-	const std::string Pipeline::OPT_CUSTOM_BOUNDS = "custom_bounds";
-
 	Pipeline::Pipeline(const std::string &name) : Entity(name)
 	{
 		m_TypeIndex = typeid(Pipeline);
@@ -50,9 +42,7 @@ namespace fury
 			0.5, 0.5, 0.5, 1.0
 		});
 
-		SetOption(OPT_CUSTOM_BOUNDS, false);
-		SetOption(OPT_LIGHT_BOUNDS, false);
-		SetOption(OPT_MESH_BOUNDS, false);
+		m_Switches.reset();
 
 		m_EntityManager = EntityManager::Create();
 	}
@@ -87,7 +77,6 @@ namespace fury
 			if (!texture->Load(node))
 				return false;
 
-			m_TextureMap.emplace(texture->GetName(), texture);
 			m_EntityManager->Add(texture);
 
 			return true;
@@ -109,7 +98,6 @@ namespace fury
 			if (!shader->Load(node))
 				return false;
 
-			m_ShaderMap.emplace(shader->GetName(), shader);
 			m_EntityManager->Add(shader);
 
 			return true;
@@ -131,7 +119,7 @@ namespace fury
 			if (!pass->Load(node))
 				return false;
 
-			m_PassMap.emplace(str, pass);
+			m_EntityManager->Add(pass);
 
 			return true;
 		}))
@@ -152,23 +140,22 @@ namespace fury
 
 		Entity::Save(wrapper, false);
 
-		// TODO: maybe save to entityManager?
 		SaveKey(wrapper, "textures");
-		SaveArray<TextureMap>(wrapper, m_TextureMap, [&](TextureMap::const_iterator it)
+		SaveArray<Texture>(wrapper, m_EntityManager, [&](const std::shared_ptr<Texture> &ptr)
 		{
-			it->second->Save(wrapper);
+			ptr->Save(wrapper);
 		});
 
 		SaveKey(wrapper, "shaders");
-		SaveArray<ShaderMap>(wrapper, m_ShaderMap, [&](ShaderMap::const_iterator it)
+		SaveArray<Shader>(wrapper, m_EntityManager, [&](const std::shared_ptr<Shader> &ptr)
 		{
-			it->second->Save(wrapper);
+			ptr->Save(wrapper);
 		});
 
 		SaveKey(wrapper, "passes");
-		SaveArray<PassMap>(wrapper, m_PassMap, [&](PassMap::const_iterator it)
+		SaveArray<Pass>(wrapper, m_EntityManager, [&](const std::shared_ptr<Pass> &ptr)
 		{
-			it->second->Save(wrapper);
+			ptr->Save(wrapper);
 		});
 
 		if (object)
@@ -180,15 +167,47 @@ namespace fury
 		return m_EntityManager;
 	}
 
+	void Pipeline::SetSwitch(PipelineSwitch key, bool value)
+	{
+		m_Switches.set((unsigned int)key, value);
+	}
+
+	bool Pipeline::IsSwitchOn(PipelineSwitch key)
+	{
+		return m_Switches.test((unsigned int)key);
+	}
+
+	bool Pipeline::IsSwitchOn(std::initializer_list<PipelineSwitch> list, bool any)
+	{
+		for (auto key : list)
+		{
+			bool value = IsSwitchOn(key);
+			if (any)
+			{
+				if (value)
+					return true;
+			}
+			else
+			{
+				if (!value)
+					return false;
+			}
+		}
+		return any ? false : true;
+	}
+
 	void Pipeline::SortPassByIndex()
 	{
 		using DataPair = std::pair<unsigned int, std::string>;
 
 		std::vector<DataPair> wrapper;
-		wrapper.reserve(m_PassMap.size());
+		wrapper.reserve(m_EntityManager->Count<Pass>());
 
-		for (auto pair : m_PassMap)
-			wrapper.push_back(std::make_pair(pair.second->GetRenderIndex(), pair.first));
+		m_EntityManager->ForEach<Pass>([&](const Pass::Ptr &ptr) -> bool
+		{
+			wrapper.push_back(std::make_pair(ptr->GetRenderIndex(), ptr->GetName()));
+			return true;
+		});
 
 		std::sort(wrapper.begin(), wrapper.end(), [](const DataPair &a, const DataPair &b)
 		{
@@ -199,27 +218,6 @@ namespace fury
 		m_SortedPasses.reserve(wrapper.size());
 		for (auto pair : wrapper)
 			m_SortedPasses.push_back(pair.second);
-	}
-
-	void Pipeline::SetOption(const std::string &name, bool value)
-	{
-		m_Options[name].boolValue = value;
-	}
-
-	void Pipeline::SetOption(const std::string &name, float value)
-	{
-		m_Options[name].floatValue = value;
-	}
-
-	void Pipeline::SetOption(const std::string &name, int value)
-	{
-		m_Options[name].intValue = value;
-	}
-
-	std::pair<bool, PipelineOption> Pipeline::GetOption(const std::string &name)
-	{
-		auto it = m_Options.find(name);
-		return std::make_pair(it != m_Options.end(), it->second);
 	}
 
 	void Pipeline::ClearDebugCollidables()
@@ -240,29 +238,17 @@ namespace fury
 
 	std::shared_ptr<Pass> Pipeline::GetPassByName(const std::string &name)
 	{
-		auto it = m_PassMap.find(name);
-		if (it != m_PassMap.end())
-			return it->second;
-
-		return nullptr;
+		return m_EntityManager->Get<Pass>(name);
 	}
 
 	std::shared_ptr<Texture> Pipeline::GetTextureByName(const std::string &name)
 	{
-		auto it = m_TextureMap.find(name);
-		if (it != m_TextureMap.end())
-			return it->second;
-
-		return nullptr;
+		return m_EntityManager->Get<Texture>(name);
 	}
 
 	std::shared_ptr<Shader> Pipeline::GetShaderByName(const std::string &name)
 	{
-		auto it = m_ShaderMap.find(name);
-		if (it != m_ShaderMap.end())
-			return it->second;
-
-		return nullptr;
+		return m_EntityManager->Get<Shader>(name);
 	}
 
 	void Pipeline::FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions)
@@ -758,34 +744,35 @@ namespace fury
 		glCullFace(GL_BACK);
 		glDisable(GL_BLEND);
 
-		auto optMeshBounds = GetOption(OPT_MESH_BOUNDS);
-		auto optCustomBounds = GetOption(OPT_CUSTOM_BOUNDS);
-		auto optLightBounds = GetOption(OPT_LIGHT_BOUNDS);
+		auto meshBoundsOn = IsSwitchOn(PipelineSwitch::MESH_BOUNDS);
+		auto customBoundsOn = IsSwitchOn(PipelineSwitch::CUSTOM_BOUNDS);
+		auto lightBoundsOn = IsSwitchOn(PipelineSwitch::LIGHT_BOUNDS);
 
 		auto renderUtil = RenderUtil::Instance();
 
-		for (auto &pair : m_PassMap)
+		auto end = m_EntityManager->End<Pass>();
+		for (auto it = m_EntityManager->Begin<Pass>(); it != end; ++it)
 		{
-			auto pass = pair.second;
+			auto pass = std::static_pointer_cast<Pass>(it->second);
 			auto camNode = pass->GetCameraNode();
 
 			if (camNode == nullptr || pass->GetDrawMode() == DrawMode::QUAD)
 				continue;
 
-			auto it = queries.find(camNode->GetName());
-			if (it == queries.end())
+			auto it0 = queries.find(camNode->GetName());
+			if (it0 == queries.end())
 				continue;
 
-			auto visibles = it->second;
+			auto visibles = it0->second;
 			renderUtil->BeginDrawLines(camNode);
 
-			if (optMeshBounds.second.boolValue)
+			if (meshBoundsOn)
 			{
 				for (auto node : visibles->renderableNodes)
 					renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
 			}
 
-			if (optCustomBounds.second.boolValue)
+			if (customBoundsOn)
 			{
 				for (const auto &bounds : m_DebugFrustum)
 					renderUtil->DrawFrustum(bounds, Color::Green);
@@ -798,7 +785,7 @@ namespace fury
 
 			renderUtil->BeginDrawMeshs(camNode);
 
-			if (optLightBounds.second.boolValue)
+			if (lightBoundsOn)
 			{
 				for (auto node : visibles->lightNodes)
 				{

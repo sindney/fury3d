@@ -34,7 +34,7 @@ namespace fury
 		: Pipeline(name)
 	{
 		m_TypeIndex = typeid(PrelightPipeline);
-		SetOption(OPT_CASCADED_SHADOW_MAP, true);
+		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, true);
 	}
 
 	bool PrelightPipeline::Load(const void* wrapper, bool object)
@@ -48,11 +48,11 @@ namespace fury
 		if (!Pipeline::Load(wrapper, false))
 			return false;
 
-		PipelineOption opt;
-		if (LoadMemberValue(wrapper, OPT_CASCADED_SHADOW_MAP, opt.boolValue))
-			SetOption(OPT_CASCADED_SHADOW_MAP, opt.boolValue);
+		bool boolValue = IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
+		if (LoadMemberValue(wrapper, "cascaded_shadow_map", boolValue))
+			SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, boolValue);
 		else
-			SetOption(OPT_CASCADED_SHADOW_MAP, true);
+			SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, true);
 
 		return true;
 	}
@@ -64,8 +64,8 @@ namespace fury
 
 		Pipeline::Save(wrapper, false);
 
-		SaveKey(wrapper, OPT_CASCADED_SHADOW_MAP);
-		SaveValue(wrapper, GetOption(OPT_CASCADED_SHADOW_MAP).second.boolValue);
+		SaveKey(wrapper, "cascaded_shadow_map");
+		SaveValue(wrapper, IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP));
 
 		if (object)
 			EndObject(wrapper);
@@ -81,27 +81,30 @@ namespace fury
 		// find visible nodes, 1 cam 1 query
 		std::unordered_map<std::string, RenderQuery::Ptr> queries;
 
-		for (auto pair : m_PassMap)
 		{
-			auto pass = pair.second;
-			auto camNode = pass->GetCameraNode();
-
-			if (camNode == nullptr)
+			auto end = m_EntityManager->End<Pass>();
+			for (auto it = m_EntityManager->Begin<Pass>(); it != end; ++it)
 			{
-				FURYW << "Camera for pass " + pass->GetName() + " not found!";
-				continue;
+				auto pass = std::static_pointer_cast<Pass>(it->second);
+				auto camNode = pass->GetCameraNode();
+
+				if (camNode == nullptr)
+				{
+					FURYW << "Camera for pass " + pass->GetName() + " not found!";
+					continue;
+				}
+
+				auto it0 = queries.find(camNode->GetName());
+				if (it0 != queries.end())
+					continue;
+
+				RenderQuery::Ptr query = RenderQuery::Create();
+
+				sceneManager->GetRenderQuery(camNode->GetComponent<Camera>()->GetFrustum(), query);
+				query->Sort(camNode->GetWorldPosition());
+
+				queries.emplace(camNode->GetName(), query);
 			}
-
-			auto it = queries.find(camNode->GetName());
-			if (it != queries.end())
-				continue;
-
-			RenderQuery::Ptr query = RenderQuery::Create();
-
-			sceneManager->GetRenderQuery(camNode->GetComponent<Camera>()->GetFrustum(), query);
-			query->Sort(camNode->GetWorldPosition());
-
-			queries.emplace(camNode->GetName(), query);
 		}
 
 		// draw passes
@@ -110,7 +113,7 @@ namespace fury
 		for (unsigned int i = 0; i < passCount; i++)
 		{
 			auto passName = m_SortedPasses[i];
-			auto pass = m_PassMap[passName];
+			auto pass = m_EntityManager->Get<Pass>(passName);
 
 			auto drawMode = pass->GetDrawMode();
 
@@ -169,9 +172,8 @@ namespace fury
 		}
 
 		// draw debug
-		if (GetOption(OPT_CUSTOM_BOUNDS).second.boolValue || 
-			GetOption(OPT_LIGHT_BOUNDS).second.boolValue || 
-			GetOption(OPT_MESH_BOUNDS).second.boolValue)
+		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS, 
+			PipelineSwitch::MESH_BOUNDS }, true))
 			DrawDebug(queries);
 
 		// post
@@ -324,7 +326,7 @@ namespace fury
 
 		Shader::Ptr shader = nullptr;
 		bool castShadows = light->GetCastShadows();
-		bool useCascaded = GetOption(OPT_CASCADED_SHADOW_MAP).second.boolValue;
+		bool useCascaded = IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
 
 		// find correct shader.
 		shader = GetShaderByName(castShadows ? 

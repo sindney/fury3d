@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "Fury/Macros.h"
+#include "Fury/EntityManager.h"
 
 namespace fury
 {
@@ -105,6 +106,19 @@ namespace fury
 		static void SaveValue(void* wrapper, const BoxBounds &aabb);
 
 		static void SaveArray(void *wrapper, unsigned int count, std::function<void(unsigned int)> walker);
+
+		template<class T>
+		static void SaveArray(void *wrapper, const std::shared_ptr<EntityManager> &ptr, 
+			std::function<void(const std::shared_ptr<T>&)> walker)
+		{
+			StartArray(wrapper);
+
+			auto end = ptr->End<T>();
+			for (auto it = ptr->Begin<T>(); it != end; ++it)
+				walker(std::static_pointer_cast<T>(it->second));
+
+			EndArray(wrapper);
+		}
 
 		template<class Container>
 		static void SaveArray(void *wrapper, Container &raw, std::function<void(decltype(raw.begin()))> walker)

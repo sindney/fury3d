@@ -34,11 +34,7 @@ public:
 
 	virtual void Init(sf::Window &window);
 
-	virtual void PreFixedUpdate();
-
 	virtual void FixedUpdate();
-
-	virtual void PostFixedUpdate();
 
 	virtual void Update(float dt);
 

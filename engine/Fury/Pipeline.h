@@ -4,6 +4,7 @@
 #include <memory>
 #include <unordered_map>
 #include <string>
+#include <bitset>
 
 #include "Fury/Entity.h"
 
@@ -31,13 +32,13 @@ namespace fury
 
 	class RenderQuery;
 
-	union PipelineOption
+	enum class PipelineSwitch : unsigned int
 	{
-		int intValue;
-
-		float floatValue;
-
-		bool boolValue;
+		CASCADED_SHADOW_MAP = 0, 
+		MESH_BOUNDS, 
+		LIGHT_BOUNDS, 
+		CUSTOM_BOUNDS, 
+		LENGTH
 	};
 
 	class FURY_API Pipeline : public Entity
@@ -50,33 +51,13 @@ namespace fury
 
 		static Ptr Active;
 
-		typedef std::unordered_map<std::string, std::shared_ptr<Texture>> TextureMap;
-
-		typedef std::unordered_map<std::string, std::shared_ptr<Shader>> ShaderMap;
-
-		typedef std::unordered_map<std::string, std::shared_ptr<Pass>> PassMap;
-
-		typedef std::unordered_map<std::string, PipelineOption> OptionMap;
-
-		static const std::string OPT_CASCADED_SHADOW_MAP;
-
-		static const std::string OPT_MESH_BOUNDS;
-
-		static const std::string OPT_LIGHT_BOUNDS;
-
-		static const std::string OPT_CUSTOM_BOUNDS;
-
 	protected:
 
 		std::shared_ptr<EntityManager> m_EntityManager;
 
-		TextureMap m_TextureMap;
-
-		PassMap m_PassMap;
-
-		ShaderMap m_ShaderMap;
-
 		std::vector<std::string> m_SortedPasses;
+
+		std::bitset<(size_t)PipelineSwitch::LENGTH> m_Switches;
 
 		// rendering
 
@@ -89,8 +70,6 @@ namespace fury
 		Matrix4 m_OffsetMatrix;
 
 		// end rendering
-
-		OptionMap m_Options;
 
 		// debug
 
@@ -115,13 +94,11 @@ namespace fury
 		// basiclly saves all pipeline && pass's textures, shaders
 		std::shared_ptr<EntityManager> GetEntityManager() const;
 
-		void SetOption(const std::string &name, bool value);
+		void SetSwitch(PipelineSwitch key, bool value);
 
-		void SetOption(const std::string &name, float value);
+		bool IsSwitchOn(PipelineSwitch key);
 
-		void SetOption(const std::string &name, int value);
-
-		std::pair<bool, PipelineOption> GetOption(const std::string &name);
+		bool IsSwitchOn(std::initializer_list<PipelineSwitch> list, bool any = true);
 
 		void ClearDebugCollidables();
 
@@ -149,7 +126,7 @@ namespace fury
 
 		std::pair<std::shared_ptr<Texture>, Matrix4> DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
-		// en shaodw mapping
+		// end shaodw mapping
 
 		void DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries);
 

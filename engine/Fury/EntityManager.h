@@ -87,6 +87,16 @@ namespace fury
 		}
 
 		template<class ObjectType>
+		size_t Count()
+		{
+			auto it0 = m_EntityMap.find(typeid(ObjectType));
+			if (it0 != m_EntityMap.end())
+				return it0->second.size();
+			else 
+				return 0;
+		}
+
+		template<class ObjectType>
 		std::shared_ptr<ObjectType> Get(size_t hashcode)
 		{
 			std::type_index key0 = typeid(ObjectType);

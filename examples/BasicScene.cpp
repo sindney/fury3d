@@ -15,14 +15,11 @@ void BasicScene::Init(sf::Window &window)
 
 }
 
-void BasicScene::PreFixedUpdate()
-{
-	m_CamNode->GetComponent<Transform>()->SyncTransforms();
-}
-
 void BasicScene::FixedUpdate()
 {
 	auto &inputMgr = InputUtil::Instance();
+
+	m_CamNode->GetComponent<Transform>()->SyncTransforms();
 
 	if (inputMgr->GetKeyDown(sf::Keyboard::Escape))
 		running = false;
@@ -40,6 +37,9 @@ void BasicScene::FixedUpdate()
 		m_CamPos.z = m_CamSpeed;
 	else
 		m_CamPos.z = 0;
+
+	if (m_CamPos.Length() > 0)
+		m_CamNode->GetComponent<Transform>()->SetPostPosition(m_CamNode->GetWorldMatrix().Multiply(m_CamPos));
 
 	auto mousePos = inputMgr->GetMousePosition();
 	if (inputMgr->GetMouseDown(sf::Mouse::Middle) || inputMgr->GetMouseDown(sf::Mouse::Right))
@@ -63,11 +63,6 @@ void BasicScene::FixedUpdate()
 	}
 	m_OldMouseX = mousePos.first;
 	m_OldMouseY = mousePos.second;
-}
-
-void BasicScene::PostFixedUpdate()
-{
-	m_CamNode->GetComponent<Transform>()->SetPostPosition(m_CamNode->GetWorldMatrix().Multiply(m_CamPos));
 }
 
 void BasicScene::Update(float dt)

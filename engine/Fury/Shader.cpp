@@ -376,6 +376,8 @@ namespace fury
 
 	void Shader::BindLight(const std::shared_ptr<SceneNode> &lightNode)
 	{
+		static float pi = 3.141592653f;
+
 		Vector4 lightPos = lightNode->GetWorldPosition();
 		Vector4 lightDir = lightNode->GetWorldMatrix().Multiply(Vector4(0, -1, 0, 0));
 		lightDir.Normalize();
@@ -384,7 +386,7 @@ namespace fury
 			Color color = light->GetColor();
 			BindFloat("light_pos", lightPos.x, lightPos.y, lightPos.z);
 			BindFloat("light_dir", lightDir.x, lightDir.y, lightDir.z);
-			BindFloat("light_color", color.r, color.g, color.b);
+			BindFloat("light_color", color.r / pi, color.g / pi, color.b / pi);
 			BindFloat("light_intensity", light->GetIntensity());
 			BindFloat("light_innerangle", light->GetInnerAngle());
 			BindFloat("light_outterangle", light->GetOutterAngle());

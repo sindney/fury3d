@@ -444,13 +444,13 @@ namespace fury
 				ImGui::Checkbox("Draw Mesh Bounds", &draw_mesh_bounds);
 				ImGui::Checkbox("Draw Custom Bounds", &draw_custom_bounds);
 
-				Pipeline::Active->SetOption(Pipeline::OPT_CUSTOM_BOUNDS, draw_custom_bounds);
-				Pipeline::Active->SetOption(Pipeline::OPT_LIGHT_BOUNDS, draw_light_bounds);
-				Pipeline::Active->SetOption(Pipeline::OPT_MESH_BOUNDS, draw_mesh_bounds);
+				Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
+				Pipeline::Active->SetSwitch(PipelineSwitch::LIGHT_BOUNDS, draw_light_bounds);
+				Pipeline::Active->SetSwitch(PipelineSwitch::MESH_BOUNDS, draw_mesh_bounds);
 
 				static bool use_csm = true;
 				ImGui::Checkbox("Use Cascaded Shadow Map", &use_csm);
-				Pipeline::Active->SetOption(Pipeline::OPT_CASCADED_SHADOW_MAP, use_csm);
+				Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm);
 
 				ImGui::Separator();
 
