@@ -251,6 +251,16 @@ namespace fury
 		return m_EntityManager->Get<Shader>(name);
 	}
 
+	std::shared_ptr<SceneNode> Pipeline::GetCurrentCamera() const
+	{
+		return m_CurrentCamera;
+	}
+
+	void Pipeline::SetCurrentCamera(const std::shared_ptr<SceneNode> &ptr)
+	{
+		m_CurrentCamera = ptr;
+	}
+
 	void Pipeline::FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions)
 	{
 		collisions.erase(collisions.begin(), collisions.end());
@@ -341,8 +351,7 @@ namespace fury
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
-		auto camNode = pass->GetCameraNode();
-		auto camera = camNode->GetComponent<Camera>();
+		auto camera = m_CurrentCamera->GetComponent<Camera>();
 
 		Matrix4 lightMatrix;
 		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
@@ -465,8 +474,7 @@ namespace fury
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
-		auto camNode = pass->GetCameraNode();
-		auto camera = camNode->GetComponent<Camera>();
+		auto camera = m_CurrentCamera->GetComponent<Camera>();
 
 		Matrix4 lightMatrix;
 		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
@@ -551,8 +559,7 @@ namespace fury
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
-		auto camNode = pass->GetCameraNode();
-		auto camera = camNode->GetComponent<Camera>();
+		auto camera = m_CurrentCamera->GetComponent<Camera>();
 
 		auto light = node->GetComponent<Light>();
 		auto radius = light->GetRadius();
@@ -735,8 +742,10 @@ namespace fury
 		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
 	}
 
-	void Pipeline::DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries)
+	void Pipeline::DrawDebug(const std::shared_ptr<RenderQuery> &query)
 	{
+		ASSERT_MSG(m_CurrentCamera != nullptr, "PrelightPipeline.m_CurrentCamera not found!");
+
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		glEnable(GL_DEPTH_TEST);
@@ -749,62 +758,46 @@ namespace fury
 		auto lightBoundsOn = IsSwitchOn(PipelineSwitch::LIGHT_BOUNDS);
 
 		auto renderUtil = RenderUtil::Instance();
+		renderUtil->BeginDrawLines(m_CurrentCamera);
 
-		auto end = m_EntityManager->End<Pass>();
-		for (auto it = m_EntityManager->Begin<Pass>(); it != end; ++it)
+		if (meshBoundsOn)
 		{
-			auto pass = std::static_pointer_cast<Pass>(it->second);
-			auto camNode = pass->GetCameraNode();
+			for (auto node : query->renderableNodes)
+				renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
+		}
 
-			if (camNode == nullptr || pass->GetDrawMode() == DrawMode::QUAD)
-				continue;
+		if (customBoundsOn)
+		{
+			for (const auto &bounds : m_DebugFrustum)
+				renderUtil->DrawFrustum(bounds, Color::Green);
 
-			auto it0 = queries.find(camNode->GetName());
-			if (it0 == queries.end())
-				continue;
+			for (const auto &bounds : m_DebugBoxBounds)
+				renderUtil->DrawBoxBounds(bounds, Color::Green);
+		}
 
-			auto visibles = it0->second;
-			renderUtil->BeginDrawLines(camNode);
+		renderUtil->EndDrawLines();
 
-			if (meshBoundsOn)
+		renderUtil->BeginDrawMeshs(m_CurrentCamera);
+
+		if (lightBoundsOn)
+		{
+			for (auto node : query->lightNodes)
 			{
-				for (auto node : visibles->renderableNodes)
-					renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
-			}
-
-			if (customBoundsOn)
-			{
-				for (const auto &bounds : m_DebugFrustum)
-					renderUtil->DrawFrustum(bounds, Color::Green);
-
-				for (const auto &bounds : m_DebugBoxBounds)
-					renderUtil->DrawBoxBounds(bounds, Color::Green);
-			}
-
-			renderUtil->EndDrawLines();
-
-			renderUtil->BeginDrawMeshs(camNode);
-
-			if (lightBoundsOn)
-			{
-				for (auto node : visibles->lightNodes)
+				auto light = node->GetComponent<Light>();
+				if (light->GetType() == LightType::SPOT)
 				{
-					auto light = node->GetComponent<Light>();
-					if (light->GetType() == LightType::SPOT)
-					{
-						renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), light->GetColor());
-					}
-					else if (light->GetType() == LightType::POINT)
-					{
-						Matrix4 worldMatrix = node->GetWorldMatrix();
-						worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
-						renderUtil->DrawMesh(light->GetMesh(), worldMatrix, light->GetColor());
-					}
+					renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), light->GetColor());
+				}
+				else if (light->GetType() == LightType::POINT)
+				{
+					Matrix4 worldMatrix = node->GetWorldMatrix();
+					worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
+					renderUtil->DrawMesh(light->GetMesh(), worldMatrix, light->GetColor());
 				}
 			}
-
-			renderUtil->EndDrawMeshes();
 		}
+
+		renderUtil->EndDrawMeshes();
 
 		glDisable(GL_DEPTH_TEST);
 	}

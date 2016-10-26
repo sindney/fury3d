@@ -47,21 +47,6 @@ namespace fury
 		if (!Entity::Load(wrapper, false))
 			return false;
 
-		if (!LoadMemberValue(wrapper, "camera", str))
-		{
-			FURYE << "Pass param 'camera' not found!";
-			return false;
-		}
-		if (auto camNode = entityMgr->Get<SceneNode>(str))
-		{
-			SetCameraNode(camNode);
-		}
-		else
-		{
-			FURYE << "Camera node not found!";
-			return false;
-		}
-
 		if (LoadMemberValue(wrapper, "clearMode", str))
 			SetClearMode(EnumUtil::ClearModeFromString(str));
 		else
@@ -187,9 +172,6 @@ namespace fury
 			StartObject(wrapper);
 
 		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "camera");
-		SaveValue(wrapper, m_CameraNode == nullptr ? "" : m_CameraNode->GetName());
 
 		SaveKey(wrapper, "shaders");
 		SaveArray(wrapper, m_Shaders.size(), [&](unsigned int index)
@@ -348,19 +330,6 @@ namespace fury
 	int Pass::GetViewPortHeight() const
 	{
 		return m_ViewPortHeight;
-	}
-
-	void Pass::SetCameraNode(const std::shared_ptr<SceneNode> &cameraNode)
-	{
-		if (cameraNode->GetComponent<Camera>())
-			m_CameraNode = cameraNode;
-		else
-			FURYW << "Invalide camera node";
-	}
-
-	std::shared_ptr<SceneNode> Pass::GetCameraNode() const
-	{
-		return m_CameraNode;
 	}
 
 	void Pass::AddShader(const std::shared_ptr<Shader> &shader)

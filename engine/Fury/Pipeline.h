@@ -16,6 +16,8 @@ namespace fury
 
 	class Frustum;
 
+	class Material;
+
 	class Pass;
 
 	class SceneNode;
@@ -65,6 +67,8 @@ namespace fury
 
 		std::shared_ptr<Shader> m_CurrentShader;
 
+		std::shared_ptr<Material> m_CurrentMateral;
+
 		std::shared_ptr<Pass> m_SharedPass;
 
 		Matrix4 m_OffsetMatrix;
@@ -112,6 +116,10 @@ namespace fury
 
 		std::shared_ptr<Shader> GetShaderByName(const std::string &name);
 
+		std::shared_ptr<SceneNode> GetCurrentCamera() const;
+
+		void SetCurrentCamera(const std::shared_ptr<SceneNode> &ptr);
+
 		// begin shaodw mapping
 
 		void FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions);
@@ -128,9 +136,9 @@ namespace fury
 
 		// end shaodw mapping
 
-		void DrawDebug(std::unordered_map<std::string, std::shared_ptr<RenderQuery>> &queries);
-
 	protected: 
+
+		void DrawDebug(const std::shared_ptr<RenderQuery> &query);
 
 		void SortPassByIndex();
 	};

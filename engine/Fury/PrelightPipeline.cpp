@@ -73,39 +73,17 @@ namespace fury
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
+		ASSERT_MSG(m_CurrentCamera != nullptr, "PrelightPipeline.m_CurrentCamera not found!");
+
 		// pre
-		m_CurrentCamera = nullptr;
 		m_CurrentShader = nullptr;
+		m_CurrentMateral = nullptr;
 		SortPassByIndex();
 
-		// find visible nodes, 1 cam 1 query
-		std::unordered_map<std::string, RenderQuery::Ptr> queries;
-
-		{
-			auto end = m_EntityManager->End<Pass>();
-			for (auto it = m_EntityManager->Begin<Pass>(); it != end; ++it)
-			{
-				auto pass = std::static_pointer_cast<Pass>(it->second);
-				auto camNode = pass->GetCameraNode();
-
-				if (camNode == nullptr)
-				{
-					FURYW << "Camera for pass " + pass->GetName() + " not found!";
-					continue;
-				}
-
-				auto it0 = queries.find(camNode->GetName());
-				if (it0 != queries.end())
-					continue;
-
-				RenderQuery::Ptr query = RenderQuery::Create();
-
-				sceneManager->GetRenderQuery(camNode->GetComponent<Camera>()->GetFrustum(), query);
-				query->Sort(camNode->GetWorldPosition());
-
-				queries.emplace(camNode->GetName(), query);
-			}
-		}
+		// find visible nodes
+		RenderQuery::Ptr query = RenderQuery::Create();
+		sceneManager->GetRenderQuery(m_CurrentCamera->GetComponent<Camera>()->GetFrustum(), query);
+		query->Sort(m_CurrentCamera->GetWorldPosition());
 
 		// draw passes
 
@@ -117,13 +95,10 @@ namespace fury
 
 			auto drawMode = pass->GetDrawMode();
 
-			m_CurrentCamera = pass->GetCameraNode();
 			m_CurrentShader = pass->GetFirstShader();
 
 			if (m_CurrentCamera == nullptr)
 				continue;
-
-			auto query = queries[m_CurrentCamera->GetName()];
 
 			// enable gamma correction on last pass
 			if (i == passCount - 1)
@@ -169,16 +144,22 @@ namespace fury
 
 			if (i == passCount - 1)
 				glDisable(GL_FRAMEBUFFER_SRGB);
+
+			if (m_CurrentShader != nullptr)
+				m_CurrentShader->UnBind();
+
+			m_CurrentShader = nullptr;
+			m_CurrentMateral = nullptr;
 		}
 
 		// draw debug
-		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS, 
+		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
 			PipelineSwitch::MESH_BOUNDS }, true))
-			DrawDebug(queries);
+			DrawDebug(query);
 
 		// post
-		m_CurrentCamera = nullptr;
 		m_CurrentShader = nullptr;
+		m_CurrentMateral = nullptr;
 	}
 
 	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit)
@@ -199,17 +180,28 @@ namespace fury
 			return;
 		}
 
-		shader->Bind();
-		shader->BindCamera(m_CurrentCamera);
-		shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+		bool materialChanged = material != m_CurrentMateral;
+		m_CurrentMateral = material;
 
-		shader->BindMaterial(material);
+		bool shaderChanged = materialChanged || shader != m_CurrentShader;
+		m_CurrentShader = shader;
 
-		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+		if (shaderChanged)
 		{
-			auto ptr = pass->GetTextureAt(i, true);
-			shader->BindTexture(ptr->GetName(), ptr);
+			shader->Bind();
+			shader->BindCamera(m_CurrentCamera);
+
+			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+			{
+				auto ptr = pass->GetTextureAt(i, true);
+				shader->BindTexture(ptr->GetName(), ptr);
+			}
 		}
+
+		if (materialChanged)
+			shader->BindMaterial(material);
+
+		shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
 
 		if (mesh->GetSubMeshCount() > 0)
 		{
@@ -227,7 +219,7 @@ namespace fury
 			RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
 		}
 
-		shader->UnBind();
+		//shader->UnBind();
 
 		// TODO: Maybe subMeshCount ? 
 		if (mesh->IsSkinnedMesh())
@@ -281,7 +273,7 @@ namespace fury
 
 			worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
 		}
-		
+
 		shader->Bind();
 
 		shader->BindCamera(m_CurrentCamera);
@@ -329,7 +321,7 @@ namespace fury
 		bool useCascaded = IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
 
 		// find correct shader.
-		shader = GetShaderByName(castShadows ? 
+		shader = GetShaderByName(castShadows ?
 			(useCascaded ? "dirlight_csm_shader" : "dirlight_shadow_shader") : "dirlight_shader");
 		if (shader == nullptr)
 		{
@@ -401,7 +393,7 @@ namespace fury
 		{
 			if (useCascaded)
 				Texture::Pool.Collect(cascadedShadowData.first);
-			else 
+			else
 				Texture::Pool.Collect(shadowData.first);
 		}
 	}

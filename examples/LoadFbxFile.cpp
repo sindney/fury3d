@@ -74,7 +74,7 @@ void LoadFbxFile::Init(sf::Window &window)
 
 	// setup pipeline
 	Pipeline::Active = m_Pipeline = PrelightPipeline::Create("pipeline");
-	Pipeline::Active->GetEntityManager()->Add(m_CamNode);
+	m_Pipeline->SetCurrentCamera(m_CamNode);
 
 	FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"));
 

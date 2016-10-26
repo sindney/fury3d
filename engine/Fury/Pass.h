@@ -49,8 +49,6 @@ namespace fury
 
 		DrawMode m_DrawMode = DrawMode::OPAQUE;
 
-		std::shared_ptr<SceneNode> m_CameraNode;
-
 		std::vector<std::shared_ptr<Shader>> m_Shaders;
 
 		unsigned int m_RenderIndex = 0;
@@ -122,10 +120,6 @@ namespace fury
 		int GetViewPortWidth() const;
 
 		int GetViewPortHeight() const;
-
-		void SetCameraNode(const std::shared_ptr<SceneNode> &name);
-
-		std::shared_ptr<SceneNode> GetCameraNode() const;
 
 		void AddShader(const std::shared_ptr<Shader> &shader);
 
