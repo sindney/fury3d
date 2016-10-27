@@ -18,6 +18,8 @@ namespace fury
 
 	class Material;
 
+	class Mesh;
+
 	class Pass;
 
 	class SceneNode;
@@ -68,6 +70,8 @@ namespace fury
 		std::shared_ptr<Shader> m_CurrentShader;
 
 		std::shared_ptr<Material> m_CurrentMateral;
+
+		std::shared_ptr<Mesh> m_CurrentMesh;
 
 		std::shared_ptr<Pass> m_SharedPass;
 

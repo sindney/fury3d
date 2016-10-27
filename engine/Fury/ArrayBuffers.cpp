@@ -26,14 +26,11 @@ namespace fury
 	}
 
 	template<class DataType>
-	void ArrayBuffer<DataType>::UpdateBuffer(bool force)
+	void ArrayBuffer<DataType>::UpdateBuffer()
 	{
 		int sizeNew = Data.size();
 		bool sizeChanged = false;
 		bool isNewBuffer = false;
-
-		if (force)
-			m_Dirty = true;
 
 		if (sizeNew != m_SizeOld)
 		{

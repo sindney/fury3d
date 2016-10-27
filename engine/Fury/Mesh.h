@@ -35,7 +35,7 @@ namespace fury
 
 		~SubMesh();
 
-		void UpdateBuffer();
+		virtual void UpdateBuffer() override;
 
 		virtual void DeleteBuffer() override;
 
@@ -117,7 +117,7 @@ namespace fury
 
 		std::shared_ptr<Joint> GetRootJoint() const;
 
-		void UpdateBuffer();
+		virtual void UpdateBuffer() override;
 
 		virtual void DeleteBuffer() override;
 

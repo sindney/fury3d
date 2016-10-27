@@ -344,7 +344,7 @@ namespace fury
 
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_buffer = Texture::Pool.Get(1024, 1024, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
+		auto depth_buffer = Texture::GetTempory(1024, 1024, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
@@ -429,22 +429,8 @@ namespace fury
 					depth_shader->BindMesh(casterMesh);
 					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
 
-					unsigned int subMeshCount = casterMesh->GetSubMeshCount();
-					if (subMeshCount > 0)
-					{
-						for (unsigned int i = 0; i < subMeshCount; i++)
-						{
-							depth_shader->BindSubMesh(casterMesh, i);
-							glDrawElements(GL_TRIANGLES, casterMesh->GetSubMeshAt(i)->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-							RenderUtil::Instance()->IncreaseDrawCall();
-						}
-					}
-					else
-					{
-						depth_shader->BindMesh(casterMesh);
-						glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-						RenderUtil::Instance()->IncreaseDrawCall();
-					}
+					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					RenderUtil::Instance()->IncreaseDrawCall();
 
 					RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
 				}
@@ -467,7 +453,7 @@ namespace fury
 	{
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_buffer = Texture::Pool.Get(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		auto depth_buffer = Texture::GetTempory(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
@@ -522,22 +508,8 @@ namespace fury
 				depth_shader->BindMesh(casterMesh);
 				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
 
-				unsigned int subMeshCount = casterMesh->GetSubMeshCount();
-				if (subMeshCount > 0)
-				{
-					for (unsigned int i = 0; i < subMeshCount; i++)
-					{
-						depth_shader->BindSubMesh(casterMesh, i);
-						glDrawElements(GL_TRIANGLES, casterMesh->GetSubMeshAt(i)->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-						RenderUtil::Instance()->IncreaseDrawCall();
-					}
-				}
-				else
-				{
-					depth_shader->BindMesh(casterMesh);
-					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-					RenderUtil::Instance()->IncreaseDrawCall();
-				}
+				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				RenderUtil::Instance()->IncreaseDrawCall();
 
 				RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
 			}
@@ -554,7 +526,7 @@ namespace fury
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		auto depth_shader = GetShaderByName("cube_depth_shader");
-		auto depth_buffer = Texture::Pool.Get(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
+		auto depth_buffer = Texture::GetTempory(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
@@ -623,22 +595,8 @@ namespace fury
 					depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]);
 					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
 
-					unsigned int subMeshCount = casterMesh->GetSubMeshCount();
-					if (subMeshCount > 0)
-					{
-						for (unsigned int i = 0; i < subMeshCount; i++)
-						{
-							depth_shader->BindSubMesh(casterMesh, i);
-							glDrawElements(GL_TRIANGLES, casterMesh->GetSubMeshAt(i)->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-							RenderUtil::Instance()->IncreaseDrawCall();
-						}
-					}
-					else
-					{
-						depth_shader->BindMesh(casterMesh);
-						glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-						RenderUtil::Instance()->IncreaseDrawCall();
-					}
+					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					RenderUtil::Instance()->IncreaseDrawCall();
 
 					RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
 				}
@@ -657,7 +615,7 @@ namespace fury
 	{
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_buffer = Texture::Pool.Get(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		auto depth_buffer = Texture::GetTempory(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
@@ -713,22 +671,8 @@ namespace fury
 				depth_shader->BindMesh(casterMesh);
 				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
 
-				unsigned int subMeshCount = casterMesh->GetSubMeshCount();
-				if (subMeshCount > 0)
-				{
-					for (unsigned int i = 0; i < subMeshCount; i++)
-					{
-						depth_shader->BindSubMesh(casterMesh, i);
-						glDrawElements(GL_TRIANGLES, casterMesh->GetSubMeshAt(i)->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-						RenderUtil::Instance()->IncreaseDrawCall();
-					}
-				}
-				else
-				{
-					depth_shader->BindMesh(casterMesh);
-					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
-					RenderUtil::Instance()->IncreaseDrawCall();
-				}
+				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				RenderUtil::Instance()->IncreaseDrawCall();
 
 				RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
 			}

@@ -1,5 +1,6 @@
 #include <SFML/Window.hpp>
 
+#include "Fury/BufferManager.h"
 #include "Fury/Engine.h"
 #include "Fury/FbxParser.h"
 #include "Fury/GLLoader.h"
@@ -39,6 +40,8 @@ namespace fury
 		int flag = gl::LoadGLFunctions();
 
 		RenderUtil::Initialize();
+
+		BufferManager::Initialize();
 
 #ifdef _FURY_GUI_IMP_
 		Gui::Initialize(&window);

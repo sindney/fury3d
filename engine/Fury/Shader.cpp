@@ -614,16 +614,11 @@ namespace fury
 			return;
 		}
 
-		if (mesh->GetDirty())
-			mesh->UpdateBuffer();
-
 		if (subMesh->GetDirty())
 			subMesh->UpdateBuffer();
 
 		if (m_Dirty || mesh->GetDirty() || subMesh->GetDirty() || subMesh->Indices.GetDirty())
 			return;
-
-		BindMeshData(mesh);
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, subMesh->Indices.GetID());
 	}

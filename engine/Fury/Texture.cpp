@@ -1,6 +1,7 @@
 #include <array>
 #include <sstream>
 
+#include "Fury/BufferManager.h"
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
 #include "Fury/FileUtil.h"
@@ -10,47 +11,70 @@
 
 namespace fury
 {
+	std::unordered_map<std::string, std::stack<std::shared_ptr<Texture>>> Texture::m_TexturePool;
+
 	Texture::Ptr Texture::Create(const std::string &name)
 	{
-		return std::make_shared<Texture>(name);
+		auto ptr = std::make_shared<Texture>(name);
+		BufferManager::Instance()->Add(ptr);
+		return ptr;
 	}
 
-	Texture::Ptr Texture::Create(int width, int height, int depth, TextureFormat format, TextureType type)
+	Texture::Ptr Texture::GetTempory(int width, int height, int depth, TextureFormat format, TextureType type)
+	{
+		auto key = GetKeyFromParams(width, height, depth, format, type);
+		auto it = m_TexturePool.find(key);
+		if (it != m_TexturePool.end())
+		{
+			if (!it->second.empty())
+			{
+				auto texture = it->second.top();
+				it->second.pop();
+				return texture;
+			}
+		}
+
+		auto texture = Texture::Create(key);
+		texture->CreateEmpty(width, height, depth, format, type);
+		BufferManager::Instance()->Add(texture);
+		return texture;
+	}
+
+	void Texture::CollectTempory(const std::shared_ptr<Texture> &ptr)
+	{
+		auto key = Texture::GetKeyFromPtr(ptr);
+		auto it = m_TexturePool.find(key);
+		if (it == m_TexturePool.end())
+			it = m_TexturePool.emplace(key, std::stack<Texture::Ptr>()).first;
+		
+		it->second.push(ptr);
+	}
+
+	void Texture::ReleaseTempories()
+	{
+		for (auto pair : m_TexturePool)
+		{
+			auto &stack = pair.second;
+			while (!stack.empty())
+			{
+				BufferManager::Instance()->Release(stack.top()->GetBufferId());
+				stack.pop();
+			}
+		}
+	}
+
+	std::string Texture::GetKeyFromParams(int width, int height, int depth, TextureFormat format, TextureType type)
 	{
 		std::stringstream ss;
-		ss << width << "*" << height << "*" << depth << "*" << EnumUtil::TextureFormatToString(format) << 
+		ss << width << "*" << height << "*" << depth << "*" << EnumUtil::TextureFormatToString(format) <<
 			"*" << EnumUtil::TextureTypeToString(type);
-
-		auto result = Texture::Create(ss.str());
-		result->CreateEmpty(width, height, depth, format, type);
-
-		return result;
+		return ss.str();
 	}
 
-	ObjectPool<std::string, Texture::Ptr, int, int, int, TextureFormat, TextureType> Texture::Pool(
-			[](int w, int h, int d, TextureFormat fmt, TextureType type) -> std::string
-		{
-			std::stringstream ss;
-			ss << w << "*" << h << "*" << d << "*" << EnumUtil::TextureFormatToString(fmt) <<
-				"*" << EnumUtil::TextureTypeToString(type);
-			return ss.str();
-		}, 
-			[](std::shared_ptr<Texture> ptr) -> std::string
-		{
-			std::stringstream ss;
-			ss << ptr->GetWidth() << "*" << ptr->GetHeight() << "*" << ptr->GetDepth() << "*" << EnumUtil::TextureFormatToString(ptr->GetFormat()) <<
-				"*" << EnumUtil::TextureTypeToString(ptr->GetType());
-			return ss.str();
-		}, 
-			[](int w, int h, int d, TextureFormat fmt, TextureType type) -> std::shared_ptr<Texture>
-		{
-			return Texture::Create(w, h, d, fmt, type);
-		}, 
-			[](std::shared_ptr<Texture> ptr)
-		{
-			// maybe destory ? 
-		}
-	);
+	std::string Texture::GetKeyFromPtr(const std::shared_ptr<Texture> &ptr)
+	{
+		return GetKeyFromParams(ptr->GetWidth(), ptr->GetHeight(), ptr->GetDepth(), ptr->GetFormat(), ptr->GetType());
+	}
 
 	Texture::Texture(const std::string &name)
 		: Entity(name), m_BorderColor(0, 0, 0, 0)
@@ -179,9 +203,8 @@ namespace fury
 
 		int channels;
 		std::vector<unsigned char> pixels;
-		std::string prepend = Scene::Active == nullptr ? "" : Scene::Active->GetWorkingDir();
 
-		if (FileUtil::LoadImage(prepend + filePath, pixels, m_Width, m_Height, channels))
+		if (FileUtil::LoadImage(Scene::Path(filePath), pixels, m_Width, m_Height, channels))
 		{
 			unsigned int internalFormat, imageFormat;
 
@@ -192,7 +215,7 @@ namespace fury
 				internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
 				imageFormat = GL_RGB;
 				break;
-			case 4: 
+			case 4:
 				m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
 				internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
 				imageFormat = GL_RGBA;
@@ -213,7 +236,7 @@ namespace fury
 
 			glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
 			glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, &pixels[0]);
-			
+
 			unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 			unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
 
@@ -231,7 +254,9 @@ namespace fury
 
 			glBindTexture(m_TypeUint, 0);
 
-			FURYD << m_Name << " [" << m_Width << " x " << m_Height <<  " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
+			FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
+
+			IncreaseMemory();
 		}
 	}
 
@@ -241,14 +266,14 @@ namespace fury
 
 		if (format == TextureFormat::UNKNOW)
 			return;
-		
+
 		m_Mipmap = mipMap;
 		m_Format = format;
 		m_Dirty = false;
 		m_Width = width;
 		m_Height = height;
 		m_Depth = depth;
-		
+
 		m_Type = type;
 		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
 
@@ -274,7 +299,7 @@ namespace fury
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
-		
+
 		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
 		glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
 
@@ -284,9 +309,11 @@ namespace fury
 		glBindTexture(m_TypeUint, 0);
 
 		FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
+
+		IncreaseMemory();
 	}
 
-	void Texture::Update(const void* pixels)
+	void Texture::SetPixels(const void* pixels)
 	{
 		if (m_ID == 0)
 		{
@@ -303,18 +330,38 @@ namespace fury
 		glBindTexture(m_TypeUint, 0);
 	}
 
+	void Texture::UpdateBuffer()
+	{
+		if (m_ID > 0 || !m_Dirty)
+			return;
+
+		m_Dirty = false;
+
+		if (m_FilePath.size() > 0)
+			CreateFromImage(m_FilePath, IsSRGB(), m_Mipmap);
+		else
+			CreateEmpty(m_Width, m_Height, m_Depth, m_Format, m_Type, m_Mipmap);
+	}
+
 	void Texture::DeleteBuffer()
 	{
 		m_Dirty = true;
 
 		if (m_ID != 0)
 		{
+			DecreaseMemory();
 			glDeleteTextures(1, &m_ID);
 			m_ID = 0;
 			m_Width = m_Height = 0;
 			m_Format = TextureFormat::UNKNOW;
 			m_FilePath = "";
 		}
+	}
+
+	bool Texture::IsSRGB() const
+	{
+		return m_Format == TextureFormat::SRGB || m_Format == TextureFormat::SRGB8 ||
+			m_Format == TextureFormat::SRGB8_ALPHA8 || m_Format == TextureFormat::SRGB_ALPHA;
 	}
 
 	TextureFormat Texture::GetFormat() const
@@ -440,5 +487,17 @@ namespace fury
 	std::string Texture::GetFilePath() const
 	{
 		return m_FilePath;
+	}
+
+	void Texture::IncreaseMemory()
+	{
+		unsigned int bitPerPixel = EnumUtil::TextureBitPerPixel(m_Format);
+		BufferManager::Instance()->IncreaseMemory(m_Width * m_Height * (m_Depth + 1) * bitPerPixel / 8);
+	}
+
+	void Texture::DecreaseMemory()
+	{
+		unsigned int bitPerPixel = EnumUtil::TextureBitPerPixel(m_Format);
+		BufferManager::Instance()->DecreaseMemory(m_Width * m_Height * (m_Depth + 1) * bitPerPixel / 8);
 	}
 }

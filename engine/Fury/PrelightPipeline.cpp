@@ -78,6 +78,7 @@ namespace fury
 		// pre
 		m_CurrentShader = nullptr;
 		m_CurrentMateral = nullptr;
+		m_CurrentMesh = nullptr;
 		SortPassByIndex();
 
 		// find visible nodes
@@ -150,6 +151,7 @@ namespace fury
 
 			m_CurrentShader = nullptr;
 			m_CurrentMateral = nullptr;
+			m_CurrentMesh = nullptr;
 		}
 
 		// draw debug
@@ -160,6 +162,7 @@ namespace fury
 		// post
 		m_CurrentShader = nullptr;
 		m_CurrentMateral = nullptr;
+		m_CurrentMesh = nullptr;
 	}
 
 	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit)
@@ -183,11 +186,16 @@ namespace fury
 		bool materialChanged = material != m_CurrentMateral;
 		m_CurrentMateral = material;
 
+		bool meshChanged = mesh != m_CurrentMesh;
+		m_CurrentMesh = mesh;
+
 		bool shaderChanged = materialChanged || shader != m_CurrentShader;
 		m_CurrentShader = shader;
 
 		if (shaderChanged)
 		{
+			materialChanged = meshChanged = true;
+
 			shader->Bind();
 			shader->BindCamera(m_CurrentCamera);
 
@@ -203,6 +211,9 @@ namespace fury
 
 		shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
 
+		if (meshChanged)
+			shader->BindMesh(mesh);
+
 		if (mesh->GetSubMeshCount() > 0)
 		{
 			auto subMesh = mesh->GetSubMeshAt(unit.subMesh);
@@ -213,7 +224,6 @@ namespace fury
 		}
 		else
 		{
-			shader->BindMesh(mesh);
 			glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 
 			RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
@@ -305,7 +315,7 @@ namespace fury
 
 		// collect used shadow buffer
 		if (castShadows)
-			Texture::Pool.Collect(shadowData.first);
+			Texture::CollectTempory(shadowData.first);
 	}
 
 	void PrelightPipeline::DrawDirLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
@@ -392,9 +402,9 @@ namespace fury
 		if (castShadows)
 		{
 			if (useCascaded)
-				Texture::Pool.Collect(cascadedShadowData.first);
+				Texture::CollectTempory(cascadedShadowData.first);
 			else
-				Texture::Pool.Collect(shadowData.first);
+				Texture::CollectTempory(shadowData.first);
 		}
 	}
 
@@ -481,7 +491,7 @@ namespace fury
 
 		// collect used shadow buffer
 		if (castShadows)
-			Texture::Pool.Collect(shadowData.first);
+			Texture::CollectTempory(shadowData.first);
 	}
 
 	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)

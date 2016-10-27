@@ -174,7 +174,9 @@ namespace fury
 
 		static const std::vector<std::tuple<TextureFormat, std::string, unsigned int, unsigned int>> m_TextureFormat;
 
-		static const std::vector < std::tuple < TextureType, std::string, unsigned int >> m_TextureType;
+		static const std::vector<std::pair<TextureFormat, unsigned int>> m_TextureFormatBitPerPixel;
+
+		static const std::vector<std::tuple<TextureType, std::string, unsigned int>> m_TextureType;
 
 		static const std::vector<std::tuple<FilterMode, unsigned int, std::string>> m_FilterMode;
 
@@ -230,6 +232,8 @@ namespace fury
 		static std::string TextureFormatToString(TextureFormat foramt);
 
 		static TextureFormat TextureFormatFromString(const std::string &name);
+
+		static unsigned int TextureBitPerPixel(TextureFormat format);
 
 
 		static unsigned int TextureTypeToUnit(TextureType type);

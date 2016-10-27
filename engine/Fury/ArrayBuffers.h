@@ -37,7 +37,7 @@ namespace fury
 
 		virtual ~ArrayBuffer();
 
-		void UpdateBuffer(bool force = false);
+		void UpdateBuffer();
 
 		virtual void DeleteBuffer();
 

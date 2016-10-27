@@ -1,6 +1,7 @@
 #ifndef _FURY_TEXTURE_H_
 #define _FURY_TEXTURE_H_
 
+#include <stack>
 #include <unordered_map>
 
 #include "Fury/Buffer.h"
@@ -8,22 +9,35 @@
 #include "Fury/Entity.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/Serializable.h"
-#include "Fury/ObjectPool.h"
 
 namespace fury
 {
+	// note that if you don't create texture from Texture's static creators.
+	// then the new texture is not added to BufferManager, add that texture if you need.
 	class FURY_API Texture : public Entity, public Buffer
 	{
+	protected:
+
+		static std::unordered_map<std::string, std::stack<std::shared_ptr<Texture>>> m_TexturePool;
+
+		static std::string GetKeyFromParams(int width, int height, int depth, TextureFormat format, TextureType type);
+
+		static std::string GetKeyFromPtr(const std::shared_ptr<Texture> &ptr);
+
 	public:
 
 		typedef std::shared_ptr<Texture> Ptr;
 
 		static Ptr Create(const std::string &name);
 
-		// create textures named like 512x512xrgba8x2d.
-		static Ptr Create(int width, int height, int depth, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
+		// create new or reuse texture from pool. textures are named like 512x512xrgba8x2d.
+		static Ptr GetTempory(int width, int height, int depth, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
 
-		static ObjectPool<std::string, Texture::Ptr, int, int, int, TextureFormat, TextureType> Pool;
+		// collect texture to pool for reuse.
+		static void CollectTempory(const std::shared_ptr<Texture> &ptr);
+
+		// delete and release all textures from pool.
+		static void ReleaseTempories();
 
 	protected:
 
@@ -65,9 +79,13 @@ namespace fury
 
 		void CreateEmpty(int width, int height, int depth, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
 
-		void Update(const void* pixels);
+		void SetPixels(const void* pixels);
+
+		virtual void UpdateBuffer() override;
 
 		virtual void DeleteBuffer() override;
+
+		bool IsSRGB() const;
 
 		TextureFormat GetFormat() const;
 
@@ -100,6 +118,12 @@ namespace fury
 		unsigned int GetID() const;
 
 		std::string GetFilePath() const;
+
+	protected:
+
+		void IncreaseMemory();
+
+		void DecreaseMemory();
 	};
 }
 

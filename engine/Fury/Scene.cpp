@@ -10,6 +10,20 @@ namespace fury
 {
 	Scene::Ptr Scene::Active = nullptr;
 
+	std::string Scene::Path(const std::string &path)
+	{
+		if (Scene::Active != nullptr)
+			return Scene::Active->GetWorkingDir() + path;
+		else
+			return path;
+	}
+
+	std::shared_ptr<EntityManager> Scene::Manager()
+	{
+		ASSERT_MSG(Scene::Active != nullptr, "Scene::Active == nullptr");
+		return Scene::Active->GetEntityManager();
+	}
+
 	Scene::Ptr Scene::Create(const std::string &name, const std::string &workingDir, const std::shared_ptr<SceneManager> &sceneManager)
 	{
 		return std::make_shared<Scene>(name, workingDir, sceneManager);

@@ -8,6 +8,7 @@
 
 #include "Fury/ArrayBuffers.h"
 #include "Fury/BoxBounds.h"
+#include "Fury/BufferManager.h"
 #include "Fury/Texture.h"
 #include "Fury/Shader.h"
 #include "Fury/Log.h"
@@ -412,7 +413,7 @@ namespace fury
 		{
 			static bool showProfilerWindow = true, showGBufferWindow = false, showShadowBufferWindow = false;
 
-			ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 310), 1.0f,
+			ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 350), 1.0f,
 				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 			// fps graph
@@ -425,6 +426,11 @@ namespace fury
 
 				ImGui::PlotVar("FPS", curFps, 1, upper_bound, 210, 30);
 			}
+
+			ImGui::Separator();
+
+			ImGui::Text("CPU Mem: %u mb", BufferManager::Instance()->GetMemoryInMegaByte(false));
+			ImGui::Text("GPU Mem: %u mb", BufferManager::Instance()->GetMemoryInMegaByte(true));
 
 			ImGui::Separator();
 
@@ -475,12 +481,12 @@ namespace fury
 				// cube_texture
 				if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("512*512*0*depth24*cube"))
 				{
-					static auto img0 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img1 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img2 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img3 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img4 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img5 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img0 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img1 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img2 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img3 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img4 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img5 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
 
 					static auto blitShader = Shader::Create("BlitShader", ShaderType::OTHER);
 
@@ -565,10 +571,10 @@ namespace fury
 				// texture_array
 				if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*4*depth24*2d_array"))
 				{
-					static auto img0 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img1 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img2 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img3 = Texture::Pool.Get(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img0 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img1 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img2 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img3 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
 					static auto blitShader = Shader::Create("BlitShader", ShaderType::OTHER);
 
 					if (blitShader->GetDirty())

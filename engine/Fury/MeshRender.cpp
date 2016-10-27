@@ -47,7 +47,7 @@ namespace fury
 		// load mesh
 		if (LoadMemberValue(wrapper, "mesh", str))
 		{
-			if (auto mesh = Scene::Active->GetEntityManager()->Get<Mesh>(str))
+			if (auto mesh = Scene::Manager()->Get<Mesh>(str))
 			{
 				SetMesh(mesh);
 			}
@@ -73,7 +73,7 @@ namespace fury
 				FURYE << "materials is a string array!";
 				return false;
 			}
-			if (auto material = Scene::Active->GetEntityManager()->Get<Material>(str))
+			if (auto material = Scene::Manager()->Get<Material>(str))
 			{
 				m_Materials.push_back(material);
 				return true;

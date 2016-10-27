@@ -24,13 +24,13 @@ void LoadFbxFile::Init(sf::Window &window)
 	{
 		FbxParser::Instance()->LoadScene("Resource/Scene/james.fbx", m_Scene->GetRootNode(), importOptions);
 
-		Scene::Active->GetEntityManager()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+		Scene::Manager()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 		{
 			std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 			return true;
 		});
 
-		auto animWalk = Scene::Active->GetEntityManager()->Get<AnimationClip>("James|Walk");
+		auto animWalk = Scene::Manager()->Get<AnimationClip>("James|Walk");
 		auto animNode = m_Scene->GetRootNode()->FindChildRecursively("JamesNode");
 		m_AnimPlayer = AnimationPlayer::Create("AnimPlayer");
 		m_AnimPlayer->AdvanceTime(animNode, animWalk, 0.0f);
@@ -38,7 +38,7 @@ void LoadFbxFile::Init(sf::Window &window)
 	else
 	{
 		FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Resource/Scene/tank.fbx"), m_Scene->GetRootNode(), importOptions);
-		Scene::Active->GetEntityManager()->Get<Mesh>("Grid")->SetCastShadows(false);
+		Scene::Manager()->Get<Mesh>("Grid")->SetCastShadows(false);
 	}
 
 	m_OcTree->AddSceneNodeRecursively(m_Scene->GetRootNode());

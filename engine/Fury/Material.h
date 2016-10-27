@@ -87,6 +87,8 @@ namespace fury
 
 		virtual void Save(void* wrapper, bool object = true) override;
 
+		virtual void UpdateBuffer() override;
+
 		virtual void DeleteBuffer() override;
 
 		unsigned int GetTextureFlags() const;

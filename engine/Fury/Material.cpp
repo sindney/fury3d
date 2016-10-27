@@ -228,6 +228,17 @@ namespace fury
 			EndObject(wrapper);
 	}
 
+	void Material::UpdateBuffer()
+	{
+		if (!m_Dirty)
+			return;
+
+		m_Dirty = false;
+
+		for (auto pair : m_Textures)
+			pair.second->UpdateBuffer();
+	}
+
 	void Material::DeleteBuffer()
 	{
 		m_Textures.clear();

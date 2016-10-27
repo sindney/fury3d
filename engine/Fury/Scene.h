@@ -26,6 +26,10 @@ namespace fury
 
 		static Ptr Active;
 
+		static std::string Path(const std::string &path);
+
+		static std::shared_ptr<EntityManager> Manager();
+
 		static Ptr Create(const std::string &name, const std::string &workingDir, const std::shared_ptr<SceneManager> &sceneManager = nullptr);
 
 	protected:

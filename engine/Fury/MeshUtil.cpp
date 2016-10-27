@@ -460,11 +460,20 @@ namespace fury
 
 		if (updateBuffer)
 		{
-			mesh->Positions.UpdateBuffer(true);
+			mesh->Positions.SetDirty();
+			mesh->Positions.UpdateBuffer();
+
 			if (hasNormal)
-				mesh->Normals.UpdateBuffer(true);
+			{
+				mesh->Normals.SetDirty();
+				mesh->Normals.UpdateBuffer();
+			}
+			
 			if (hasTangent)
-				mesh->Tangents.UpdateBuffer(true);
+			{
+				mesh->Tangents.UpdateBuffer();
+				mesh->Tangents.SetDirty();
+			}
 		}
 	}
 

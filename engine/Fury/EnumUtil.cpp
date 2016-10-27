@@ -111,6 +111,36 @@ namespace fury
 		std::make_tuple(TextureFormat::DEPTH24_STENCIL8, "depth24_stencil8", GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL)
 	};
 
+	const std::vector<std::pair<TextureFormat, unsigned int>> EnumUtil::m_TextureFormatBitPerPixel =
+	{
+		std::make_pair(TextureFormat::UNKNOW, 0), 
+		std::make_pair(TextureFormat::R8, 8),
+		std::make_pair(TextureFormat::R16, 16),
+		std::make_pair(TextureFormat::R16F, 16),
+		std::make_pair(TextureFormat::R32F, 32),
+		std::make_pair(TextureFormat::RG8, 16),
+		std::make_pair(TextureFormat::RG16, 32),
+		std::make_pair(TextureFormat::RG16F, 32),
+		std::make_pair(TextureFormat::RG32F, 64),
+		std::make_pair(TextureFormat::RGB8, 24),
+		std::make_pair(TextureFormat::RGB16, 48),
+		std::make_pair(TextureFormat::RGB16F, 48),
+		std::make_pair(TextureFormat::RGB32F, 96),
+		std::make_pair(TextureFormat::RGBA8, 32),
+		std::make_pair(TextureFormat::RGBA16, 64),
+		std::make_pair(TextureFormat::RGBA16F, 64),
+		std::make_pair(TextureFormat::RGBA32F, 128),
+		std::make_pair(TextureFormat::SRGB, 24),
+		std::make_pair(TextureFormat::SRGB8, 24),
+		std::make_pair(TextureFormat::SRGB8_ALPHA8, 32),
+		std::make_pair(TextureFormat::SRGB_ALPHA, 32),
+		std::make_pair(TextureFormat::DEPTH16, 16),
+		std::make_pair(TextureFormat::DEPTH24, 24),
+		std::make_pair(TextureFormat::DEPTH32F, 32),
+		std::make_pair(TextureFormat::DEPTH32F_STENCIL8, 40),
+		std::make_pair(TextureFormat::DEPTH24_STENCIL8, 32)
+	};
+
 	const std::vector<std::tuple<TextureType, std::string, unsigned int>> EnumUtil::m_TextureType =
 	{
 		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D),
@@ -315,6 +345,16 @@ namespace fury
 				return std::get<0>(format);
 		}
 		return TextureFormat::RGBA8;
+	}
+
+	unsigned int EnumUtil::TextureBitPerPixel(TextureFormat format)
+	{
+		for (const auto &pair : m_TextureFormatBitPerPixel)
+		{
+			if (pair.first == format)
+				return pair.second;
+		}
+		return 0;
 	}
 
 	unsigned int EnumUtil::TextureTypeToUnit(TextureType type)
