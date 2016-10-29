@@ -56,22 +56,21 @@ A simple demo should look like this:
 // This is the root of our scene
 auto m_RootNode = SceneNode::Create("Root");
 
-FbxImportOptions importOptions;
-importOptions.ScaleFactor = 0.01f;
-importOptions.AnimCompressLevel = 0.25f;
+// You can load scene from fbx file.
+FbxParser::Instance()->LoadScene("Resource/Scene/scene.fbx", m_RootNode, importOptions);
 
-// Load fbx scene, use FileUtil::GetAbsPath to get absolute file path on osx.
-FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Path to fbx"), m_RootNode, importOptions);
+// Or from fury's scene format.
+FileUtil::LoadCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
 
 // You can iterate a certain type of imported resources.
-EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+Scene::Manager()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 {
 	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 	return true;
 });
 
-// Or you can simply find an resource by it's name or hashcode.
-auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
+// And you can simply find an resource by it's name or hashcode.
+auto clip = Scene::Manager()->Get<AnimationClip>("James|Walk");
 
 // Setup octree
 auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
@@ -83,48 +82,6 @@ FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
 
 // Draw scene
 m_Pipeline->Execute(m_OcTree);
-~~~~~~~~~~
-
-Signal system demo: 
-
-~~~~~~~~~~cpp
-class Test
-{
-public:
-	void Add(int a, int b)
-	{
-		std::cout << "Test::Add:" << a + b << std::endl;
-	}
-};
-
-void Add(int a, int b)
-{
-	std::cout << "Add:" << a + b << std::endl;
-}
-
-auto test = std::make_shared<Test>();
-
-auto signal = Signal<int, int>::Create();
-
-auto key = signal->Connect(&Add);
-signal->Connect(test, &Test::Add);
-
-signal->Emit(2, 3);
-std::cout << std::endl;
-
-test.reset();
-
-signal->Emit(2, 3);
-std::cout << std::endl;
-
-signal->Disconnect(key);
-
-signal->Emit(2, 3);
-
-// Test::Add:5
-// Add:5
-// 
-// Add:5
 ~~~~~~~~~~
 
 ## Special thanks

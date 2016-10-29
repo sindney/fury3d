@@ -56,25 +56,24 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 // 这是我们场景树的根节点
 auto m_RootNode = SceneNode::Create("Root");
 
-FbxImportOptions importOptions;
-importOptions.ScaleFactor = 0.01f;
-importOptions.AnimCompressLevel = 0.25f;
+// 可以从fbx文件载入场景
+FbxParser::Instance()->LoadScene("Resource/Scene/scene.fbx", m_RootNode, importOptions);
 
-// 载入FBX场景，使用 FileUtil::GetAbsPath 来在MAC OSX上得到文件的绝对路径
-FbxParser::Instance()->LoadScene(FileUtil::GetAbsPath("Path to fbx"), m_RootNode, importOptions);
+// 也可以从fury的自定义场景文件中载入场景
+FileUtil::LoadCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
 
 // 你可以遍历任意一种载入的资源列表
-EntityUtil::Instance()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
+Scene::Manager()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
 {
 	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
 	return true;
 });
 
 // 也可以通过名字或者名字的哈希值来得到某资源指针
-auto clip = EntityUtil::Instance()->Get<AnimationClip>("James|Walk");
+auto clip = Scene::Manager()->Get<AnimationClip>("James|Walk");
 
 // 初始化八叉树
-auto m_OcTree = OcTreeManager::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
+auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
 m_OcTree->AddSceneNodeRecursively(m_RootNode);
 
 // 载入渲染管线
@@ -83,48 +82,6 @@ FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
 
 // 绘制场景
 m_Pipeline->Execute(m_OcTree);
-~~~~~~~~~~
-
-Signal消息例子: 
-
-~~~~~~~~~~cpp
-class Test
-{
-public:
-	void Add(int a, int b)
-	{
-		std::cout << "Test::Add:" << a + b << std::endl;
-	}
-};
-
-void Add(int a, int b)
-{
-	std::cout << "Add:" << a + b << std::endl;
-}
-
-auto test = std::make_shared<Test>();
-
-auto signal = Signal<int, int>::Create();
-
-auto key = signal->Connect(&Add);
-signal->Connect(test, &Test::Add);
-
-signal->Emit(2, 3);
-std::cout << std::endl;
-
-test.reset();
-
-signal->Emit(2, 3);
-std::cout << std::endl;
-
-signal->Disconnect(key);
-
-signal->Emit(2, 3);
-
-// Test::Add:5
-// Add:5
-// 
-// Add:5
 ~~~~~~~~~~
 
 ## 非常感谢
