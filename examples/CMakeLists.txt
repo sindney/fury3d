@@ -10,11 +10,6 @@ endif()
 
 set(CMAKE_CXX_FLAGS "-std=c++11")
 
-set(PLOG_INCLUDE "/usr/local/include" CACHE PATH "Location of plog headers.")
-
-set(FBXSDK_INCLUDE "" CACHE PATH "Location of fbxsdk headers.")
-set(FBXSDK_LIB "" CACHE PATH "Location of fbxsdk lib.")
-
 set(FURY3D_INCLUDE "" CACHE PATH "Location of fury3d headers.")
 set(FURY3D_LIB "" CACHE PATH "Location of fury3d lib.")
 
@@ -24,6 +19,10 @@ set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
 option(FBXPARSER_IMP "Fury Use FbxParser." OFF)
 if(FBXPARSER_IMP)
 	add_definitions(-D_FURY_FBXPARSER_IMP_)
+	set(FBXSDK_INCLUDE "" CACHE PATH "Location of fbxsdk headers.")
+	set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
+	set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")
+	set(FBXSDK_LIB optimized ${FBXSDK_LIB_RELEASE} debug ${FBXSDK_LIB_DEBUG})
 endif()
 
 option(GUI_IMP "Fury Use ImGui." ON)
@@ -33,10 +32,9 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-include_directories(${PLOG_INCLUDE})
-
-include_directories(${FBXSDK_INCLUDE})
-link_directories(${FBXSDK_LIB})
+if(FBXPARSER_IMP)
+	include_directories(${FBXSDK_INCLUDE})
+endif()
 
 include_directories(${FURY3D_INCLUDE})
 include_directories(${FURY3D_INCLUDE}/ThirdParty)
@@ -53,9 +51,9 @@ endif()
 file(GLOB DEMO_SRC ${DEMO_SRC} "*.cpp")
 add_executable(demo ${DEMO_SRC})
 if(OS_WINDOWS)
-	target_link_libraries(demo libfury libfbxsdk-md sfml-graphics sfml-window sfml-system opengl32)
+	target_link_libraries(demo libfury sfml-graphics sfml-window sfml-system opengl32 ${FBXSDK_LIB})
 elseif(OS_MACOSX)
-	target_link_libraries(demo fury fbxsdk sfml-graphics sfml-window sfml-system ${OPENGL_LIBRARIES})
+	target_link_libraries(demo fury sfml-graphics sfml-window sfml-system ${OPENGL_LIBRARIES} ${FBXSDK_LIB})
 	set_target_properties(demo PROPERTIES BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 endif()
 
