@@ -26,7 +26,7 @@ namespace fury
 
 		Vector4 m_PreScale, m_Scale, m_PostScale, m_WorldScale;
 
-		Matrix4 m_PreMatrix, m_Matrix, m_PostMatrix;
+		Matrix4 m_Matrix;
 
 		float m_Dt = 0.0f;
 		
@@ -103,10 +103,6 @@ namespace fury
 		Vector4 GetScale() const;
 
 		Matrix4 GetMatrix() const;
-
-		Matrix4 GetPreMatrix() const;
-
-		Matrix4 GetPostMatrix() const;
 
 	protected:
 

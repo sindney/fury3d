@@ -9,6 +9,7 @@
 #include <SFML/Window/Event.hpp>
 
 #include "Fury/Log.h"
+#include "Fury/Signal.h"
 
 namespace fury
 {
@@ -20,6 +21,14 @@ namespace fury
 			bool console = true, const LogFormatter &formatter = Formatter::Simple, bool append = false);
 
 		static void HandleEvent(sf::Event &event);
+
+		static Signal<float>::Ptr OnUpdate;
+
+		static Signal<>::Ptr OnFixedUpdate;
+
+		static void Update(float dt);
+
+		static void FixedUpdate();
 
 		static std::pair<int, int> GetGLVersion();
 	};

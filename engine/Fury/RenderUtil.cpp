@@ -236,13 +236,13 @@ namespace fury
 
 		m_FrameClock.restart();
 
-		OnBeginFrame.Emit();
+		OnBeginFrame->Emit();
 	}
 
 	void RenderUtil::EndFrame()
 	{
 		auto frameTime = m_FrameClock.restart().asMilliseconds();
-		OnEndFrame.Emit(std::move(frameTime));
+		OnEndFrame->Emit(std::move(frameTime));
 	}
 
 	void RenderUtil::IncreaseDrawCall(unsigned int count)

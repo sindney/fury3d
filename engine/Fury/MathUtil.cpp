@@ -5,15 +5,15 @@
 
 namespace fury
 {
-	const float MathUtil::PI = 3.1415926535897932384626433832795028841971693993751f;
+	const float MathUtil::PI		= 3.1415926536f;
 
-	const float MathUtil::HalfPI = 1.5707963267948966192313216916397514420985846996875f;
+	const float MathUtil::HalfPI	= 1.5707963268f;
 
 	// PI / 180
-	const float MathUtil::DegToRad = 0.017453292519943295769236907684886127134428718885417f;
+	const float MathUtil::DegToRad	= 0.0174532925f;
 
 	// 180 / PI
-	const float MathUtil::RadToDeg = 57.295779513082320876798154814105170332405472466565f;
+	const float MathUtil::RadToDeg	= 57.295779513f;
 
 	float MathUtil::DegreeToRadian(float deg)
 	{

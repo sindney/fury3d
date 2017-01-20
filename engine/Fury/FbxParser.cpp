@@ -1,5 +1,6 @@
 #ifdef _FURY_FBXPARSER_IMP_
 
+#include <cmath>
 #include <vector>
 #include <unordered_map>
 #include <stack>
@@ -241,6 +242,7 @@ namespace fury
 
 			auto impPosAnim = m_ImportOptions.Flags & FbxImportFlags::IMP_POS_ANIM;
 			auto impSclAnim = m_ImportOptions.Flags & FbxImportFlags::IMP_SCL_ANIM;
+			auto bakeCurveAnim = m_ImportOptions.Flags & FbxImportFlags::BAKE_CURVE_ANIM;
 
 			for (auto animStack : animStacks)
 			{
@@ -258,38 +260,83 @@ namespace fury
 					auto take = m_FbxScene->GetTakeInfo(animStack->GetName());
 					auto start = take->mLocalTimeSpan.GetStart();
 					auto stop = take->mLocalTimeSpan.GetStop();
-					//auto layer = animStack->GetMember<FbxAnimLayer>();
-					//auto curveRot = link->LclRotation.GetCurve(layer, FBXSDK_CURVENODE_ROTATION);
+					auto layer = animStack->GetMember<FbxAnimLayer>();
+
+					auto curveRot = link->LclRotation.GetCurve(layer);
+					auto curvePos = link->LclTranslation.GetCurve(layer);
+					auto curveScl = link->LclScaling.GetCurve(layer);
 					
 					auto channel = clip->AddChannel(link->GetName());
 					
-					unsigned int tick = 0;
-					for (FbxLongLong i = start.GetFrameCount(FbxTime::eFrames24); i <= stop.GetFrameCount(FbxTime::eFrames24); ++i)
+					if (true)
 					{
-						FbxTime curTime;
-						curTime.SetFrame(i, FbxTime::eFrames24);
-
-						auto curRotation = link->EvaluateLocalRotation(curTime) * (double)MathUtil::DegToRad;
-						channel->rotations.push_back(KeyFrame(tick, (float)curRotation[1], (float)curRotation[0], (float)curRotation[2]));
-
-						if (impPosAnim)
+						unsigned int tick = 0;
+						for (FbxLongLong i = start.GetFrameCount(FbxTime::eFrames24); i <= stop.GetFrameCount(FbxTime::eFrames24); ++i)
 						{
-							auto curPosition = link->EvaluateLocalTranslation(curTime);
-							channel->positions.push_back(Vector4ToKeyFrame(tick, curPosition));
+							FbxTime curTime;
+							curTime.SetFrame(i, FbxTime::eFrames24);
+
+							auto curRotation = link->EvaluateLocalRotation(curTime) * (double)MathUtil::DegToRad;
+							channel->rotations.push_back(KeyFrame(tick, (float)curRotation[1], (float)curRotation[0], (float)curRotation[2]));
+
+							if (impPosAnim)
+							{
+								auto curPosition = link->EvaluateLocalTranslation(curTime);
+								channel->positions.push_back(Vector4ToKeyFrame(tick, curPosition));
+							}
+
+							if (impSclAnim)
+							{
+								auto curScale = link->EvaluateLocalScaling(curTime);
+								channel->scalings.push_back(Vector4ToKeyFrame(tick, curScale));
+							}
+
+							tick++;
+						}
+					}
+					else
+					{
+						int numKeys = 0;
+						if (curveRot != nullptr)
+						{
+							numKeys = curveRot->KeyGetCount();
+							for (int keyIndex = 0; keyIndex < numKeys; keyIndex++)
+							{
+								FbxTime frameTime = curveRot->KeyGetTime(keyIndex);
+								auto curRotation = link->EvaluateLocalRotation(frameTime) * (double)MathUtil::DegToRad;
+								channel->rotations.push_back(KeyFrame((int)std::round(frameTime.GetSecondDouble() * 24.0), 
+									(float)curRotation[1], (float)curRotation[0], (float)curRotation[2]));
+							}
 						}
 
-						if (impSclAnim)
+						if (impPosAnim && curvePos != nullptr)
 						{
-							auto curScale = link->EvaluateLocalScaling(curTime);
-							channel->scalings.push_back(Vector4ToKeyFrame(tick, curScale));
+							numKeys = curvePos->KeyGetCount();
+							for (int keyIndex = 0; keyIndex < numKeys; keyIndex++)
+							{
+								FbxTime frameTime = curvePos->KeyGetTime(keyIndex);
+								channel->positions.push_back(Vector4ToKeyFrame(
+									(int)std::round(frameTime.GetSecondDouble() * 24.0),
+									link->EvaluateLocalTranslation(frameTime)));
+							}
 						}
 
-						tick++;
+						if (impSclAnim && curveScl != nullptr)
+						{
+							numKeys = curveScl->KeyGetCount();
+							for (int keyIndex = 0; keyIndex < numKeys; keyIndex++)
+							{
+								FbxTime frameTime = curveScl->KeyGetTime(keyIndex);
+								channel->scalings.push_back(Vector4ToKeyFrame(
+									(int)std::round(frameTime.GetSecondDouble() * 24.0), 
+									link->EvaluateLocalScaling(frameTime)));
+							}
+						}
 					}
 				}
 
-				if (m_ImportOptions.Flags & FbxImportFlags::OPTIMIZE_ANIM)
-					AnimationUtil::OptimizeAnimClip(clip, 0.5f);
+				/*if (m_ImportOptions.Flags & FbxImportFlags::OPTIMIZE_ANIM)
+					AnimationUtil::OptimizeAnimClip(clip, 0.5f);*/
 
 				clip->CalculateDuration();
 				Scene::Manager()->Add(clip);

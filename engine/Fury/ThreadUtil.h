@@ -1,5 +1,5 @@
-#ifndef _FURY_THREAD_MANAGER_H_
-#define _FURY_THREAD_MANAGER_H_
+#ifndef _FURY_THREAD_UTIL_H_
+#define _FURY_THREAD_UTIL_H_
 
 // Implimentation refers to: https://github.com/progschj/ThreadPool
 
@@ -10,7 +10,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
-#include <future>
+#include <unordered_map>
 
 #include "Fury/Singleton.h"
 
@@ -24,11 +24,37 @@ namespace fury
 
 	protected:
 
+		class TaskState
+		{
+		public:
+
+			size_t id = 0;
+
+			int progress = 0;
+
+			bool finished = false;
+
+			std::shared_ptr<void> data;
+
+			std::function<void()> callback;
+
+			std::function<void(int)> progressChanged;
+
+			TaskState(size_t id, std::shared_ptr<void> data)
+				: id(id), data(data) {}
+		};
+
 		static std::thread::id m_MainThreadId;
 
-		std::vector<std::thread> m_Workers;
+		static size_t m_TaskKey;
+
+		std::unordered_map<size_t, std::shared_ptr<TaskState>> m_TaskStates;
+
+		std::unordered_map<size_t, int> m_TaskProgresses;
 
 		std::queue<std::function<void()>> m_Tasks;
+
+		std::vector<std::thread> m_Workers;
 
 		std::mutex m_QueueMutex;
 
@@ -38,32 +64,42 @@ namespace fury
 
 	public:
 
-		ThreadUtil(size_t numThreads);
+		ThreadUtil(unsigned int numThreads);
 
 		~ThreadUtil();
+		
+		size_t Enqueue(std::function<void(int&)> task, std::function<void()> callback, std::function<void(int)> progressChanged = nullptr);
 
-		template<class F, class... Args>
-		auto Enqueue(F&& f, Args&&... args)
-			->std::future<typename std::result_of<F(Args...)>::type>
+		template<class ReturnType>
+		size_t Enqueue(std::function<std::shared_ptr<ReturnType>(int&)> task, std::function<void(std::shared_ptr<ReturnType>)> callback, 
+			std::function<void(int)> progressChanged = nullptr)
 		{
-			using return_type = typename std::result_of<F(Args...)>::type;
+			std::unique_lock<std::mutex> lock(m_QueueMutex);
 
-			auto task = std::make_shared<std::packaged_task<return_type()>>(
-				std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+			// don't allow enqueueing after stopping the pool
+			if (m_Stop)
+				throw std::runtime_error("Enqueue on stopped ThreadPool");
 
-			std::future<return_type> res = task->get_future();
+			size_t key = m_TaskKey++;
+			auto state = std::make_shared<TaskState>(key, nullptr);
+			state->callback = [callback, state]
 			{
-				std::unique_lock<std::mutex> lock(m_QueueMutex);
+				callback(std::static_pointer_cast<ReturnType>(state->data));
+			};
+			state->progressChanged = progressChanged;
 
-				// don't allow enqueueing after stopping the pool
-				if (m_Stop)
-					throw std::runtime_error("Enqueue on stopped ThreadPool");
+			m_Tasks.emplace([task, state]()
+			{
+				state->data = task(state->progress);
+				state->finished = true;
+			});
 
-				m_Tasks.emplace([task](){ (*task)(); });
-			}
+			m_TaskStates.emplace(key, state);
 			m_Condiction.notify_one();
-			return res;
+			return key;
 		}
+
+		void Update();
 
 		size_t GetWorkerCount();
 
@@ -73,4 +109,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_THREAD_MANAGER_H_
+#endif // _FURY_THREAD_UTIL_H_

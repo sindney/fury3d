@@ -75,6 +75,7 @@ int main(int argc, char *argv[])
 		int numLoops = 0;
 		while (clock.getElapsedTime().asMilliseconds() > next_game_tick && numLoops < MAX_FRAMESKIP && example->running)
 		{
+			Engine::FixedUpdate();
 			example->FixedUpdate();
 			next_game_tick += SKIP_TICKS;
 			numLoops++;
@@ -86,6 +87,7 @@ int main(int argc, char *argv[])
 
 		Gui::NewFrame(clock.restart().asSeconds());
 
+		Engine::Update(dt);
 		example->Update(dt);
 		example->Draw(window);
 

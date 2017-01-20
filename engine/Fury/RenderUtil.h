@@ -65,10 +65,10 @@ namespace fury
 
 	public:
 
-		Signal<> OnBeginFrame;
+		Signal<>::Ptr OnBeginFrame = Signal<>::Create();
 
 		// frame time in ms
-		Signal<int> OnEndFrame;
+		Signal<int>::Ptr OnEndFrame = Signal<int>::Create();
 
 		RenderUtil();
 

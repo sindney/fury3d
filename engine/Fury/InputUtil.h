@@ -36,33 +36,33 @@ namespace fury
 
 	public:
 		
-		Signal<sf::Keyboard::Key> OnKeyDown;
+		Signal<sf::Keyboard::Key>::Ptr OnKeyDown = Signal<sf::Keyboard::Key>::Create();
 
-		Signal<sf::Keyboard::Key> OnKeyUp;
+		Signal<sf::Keyboard::Key>::Ptr OnKeyUp = Signal<sf::Keyboard::Key>::Create();
 
-		Signal<> OnWindowClosed;
+		Signal<>::Ptr OnWindowClosed = Signal<>::Create();
 
-		Signal<unsigned int, unsigned int> OnWindowResized;
+		Signal<unsigned int, unsigned int>::Ptr OnWindowResized = Signal<unsigned int, unsigned int>::Create();
 
 		// true for focused, false for losing.
-		Signal<bool> OnWindowFocus;
+		Signal<bool>::Ptr OnWindowFocus = Signal<bool>::Create();
 
 		// unicode
-		Signal<size_t> OnTextEntered;
+		Signal<size_t>::Ptr OnTextEntered = Signal<size_t>::Create();
 
 		// true for entering window, false for lefting.
-		Signal<bool> OnMouseEnter;
+		Signal<bool>::Ptr OnMouseEnter = Signal<bool>::Create();
 
 		// offset (ppositive up/left), x & y relative to window's top & left owner.
-		Signal<float, int, int> OnMouseWheel;
+		Signal<float, int, int>::Ptr OnMouseWheel = Signal<float, int, int>::Create();
 
 		// x & y relative to window's top & left owner.
-		Signal<int, int> OnMouseMove;
+		Signal<int, int>::Ptr OnMouseMove = Signal<int, int>::Create();
 
 		// x & y relative to window's top & left owner.
-		Signal<sf::Mouse::Button, int, int> OnMouseDown;
+		Signal<sf::Mouse::Button, int, int>::Ptr OnMouseDown = Signal<sf::Mouse::Button, int, int>::Create();
 
-		Signal<sf::Mouse::Button, int, int> OnMouseUp;
+		Signal<sf::Mouse::Button, int, int>::Ptr OnMouseUp = Signal<sf::Mouse::Button, int, int>::Create();
 
 		InputUtil(unsigned int width, unsigned int height);
 
