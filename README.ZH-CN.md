@@ -40,6 +40,11 @@ Fury3d是一个使用C++11与高版本opengl编写的跨平台3D引擎。
 
 应该支持所有支持Opengl3.3+的显卡
 
+测试第三方库: 
+
+* Rapidjson 1.1.0
+* SFML 2.4.1
+
 ## 测试截图
 
 ![阴影和动态光照](screenshots/1.jpg)
