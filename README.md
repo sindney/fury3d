@@ -40,6 +40,10 @@ Because fbxsdk only offers MSVC builds on windows (FBXSDK is optional, you can l
 
 Should work with any graphic card that supports opengl 3.3 +
 
+Tested libraries: 
+* Rapidjson 1.1.0
+* SFML 2.4.1
+
 ## Screenshots
 
 ![Shadows](screenshots/1.jpg)
