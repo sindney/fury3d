@@ -32,7 +32,7 @@ namespace fury
 		static void FixedUpdate();
 
 		static void Shutdown();
-
+		
 		static std::pair<int, int> GetGLVersion();
 	};
 }
