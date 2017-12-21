@@ -24,6 +24,8 @@
 
 #endif
 
+#define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+
 //---- Define assertion handler. Defaults to calling assert().
 //#define IM_ASSERT(_EXPR)  MyAssert(_EXPR)
 

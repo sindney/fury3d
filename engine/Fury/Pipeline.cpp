@@ -19,7 +19,7 @@
 #include "Fury/Pass.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderQuery.h"
-#include "SceneManager.h"
+#include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/SphereBounds.h"
@@ -344,7 +344,7 @@ namespace fury
 
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_buffer = Texture::GetTempory(1024, 1024, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
+		auto depth_buffer = Texture::GetTemporary(1024, 1024, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
@@ -453,7 +453,7 @@ namespace fury
 	{
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_buffer = Texture::GetTempory(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
@@ -526,7 +526,7 @@ namespace fury
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		auto depth_shader = GetShaderByName("cube_depth_shader");
-		auto depth_buffer = Texture::GetTempory(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
+		auto depth_buffer = Texture::GetTemporary(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
@@ -615,7 +615,7 @@ namespace fury
 	{
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_buffer = Texture::GetTempory(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);

@@ -20,7 +20,7 @@ namespace fury
 		return ptr;
 	}
 
-	Texture::Ptr Texture::GetTempory(int width, int height, int depth, TextureFormat format, TextureType type)
+	Texture::Ptr Texture::GetTemporary(int width, int height, int depth, TextureFormat format, TextureType type)
 	{
 		auto key = GetKeyFromParams(width, height, depth, format, type);
 		auto it = m_TexturePool.find(key);
@@ -40,7 +40,7 @@ namespace fury
 		return texture;
 	}
 
-	void Texture::CollectTempory(const std::shared_ptr<Texture> &ptr)
+	void Texture::ReleaseTemporary(const std::shared_ptr<Texture> &ptr)
 	{
 		auto key = Texture::GetKeyFromPtr(ptr);
 		auto it = m_TexturePool.find(key);

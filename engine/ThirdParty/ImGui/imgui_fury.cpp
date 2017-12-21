@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <string>
 
-#include "Imgui/imgui.h"
-#include "Imgui/imgui_fury.h"
+#include "ImGui/imgui.h"
+#include "ImGui/imgui_fury.h"
 
 namespace ImGui 
 {
@@ -23,7 +23,7 @@ namespace ImGui
 
 	// Plot value over time
 	// Call with 'value == FLT_MAX' to draw without adding new value to the buffer
-	void PlotVar(const char* label, float value, float scale_min, float scale_max, float width, size_t buffer_size)
+	void PlotVar(const char* label, float value, float scale_min, float scale_max, float width, float height, size_t buffer_size)
 	{
 	    IM_ASSERT(label);
 	    if (buffer_size == 0)
@@ -56,7 +56,7 @@ namespace ImGui
 	    if (pvd.LastFrame != current_frame)
 	    {
 	    	std::string hint = std::string(label) + " " + std::to_string((int)value);
-	        ImGui::PlotLines("##plot", &pvd.Data[0], buffer_size, pvd.DataInsertIdx, hint.c_str(), scale_min, scale_max, ImVec2(width, 40));
+	        ImGui::PlotLines("##plot", &pvd.Data[0], buffer_size, pvd.DataInsertIdx, hint.c_str(), scale_min, scale_max, ImVec2(width, height));
 	        pvd.LastFrame = current_frame;
 	    }
 

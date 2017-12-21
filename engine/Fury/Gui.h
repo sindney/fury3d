@@ -17,7 +17,7 @@ namespace fury
 {
 	namespace Gui
 	{
-		bool FURY_API Initialize(sf::Window *window);
+		bool FURY_API Initialize(sf::Window *window, float scale = 1.0f);
 
 		void FURY_API Shutdown();
 

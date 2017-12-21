@@ -643,8 +643,7 @@ namespace fury
 		}
 		else
 		{
-			m_ViewPortWidth = InputUtil::Instance()->GetWindowSize().first;
-			m_ViewPortHeight = InputUtil::Instance()->GetWindowSize().second;
+			InputUtil::Instance()->GetWindowSize(m_ViewPortWidth, m_ViewPortHeight);
 		}
 
 		m_Binded = true;

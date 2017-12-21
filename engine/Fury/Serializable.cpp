@@ -128,16 +128,23 @@ namespace fury
 		if (!LoadArray(wrapper, name, raw))
 			return false;
 
-		if (raw.size() < 4)
+		if (raw.size() == 3)
 		{
-			vector.Zero();
+			vector.x = raw[0];
+			vector.y = raw[1];
+			vector.z = raw[2];
+			vector.w = 1.0f;
 		}
-		else
+		if (raw.size() > 3)
 		{
 			vector.x = raw[0];
 			vector.y = raw[1];
 			vector.z = raw[2];
 			vector.w = raw[3];
+		}
+		else
+		{
+			vector.Zero();
 		}
 		return true;
 	}

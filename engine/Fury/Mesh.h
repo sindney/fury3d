@@ -48,6 +48,7 @@ namespace fury
 
 	class Joint;
 
+	// TODO: Add read only property
 	class FURY_API Mesh : public Entity, public Buffer
 	{
 	public:

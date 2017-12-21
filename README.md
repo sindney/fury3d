@@ -28,6 +28,8 @@ Plans:
 
 * Add shadow maps. (Done, need improvements)
 * Add skeleton animation support. (Done, but need improvements)
+* Implement GLTF file format parsing, dropping support for FbxSDK.
+* Implement HDR rendering pipeline, and support PBR material.
 
 ## Compatibility
 

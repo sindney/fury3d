@@ -31,10 +31,10 @@ namespace fury
 		static Ptr Create(const std::string &name);
 
 		// create new or reuse texture from pool. textures are named like 512x512xrgba8x2d.
-		static Ptr GetTempory(int width, int height, int depth, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
+		static Ptr GetTemporary(int width, int height, int depth, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
 
 		// collect texture to pool for reuse.
-		static void CollectTempory(const std::shared_ptr<Texture> &ptr);
+		static void ReleaseTemporary(const std::shared_ptr<Texture> &ptr);
 
 		// delete and release all textures from pool.
 		static void ReleaseTempories();

@@ -31,10 +31,11 @@ namespace fury
 		TRIANGULATE		= 0x0040, 
 		IMP_ANIM		= 0x0080, 
 		IMP_POS_ANIM	= 0x0100, 
-		IMP_SCL_ANIM	= 0x0200, 
-		OPTIMIZE_ANIM	= 0x0400, 
-		BAKE_LAYERS		= 0x0800, 
-		AUTO_PAIR_CLIP	= 0x1000
+		IMP_SCL_ANIM	= 0x0200,
+		BAKE_CURVE_ANIM	= 0x0400,
+		OPTIMIZE_ANIM	= 0x0800, 
+		BAKE_LAYERS		= 0x1000, 
+		AUTO_PAIR_CLIP	= 0x2000
 	};
 
 	struct FbxImportOptions
@@ -42,7 +43,7 @@ namespace fury
 	public:
 
 		unsigned int Flags = FbxImportFlags::UV | FbxImportFlags::NORMAL | FbxImportFlags::IMP_ANIM | 
-			FbxImportFlags::IMP_POS_ANIM | FbxImportFlags::AUTO_PAIR_CLIP | FbxImportFlags::OPTIMIZE_ANIM | 
+			FbxImportFlags::IMP_POS_ANIM | FbxImportFlags::AUTO_PAIR_CLIP | FbxImportFlags::BAKE_CURVE_ANIM | 
 			FbxImportFlags::OPTIMIZE_MESH;
 
 		float ScaleFactor = 1.0f;

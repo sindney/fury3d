@@ -15,7 +15,32 @@ namespace fury
 {
 	RenderUtil::RenderUtil()
 	{
-		const char *debug_vs =
+		// blit shader
+		{
+			const char *blit_vs = 
+				"in vec3 vertex_position;\n"
+				"out vec2 out_uv;\n"
+				"void main() {\n"
+				"	out_uv = vertex_position.xy * 0.5 + 0.5;\n"
+				"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);\n"
+				"}\n";
+
+			const char *blit_fs = 
+				"uniform sampler2D src;\n"
+				"in vec2 out_uv;\n"
+				"out vec4 fragment_output;\n"
+				"void main() {\n"
+				"	fragment_output = texture(src, out_uv);\n"
+				"}\n";
+
+			m_BlitShader = Shader::Create("BlitShader", ShaderType::OTHER);
+			if (!m_BlitShader->Compile(blit_vs, blit_fs, ""))
+				FURYE << "Failed to compile line shader!";
+		}
+
+		// debug shader
+		{
+			const char *debug_vs =
 			"#version 330\n"
 			"in vec3 vertex_position;\n"
 			"uniform mat4 projection_matrix;\n"
@@ -56,6 +81,7 @@ namespace fury
 		glBindVertexArray(0);
 
 		m_DebugShader->UnBind();
+		}
 
 		m_BlitPass = Pass::Create("BlitPass");
 		m_BlitPass->SetBlendMode(BlendMode::REPLACE);
@@ -74,9 +100,17 @@ namespace fury
 	}
 
 	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
+		ClearMode clearMode, BlendMode blendMode)
+	{
+		Blit(src, dest, m_BlitShader, clearMode, blendMode);
+	}
+
+	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
 		const std::shared_ptr<Shader> &shader, ClearMode clearMode, BlendMode blendMode)
 	{
-		m_BlitPass->AddTexture(dest, false);
+		if (dest != nullptr)
+			m_BlitPass->AddTexture(dest, false);
+
 		m_BlitPass->SetClearMode(clearMode);
 		m_BlitPass->SetBlendMode(blendMode);
 
@@ -236,13 +270,13 @@ namespace fury
 
 		m_FrameClock.restart();
 
-		OnBeginFrame.Emit();
+		OnBeginFrame->Emit();
 	}
 
 	void RenderUtil::EndFrame()
 	{
 		auto frameTime = m_FrameClock.restart().asMilliseconds();
-		OnEndFrame.Emit(std::move(frameTime));
+		OnEndFrame->Emit(std::move(frameTime));
 	}
 
 	void RenderUtil::IncreaseDrawCall(unsigned int count)

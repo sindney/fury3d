@@ -7,6 +7,7 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/Frustum.h"
 #include "Fury/GLLoader.h"
+#include "Fury/Gui.h"
 #include "Fury/Light.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Material.h"
@@ -17,7 +18,7 @@
 #include "Fury/PrelightPipeline.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/RenderUtil.h"
-#include "SceneManager.h"
+#include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/SphereBounds.h"
@@ -88,6 +89,7 @@ namespace fury
 
 		// draw passes
 
+		Texture::Ptr finalBuffer = nullptr;
 		unsigned int passCount = m_SortedPasses.size();
 		for (unsigned int i = 0; i < passCount; i++)
 		{
@@ -110,20 +112,17 @@ namespace fury
 				pass->Bind();
 				for (const auto &unit : query->opaqueUnits)
 					DrawUnit(pass, unit);
-				pass->UnBind();
 			}
 			else if (drawMode == DrawMode::TRANSPARENT)
 			{
 				pass->Bind();
 				for (const auto &unit : query->transparentUnits)
 					DrawUnit(pass, unit);
-				pass->UnBind();
 			}
 			else if (drawMode == DrawMode::QUAD)
 			{
 				pass->Bind();
 				DrawQuad(pass);
-				pass->UnBind();
 			}
 			else if (drawMode == DrawMode::LIGHT)
 			{
@@ -143,6 +142,8 @@ namespace fury
 				}
 			}
 
+			pass->UnBind();
+
 			if (i == passCount - 1)
 				glDisable(GL_FRAMEBUFFER_SRGB);
 
@@ -158,6 +159,9 @@ namespace fury
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
 			PipelineSwitch::MESH_BOUNDS }, true))
 			DrawDebug(query);
+
+		// gui
+		Gui::Render();
 
 		// post
 		m_CurrentShader = nullptr;
@@ -315,7 +319,7 @@ namespace fury
 
 		// collect used shadow buffer
 		if (castShadows)
-			Texture::CollectTempory(shadowData.first);
+			Texture::ReleaseTemporary(shadowData.first);
 	}
 
 	void PrelightPipeline::DrawDirLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
@@ -402,9 +406,9 @@ namespace fury
 		if (castShadows)
 		{
 			if (useCascaded)
-				Texture::CollectTempory(cascadedShadowData.first);
+				Texture::ReleaseTemporary(cascadedShadowData.first);
 			else
-				Texture::CollectTempory(shadowData.first);
+				Texture::ReleaseTemporary(shadowData.first);
 		}
 	}
 
@@ -491,7 +495,7 @@ namespace fury
 
 		// collect used shadow buffer
 		if (castShadows)
-			Texture::CollectTempory(shadowData.first);
+			Texture::ReleaseTemporary(shadowData.first);
 	}
 
 	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)

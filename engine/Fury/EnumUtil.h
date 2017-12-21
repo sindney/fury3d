@@ -15,13 +15,13 @@ namespace fury
 {
 	enum class ClearMode : unsigned int
 	{
-		NONE = 0, 
-		COLOR, 
-		STENCIL, 
-		DEPTH, 
-		COLOR_DEPTH, 
-		COLOR_STENCIL, 
-		STENCIL_DEPTH, 
+		NONE = 0,
+		COLOR,
+		STENCIL,
+		DEPTH,
+		COLOR_DEPTH,
+		COLOR_STENCIL,
+		STENCIL_DEPTH,
 		COLOR_DEPTH_STENCIL
 	};
 
@@ -66,7 +66,7 @@ namespace fury
 
 	enum class TextureFormat : unsigned int
 	{
-		UNKNOW = 0, 
+		UNKNOW = 0,
 		R8,
 		R16,
 		R16F,
@@ -96,9 +96,9 @@ namespace fury
 
 	enum class TextureType : unsigned int
 	{
-		TEXTURE_1D = 0, 
-		TEXTURE_2D, 
-		TEXTURE_2D_ARRAY, 
+		TEXTURE_1D = 0,
+		TEXTURE_2D,
+		TEXTURE_2D_ARRAY,
 		TEXTURE_CUBE_MAP
 	};
 
@@ -129,30 +129,30 @@ namespace fury
 
 	enum class LightType : unsigned int
 	{
-		DIRECTIONAL = 0, 
+		DIRECTIONAL = 0,
 		POINT,
 		SPOT
 	};
-	
+
 	enum class ShaderType : unsigned int
 	{
-		OTHER = 0, 
-		STATIC_MESH, 
+		OTHER = 0,
+		STATIC_MESH,
 		SKINNED_MESH
 	};
 
 	enum class ShaderTexture : unsigned int
 	{
-		COLOR_ONLY	= 0x0001, 
-		DIFFUSE		= 0x0002, 
-		SPECULAR	= 0x0004, 
-		NORMAL		= 0x0008
+		COLOR_ONLY = 0x0001,
+		DIFFUSE = 0x0002,
+		SPECULAR = 0x0004,
+		NORMAL = 0x0008
 	};
 
 	enum class LineMode : unsigned int
 	{
-		LINES = 0, 
-		LINE_LOOP, 
+		LINES = 0,
+		LINE_LOOP,
 		LINE_STRIP
 	};
 
@@ -249,12 +249,16 @@ namespace fury
 
 		static FilterMode FilterModeFromString(const std::string &name);
 
+		static FilterMode FilterModeFromUint(unsigned int value);
+
 
 		static unsigned int WrapModeToUint(WrapMode mode);
 
 		static std::string WrapModeToString(WrapMode mode);
 
 		static WrapMode WrapModeFromString(const std::string &name);
+
+		static WrapMode WrapModeFromUint(unsigned int value);
 
 
 		static std::string LightTypeToString(LightType type);

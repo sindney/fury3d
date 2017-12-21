@@ -399,6 +399,16 @@ namespace fury
 		return FilterMode::LINEAR;
 	}
 
+	FilterMode EnumUtil::FilterModeFromUint(unsigned int value)
+	{
+		for (const auto &mode : m_FilterMode)
+		{
+			if (std::get<1>(mode) == value)
+				return std::get<0>(mode);
+		}
+		return FilterMode::LINEAR;
+	}
+
 	unsigned int EnumUtil::WrapModeToUint(WrapMode mode)
 	{
 		return std::get<1>(m_WrapMode[(int)mode]);
@@ -414,6 +424,16 @@ namespace fury
 		for (const auto &mode : m_WrapMode)
 		{
 			if (std::get<2>(mode) == name)
+				return std::get<0>(mode);
+		}
+		return WrapMode::CLAMP_TO_EDGE;
+	}
+
+	WrapMode EnumUtil::WrapModeFromUint(unsigned int value)
+	{
+		for (const auto &mode : m_WrapMode)
+		{
+			if (std::get<1>(mode) == value)
 				return std::get<0>(mode);
 		}
 		return WrapMode::CLAMP_TO_EDGE;

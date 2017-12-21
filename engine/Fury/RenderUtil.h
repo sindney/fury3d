@@ -39,7 +39,7 @@ namespace fury
 
 		std::shared_ptr<Shader> m_DebugShader;
 
-		std::shared_ptr<Shader> m_BlurShader;
+		std::shared_ptr<Shader> m_BlitShader;
 
 		std::shared_ptr<Pass> m_BlitPass;
 
@@ -65,14 +65,18 @@ namespace fury
 
 	public:
 
-		Signal<> OnBeginFrame;
+		Signal<>::Ptr OnBeginFrame = Signal<>::Create();
 
 		// frame time in ms
-		Signal<int> OnEndFrame;
+		Signal<int>::Ptr OnEndFrame = Signal<int>::Create();
 
 		RenderUtil();
 
 		virtual ~RenderUtil();
+
+		void Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
+			ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL, 
+			BlendMode blendMode = BlendMode::REPLACE);
 
 		void Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
 			const std::shared_ptr<Shader> &shader, ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL, 

@@ -42,7 +42,7 @@ namespace fury
 	{
 		if (Scene::Active == nullptr)
 		{
-			FURYE << "Active Pipeline is null!";
+			FURYE << "Active Scene is null!";
 			return false;
 		}
 

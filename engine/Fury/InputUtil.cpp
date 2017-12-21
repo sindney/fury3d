@@ -2,8 +2,8 @@
 
 namespace fury
 {
-	InputUtil::InputUtil(unsigned int width, unsigned int height)
-		: m_WindowSize(width, height), m_MousePosition(0, 0)
+	InputUtil::InputUtil(int winWidth, int winHeight)
+		: m_WindowSize(winWidth, winHeight), m_MousePosition(0, 0)
 	{
 		for (int i = 0; i < sf::Mouse::Button::ButtonCount; i++)
 			m_MouseDown[i] = false;
@@ -12,9 +12,10 @@ namespace fury
 			m_KeyDown[i] = false;
 	}
 
-	std::pair<unsigned int, unsigned int> InputUtil::GetWindowSize()
+	void InputUtil::GetWindowSize(int &width, int &height)
 	{
-		return m_WindowSize;
+		width = m_WindowSize.first;
+		height = m_WindowSize.second;
 	}
 
 	std::pair<int, int> InputUtil::GetMousePosition()

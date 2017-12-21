@@ -39,6 +39,8 @@ namespace fury
 
 		Matrix4(const float raw[]);
 
+		Matrix4(const float raw[], const int offset);
+
 		Matrix4(std::initializer_list<float> raw);
 
 		Matrix4(const Matrix4 &other);

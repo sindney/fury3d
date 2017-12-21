@@ -3,8 +3,8 @@
 #include <array>
 
 #include "ImGui/imconfig.h"
-#include "Imgui/imgui.h"
-#include "Imgui/imgui_fury.h"
+#include "ImGui/imgui.h"
+#include "ImGui/imgui_fury.h"
 
 #include "Fury/ArrayBuffers.h"
 #include "Fury/BoxBounds.h"
@@ -33,6 +33,8 @@ namespace fury
 
 		static sf::Window *m_Window;
 
+		static float m_GlobalScale = 1.0f;
+
 		static unsigned int m_VAO = 0;
 
 		static unsigned int m_VBO = 0;
@@ -45,10 +47,14 @@ namespace fury
 
 		static float m_MouseWheel = 0.0f;
 
-		bool Initialize(sf::Window *window)
+		static bool m_WindowHasFocus = true;
+
+		bool Initialize(sf::Window *window, float scale)
 		{
 			m_MousePressed[0] = m_MousePressed[1] = m_MousePressed[2] = false;
+			m_WindowHasFocus = true;
 			m_Window = window;
+			m_GlobalScale = scale;
 
 			ImGuiIO& io = ImGui::GetIO();
 
@@ -72,79 +78,11 @@ namespace fury
 
 			io.DisplaySize = ImVec2((float)m_Window->getSize().x, (float)m_Window->getSize().y);
 			io.RenderDrawListsFn = fury::Gui::RenderDrawLists;
+			io.FontGlobalScale = 2.0f;
 
 			ImGuiStyle& style = ImGui::GetStyle();
-
-			const ImGuiStyle def;
-			style = def;
-
-			style.Alpha = 1.0f;
-			style.WindowPadding = ImVec2(8, 8);
-			style.WindowMinSize = ImVec2(32, 32);
-			style.WindowRounding = 0.0f;
-			style.WindowTitleAlign = ImGuiAlign_Left;
-			style.ChildWindowRounding = 0.0f;
-			style.FramePadding = ImVec2(4, 3);
-			style.FrameRounding = 0.0f;
-			style.ItemSpacing = ImVec2(8, 4);
-			style.ItemInnerSpacing = ImVec2(4, 4);
-			style.TouchExtraPadding = ImVec2(0, 0);
-			style.WindowFillAlphaDefault = 1.0f;
-			style.IndentSpacing = 22.0f;
-			style.ColumnsMinSpacing = 6.0f;
-			style.ScrollbarSize = 16.0f;
-			style.ScrollbarRounding = 9.0f;
-			style.GrabMinSize = 10.0f;
-			style.GrabRounding = 0.0f;
-			style.DisplayWindowPadding = ImVec2(22, 22);
-			style.DisplaySafeAreaPadding = ImVec2(4, 4);
-			style.AntiAliasedLines = true;
-			style.AntiAliasedShapes = true;
-			style.CurveTessellationTol = 1.25f;
-
-			style.Colors[ImGuiCol_Text] = ImVec4(0.9f, 0.9f, 0.9f, 1.0f);
-			style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
-			style.Colors[ImGuiCol_WindowBg] = ImVec4(0.20f, 0.20f, 0.20f, 1.0f);
-			style.Colors[ImGuiCol_ChildWindowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-			style.Colors[ImGuiCol_Border] = ImVec4(0.078f, 0.078f, 0.078f, 1.0f);
-			style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-			style.Colors[ImGuiCol_FrameBg] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
-			style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_TitleBg] = ImVec4(0.02f, 0.02f, 0.02f, 1.0f);
-			style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.02f, 0.02f, 0.02f, 1.0f);
-			style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.02f, 0.02f, 0.02f, 1.0f);
-			style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.0f);
-			style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.09f, 0.09f, 0.09f, 1.0f);
-			style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_ComboBg] = ImVec4(0.2f, 0.2f, 0.2f, 1.0f);
-			style.Colors[ImGuiCol_CheckMark] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_Button] = ImVec4(0.20f, 0.20f, 0.20f, 1.0f);
-			style.Colors[ImGuiCol_ButtonHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_ButtonActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_Header] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
-			style.Colors[ImGuiCol_HeaderHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_HeaderActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_Column] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_ColumnHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_ColumnActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_ResizeGrip] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_ResizeGripActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_CloseButton] = ImVec4(0.59f, 0.59f, 0.59f, 1.0f);
-			style.Colors[ImGuiCol_CloseButtonHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_CloseButtonActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_PlotLines] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-			style.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_PlotHistogram] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.0f, 0.78f, 0.0f, 1.0f);
-			style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
-			style.Colors[ImGuiCol_TooltipBg] = ImVec4(0.04f, 0.04f, 0.04f, 1.0f);
-			style.Colors[ImGuiCol_ModalWindowDarkening] = ImVec4(0.04f, 0.04f, 0.04f, 1.0f);
+			ImGui::StyleColorsDark(&style);
+			style.ScaleAllSizes(scale);
 
 			const char *vertex_shader =
 				"#version 330\n"
@@ -284,6 +222,8 @@ namespace fury
 			ImGuiIO& io = ImGui::GetIO();
 			int fb_width = (int)(io.DisplaySize.x * io.DisplayFramebufferScale.x);
 			int fb_height = (int)(io.DisplaySize.y * io.DisplayFramebufferScale.y);
+			if (fb_width == 0 || fb_height == 0)
+				return;
 			draw_data->ScaleClipRects(io.DisplayFramebufferScale);
 
 			// Setup viewport, orthographic projection matrix
@@ -348,29 +288,43 @@ namespace fury
 		void HandleEvent(sf::Event &event)
 		{
 			ImGuiIO& io = ImGui::GetIO();
+			if (m_WindowHasFocus)
+			{
+				switch (event.type)
+				{
+					case sf::Event::MouseButtonPressed: // fall-through
+					case sf::Event::MouseButtonReleased:
+						m_MousePressed[event.mouseButton.button] = (event.type == sf::Event::MouseButtonPressed);
+						break;
+					case sf::Event::MouseWheelMoved:
+						m_MouseWheel += (float)event.mouseWheel.delta;
+						break;
+					case sf::Event::KeyPressed: // fall-through
+					case sf::Event::KeyReleased:
+						io.KeysDown[event.key.code] = (event.type == sf::Event::KeyPressed);
+						io.KeyCtrl = event.key.control;
+						io.KeyShift = event.key.shift;
+						io.KeyAlt = event.key.alt;
+						break;
+					case sf::Event::TextEntered:
+						if (event.text.unicode > 0 && event.text.unicode < 0x10000) {
+							io.AddInputCharacter(event.text.unicode);
+						}
+						break;
+					default:
+						break;
+				}
+			}
 			switch (event.type)
 			{
-			case sf::Event::MouseButtonPressed: // fall-through
-			case sf::Event::MouseButtonReleased:
-				m_MousePressed[event.mouseButton.button] = (event.type == sf::Event::MouseButtonPressed);
-				break;
-			case sf::Event::MouseWheelMoved:
-				m_MouseWheel += (float)event.mouseWheel.delta;
-				break;
-			case sf::Event::KeyPressed: // fall-through
-			case sf::Event::KeyReleased:
-				io.KeysDown[event.key.code] = (event.type == sf::Event::KeyPressed);
-				io.KeyCtrl = event.key.control;
-				io.KeyShift = event.key.shift;
-				io.KeyAlt = event.key.alt;
-				break;
-			case sf::Event::TextEntered:
-				if (event.text.unicode > 0 && event.text.unicode < 0x10000) {
-					io.AddInputCharacter(event.text.unicode);
-				}
-				break;
-			default:
-				break;
+				case sf::Event::LostFocus:
+					m_WindowHasFocus = false;
+					break;
+				case sf::Event::GainedFocus:
+					m_WindowHasFocus = true;
+					break;
+				default:
+					break;
 			}
 		}
 
@@ -378,10 +332,18 @@ namespace fury
 		{
 			auto &io = ImGui::GetIO();
 			auto &inputMgr = InputUtil::Instance();
-			auto winSize = m_Window->getSize();
 
 			// Setup display size (every frame to accommodate for window resizing)
-			io.DisplaySize = ImVec2((float)winSize.x, (float)winSize.y);
+			// int winWidth = 0, winHeight = 0;
+			// int frameWidth = 0, frameHeight = 0;
+			// inputMgr->GetWindowSize(winWidth, winHeight);
+			// inputMgr->GetFrameSize(frameWidth, frameHeight);
+			// io.DisplaySize = ImVec2((float)winWidth, (float)winHeight);
+			// io.DisplayFramebufferScale = ImVec2(winWidth > 0 ? ((float)frameWidth / winWidth) : 0, 
+			// 	winHeight > 0 ? ((float)frameHeight / winHeight) : 0);
+			int winWidth = 0, winHeight = 0;
+			inputMgr->GetWindowSize(winWidth, winHeight);
+			io.DisplaySize = ImVec2((float)winWidth, (float)winHeight);
 			io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 
 			// Setup time step
@@ -389,18 +351,21 @@ namespace fury
 
 			// Setup inputs
 			// Mouse position, in pixels (set to -1,-1 if no mouse / on another screen, etc.)
-			sf::Vector2f mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(*m_Window));
-			io.MousePos = ImVec2(mousePos.x, mousePos.y);
+			if (m_WindowHasFocus)
+			{
+				sf::Vector2f mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(*m_Window));
+				io.MousePos = ImVec2(mousePos.x, mousePos.y);
 
-			// If a mouse press event came, always pass it as "mouse held this frame"
-			// so we don't miss click-release events that are shorter than 1 frame.
-			io.MouseDown[0] = m_MousePressed[0] || inputMgr->GetMouseDown(sf::Mouse::Left);
-			io.MouseDown[1] = m_MousePressed[1] || inputMgr->GetMouseDown(sf::Mouse::Right);
-			io.MouseDown[2] = m_MousePressed[2] || inputMgr->GetMouseDown(sf::Mouse::Middle);
-			m_MousePressed[0] = m_MousePressed[1] = m_MousePressed[2] = false;
+				// If a mouse press event came, always pass it as "mouse held this frame"
+				// so we don't miss click-release events that are shorter than 1 frame.
+				io.MouseDown[0] = m_MousePressed[0] || sf::Mouse::isButtonPressed(sf::Mouse::Left);
+				io.MouseDown[1] = m_MousePressed[1] || sf::Mouse::isButtonPressed(sf::Mouse::Right);
+				io.MouseDown[2] = m_MousePressed[2] || sf::Mouse::isButtonPressed(sf::Mouse::Middle);
+				m_MousePressed[0] = m_MousePressed[1] = m_MousePressed[2] = false;
 
-			io.MouseWheel = m_MouseWheel;
-			m_MouseWheel = 0.0f;
+				io.MouseWheel = m_MouseWheel;
+				m_MouseWheel = 0.0f;
+			}
 
 			// Hide OS mouse cursor if ImGui is drawing it
 			m_Window->setMouseCursorVisible(!io.MouseDrawCursor);
@@ -413,7 +378,39 @@ namespace fury
 		{
 			static bool showProfilerWindow = true, showGBufferWindow = false, showShadowBufferWindow = false;
 
-			ImGui::Begin("Profiler", &showProfilerWindow, ImVec2(240, 350), 1.0f,
+			// main menu
+			{
+				if (ImGui::BeginMainMenuBar())
+			    {
+			        if (ImGui::BeginMenu("File"))
+			        {
+			        	if (ImGui::MenuItem("Open")) {}
+			        	ImGui::Separator();
+			        	if (ImGui::MenuItem("Quit")) 
+			        	{
+			        		if (m_Window != NULL)
+			        		{
+			        			m_Window->close();
+			        		}
+			        	}
+			            ImGui::EndMenu();
+			        }
+			        if (ImGui::BeginMenu("Edit"))
+			        {
+			            if (ImGui::MenuItem("Undo", "CTRL+Z")) {}
+			            if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {}  // Disabled item
+			            ImGui::Separator();
+			            if (ImGui::MenuItem("Cut", "CTRL+X")) {}
+			            if (ImGui::MenuItem("Copy", "CTRL+C")) {}
+			            if (ImGui::MenuItem("Paste", "CTRL+V")) {}
+			            ImGui::EndMenu();
+			        }
+			        ImGui::EndMainMenuBar();
+			    }
+			}
+
+			ImGui::SetNextWindowSize(ImVec2(240 * m_GlobalScale, 350 * m_GlobalScale));
+			ImGui::Begin("Profiler", &showProfilerWindow, 
 				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 			// fps graph
@@ -424,7 +421,7 @@ namespace fury
 				while (curFps > upper_bound) upper_bound += 50;
 				while (upper_bound - 50 > curFps) upper_bound -= 50;
 
-				ImGui::PlotVar("FPS", curFps, 1, upper_bound, 210, 30);
+				ImGui::PlotVar("FPS", curFps, 1, upper_bound, 210 * m_GlobalScale, 40 * m_GlobalScale, 30);
 			}
 
 			ImGui::Separator();
@@ -468,25 +465,26 @@ namespace fury
 
 			if (showShadowBufferWindow)
 			{
-				ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 300, ImGui::GetIO().DisplaySize.y - 300), ImGuiSetCond_FirstUseEver);
-				ImGui::Begin("Shadow Buffers", &showShadowBufferWindow, ImVec2(300, 300), 1.0f,
+				ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 300 * m_GlobalScale * m_GlobalScale, ImGui::GetIO().DisplaySize.y - 300 * m_GlobalScale), ImGuiCond_FirstUseEver);
+				ImGui::SetNextWindowSize(ImVec2(300 * m_GlobalScale, 300 * m_GlobalScale));
+				ImGui::Begin("Shadow Buffers", &showShadowBufferWindow, 
 					ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 				if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*0*depth24*2d"))
 				{
 					ImGui::Text("2DTexture Buffer: ");
-					ImGui::Image((ImTextureID)ptr->GetID(), ImVec2(256, 256), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::Image((ImTextureID)ptr->GetID(), ImVec2(256 * m_GlobalScale, 256 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
 				}
 
 				// cube_texture
 				if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("512*512*0*depth24*cube"))
 				{
-					static auto img0 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img1 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img2 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img3 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img4 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img5 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img0 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img1 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img2 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img3 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img4 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img5 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
 
 					static auto blitShader = Shader::Create("BlitShader", ShaderType::OTHER);
 
@@ -553,17 +551,17 @@ namespace fury
 					ImGui::Text("CubeTexture Buffer: ");
 					ImGui::BeginGroup();
 
-					ImGui::Image((ImTextureID)img0->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-					ImGui::SameLine(140);
-					ImGui::Image((ImTextureID)img1->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::Image((ImTextureID)img0->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::SameLine(140 * m_GlobalScale);
+					ImGui::Image((ImTextureID)img1->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
 
-					ImGui::Image((ImTextureID)img2->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-					ImGui::SameLine(140);
-					ImGui::Image((ImTextureID)img3->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::Image((ImTextureID)img2->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::SameLine(140 * m_GlobalScale);
+					ImGui::Image((ImTextureID)img3->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
 
-					ImGui::Image((ImTextureID)img4->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-					ImGui::SameLine(140);
-					ImGui::Image((ImTextureID)img5->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::Image((ImTextureID)img4->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::SameLine(140 * m_GlobalScale);
+					ImGui::Image((ImTextureID)img5->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
 
 					ImGui::EndGroup();
 				}
@@ -571,10 +569,10 @@ namespace fury
 				// texture_array
 				if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*4*depth24*2d_array"))
 				{
-					static auto img0 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img1 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img2 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-					static auto img3 = Texture::GetTempory(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img0 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img1 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img2 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+					static auto img3 = Texture::GetTemporary(128 * m_GlobalScale, 128 * m_GlobalScale, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
 					static auto blitShader = Shader::Create("BlitShader", ShaderType::OTHER);
 
 					if (blitShader->GetDirty())
@@ -622,13 +620,13 @@ namespace fury
 					ImGui::Text("ArrayTexture Buffer: ");
 					ImGui::BeginGroup();
 
-					ImGui::Image((ImTextureID)img0->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-					ImGui::SameLine(140);
-					ImGui::Image((ImTextureID)img1->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::Image((ImTextureID)img0->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::SameLine(140 * m_GlobalScale);
+					ImGui::Image((ImTextureID)img1->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
 
-					ImGui::Image((ImTextureID)img2->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-					ImGui::SameLine(140);
-					ImGui::Image((ImTextureID)img3->GetID(), ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::Image((ImTextureID)img2->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::SameLine(140 * m_GlobalScale);
+					ImGui::Image((ImTextureID)img3->GetID(), ImVec2(128 * m_GlobalScale, 128 * m_GlobalScale), ImVec2(0, 1), ImVec2(1, 0));
 
 					ImGui::EndGroup();
 				}
@@ -638,11 +636,12 @@ namespace fury
 
 			if (showGBufferWindow)
 			{
-				ImGui::SetNextWindowPos(ImVec2(ImVec2(ImGui::GetIO().DisplaySize.x - 300, 0)), ImGuiSetCond_FirstUseEver);
-				ImGui::Begin("GBuffers", &showGBufferWindow, ImVec2(300, 300), 1.0f,
+				ImGui::SetNextWindowPos(ImVec2(ImVec2(ImGui::GetIO().DisplaySize.x - 300 * m_GlobalScale, 0)), ImGuiCond_FirstUseEver);
+				ImGui::SetNextWindowSize(ImVec2(300 * m_GlobalScale, 300 * m_GlobalScale));
+				ImGui::Begin("GBuffers", &showGBufferWindow, 
 					ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
-				ImVec2 imgSize(ImGui::GetIO().DisplaySize.x / 4, ImGui::GetIO().DisplaySize.y / 4);
+				ImVec2 imgSize(m_GlobalScale * ImGui::GetIO().DisplaySize.x / 4, m_GlobalScale * ImGui::GetIO().DisplaySize.y / 4);
 
 				ImGui::Text("Depth Buffer: ");
 				if (auto ptr = Pipeline::Active->GetTextureByName("gbuffer_depth"))

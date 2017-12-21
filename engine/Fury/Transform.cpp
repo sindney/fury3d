@@ -57,11 +57,6 @@ namespace fury
 		m_Matrix.AppendRotation(m_Rotation);
 		m_Matrix.AppendScale(m_Scale);
 
-		m_PostMatrix.Identity();
-		m_PostMatrix.AppendTranslation(m_PostPosition);
-		m_PostMatrix.AppendRotation(m_PostRotation);
-		m_PostMatrix.AppendScale(m_PostScale);
-
 		if (!m_Owner.expired())
 		{
 			auto node = m_Owner.lock();
@@ -211,16 +206,6 @@ namespace fury
 	Matrix4 Transform::GetMatrix() const
 	{
 		return m_Matrix;
-	}
-
-	Matrix4 Transform::GetPreMatrix() const
-	{
-		return m_PreMatrix;
-	}
-
-	Matrix4 Transform::GetPostMatrix() const
-	{
-		return m_PostMatrix;
 	}
 
 	void Transform::OnAttaching(const std::shared_ptr<SceneNode> &node)
