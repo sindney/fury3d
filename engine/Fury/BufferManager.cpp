@@ -42,7 +42,7 @@ namespace fury
 		if (gpu)
 			m_GPUMemories += byte;
 		else
-			m_GPUMemories += byte;
+			m_CPUMemories += byte;
 	}
 
 	void BufferManager::DecreaseMemory(unsigned int byte, bool gpu)
