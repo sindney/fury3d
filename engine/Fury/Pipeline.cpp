@@ -427,7 +427,8 @@ namespace fury
 					auto casterMesh = casterRender->GetMesh();
 
 					depth_shader->BindMesh(casterMesh);
-					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
+					Matrix4 casterWorld = caster->GetWorldMatrix();
+					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
 
 					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
@@ -506,7 +507,8 @@ namespace fury
 				auto casterMesh = casterRender->GetMesh();
 
 				depth_shader->BindMesh(casterMesh);
-				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
+				Matrix4 casterWorld = caster->GetWorldMatrix();
+				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
 
 				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseDrawCall();
@@ -593,7 +595,8 @@ namespace fury
 
 					depth_shader->BindMesh(casterMesh);
 					depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]);
-					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
+					Matrix4 casterWorld = caster->GetWorldMatrix();
+					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
 
 					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
@@ -669,7 +672,8 @@ namespace fury
 				auto casterMesh = casterRender->GetMesh();
 
 				depth_shader->BindMesh(casterMesh);
-				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &caster->GetWorldMatrix().Raw[0]);
+				Matrix4 casterWorld = caster->GetWorldMatrix();
+				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
 
 				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseDrawCall();

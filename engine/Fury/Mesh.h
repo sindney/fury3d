@@ -55,8 +55,6 @@ namespace fury
 
 		friend class Shader;
 
-		friend class FbxParser;
-
 		typedef std::shared_ptr<Mesh> Ptr;
 
 		static Ptr Create(const std::string &name);

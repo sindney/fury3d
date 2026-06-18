@@ -1,5 +1,7 @@
 #include <SFML/Window.hpp>
 
+#include <cstdint>
+
 #include <Fury/Fury.h>
 #include <Fury/Gui.h>
 
@@ -31,15 +33,23 @@ void Shutdown();
 int main(int argc, char *argv[])
 {
 	// setup sfml
+	sf::ContextSettings settings;
+	settings.depthBits = 24;
+	settings.stencilBits = 8;
+	settings.antiAliasingLevel = 0;
+	settings.majorVersion = 3;
+	settings.minorVersion = 3;
+
 	sf::Window window(
-		sf::VideoMode(1920, 1080),
+		sf::VideoMode({1920, 1080}),
 		"Fury3d",
-		sf::Style::Titlebar | sf::Style::Close /*| sf::Style::Fullscreen*/, 
-		sf::ContextSettings(24, 8, 0, 3, 3)
-		);
+		sf::Style::Titlebar | sf::Style::Close,
+		sf::State::Windowed,
+		settings
+	);
 	window.setKeyRepeatEnabled(true);
 	window.setVerticalSyncEnabled(false);
-	window.setActive();
+	(void)window.setActive();
 	//window.setFramerateLimit(60);
 
 	//if (argc < 2) Pause();
@@ -51,8 +61,7 @@ int main(int argc, char *argv[])
 
 	// Game Loop
 	sf::Clock clock;
-	sf::Event event;
-	sf::Int32 next_game_tick = clock.getElapsedTime().asMilliseconds();
+	std::int32_t next_game_tick = clock.getElapsedTime().asMilliseconds();
 	bool running = true;
 
 	while (window.isOpen() && running)
@@ -60,14 +69,15 @@ int main(int argc, char *argv[])
 		RenderUtil::Instance()->BeginFrame();
 
 		// Sync event
-		while (window.pollEvent(event))
+		while (const std::optional event = window.pollEvent())
 		{
-			if (event.type == sf::Event::Closed)
+			if (event->is<sf::Event::Closed>())
 			{
 				running = false;
 				break;
 			}
-			Engine::HandleEvent(event);
+			sf::Event ev = *event;
+			Engine::HandleEvent(ev);
 		}
 
 		// Update game logic TICKS_PER_SECOND times per second.
@@ -79,7 +89,7 @@ int main(int argc, char *argv[])
 			numLoops++;
 		}
 		// display game object in maximum framerate.
-		sf::Int32 elapsed = clock.getElapsedTime().asMilliseconds();
+		std::int32_t elapsed = clock.getElapsedTime().asMilliseconds();
 		float dt = float(elapsed + SKIP_TICKS - next_game_tick) / float(SKIP_TICKS);
 		next_game_tick -= elapsed;
 

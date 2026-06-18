@@ -369,8 +369,10 @@ namespace fury
 			BindFloat("camera_pos", camPos.x, camPos.y, camPos.z);
 			BindFloat("camera_far", camera->GetFar());
 			BindFloat("camera_near", camera->GetNear());
-			BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &camNode->GetInvertWorldMatrix().Raw[0]);
-			BindMatrix(Matrix4::PROJECTION_MATRIX, &camera->GetProjectionMatrix().Raw[0]);
+			Matrix4 invView = camNode->GetInvertWorldMatrix();
+			Matrix4 proj = camera->GetProjectionMatrix();
+			BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &invView.Raw[0]);
+			BindMatrix(Matrix4::PROJECTION_MATRIX, &proj.Raw[0]);
 		}
 	}
 

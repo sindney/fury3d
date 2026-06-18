@@ -1,0 +1,9 @@
+[submodule "engine/ThirdParty/tinygltf"]
+	path = engine/ThirdParty/tinygltf
+	url = https://github.com/syoyo/tinygltf.git
+[submodule "engine/ThirdParty/SFML"]
+	path = engine/ThirdParty/SFML
+	url = https://github.com/SFML/SFML.git
+[submodule "engine/ThirdParty/rapidjson"]
+	path = engine/ThirdParty/rapidjson
+	url = https://github.com/Tencent/rapidjson.git

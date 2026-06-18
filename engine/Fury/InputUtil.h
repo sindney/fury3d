@@ -30,9 +30,9 @@ namespace fury
 
 		float m_MouseWheel = 0.0f;
 
-		bool m_MouseDown[sf::Mouse::Button::ButtonCount];
+		bool m_MouseDown[sf::Mouse::ButtonCount];
 
-		bool m_KeyDown[sf::Keyboard::Key::KeyCount];
+		bool m_KeyDown[sf::Keyboard::KeyCount];
 
 	public:
 		

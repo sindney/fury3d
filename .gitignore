@@ -1,4 +1,47 @@
+# Build directories
 /engine/build/
 /engine/lib/
+/build-engine/
+/build-demo/
+/build/
+/cmake-build-*/
+
+# CMake artifacts (defense-in-depth in case someone configures in-tree)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.cbp
+compile_commands.json
+
+# Demo runtime artifacts dropped next to the binary
+/examples/bin/Log.txt
+/examples/bin/demo
+/examples/bin/libfury.dylib
+/examples/bin/libsfml-*.dylib
+/examples/bin/libfury.so
+/examples/bin/libfury.a
+/examples/bin/*.pdb
+
+# Editor / IDE
 *.sublime-project
 *.sublime-workspace
+.vscode/
+.idea/
+*.code-workspace
+
+# Tooling-specific (Claude Code session state — user-local)
+.claude/
+
+# OS noise
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Backup / swap
+*.bak
+*.swp
+*.swo
+*~

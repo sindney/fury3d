@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.22)
 
 project(FURY3D)
 
@@ -10,28 +10,18 @@ else()
 	message(SEND_ERROR "Only support windows && osx currentlly.")
 endif()
 
-set(RAPIDJSON_INCLUDE "/usr/local/include" CACHE PATH "Path to rapidjson headers.")
-
-set(SFML_INCLUDE "/usr/local/include" CACHE PATH "Location of SFML headers.")
-set(SFML_LIB "/usr/local/lib" CACHE PATH "Location of SFML lib.")
-
-option(FBXPARSER_IMP "Use FbxParser." OFF)
-if(FBXPARSER_IMP)
-	add_definitions(-D_FURY_FBXPARSER_IMP_)
-	set(FBXSDK_INCLUDE "/usr/local/include" CACHE PATH "Path to fbxsdk headers.")
-	set(FBXSDK_LIB_RELEASE "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk release lib.")
-	set(FBXSDK_LIB_DEBUG "/usr/local/lib" CACHE FILEPATH "Path to fbxsdk debug lib.")
-	set(FBXSDK_LIB optimized ${FBXSDK_LIB_RELEASE} debug ${FBXSDK_LIB_DEBUG})
-endif()
-
 option(GUI_IMP "Use ImGui." ON)
 if(GUI_IMP)
 	add_definitions(-D_FURY_GUI_IMP_)
 endif()
 
-set(CMAKE_CXX_FLAGS "-std=c++11 -Wno-int-to-void-pointer-cast")
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-int-to-void-pointer-cast")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -NDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -DNDEBUG")
 
 option(BUILD_SHARED_LIBS "Build shared librarie." ON)
 
@@ -42,14 +32,27 @@ if(OS_WINDOWS)
 	endif()
 endif()
 
-# add_subdirectory(src)
+# Vendored third-party submodules
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/SFML/CMakeLists.txt")
+	message(FATAL_ERROR "SFML submodule missing — run: git submodule update --init --recursive")
+endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/rapidjson/include/rapidjson/document.h")
+	message(FATAL_ERROR "rapidjson submodule missing — run: git submodule update --init --recursive")
+endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf/tiny_gltf.h")
+	message(FATAL_ERROR "tinygltf submodule missing — run: git submodule update --init --recursive")
+endif()
+
+# SFML 3.1: build only the modules we actually need
+set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
+set(SFML_BUILD_NETWORK OFF CACHE BOOL "" FORCE)
+set(SFML_BUILD_GRAPHICS ON CACHE BOOL "" FORCE)
+set(SFML_BUILD_WINDOW ON CACHE BOOL "" FORCE)
+add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/SFML)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
-include_directories(${RAPIDJSON_INCLUDE})
-
-include_directories(${SFML_INCLUDE})
-link_directories(${SFML_LIB})
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/rapidjson/include)
 
 include_directories(${PROJECT_SOURCE_DIR}/ThirdParty)
 
@@ -60,9 +63,9 @@ file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
 include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
 file(GLOB LZ4_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4/*.c)
 
-if(FBXPARSER_IMP)
-	include_directories(${FBXSDK_INCLUDE})
-endif()
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf)
+set(TINYGLTF_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf/tiny_gltf.cc)
+set_source_files_properties(${TINYGLTF_SRC} PROPERTIES COMPILE_DEFINITIONS "TINYGLTF_NO_STB_IMAGE;TINYGLTF_NO_STB_IMAGE_WRITE")
 
 if(OS_MACOSX)
 	find_library(COREFOUNDATION_LIB CoreFoundation)
@@ -71,18 +74,23 @@ if(OS_MACOSX)
 endif()
 
 file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)
-list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC})
+list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 
 if(BUILD_SHARED_LIBS)
 	add_library(fury SHARED ${FURY_SRC})
 	if(OS_WINDOWS)
-		target_link_libraries(fury sfml-window sfml-system opengl32 ${FBXSDK_LIB})
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32)
 	elseif(OS_MACOSX)
-		target_link_libraries(fury sfml-window sfml-system ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} ${FBXSDK_LIB})
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB})
 		set_target_properties(fury PROPERTIES BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 	endif()
 else()
 	add_library(fury STATIC ${FURY_SRC})
+	if(OS_WINDOWS)
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32)
+	elseif(OS_MACOSX)
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB})
+	endif()
 endif()
 
 install(TARGETS fury DESTINATION lib)

@@ -2,7 +2,6 @@
 
 #include "Fury/BufferManager.h"
 #include "Fury/Engine.h"
-#include "Fury/FbxParser.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
@@ -38,10 +37,6 @@ namespace fury
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
 
-#ifdef _FURY_FBXPARSER_IMP_
-		FbxParser::Initialize();
-#endif
-
 		int flag = gl::LoadGLFunctions();
 
 		RenderUtil::Initialize();
@@ -70,66 +65,89 @@ namespace fury
 	void Engine::HandleEvent(sf::Event &event)
 	{
 		auto &inputMgr = InputUtil::Instance();
-		switch (event.type)
+
+		if (event.is<sf::Event::Closed>())
 		{
-		case sf::Event::Closed:
 			inputMgr->OnWindowClosed->Emit();
-			break;
-		case sf::Event::Resized:
-			inputMgr->m_WindowSize.first = event.size.width;
-			inputMgr->m_WindowSize.second = event.size.height;
-			inputMgr->OnWindowResized->Emit(std::move(event.size.width), std::move(event.size.height));
-			break;
-		case sf::Event::LostFocus:
+		}
+		else if (const auto* resized = event.getIf<sf::Event::Resized>())
+		{
+			int w = static_cast<int>(resized->size.x);
+			int h = static_cast<int>(resized->size.y);
+			inputMgr->m_WindowSize.first = w;
+			inputMgr->m_WindowSize.second = h;
+			inputMgr->OnWindowResized->Emit(std::move(w), std::move(h));
+		}
+		else if (event.is<sf::Event::FocusLost>())
+		{
 			inputMgr->m_WindowFocused = false;
 			inputMgr->OnWindowFocus->Emit(false);
-			break;
-		case sf::Event::GainedFocus:
+		}
+		else if (event.is<sf::Event::FocusGained>())
+		{
 			inputMgr->m_WindowFocused = true;
 			inputMgr->OnWindowFocus->Emit(true);
-			break;
-		case sf::Event::TextEntered:
-			inputMgr->OnTextEntered->Emit(std::move(event.text.unicode));
-			break;
-		case sf::Event::KeyPressed:
-			inputMgr->m_KeyDown[event.key.code] = true;
-			inputMgr->OnKeyDown->Emit(std::move(event.key.code));
-			break;
-		case sf::Event::KeyReleased:
-			inputMgr->m_KeyDown[event.key.code] = false;
-			inputMgr->OnKeyUp->Emit(std::move(event.key.code));
-			break;
-		case sf::Event::MouseWheelScrolled:
-			inputMgr->m_MouseWheel = event.mouseWheelScroll.delta;
-			inputMgr->OnMouseWheel->Emit(std::move(event.mouseWheelScroll.delta),
-				std::move(event.mouseWheelScroll.x), std::move(event.mouseWheelScroll.y));
-			break;
-		case sf::Event::MouseButtonPressed:
-			inputMgr->m_MouseDown[event.mouseButton.button] = true;
-			inputMgr->OnMouseDown->Emit(std::move(event.mouseButton.button), std::move(event.mouseButton.x),
-				std::move(event.mouseButton.y));
-			break;
-		case sf::Event::MouseButtonReleased:
-			inputMgr->m_MouseDown[event.mouseButton.button] = false;
-			inputMgr->OnMouseUp->Emit(std::move(event.mouseButton.button), std::move(event.mouseButton.x),
-				std::move(event.mouseButton.y));
-			break;
-		case sf::Event::MouseMoved:
-			inputMgr->m_MousePosition.first = event.mouseMove.x;
-			inputMgr->m_MousePosition.second = event.mouseMove.y;
-			inputMgr->OnMouseMove->Emit(std::move(event.mouseMove.x), std::move(event.mouseMove.y));
-			break;
-		case sf::Event::MouseEntered:
+		}
+		else if (const auto* text = event.getIf<sf::Event::TextEntered>())
+		{
+			size_t unicode = static_cast<size_t>(text->unicode);
+			inputMgr->OnTextEntered->Emit(std::move(unicode));
+		}
+		else if (const auto* key = event.getIf<sf::Event::KeyPressed>())
+		{
+			inputMgr->m_KeyDown[static_cast<unsigned int>(key->code)] = true;
+			sf::Keyboard::Key code = key->code;
+			inputMgr->OnKeyDown->Emit(std::move(code));
+		}
+		else if (const auto* key = event.getIf<sf::Event::KeyReleased>())
+		{
+			inputMgr->m_KeyDown[static_cast<unsigned int>(key->code)] = false;
+			sf::Keyboard::Key code = key->code;
+			inputMgr->OnKeyUp->Emit(std::move(code));
+		}
+		else if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
+		{
+			inputMgr->m_MouseWheel = wheel->delta;
+			float delta = wheel->delta;
+			int wx = wheel->position.x;
+			int wy = wheel->position.y;
+			inputMgr->OnMouseWheel->Emit(std::move(delta), std::move(wx), std::move(wy));
+		}
+		else if (const auto* btn = event.getIf<sf::Event::MouseButtonPressed>())
+		{
+			inputMgr->m_MouseDown[static_cast<unsigned int>(btn->button)] = true;
+			sf::Mouse::Button b = btn->button;
+			int bx = btn->position.x;
+			int by = btn->position.y;
+			inputMgr->OnMouseDown->Emit(std::move(b), std::move(bx), std::move(by));
+		}
+		else if (const auto* btn = event.getIf<sf::Event::MouseButtonReleased>())
+		{
+			inputMgr->m_MouseDown[static_cast<unsigned int>(btn->button)] = false;
+			sf::Mouse::Button b = btn->button;
+			int bx = btn->position.x;
+			int by = btn->position.y;
+			inputMgr->OnMouseUp->Emit(std::move(b), std::move(bx), std::move(by));
+		}
+		else if (const auto* move = event.getIf<sf::Event::MouseMoved>())
+		{
+			inputMgr->m_MousePosition.first = move->position.x;
+			inputMgr->m_MousePosition.second = move->position.y;
+			int mx = move->position.x;
+			int my = move->position.y;
+			inputMgr->OnMouseMove->Emit(std::move(mx), std::move(my));
+		}
+		else if (event.is<sf::Event::MouseEntered>())
+		{
 			inputMgr->m_MouseInWindow = true;
 			inputMgr->OnMouseEnter->Emit(true);
-			break;
-		case sf::Event::MouseLeft:
+		}
+		else if (event.is<sf::Event::MouseLeft>())
+		{
 			inputMgr->m_MouseInWindow = false;
 			inputMgr->OnMouseEnter->Emit(false);
-			break;
-		default:
-			break;
 		}
+
 		Gui::HandleEvent(event);
 	}
 

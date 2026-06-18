@@ -16,7 +16,6 @@
 #include "Fury/Entity.h"
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
-#include "Fury/FbxParser.h"
 #include "Fury/Frustum.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"

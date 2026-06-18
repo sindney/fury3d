@@ -5,10 +5,10 @@ namespace fury
 	InputUtil::InputUtil(int winWidth, int winHeight)
 		: m_WindowSize(winWidth, winHeight), m_MousePosition(0, 0)
 	{
-		for (int i = 0; i < sf::Mouse::Button::ButtonCount; i++)
+		for (unsigned int i = 0; i < sf::Mouse::ButtonCount; i++)
 			m_MouseDown[i] = false;
 
-		for (int i = 0; i < sf::Keyboard::Key::KeyCount; i++)
+		for (unsigned int i = 0; i < sf::Keyboard::KeyCount; i++)
 			m_KeyDown[i] = false;
 	}
 
@@ -35,7 +35,7 @@ namespace fury
 
 	bool InputUtil::GetMouseDown()
 	{
-		for (int i = 0; i < sf::Mouse::Button::ButtonCount; i++)
+		for (unsigned int i = 0; i < sf::Mouse::ButtonCount; i++)
 		{
 			if (m_MouseDown[i])
 				return true;
@@ -45,11 +45,11 @@ namespace fury
 
 	bool InputUtil::GetMouseDown(sf::Mouse::Button btn)
 	{
-		return m_MouseDown[btn];
+		return m_MouseDown[static_cast<unsigned int>(btn)];
 	}
 
 	bool InputUtil::GetKeyDown(sf::Keyboard::Key key)
 	{
-		return m_KeyDown[key];
+		return m_KeyDown[static_cast<unsigned int>(key)];
 	}
 }

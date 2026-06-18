@@ -58,23 +58,23 @@ namespace fury
 
 			ImGuiIO& io = ImGui::GetIO();
 
-			io.KeyMap[ImGuiKey_Tab] = sf::Keyboard::Tab;
-			io.KeyMap[ImGuiKey_LeftArrow] = sf::Keyboard::Left;
-			io.KeyMap[ImGuiKey_RightArrow] = sf::Keyboard::Right;
-			io.KeyMap[ImGuiKey_UpArrow] = sf::Keyboard::Up;
-			io.KeyMap[ImGuiKey_DownArrow] = sf::Keyboard::Down;
-			io.KeyMap[ImGuiKey_Home] = sf::Keyboard::Home;
-			io.KeyMap[ImGuiKey_End] = sf::Keyboard::End;
-			io.KeyMap[ImGuiKey_Delete] = sf::Keyboard::Delete;
-			io.KeyMap[ImGuiKey_Backspace] = sf::Keyboard::BackSpace;
-			io.KeyMap[ImGuiKey_Enter] = sf::Keyboard::Return;
-			io.KeyMap[ImGuiKey_Escape] = sf::Keyboard::Escape;
-			io.KeyMap[ImGuiKey_A] = sf::Keyboard::A;
-			io.KeyMap[ImGuiKey_C] = sf::Keyboard::C;
-			io.KeyMap[ImGuiKey_V] = sf::Keyboard::V;
-			io.KeyMap[ImGuiKey_X] = sf::Keyboard::X;
-			io.KeyMap[ImGuiKey_Y] = sf::Keyboard::Y;
-			io.KeyMap[ImGuiKey_Z] = sf::Keyboard::Z;
+			io.KeyMap[ImGuiKey_Tab] = static_cast<int>(sf::Keyboard::Key::Tab);
+			io.KeyMap[ImGuiKey_LeftArrow] = static_cast<int>(sf::Keyboard::Key::Left);
+			io.KeyMap[ImGuiKey_RightArrow] = static_cast<int>(sf::Keyboard::Key::Right);
+			io.KeyMap[ImGuiKey_UpArrow] = static_cast<int>(sf::Keyboard::Key::Up);
+			io.KeyMap[ImGuiKey_DownArrow] = static_cast<int>(sf::Keyboard::Key::Down);
+			io.KeyMap[ImGuiKey_Home] = static_cast<int>(sf::Keyboard::Key::Home);
+			io.KeyMap[ImGuiKey_End] = static_cast<int>(sf::Keyboard::Key::End);
+			io.KeyMap[ImGuiKey_Delete] = static_cast<int>(sf::Keyboard::Key::Delete);
+			io.KeyMap[ImGuiKey_Backspace] = static_cast<int>(sf::Keyboard::Key::Backspace);
+			io.KeyMap[ImGuiKey_Enter] = static_cast<int>(sf::Keyboard::Key::Enter);
+			io.KeyMap[ImGuiKey_Escape] = static_cast<int>(sf::Keyboard::Key::Escape);
+			io.KeyMap[ImGuiKey_A] = static_cast<int>(sf::Keyboard::Key::A);
+			io.KeyMap[ImGuiKey_C] = static_cast<int>(sf::Keyboard::Key::C);
+			io.KeyMap[ImGuiKey_V] = static_cast<int>(sf::Keyboard::Key::V);
+			io.KeyMap[ImGuiKey_X] = static_cast<int>(sf::Keyboard::Key::X);
+			io.KeyMap[ImGuiKey_Y] = static_cast<int>(sf::Keyboard::Key::Y);
+			io.KeyMap[ImGuiKey_Z] = static_cast<int>(sf::Keyboard::Key::Z);
 
 			io.DisplaySize = ImVec2((float)m_Window->getSize().x, (float)m_Window->getSize().y);
 			io.RenderDrawListsFn = fury::Gui::RenderDrawLists;
@@ -290,41 +290,48 @@ namespace fury
 			ImGuiIO& io = ImGui::GetIO();
 			if (m_WindowHasFocus)
 			{
-				switch (event.type)
+				if (const auto* btn = event.getIf<sf::Event::MouseButtonPressed>())
 				{
-					case sf::Event::MouseButtonPressed: // fall-through
-					case sf::Event::MouseButtonReleased:
-						m_MousePressed[event.mouseButton.button] = (event.type == sf::Event::MouseButtonPressed);
-						break;
-					case sf::Event::MouseWheelMoved:
-						m_MouseWheel += (float)event.mouseWheel.delta;
-						break;
-					case sf::Event::KeyPressed: // fall-through
-					case sf::Event::KeyReleased:
-						io.KeysDown[event.key.code] = (event.type == sf::Event::KeyPressed);
-						io.KeyCtrl = event.key.control;
-						io.KeyShift = event.key.shift;
-						io.KeyAlt = event.key.alt;
-						break;
-					case sf::Event::TextEntered:
-						if (event.text.unicode > 0 && event.text.unicode < 0x10000) {
-							io.AddInputCharacter(event.text.unicode);
-						}
-						break;
-					default:
-						break;
+					m_MousePressed[static_cast<unsigned int>(btn->button)] = true;
+				}
+				else if (const auto* btn = event.getIf<sf::Event::MouseButtonReleased>())
+				{
+					m_MousePressed[static_cast<unsigned int>(btn->button)] = false;
+				}
+				else if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
+				{
+					m_MouseWheel += wheel->delta;
+				}
+				else if (const auto* key = event.getIf<sf::Event::KeyPressed>())
+				{
+					io.KeysDown[static_cast<unsigned int>(key->code)] = true;
+					io.KeyCtrl = key->control;
+					io.KeyShift = key->shift;
+					io.KeyAlt = key->alt;
+				}
+				else if (const auto* key = event.getIf<sf::Event::KeyReleased>())
+				{
+					io.KeysDown[static_cast<unsigned int>(key->code)] = false;
+					io.KeyCtrl = key->control;
+					io.KeyShift = key->shift;
+					io.KeyAlt = key->alt;
+				}
+				else if (const auto* text = event.getIf<sf::Event::TextEntered>())
+				{
+					if (text->unicode > 0 && text->unicode < 0x10000)
+					{
+						io.AddInputCharacter(static_cast<unsigned short>(text->unicode));
+					}
 				}
 			}
-			switch (event.type)
+
+			if (event.is<sf::Event::FocusLost>())
 			{
-				case sf::Event::LostFocus:
-					m_WindowHasFocus = false;
-					break;
-				case sf::Event::GainedFocus:
-					m_WindowHasFocus = true;
-					break;
-				default:
-					break;
+				m_WindowHasFocus = false;
+			}
+			else if (event.is<sf::Event::FocusGained>())
+			{
+				m_WindowHasFocus = true;
 			}
 		}
 
@@ -358,9 +365,9 @@ namespace fury
 
 				// If a mouse press event came, always pass it as "mouse held this frame"
 				// so we don't miss click-release events that are shorter than 1 frame.
-				io.MouseDown[0] = m_MousePressed[0] || sf::Mouse::isButtonPressed(sf::Mouse::Left);
-				io.MouseDown[1] = m_MousePressed[1] || sf::Mouse::isButtonPressed(sf::Mouse::Right);
-				io.MouseDown[2] = m_MousePressed[2] || sf::Mouse::isButtonPressed(sf::Mouse::Middle);
+				io.MouseDown[0] = m_MousePressed[0] || sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
+				io.MouseDown[1] = m_MousePressed[1] || sf::Mouse::isButtonPressed(sf::Mouse::Button::Right);
+				io.MouseDown[2] = m_MousePressed[2] || sf::Mouse::isButtonPressed(sf::Mouse::Button::Middle);
 				m_MousePressed[0] = m_MousePressed[1] = m_MousePressed[2] = false;
 
 				io.MouseWheel = m_MouseWheel;
