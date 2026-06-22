@@ -218,18 +218,18 @@
 
 ## 21. `Demo.lua` File menu — minimum scene editor
 
-- [ ] 21.1 Move the existing `Camera` menu callback inside Demo.lua into a separate `register_menu()` Lua function and call it from `on_init`
-- [ ] 21.2 Add a `File` menu to the menu-bar callback, before the `Camera` menu, with items:
+- [x] 21.1 Move the existing `Camera` menu callback inside Demo.lua into a separate `register_menu()` Lua function and call it from `on_init`
+- [x] 21.2 Add a `File` menu to the menu-bar callback, before the `Camera` menu, with items:
   - `New Scene` — calls `Scene.GetActive():Clear()` and re-attaches the camera node (the camera node lives outside the scene's root tree in Demo.lua's setup, so `Clear` shouldn't touch it — verify by reading Demo.lua)
   - `Open Scene` — sub-menu populated by `FileUtil.ListDirectory("Resource/Scene/", {".json", ".bin", ".gltf", ".glb", ".fbx"})`
   - `Import` — same enumeration as `Open Scene`
   - `Save Scene As` — opens an ImGui modal with a `Gui.InputText` field (pre-filled `scene_saved.json`) and a Save button; on confirm, writes to `Resource/Scene/<typed-name>` via `FileUtil.SaveFile` or `FileUtil.SaveCompressedFile` (extension determines format)
-- [ ] 21.3 In the `Open Scene` sub-menu handler, on click: call `Importer.LoadScene("Resource/Scene/" .. name)`; if non-nil, `Scene.GetActive():Clear()` then `Importer.MergeInto(Scene.GetActive(), imported)`; if nil, set a Lua-local `last_error` and continue
-- [ ] 21.4 In the `Import` sub-menu handler, on click: call `Importer.LoadScene("Resource/Scene/" .. name)`; if non-nil, `Importer.MergeInto(Scene.GetActive(), imported)`
-- [ ] 21.5 Render `last_error` as a transient ImGui toast for ~3 seconds (track with a counter decremented in `on_update`)
-- [ ] 21.6 Verify the camera and pipeline survive `New Scene` / `Open Scene` / `Import` cycles (the camera node should not be a child of the scene's root; if it is, move it out)
-- [ ] 21.7 Ensure `Demo.lua`'s `on_init` still works: it currently calls `FileUtil.LoadSceneFromCompressedFile(scene, "Resource/Scene/scene.bin")` — leave this as the default initial scene, but file-menu actions now override it
-- [ ] 21.8 Visual verification: launch `./fury Demo.lua`, exercise each menu item, confirm geometry behaves as expected
+- [x] 21.3 In the `Open Scene` sub-menu handler, on click: call `Importer.LoadScene("Resource/Scene/" .. name)`; if non-nil, `Scene.GetActive():Clear()` then `Importer.MergeInto(Scene.GetActive(), imported)`; if nil, set a Lua-local `last_error` and continue
+- [x] 21.4 In the `Import` sub-menu handler, on click: call `Importer.LoadScene("Resource/Scene/" .. name)`; if non-nil, `Importer.MergeInto(Scene.GetActive(), imported)`
+- [x] 21.5 Render `last_error` as a transient ImGui toast for ~3 seconds (track with a counter decremented in `on_update`)
+- [x] 21.6 Verify the camera and pipeline survive `New Scene` / `Open Scene` / `Import` cycles (the camera node should not be a child of the scene's root; if it is, move it out)
+- [x] 21.7 Ensure `Demo.lua`'s `on_init` still works: it currently calls `FileUtil.LoadSceneFromCompressedFile(scene, "Resource/Scene/scene.bin")` — leave this as the default initial scene, but file-menu actions now override it
+- [x] 21.8 Visual verification: launch `./fury Demo.lua`, exercise each menu item, confirm geometry behaves as expected
 
 ## 22. FBX-asset verification
 

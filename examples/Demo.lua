@@ -1,31 +1,141 @@
--- Demo.lua — Lua port of the former examples/Demo.cpp with a flythrough camera.
--- Loaded by the `fury` executable. Reproduces the same scene + pipeline as the
--- old C++ demo, plus WASD/arrow translation, mouse-drag look, mouse-wheel speed
--- adjust, and a small ImGui tuning panel.
+-- Demo.lua — flythrough camera + minimum-viable scene editor.
+-- Loaded by the `fury` executable. Provides:
+--   * WASD/arrow camera (carried over from earlier work)
+--   * File menu: New / Open / Import / Save Scene As
+--   * Camera menu: tuning panel
+--
+-- Two design choices worth flagging up-front:
+--   1. The camera node lives OUTSIDE the scene's root tree, so File -> New
+--      Scene (which calls scene:Clear()) doesn't drop the camera. The camera
+--      is its own root SceneNode that the pipeline references directly via
+--      Pipeline.SetCurrentCamera.
+--   2. The File menu enumerates Resource/Scene/ every frame (cheap in v1 — a
+--      directory_iterator + extension filter). When you Save Scene As, the
+--      file shows up in the Open submenu on the next frame; this is intentional.
 
-local octree   = nil
-local cam_node = nil
+local octree           = nil
+local cam_node         = nil
+local cam_pos          = nil           -- Vector4, set in on_init
+local yaw              = 0.0
+local pitch            = -math.rad(30.0)
+local move_speed       = 1.0
+local mouse_sensitivity = 0.004
 
--- Camera state. yaw/pitch own the orientation explicitly so we don't have to
--- read the rotation back from the SceneNode each frame. Initial values match
--- the static pose the original demo opened with: position (0, 10, 25), yaw 0,
--- pitch -30 degrees down (rotation around local X).
-local cam_pos           = nil           -- Vector4, set in on_init
-local yaw               = 0.0
-local pitch             = -math.rad(30.0)
-local move_speed        = 1.0           -- units per second, tunable via slider
-local mouse_sensitivity = 0.004          -- radians per pixel of drag, tunable
-
--- Camera tuning panel — hidden by default; toggle from the menu bar.
+-- ImGui panel state.
 local show_camera_window = false
+local show_save_modal    = false
+local save_path          = "scene_saved.json"
 
--- Camera tuning panel — hidden by default; toggle from the menu bar.
-local show_camera_window = false
+-- Transient status line (e.g. "wrote scene_saved.json", "open failed").
+-- Cleared after status_ttl seconds.
+local status_text = ""
+local status_ttl  = 0.0
 
--- Mouse-drag state. last_mx/last_my are valid only while `dragging` is true.
-local dragging = false
-local last_mx  = 0
-local last_my  = 0
+-- Mouse-drag state.
+local dragging  = false
+local last_mx   = 0
+local last_my   = 0
+
+-- ---------------------------------------------------------------------------
+-- Scene editor helpers
+
+local function set_status(msg, ttl)
+    status_text = msg
+    status_ttl  = ttl or 3.0
+end
+
+-- Replace the active scene's content with `new_scene`. Camera + pipeline survive.
+-- `new_scene` is a freshly-imported Scene::Ptr from Importer.LoadScene; we
+-- move its content into the active scene rather than swapping Scene.Active so
+-- the camera-and-pipeline wiring (which references Scene.Active indirectly via
+-- the octree) doesn't need to be reattached.
+local function replace_active_scene(new_scene)
+    local active = Scene.GetActive()
+    active:Clear()
+    Importer.MergeInto(active, new_scene)
+end
+
+-- Enumerate the contents of Resource/Scene/ for the Open / Import submenus.
+-- Returns a Lua array of filenames (no path prefix).
+local function list_scene_files()
+    return FileUtil.ListDirectory(
+        FileUtil.GetAbsPath("Resource/Scene/"),
+        {".json", ".bin", ".gltf", ".glb", ".fbx"})
+end
+
+local function open_scene(filename)
+    local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
+    local imported = Importer.LoadScene(full)
+    if imported then
+        replace_active_scene(imported)
+        set_status("opened " .. filename)
+    else
+        set_status("failed to open " .. filename)
+    end
+end
+
+local function import_scene(filename)
+    local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
+    local imported = Importer.LoadScene(full)
+    if imported then
+        local n = Importer.MergeInto(Scene.GetActive(), imported)
+        set_status("imported " .. n .. " node(s) from " .. filename)
+    else
+        set_status("failed to import " .. filename)
+    end
+end
+
+local function save_active_scene(filename)
+    -- Output goes into Resource/Scene/. Extension dictates format.
+    local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
+    local ext  = filename:lower():match("%.[^.]+$") or ""
+    local ok
+    if ext == ".json" then
+        ok = FileUtil.SaveFile(Scene.GetActive(), full)
+    elseif ext == ".bin" then
+        ok = FileUtil.SaveCompressedFile(Scene.GetActive(), full)
+    else
+        set_status("Save: unsupported extension '" .. ext .. "' (use .json or .bin)")
+        return
+    end
+    set_status(ok and ("wrote " .. filename) or ("save failed for " .. filename))
+end
+
+-- ---------------------------------------------------------------------------
+-- Menu bar — installed once in on_init.
+
+local function build_menu_bar()
+    -- File menu.
+    if Gui.BeginMenu("File") then
+        if Gui.MenuItem("New Scene") then
+            Scene.GetActive():Clear()
+            set_status("scene cleared")
+        end
+        if Gui.BeginMenu("Open Scene") then
+            for _, name in ipairs(list_scene_files()) do
+                if Gui.MenuItem(name) then open_scene(name) end
+            end
+            Gui.EndMenu()
+        end
+        if Gui.BeginMenu("Import") then
+            for _, name in ipairs(list_scene_files()) do
+                if Gui.MenuItem(name) then import_scene(name) end
+            end
+            Gui.EndMenu()
+        end
+        if Gui.MenuItem("Save Scene As") then show_save_modal = true end
+        Gui.EndMenu()
+    end
+    -- Camera menu.
+    if Gui.BeginMenu("Camera") then
+        if Gui.MenuItem("Settings") then
+            show_camera_window = not show_camera_window
+        end
+        Gui.EndMenu()
+    end
+end
+
+-- ---------------------------------------------------------------------------
 
 local function on_init()
     octree = OcTree.Create(
@@ -59,25 +169,10 @@ local function on_init()
         Pipeline.GetActive(),
         FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
 
-    -- Register a "Camera" menu in the engine's menu bar. The callback runs
-    -- inside ImGui::BeginMainMenuBar() each frame, after the engine's File
-    -- and View menus.
-    Gui.SetMenuBarCallback(function()
-        if Gui.BeginMenu("Camera") then
-            if Gui.MenuItem("Settings") then
-                show_camera_window = not show_camera_window
-            end
-            Gui.EndMenu()
-        end
-    end)
+    Gui.SetMenuBarCallback(build_menu_bar)
 end
 
 -- Forward and right vectors derived from yaw/pitch in the engine's convention.
--- MathUtil.EulerRadToQuat(yaw, pitch, 0) builds q_yaw * q_pitch (yaw around
--- world Y, pitch around local X). At identity the camera looks down -Z and
--- its right is +X, so applying q_pitch then q_yaw to those base vectors:
---   forward = (-cos(pitch)*sin(yaw),  sin(pitch), -cos(pitch)*cos(yaw))
---   right   = ( cos(yaw),             0,          -sin(yaw))
 local function camera_basis()
     local cy, sy = math.cos(yaw),   math.sin(yaw)
     local cp, sp = math.cos(pitch), math.sin(pitch)
@@ -91,6 +186,12 @@ local function on_update(dt)
     local has_kb = not Gui.WantCaptureKeyboard()
     local has_mo = not Gui.WantCaptureMouse()
     local focused = input:GetWindowFocused()
+
+    -- Status line TTL decay.
+    if status_ttl > 0 then
+        status_ttl = status_ttl - dt
+        if status_ttl <= 0 then status_text = "" end
+    end
 
     -- ── mouse-drag yaw / pitch ────────────────────────────────────────────
     local lmb_down = focused and has_mo and input:GetMouseDown(MouseButton.Left)
@@ -146,6 +247,7 @@ local function on_update(dt)
 
     -- ── ImGui overlays ────────────────────────────────────────────────────
     Gui.ShowDefault(dt)
+
     if show_camera_window then
         local still_open, visible = Gui.Begin("Camera", show_camera_window)
         if visible then
@@ -157,6 +259,28 @@ local function on_update(dt)
         Gui.End()
         show_camera_window = still_open
     end
+
+    if show_save_modal then
+        local still_open, visible = Gui.Begin("Save Scene As", show_save_modal)
+        if visible then
+            Gui.Text("Output path is relative to Resource/Scene/.")
+            Gui.Text("Extension determines format (.json -> human-readable, .bin -> LZ4).")
+            save_path = Gui.InputText("filename", save_path, 128)
+            if Gui.Button("Save") then
+                save_active_scene(save_path)
+                show_save_modal = false
+            end
+        end
+        Gui.End()
+        show_save_modal = still_open
+    end
+
+    if status_text ~= "" then
+        local _, visible = Gui.Begin("status", true)
+        if visible then Gui.Text(status_text) end
+        Gui.End()
+    end
+
     Gui.Render()
 
     Pipeline.GetActive():Execute(octree)
