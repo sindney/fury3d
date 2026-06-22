@@ -163,19 +163,19 @@
 
 ## 16. Verification
 
-- [ ] 16.1 Pick a known-good static glTF — `engine/ThirdParty/tinygltf/models/Triangle/Triangle.gltf` or `Box/Box.gltf` if present; otherwise download a small sample
-- [ ] 16.2 Run `./fury convert gltf <static-gltf> /tmp/box.json` — expect exit 0, file exists
-- [ ] 16.3 Run `./fury info /tmp/box.json` — expect counts matching the glTF (1 mesh, 1 submesh, 12 triangles for Box)
-- [ ] 16.4 Run `./fury info <same-static-gltf>` — expect the same counts from the glTF reader directly
-- [ ] 16.5 Run `./fury convert gltf <static-gltf> /tmp/box.bin` — same as 16.2 but compressed
-- [ ] 16.6 Edit a copy of `examples/Demo.lua` to point `FileUtil.LoadSceneFromCompressedFile` at `/tmp/box.bin` (or copy box.bin into the Resource/Scene/ directory); run `./fury <demo>.lua`; confirm a box renders without errors in Log.txt
-- [ ] 16.7 Pick a skinned glTF sample (e.g. `RiggedSimple.gltf` from the Khronos sample-models pack). Convert to `/tmp/rig.json`. Run `./fury info` against both source and converted output; counts of joints and skinned meshes should agree
-- [ ] 16.8 Save the converted skinned scene as `/tmp/rig.json`, then call `Scene::Load` against it (via Lua or a small C++ test) and confirm `Mesh::IsSkinnedMesh()` returns true and `m_Joints.size()` matches the source skin's joint count
-- [ ] 16.9 Run `./fury info examples/bin/Resource/Scene/scene.bin` and confirm the counts match the visibly-rendered demo scene (sanity check that `info` reads the engine format correctly)
-- [ ] 16.10 Run `./fury` and `./fury Demo.lua` — confirm no regression (current demo still works)
-- [ ] 16.11 Run `./fury --help`, `./fury help`, `./fury -h`, `./fury convert --help`, `./fury info --help` — confirm each prints the expected help and exits 0
-- [ ] 16.12 Test bad-arg paths: `./fury convert obj a b` → exit 1 with stderr error; `./fury convert gltf nonexistent.gltf out.json` → exit 1; `./fury convert gltf in.gltf out.xml` → exit 1
-- [ ] 16.13 Test a rejection: feed a glTF with morph targets (`primitive.targets` non-empty) — confirm exit 1 with stderr message naming morph targets
+- [x] 16.1 Pick a known-good static glTF — `engine/ThirdParty/tinygltf/models/Triangle/Triangle.gltf` or `Box/Box.gltf` if present; otherwise download a small sample
+- [x] 16.2 Run `./fury convert gltf <static-gltf> /tmp/box.json` — expect exit 0, file exists
+- [x] 16.3 Run `./fury info /tmp/box.json` — expect counts matching the glTF (1 mesh, 1 submesh, 12 triangles for Box)
+- [x] 16.4 Run `./fury info <same-static-gltf>` — expect the same counts from the glTF reader directly
+- [x] 16.5 Run `./fury convert gltf <static-gltf> /tmp/box.bin` — same as 16.2 but compressed
+- [x] 16.6 Edit a copy of `examples/Demo.lua` to point `FileUtil.LoadSceneFromCompressedFile` at `/tmp/box.bin` (or copy box.bin into the Resource/Scene/ directory); run `./fury <demo>.lua`; confirm a box renders without errors in Log.txt
+- [x] 16.7 Pick a skinned glTF sample (e.g. `RiggedSimple.gltf` from the Khronos sample-models pack). Convert to `/tmp/rig.json`. Run `./fury info` against both source and converted output; counts of joints and skinned meshes should agree
+- [x] 16.8 Save the converted skinned scene as `/tmp/rig.json`, then call `Scene::Load` against it (via Lua or a small C++ test) and confirm `Mesh::IsSkinnedMesh()` returns true and `m_Joints.size()` matches the source skin's joint count
+- [x] 16.9 Run `./fury info examples/bin/Resource/Scene/scene.bin` and confirm the counts match the visibly-rendered demo scene (sanity check that `info` reads the engine format correctly)
+- [x] 16.10 Run `./fury` and `./fury Demo.lua` — confirm no regression (current demo still works)
+- [x] 16.11 Run `./fury --help`, `./fury help`, `./fury -h`, `./fury convert --help`, `./fury info --help` — confirm each prints the expected help and exits 0
+- [x] 16.12 Test bad-arg paths: `./fury convert obj a b` → exit 1 with stderr error; `./fury convert gltf nonexistent.gltf out.json` → exit 1; `./fury convert gltf in.gltf out.xml` → exit 1
+- [x] 16.13 Test a rejection: feed a glTF with morph targets (`primitive.targets` non-empty) — confirm exit 1 with stderr message naming morph targets
 
 ## 17. `FbxConverter` subprocess wrapper
 
@@ -233,13 +233,13 @@
 
 ## 22. FBX-asset verification
 
-- [ ] 22.1 Run `./fury convert fbx examples/bin/Resource/Scene/james.fbx /tmp/james.json` — expect exit 0, `/tmp/james.json` exists, intermediate `.glb` is gone
-- [ ] 22.2 Same for `outdoor.fbx` and `tank.fbx`. All three should convert successfully. Note any warnings about discarded PBR fields
-- [ ] 22.3 Run `./fury info /tmp/james.bin` and compare counts against `./fury info examples/bin/Resource/Scene/james.fbx` (which runs the FBX → temp-glb → info chain)
-- [ ] 22.4 In Demo.lua, click `File → Open Scene → james.fbx`. Expect the model to render in the viewport (it'll be at the FBX's origin, which may or may not be near the camera — adjust camera if needed for verification)
-- [ ] 22.5 In Demo.lua, click `File → Import → tank.fbx` while a scene is loaded. Expect both pieces of geometry to be visible
-- [ ] 22.6 Click `File → Save Scene As`, then click `File → New Scene`, then click `File → Open Scene → scene_saved.json`. Confirm the saved scene reloads correctly
-- [ ] 22.7 Run a sanity check on the `Log.txt` after the run: no `EROR` lines from any of the import paths
+- [x] 22.1 Run `./fury convert fbx examples/bin/Resource/Scene/james.fbx /tmp/james.json` — expect exit 0, `/tmp/james.json` exists, intermediate `.glb` is gone
+- [x] 22.2 Same for `outdoor.fbx` and `tank.fbx`. All three should convert successfully. Note any warnings about discarded PBR fields
+- [x] 22.3 Run `./fury info /tmp/james.bin` and compare counts against `./fury info examples/bin/Resource/Scene/james.fbx` (which runs the FBX → temp-glb → info chain)
+- [x] 22.4 In Demo.lua, click `File → Open Scene → james.fbx`. Expect the model to render in the viewport (it'll be at the FBX's origin, which may or may not be near the camera — adjust camera if needed for verification)
+- [x] 22.5 In Demo.lua, click `File → Import → tank.fbx` while a scene is loaded. Expect both pieces of geometry to be visible
+- [x] 22.6 Click `File → Save Scene As`, then click `File → New Scene`, then click `File → Open Scene → scene_saved.json`. Confirm the saved scene reloads correctly
+- [x] 22.7 Run a sanity check on the `Log.txt` after the run: no `EROR` lines from any of the import paths
 
 ## 23. Documentation — runtime importer + scene-editor menu
 
