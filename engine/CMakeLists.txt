@@ -130,3 +130,57 @@ else()
 	endif()
 	install(TARGETS fury DESTINATION bin)
 endif()
+
+# Copy the host-platform FBX2glTF binary next to the built `fury` executable
+# (or library, if BUILD_SHARED_LIBS). FbxConverter::LocateBinary() looks for
+# this file in the same directory as the running executable; without the copy
+# the runtime falls back to the engine source tree, which is fine for
+# development but breaks any installed layout.
+if(OS_MACOSX)
+	set(FBX2GLTF_BINARY "FBX2glTF-darwin-x64")
+elseif(OS_WINDOWS)
+	set(FBX2GLTF_BINARY "FBX2glTF-windows-x64.exe")
+else()
+	set(FBX2GLTF_BINARY "FBX2glTF-linux-x64")
+endif()
+set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BINARY}")
+if(EXISTS "${FBX2GLTF_SRC_BINARY}")
+	add_custom_command(TARGET fury POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${FBX2GLTF_SRC_BINARY}"
+			"$<TARGET_FILE_DIR:fury>/${FBX2GLTF_BINARY}"
+		COMMENT "Copying FBX2glTF binary next to fury"
+		VERBATIM)
+	if(NOT OS_WINDOWS)
+		add_custom_command(TARGET fury POST_BUILD
+			COMMAND chmod +x "$<TARGET_FILE_DIR:fury>/${FBX2GLTF_BINARY}"
+			VERBATIM)
+	endif()
+endif()
+
+# Copy the host-platform FBX2glTF binary next to the built `fury` executable
+# (or library, if BUILD_SHARED_LIBS). FbxConverter::LocateBinary() looks for
+# this file in the same directory as the running executable; without the copy
+# the runtime falls back to the engine source tree, which is fine for
+# development but breaks any installed layout.
+if(OS_MACOSX)
+	set(FBX2GLTF_BINARY "FBX2glTF-darwin-x64")
+elseif(OS_WINDOWS)
+	set(FBX2GLTF_BINARY "FBX2glTF-windows-x64.exe")
+else()
+	set(FBX2GLTF_BINARY "FBX2glTF-linux-x64")
+endif()
+set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BINARY}")
+if(EXISTS "${FBX2GLTF_SRC_BINARY}")
+	add_custom_command(TARGET fury POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${FBX2GLTF_SRC_BINARY}"
+			"$<TARGET_FILE_DIR:fury>/${FBX2GLTF_BINARY}"
+		COMMENT "Copying FBX2glTF binary next to fury"
+		VERBATIM)
+	if(NOT OS_WINDOWS)
+		add_custom_command(TARGET fury POST_BUILD
+			COMMAND chmod +x "$<TARGET_FILE_DIR:fury>/${FBX2GLTF_BINARY}"
+			VERBATIM)
+	endif()
+endif()

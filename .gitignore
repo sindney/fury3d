@@ -51,3 +51,4 @@ Desktop.ini
 
 # ImGui runtime layout state
 imgui.ini
+examples/bin/FBX2glTF-darwin-x64

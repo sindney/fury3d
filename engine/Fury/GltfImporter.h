@@ -47,7 +47,7 @@ namespace fury
 		{
 			// glTF stores time as seconds; engine AnimationClip is ticks-based.
 			// 24 matches the engine's FBX-heritage default.
-			float anim_ticks_per_second = 24.0f;
+			float anim_ticks_per_second;
 
 			// Base path (no extension) used to synthesize URIs for images
 			// embedded inside .glb files. For example, if output_basename is
@@ -60,6 +60,8 @@ namespace fury
 			// Empty string is acceptable if the input has no embedded images
 			// or if the caller doesn't intend to extract them.
 			std::string output_basename_no_ext;
+
+			Options() : anim_ticks_per_second(24.0f) {}
 		};
 
 		// Returns nullptr on any error (file not found, parse failure,
@@ -72,7 +74,7 @@ namespace fury
 			const std::string &input_path,
 			const std::string &scene_name,
 			const std::string &working_dir,
-			const Options &opts = {});
+			const Options &opts = Options());
 	};
 }
 

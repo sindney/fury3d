@@ -8,6 +8,12 @@
 
 #include "Fury/GltfImporter.h"
 
+// Vector4/Matrix4 must be complete before Joint.h since Joint declares
+// std::pair<Vector4, Vector4> members.
+#include "Fury/Vector4.h"
+#include "Fury/Matrix4.h"
+#include "Fury/Quaternion.h"
+
 #include "Fury/AnimationClip.h"
 #include "Fury/Component.h"
 #include "Fury/EntityManager.h"
@@ -26,7 +32,12 @@
 #include "Fury/Uniform.h"
 
 // tinygltf pulls in its own JSON header; we suppress its stb_image to avoid
-// ODR collision with the engine's STB (same as in engine/CMakeLists.txt).
+// ODR collision with the engine's STB. These defines MUST be in effect at
+// every tiny_gltf.h include site — they affect inline default initializers
+// for the TinyGLTF class. Without them this TU references undefined
+// tinygltf::LoadImageData / WriteImageData at link time.
+#define TINYGLTF_NO_STB_IMAGE
+#define TINYGLTF_NO_STB_IMAGE_WRITE
 #include <tiny_gltf.h>
 
 #include <algorithm>
@@ -254,9 +265,6 @@ namespace fury
 					<< "' — discarded PBR fields: " << sig
 					<< " (engine pipeline is Lambert in v1; HDR/PBR pipeline deferred)";
 			}
-
-			return material;
-		}
 
 			return material;
 		}
@@ -892,6 +900,11 @@ namespace fury
 		(void)opts;
 
 		tinygltf::TinyGLTF loader;
+		// We build with TINYGLTF_NO_STB_IMAGE (the engine vendors its own stb;
+		// having two copies linked is an ODR violation). Tell tinygltf not to
+		// decode image bytes — we keep the raw encoded bytes in the bufferView
+		// and copy them out later for embedded-image extraction.
+		loader.SetImagesAsIs(true);
 		tinygltf::Model model;
 		std::string err, warn;
 
