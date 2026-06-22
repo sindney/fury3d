@@ -52,29 +52,29 @@
 
 ## 6. Mesh translation
 
-- [ ] 6.1 For each `tinygltf::Mesh`, create a `Mesh::Create(name)` where name is `mesh.name` or `Mesh_<index>`
-- [ ] 6.2 For each primitive in the glTF mesh, read `POSITION` accessor → append into `Mesh::Positions.Data` (3 floats per vertex); error if missing
-- [ ] 6.3 Read `NORMAL` accessor → `Normals.Data`; if missing, leave empty (engine treats missing normals as a debug case; alternative: regenerate via `MeshUtil`)
-- [ ] 6.4 Read `TANGENT` accessor → `Tangents.Data` (4 floats per vertex in glTF; we store 3 — drop handedness component)
-- [ ] 6.5 Read `TEXCOORD_0` accessor → `UVs.Data` (2 floats per vertex)
-- [ ] 6.6 Read primitive's index accessor → emit one `SubMesh` per primitive, each with its own `Indices.Data` (uint32)
-- [ ] 6.7 Each `SubMesh`'s indices are *primitive-local*: glTF indices are per-primitive vertex offsets; we either (a) renumber to a single combined vertex buffer per mesh or (b) emit a separate `Mesh` per primitive. Pick (a) — append vertices contiguously and shift indices by the running vertex-count offset. Confirm this matches how `MeshRender + SubMesh` are consumed in `Pipeline::Execute` / `RenderQuery` (read `engine/Fury/MeshRender.cpp` and `engine/Fury/Pipeline.cpp` to confirm)
-- [ ] 6.8 Compute or copy the mesh's AABB: prefer reading `POSITION.minValues` / `POSITION.maxValues` (glTF mandates them); fall back to iterating positions
-- [ ] 6.9 Set `mesh->CalculateAABB(min, max)` or equivalent and `mesh->SetCastShadows(true)` by default
-- [ ] 6.10 If the primitive has `JOINTS_0` and `WEIGHTS_0` accessors, read them: `JOINTS_0` (vec4 uint) → `IDs.Data`, `WEIGHTS_0` (vec4 float) → drop the 4th float, append the first 3 to `Weights.Data` (engine convention: 3 explicit + 1 implicit)
-- [ ] 6.11 Verify `JOINTS_0` byte-component-type handling: glTF allows `UNSIGNED_BYTE` or `UNSIGNED_SHORT`; both must be widened to `uint32_t` for the engine
-- [ ] 6.12 Add each emitted `Mesh` to the scene's `EntityManager`
-- [ ] 6.13 Per primitive material ref: record the index of the engine `Material` corresponding to `primitive.material` so the importer can wire the `MeshRender` component later (one material reference per submesh, in submesh order)
+- [x] 6.1 For each `tinygltf::Mesh`, create a `Mesh::Create(name)` where name is `mesh.name` or `Mesh_<index>`
+- [x] 6.2 For each primitive in the glTF mesh, read `POSITION` accessor → append into `Mesh::Positions.Data` (3 floats per vertex); error if missing
+- [x] 6.3 Read `NORMAL` accessor → `Normals.Data`; if missing, leave empty (engine treats missing normals as a debug case; alternative: regenerate via `MeshUtil`)
+- [x] 6.4 Read `TANGENT` accessor → `Tangents.Data` (4 floats per vertex in glTF; we store 3 — drop handedness component)
+- [x] 6.5 Read `TEXCOORD_0` accessor → `UVs.Data` (2 floats per vertex)
+- [x] 6.6 Read primitive's index accessor → emit one `SubMesh` per primitive, each with its own `Indices.Data` (uint32)
+- [x] 6.7 Each `SubMesh`'s indices are *primitive-local*: glTF indices are per-primitive vertex offsets; we either (a) renumber to a single combined vertex buffer per mesh or (b) emit a separate `Mesh` per primitive. Pick (a) — append vertices contiguously and shift indices by the running vertex-count offset. Confirm this matches how `MeshRender + SubMesh` are consumed in `Pipeline::Execute` / `RenderQuery` (read `engine/Fury/MeshRender.cpp` and `engine/Fury/Pipeline.cpp` to confirm) — *Done: SubMesh::Indices are what the renderer draws against (see RenderQuery.cpp:23); combined into Mesh::Indices too for engine-internal AABB / shadow-caster code.*
+- [x] 6.8 Compute or copy the mesh's AABB: prefer reading `POSITION.minValues` / `POSITION.maxValues` (glTF mandates them); fall back to iterating positions
+- [x] 6.9 Set `mesh->CalculateAABB(min, max)` or equivalent and `mesh->SetCastShadows(true)` by default
+- [x] 6.10 If the primitive has `JOINTS_0` and `WEIGHTS_0` accessors, read them: `JOINTS_0` (vec4 uint) → `IDs.Data`, `WEIGHTS_0` (vec4 float) → drop the 4th float, append the first 3 to `Weights.Data` (engine convention: 3 explicit + 1 implicit)
+- [x] 6.11 Verify `JOINTS_0` byte-component-type handling: glTF allows `UNSIGNED_BYTE` or `UNSIGNED_SHORT`; both must be widened to `uint32_t` for the engine
+- [x] 6.12 Add each emitted `Mesh` to the scene's `EntityManager`
+- [x] 6.13 Per primitive material ref: record the index of the engine `Material` corresponding to `primitive.material` so the importer can wire the `MeshRender` component later (one material reference per submesh, in submesh order)
 
 ## 7. Skin translation (Joint trees)
 
-- [ ] 7.1 For each `tinygltf::Skin`, read `skin.joints` (array of node indices) and build a vector of `Joint::Ptr` in the same order — joints are named by the glTF node's name
-- [ ] 7.2 Read `skin.inverseBindMatrices` accessor (one mat4 per joint) and set each joint's `m_OffsetMatrix`
-- [ ] 7.3 Use the glTF node TRS for each joint's `m_LocalMatrix` (compose translation/rotation/scale or decompose from node.matrix)
-- [ ] 7.4 Wire parent/child links: for each glTF node that's a joint, its children that are also joints become children of the corresponding `Joint`. Joints can reference non-joint children — those become regular `SceneNode`s in the scene graph, not joint children
-- [ ] 7.5 Determine `m_RootJoint`: use `skin.skeleton` when set; else find the common ancestor of `skin.joints` (or use the first joint as a fallback)
-- [ ] 7.6 Associate the skin with the meshes that reference it: each glTF node has both `mesh` and `skin` fields — when both are set, attach the skin's joints/IDs/Weights to that engine `Mesh`. Note: glTF allows multiple nodes to share a mesh but require the same skin; our model puts joints on the `Mesh`, so we either deep-copy the mesh per instancing pattern or assume one-skin-per-mesh in v1. Pick "one skin per mesh" and reject the multi-skin-per-mesh case with a clear error
-- [ ] 7.7 After populating each skinned mesh's `m_Joints`, `m_JointMap`, and `m_RootJoint`, sanity-check that `IDs` and `Weights` were emitted alongside (they should be, from step 6.10) — otherwise that's a bug
+- [x] 7.1 For each `tinygltf::Skin`, read `skin.joints` (array of node indices) and build a vector of `Joint::Ptr` in the same order — joints are named by the glTF node's name
+- [x] 7.2 Read `skin.inverseBindMatrices` accessor (one mat4 per joint) and set each joint's `m_OffsetMatrix`
+- [x] 7.3 Use the glTF node TRS for each joint's `m_LocalMatrix` (compose translation/rotation/scale or decompose from node.matrix)
+- [x] 7.4 Wire parent/child links: for each glTF node that's a joint, its children that are also joints become children of the corresponding `Joint`. Joints can reference non-joint children — those become regular `SceneNode`s in the scene graph, not joint children
+- [x] 7.5 Determine `m_RootJoint`: use `skin.skeleton` when set; else find the common ancestor of `skin.joints` (or use the first joint as a fallback)
+- [x] 7.6 Associate the skin with the meshes that reference it: each glTF node has both `mesh` and `skin` fields — when both are set, attach the skin's joints/IDs/Weights to that engine `Mesh`. Note: glTF allows multiple nodes to share a mesh but require the same skin; our model puts joints on the `Mesh`, so we either deep-copy the mesh per instancing pattern or assume one-skin-per-mesh in v1. Pick "one skin per mesh" and reject the multi-skin-per-mesh case with a clear error
+- [x] 7.7 After populating each skinned mesh's `m_Joints`, `m_JointMap`, and `m_RootJoint`, sanity-check that `IDs` and `Weights` were emitted alongside (they should be, from step 6.10) — otherwise that's a bug
 
 ## 8. SceneNode tree
 

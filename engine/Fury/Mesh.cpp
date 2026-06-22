@@ -348,6 +348,16 @@ namespace fury
 		return m_RootJoint;
 	}
 
+	void Mesh::SetJointTree(const std::vector<std::shared_ptr<Joint>> &joints,
+		const std::shared_ptr<Joint> &root_joint)
+	{
+		m_Joints = joints;
+		m_JointMap.clear();
+		for (const auto &j : joints)
+			if (j) m_JointMap[j->GetName()] = j;
+		m_RootJoint = root_joint;
+	}
+
 	void Mesh::UpdateBuffer()
 	{
 		Positions.UpdateBuffer();

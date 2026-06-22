@@ -116,6 +116,13 @@ namespace fury
 
 		std::shared_ptr<Joint> GetRootJoint() const;
 
+		// Replace this mesh's joint registry. Used by GltfImporter and any
+		// other importer that needs to attach a freshly-built skeleton. The
+		// rebuilt m_JointMap is keyed by joint name (matching what the
+		// runtime Mesh::Load path expects).
+		void SetJointTree(const std::vector<std::shared_ptr<Joint>> &joints,
+			const std::shared_ptr<Joint> &root_joint);
+
 		virtual void UpdateBuffer() override;
 
 		virtual void DeleteBuffer() override;

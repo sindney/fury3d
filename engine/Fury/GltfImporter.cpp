@@ -10,8 +10,10 @@
 
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
+#include "Fury/Joint.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
+#include "Fury/Mesh.h"
 #include "Fury/OcTree.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
@@ -251,6 +253,385 @@ namespace fury
 			return material;
 		}
 
+			return material;
+		}
+
+		// Accessor reading -- copy raw bytes from a tinygltf accessor into a
+		// contiguous typed vector. Returns true on success, false if the
+		// accessor's component type doesn't match T (we only handle the
+		// straightforward cases used by glTF 2.0: float for positions/normals/
+		// tangents/UVs/weights/inverse-bind-matrices, uint8/16/32 for indices
+		// and joint indices).
+
+		// Read a vec3 (or vec2) of floats into a flat float vector.
+		// num_components is the per-vertex element count (2 for UVs, 3 for
+		// positions/normals/tangents). For TANGENT (vec4 in glTF) we drop the
+		// handedness w component by passing 3 here and stride-skipping the 4th.
+		bool ReadFloatAccessor(
+			const tinygltf::Model &model,
+			int accessor_index,
+			int num_components_to_copy,
+			std::vector<float> &out)
+		{
+			if (accessor_index < 0 || accessor_index >= static_cast<int>(model.accessors.size())) return false;
+			const auto &accessor = model.accessors[accessor_index];
+			if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) return false;
+			const int actual_components = tinygltf::GetNumComponentsInType(accessor.type);
+			if (actual_components <= 0) return false;
+			if (accessor.bufferView < 0) return false;
+			const auto &bv = model.bufferViews[accessor.bufferView];
+			const auto &buf = model.buffers[bv.buffer];
+			const uint8_t *base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+			const size_t element_stride = sizeof(float) * actual_components;
+			for (size_t i = 0; i < accessor.count; ++i)
+			{
+				const float *fp = reinterpret_cast<const float*>(base + i * element_stride);
+				const int copy = std::min(num_components_to_copy, actual_components);
+				for (int c = 0; c < copy; ++c) out.push_back(fp[c]);
+			}
+			return true;
+		}
+
+		// Read indices into uint32 (glTF allows UNSIGNED_BYTE / UNSIGNED_SHORT /
+		// UNSIGNED_INT). offset_to_add is applied to each value — used when we
+		// renumber primitive-local indices into a combined per-mesh vertex
+		// buffer.
+		bool ReadIndexAccessor(
+			const tinygltf::Model &model,
+			int accessor_index,
+			unsigned int offset_to_add,
+			std::vector<unsigned int> &out)
+		{
+			if (accessor_index < 0 || accessor_index >= static_cast<int>(model.accessors.size())) return false;
+			const auto &accessor = model.accessors[accessor_index];
+			if (accessor.bufferView < 0) return false;
+			const auto &bv = model.bufferViews[accessor.bufferView];
+			const auto &buf = model.buffers[bv.buffer];
+			const uint8_t *base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+			switch (accessor.componentType)
+			{
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+					for (size_t i = 0; i < accessor.count; ++i)
+						out.push_back(offset_to_add + static_cast<unsigned int>(base[i]));
+					return true;
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+					for (size_t i = 0; i < accessor.count; ++i)
+						out.push_back(offset_to_add + static_cast<unsigned int>(reinterpret_cast<const uint16_t*>(base)[i]));
+					return true;
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+					for (size_t i = 0; i < accessor.count; ++i)
+						out.push_back(offset_to_add + reinterpret_cast<const uint32_t*>(base)[i]);
+					return true;
+				default:
+					return false;
+			}
+		}
+
+		// Read JOINTS_0 (vec4 of uint8/uint16) -> 4 uint32 per vertex.
+		bool ReadJointsAccessor(
+			const tinygltf::Model &model,
+			int accessor_index,
+			std::vector<unsigned int> &out)
+		{
+			if (accessor_index < 0 || accessor_index >= static_cast<int>(model.accessors.size())) return false;
+			const auto &accessor = model.accessors[accessor_index];
+			if (accessor.type != TINYGLTF_TYPE_VEC4) return false;
+			if (accessor.bufferView < 0) return false;
+			const auto &bv = model.bufferViews[accessor.bufferView];
+			const auto &buf = model.buffers[bv.buffer];
+			const uint8_t *base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+			switch (accessor.componentType)
+			{
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+					for (size_t i = 0; i < accessor.count; ++i)
+					{
+						const uint8_t *bp = base + i * 4;
+						for (int c = 0; c < 4; ++c) out.push_back(bp[c]);
+					}
+					return true;
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+					for (size_t i = 0; i < accessor.count; ++i)
+					{
+						const uint16_t *bp = reinterpret_cast<const uint16_t*>(base + i * sizeof(uint16_t) * 4);
+						for (int c = 0; c < 4; ++c) out.push_back(bp[c]);
+					}
+					return true;
+				default:
+					return false;
+			}
+		}
+
+		// Read a vec4 of floats and emit the first 3 components per vertex
+		// (the engine stores 3 explicit weights; the 4th is implicit).
+		bool ReadWeights3Accessor(
+			const tinygltf::Model &model,
+			int accessor_index,
+			std::vector<float> &out)
+		{
+			if (accessor_index < 0 || accessor_index >= static_cast<int>(model.accessors.size())) return false;
+			const auto &accessor = model.accessors[accessor_index];
+			if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) return false;
+			if (accessor.type != TINYGLTF_TYPE_VEC4) return false;
+			if (accessor.bufferView < 0) return false;
+			const auto &bv = model.bufferViews[accessor.bufferView];
+			const auto &buf = model.buffers[bv.buffer];
+			const uint8_t *base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+			for (size_t i = 0; i < accessor.count; ++i)
+			{
+				const float *fp = reinterpret_cast<const float*>(base + i * sizeof(float) * 4);
+				out.push_back(fp[0]);
+				out.push_back(fp[1]);
+				out.push_back(fp[2]);
+				// fp[3] is recoverable as 1 - sum and is intentionally dropped
+			}
+			return true;
+		}
+
+		// Decompose a glTF node matrix or compose its TRS into a Matrix4.
+		// Falls through to identity if neither matrix nor TRS is present.
+		Matrix4 NodeLocalMatrix(const tinygltf::Node &node)
+		{
+			if (node.matrix.size() == 16)
+			{
+				float raw[16];
+				for (int i = 0; i < 16; ++i) raw[i] = static_cast<float>(node.matrix[i]);
+				return Matrix4(raw);
+			}
+			// glTF: T * R * S (column-major). We construct via the engine's
+			// Matrix4 Append* family.
+			Matrix4 m;
+			m.Identity();
+			if (node.scale.size() == 3)
+			{
+				m.AppendScale(Vector4(static_cast<float>(node.scale[0]),
+					static_cast<float>(node.scale[1]),
+					static_cast<float>(node.scale[2]), 1.0f));
+			}
+			if (node.rotation.size() == 4)
+			{
+				Quaternion q(
+					static_cast<float>(node.rotation[0]),
+					static_cast<float>(node.rotation[1]),
+					static_cast<float>(node.rotation[2]),
+					static_cast<float>(node.rotation[3]));
+				m.AppendRotation(q);
+			}
+			if (node.translation.size() == 3)
+			{
+				m.AppendTranslation(Vector4(static_cast<float>(node.translation[0]),
+					static_cast<float>(node.translation[1]),
+					static_cast<float>(node.translation[2]), 1.0f));
+			}
+			return m;
+		}
+
+		// Translate one glTF mesh -> one engine Mesh. Each glTF primitive
+		// becomes one engine SubMesh; their vertex streams are concatenated
+		// into the engine Mesh's flat ArrayBuffers with index renumbering.
+		//
+		// The submesh_materials out-parameter is parallel to engine
+		// Mesh::m_SubMeshes — each entry is the glTF material index for that
+		// submesh, or -1 if none. The node-walking pass uses this to populate
+		// the corresponding MeshRender's material list.
+		std::shared_ptr<Mesh> TranslateMesh(
+			const tinygltf::Model &model,
+			int mesh_index,
+			std::vector<int> &submesh_materials)
+		{
+			const auto &gm = model.meshes[mesh_index];
+			const std::string name = gm.name.empty()
+				? "Mesh_" + std::to_string(mesh_index)
+				: gm.name;
+			auto mesh = Mesh::Create(name);
+
+			// Track scene-space AABB; use POSITION.minValues / maxValues when
+			// present (glTF 2.0 mandates them on POSITION accessors).
+			float aabb_min[3] = { std::numeric_limits<float>::max(),
+				std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
+			float aabb_max[3] = { -std::numeric_limits<float>::max(),
+				-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
+			bool aabb_valid = false;
+
+			unsigned int vertex_base = 0;
+			for (const auto &prim : gm.primitives)
+			{
+				const size_t pos_before = mesh->Positions.Data.size() / 3;
+
+				auto pos_it = prim.attributes.find("POSITION");
+				if (pos_it == prim.attributes.end())
+				{
+					FURYE << "gltf-importer: mesh '" << name
+						<< "' primitive missing POSITION; skipping";
+					continue;
+				}
+
+				if (!ReadFloatAccessor(model, pos_it->second, 3, mesh->Positions.Data))
+				{
+					FURYE << "gltf-importer: failed to read POSITION on mesh '" << name << "'";
+					return nullptr;
+				}
+
+				const size_t verts_added = mesh->Positions.Data.size() / 3 - pos_before;
+
+				// Accumulate AABB from accessor min/max when present.
+				const auto &pos_acc = model.accessors[pos_it->second];
+				if (pos_acc.minValues.size() >= 3 && pos_acc.maxValues.size() >= 3)
+				{
+					for (int c = 0; c < 3; ++c)
+					{
+						aabb_min[c] = std::min(aabb_min[c], static_cast<float>(pos_acc.minValues[c]));
+						aabb_max[c] = std::max(aabb_max[c], static_cast<float>(pos_acc.maxValues[c]));
+					}
+					aabb_valid = true;
+				}
+
+				auto nrm_it = prim.attributes.find("NORMAL");
+				if (nrm_it != prim.attributes.end())
+					ReadFloatAccessor(model, nrm_it->second, 3, mesh->Normals.Data);
+
+				auto tan_it = prim.attributes.find("TANGENT");
+				if (tan_it != prim.attributes.end())
+					ReadFloatAccessor(model, tan_it->second, 3, mesh->Tangents.Data);  // drop w (handedness)
+
+				auto uv_it = prim.attributes.find("TEXCOORD_0");
+				if (uv_it != prim.attributes.end())
+					ReadFloatAccessor(model, uv_it->second, 2, mesh->UVs.Data);
+
+				auto joints_it = prim.attributes.find("JOINTS_0");
+				auto weights_it = prim.attributes.find("WEIGHTS_0");
+				if (joints_it != prim.attributes.end() && weights_it != prim.attributes.end())
+				{
+					if (!ReadJointsAccessor(model, joints_it->second, mesh->IDs.Data))
+						FURYW << "gltf-importer: mesh '" << name << "' JOINTS_0 in unsupported type";
+					if (!ReadWeights3Accessor(model, weights_it->second, mesh->Weights.Data))
+						FURYW << "gltf-importer: mesh '" << name << "' WEIGHTS_0 in unsupported type";
+				}
+
+				// SubMesh: indices for just this primitive, into the
+				// per-mesh combined vertex buffer.
+				auto sub = SubMesh::Create();
+				if (prim.indices >= 0)
+				{
+					ReadIndexAccessor(model, prim.indices, vertex_base, sub->Indices.Data);
+				}
+				else
+				{
+					// Non-indexed primitive — synthesize a linear index range.
+					for (unsigned int v = 0; v < verts_added; ++v)
+						sub->Indices.Data.push_back(vertex_base + v);
+				}
+				mesh->AddSubMesh(sub);
+				submesh_materials.push_back(prim.material);
+
+				// Also accumulate into the combined Indices buffer so that the
+				// engine's whole-mesh index queries (CalculateAABB, etc.) see
+				// the full topology. SubMesh::Indices are what the renderer
+				// actually draws against; Mesh::Indices is a back-up.
+				for (auto idx : sub->Indices.Data) mesh->Indices.Data.push_back(idx);
+
+				vertex_base += static_cast<unsigned int>(verts_added);
+			}
+
+			if (aabb_valid)
+				mesh->CalculateAABB(Vector4(aabb_min[0], aabb_min[1], aabb_min[2], 1.0f),
+					Vector4(aabb_max[0], aabb_max[1], aabb_max[2], 1.0f));
+			else
+				mesh->CalculateAABB();
+
+			mesh->SetCastShadows(true);
+			return mesh;
+		}
+
+		// Build the engine Joint tree for one skin and attach it to the given
+		// engine Mesh. Returns true on success.
+		//
+		// Engine model: joints are owned by a Mesh; a Joint's m_Mesh weak_ptr
+		// points back. We use the glTF skin's `joints` array (indices into
+		// model.nodes) and `inverseBindMatrices` (one mat4 per joint).
+		bool TranslateSkin(
+			const tinygltf::Model &model,
+			int skin_index,
+			const std::shared_ptr<Mesh> &mesh)
+		{
+			const auto &skin = model.skins[skin_index];
+
+			// Read inverse-bind matrices (vec16 floats per joint).
+			std::vector<float> ibms;
+			if (skin.inverseBindMatrices >= 0)
+				ReadFloatAccessor(model, skin.inverseBindMatrices, 16, ibms);
+
+			std::vector<Joint::Ptr> joints;
+			joints.reserve(skin.joints.size());
+
+			// First pass: create joints, set local + offset matrices.
+			for (size_t j = 0; j < skin.joints.size(); ++j)
+			{
+				int node_index = skin.joints[j];
+				if (node_index < 0 || node_index >= static_cast<int>(model.nodes.size())) continue;
+				const auto &node = model.nodes[node_index];
+				const std::string jname = node.name.empty()
+					? "Joint_" + std::to_string(node_index)
+					: node.name;
+				auto joint = Joint::Create(jname, mesh);
+				joint->SetLocalMatrix(NodeLocalMatrix(node));
+				if (ibms.size() >= (j + 1) * 16)
+				{
+					float raw[16];
+					for (int i = 0; i < 16; ++i) raw[i] = ibms[j * 16 + i];
+					joint->SetOffsetMatrix(Matrix4(raw));
+				}
+				joints.push_back(joint);
+			}
+
+			// Second pass: parent/child links. For each glTF joint-node we
+			// look at its children; any child that's also in skin.joints
+			// becomes a child of the corresponding engine Joint.
+			//
+			// Engine joints use first-child + sibling linked lists; we
+			// insert each child at the head of its parent's child list.
+			std::unordered_map<int, size_t> node_to_jointidx;
+			for (size_t j = 0; j < skin.joints.size(); ++j)
+				node_to_jointidx[skin.joints[j]] = j;
+
+			for (size_t j = 0; j < skin.joints.size(); ++j)
+			{
+				int node_index = skin.joints[j];
+				const auto &node = model.nodes[node_index];
+				for (int child_node : node.children)
+				{
+					auto child_it = node_to_jointidx.find(child_node);
+					if (child_it == node_to_jointidx.end()) continue;  // non-joint child
+					auto parent = joints[j];
+					auto child = joints[child_it->second];
+					child->SetParent(parent);
+					auto existing = parent->GetFirstChild();
+					child->SetSibling(existing);
+					parent->SetFirstChild(child);
+				}
+			}
+
+			// Determine root: prefer skin.skeleton (a node index) if it's in
+			// the joint set; else use the first joint.
+			Joint::Ptr root;
+			if (skin.skeleton >= 0)
+			{
+				auto it = node_to_jointidx.find(skin.skeleton);
+				if (it != node_to_jointidx.end()) root = joints[it->second];
+			}
+			if (!root && !joints.empty()) root = joints[0];
+
+			// Attach to mesh: the m_Joints / m_JointMap / m_RootJoint fields
+			// are protected — we use the Mesh's friend-class trick? No,
+			// they're not accessible from a helper. We'll need to add a
+			// public setter or befriend GltfImporter. The cleanest path is
+			// a small public setter pair on Mesh.
+			//
+			// (See companion Mesh.h change.)
+			mesh->SetJointTree(joints, root);
+			return true;
+		}
+
+
 		// Extract bytes for embedded images (image.uri empty, bufferView set)
 		// into files alongside the converter's output. Returns true on success,
 		// false on any IO error. For .gltf inputs with external image URIs this
@@ -368,11 +749,57 @@ namespace fury
 			materials.push_back(mat);
 		}
 
-		// Mesh / skin / node-tree / animation translation lands across
-		// implementation groups 6-9; this commit only covers groups 2-5.
-		FURYI << "gltf-importer: loaded '" << input_path << "' — translated "
-			<< materials.size() << " material(s); mesh/skin/node/anim passes "
-			<< "still stubbed in this build";
+		// Meshes. Each glTF mesh becomes one engine Mesh; each glTF primitive
+		// becomes one SubMesh. The submesh_to_gltf_material map below carries
+		// each submesh's glTF material index forward so the node-walking pass
+		// can wire MeshRender's material list.
+		std::vector<std::shared_ptr<Mesh>> meshes;
+		std::vector<std::vector<int>> submesh_to_gltf_material;  // [mesh_i][sub_j] = gltf_material_index or -1
+		meshes.reserve(model.meshes.size());
+		submesh_to_gltf_material.reserve(model.meshes.size());
+		for (size_t mi = 0; mi < model.meshes.size(); ++mi)
+		{
+			std::vector<int> per_submesh_mat;
+			auto m = TranslateMesh(model, static_cast<int>(mi), per_submesh_mat);
+			if (!m) return nullptr;  // unrecoverable translation error
+			entities->Add(m);
+			meshes.push_back(m);
+			submesh_to_gltf_material.push_back(std::move(per_submesh_mat));
+		}
+
+		// Skins. A glTF node references both a mesh and a skin; the engine
+		// stores joints on the Mesh itself, so we attach the skin to the mesh
+		// the first referencing node names. v1 rejects multi-skin-per-mesh.
+		std::vector<int> mesh_to_skin(meshes.size(), -1);  // -1 = no skin
+		for (const auto &node : model.nodes)
+		{
+			if (node.mesh < 0 || node.skin < 0) continue;
+			if (node.mesh >= static_cast<int>(meshes.size())) continue;
+			int existing = mesh_to_skin[node.mesh];
+			if (existing >= 0 && existing != node.skin)
+			{
+				FURYE << "gltf-importer: mesh '" << meshes[node.mesh]->GetName()
+					<< "' is referenced by nodes using different skins ("
+					<< existing << " and " << node.skin
+					<< ") — v1 supports one skin per mesh, rejecting";
+				return nullptr;
+			}
+			mesh_to_skin[node.mesh] = node.skin;
+		}
+		for (size_t mi = 0; mi < meshes.size(); ++mi)
+		{
+			if (mesh_to_skin[mi] < 0) continue;
+			if (!TranslateSkin(model, mesh_to_skin[mi], meshes[mi])) return nullptr;
+		}
+
+		// Node-tree walk and animation translation land in groups 8-9 below.
+		// We surface what we have so far so the smoke path produces useful logs.
+		FURYI << "gltf-importer: '" << input_path << "' translated "
+			<< materials.size() << " material(s), "
+			<< meshes.size() << " mesh(es); node tree + animations pending";
+
+		// Silence unused-variable warnings until groups 8-9 wire them in.
+		(void)submesh_to_gltf_material;
 
 		return scene;
 	}
