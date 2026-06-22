@@ -349,9 +349,15 @@ call: `value = Gui.X("...", value, ...)`.
 
 #### Scene editor menu — full pattern from Demo.lua
 
-The shipped `examples/Demo.lua` adds a `File` menu (alongside its `Camera`
-menu) with `New Scene` / `Open Scene` / `Import` / `Save Scene As`. The
-pattern is reusable for any script that wants a minimum-viable editor:
+The shipped `examples/Demo.lua` adds a `Scene` menu (alongside its `Camera`
+menu) with `New` / `Open` / `Import` / `Save As...`. The pattern is
+reusable for any script that wants a minimum-viable editor.
+
+> **Don't use `"File"` as the top-level label.** The engine's built-in menu
+> bar already has a "File" entry (carrying Quit), and ImGui dedupes
+> top-level menu items by label hash — a second `BeginMenu("File")` shares
+> the same ID and ends up visually mis-sized. Pick a distinct,
+> action-shaped name like "Scene".
 
 ```lua
 local show_save_modal = false
@@ -371,12 +377,12 @@ local function list_scene_files()
 end
 
 Gui.SetMenuBarCallback(function()
-    if Gui.BeginMenu("File") then
-        if Gui.MenuItem("New Scene") then
+    if Gui.BeginMenu("Scene") then
+        if Gui.MenuItem("New") then
             Scene.GetActive():Clear()
             set_status("scene cleared")
         end
-        if Gui.BeginMenu("Open Scene") then
+        if Gui.BeginMenu("Open") then
             for _, name in ipairs(list_scene_files()) do
                 if Gui.MenuItem(name) then
                     local imp = Importer.LoadScene(
@@ -406,7 +412,7 @@ Gui.SetMenuBarCallback(function()
             end
             Gui.EndMenu()
         end
-        if Gui.MenuItem("Save Scene As") then show_save_modal = true end
+        if Gui.MenuItem("Save As...") then show_save_modal = true end
         Gui.EndMenu()
     end
 end)

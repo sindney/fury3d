@@ -105,13 +105,16 @@ end
 -- Menu bar — installed once in on_init.
 
 local function build_menu_bar()
-    -- File menu.
-    if Gui.BeginMenu("File") then
-        if Gui.MenuItem("New Scene") then
+    -- "Scene" menu — separate label from the engine's built-in "File" menu
+    -- (which carries Quit). ImGui dedupes top-level menu items by label, so
+    -- two "File" entries in the same menu bar share an ID and ImGui starts
+    -- mis-sizing the second one. Use a distinct, action-shaped name.
+    if Gui.BeginMenu("Scene") then
+        if Gui.MenuItem("New") then
             Scene.GetActive():Clear()
             set_status("scene cleared")
         end
-        if Gui.BeginMenu("Open Scene") then
+        if Gui.BeginMenu("Open") then
             for _, name in ipairs(list_scene_files()) do
                 if Gui.MenuItem(name) then open_scene(name) end
             end
@@ -123,7 +126,7 @@ local function build_menu_bar()
             end
             Gui.EndMenu()
         end
-        if Gui.MenuItem("Save Scene As") then show_save_modal = true end
+        if Gui.MenuItem("Save As...") then show_save_modal = true end
         Gui.EndMenu()
     end
     -- Camera menu.
