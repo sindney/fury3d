@@ -1,0 +1,148 @@
+## ADDED Requirements
+
+### Requirement: The CLI SHALL provide a `convert gltf` subcommand that imports glTF 2.0 into the engine's runtime scene format
+
+The `fury` binary SHALL accept the invocation `fury convert gltf <input> <output>` where `<input>` is a path to a `.gltf` or `.glb` file and `<output>` is a path with extension `.json` or `.bin`. The output extension SHALL determine the on-disk format: `.json` uses `FileUtil::SaveFile` (human-readable Serializable JSON), `.bin` uses `FileUtil::SaveCompressedFile` (LZ4-compressed Serializable JSON). The importer SHALL populate a `Scene` containing the glTF model's node hierarchy, meshes (including submesh splits per material), materials (lossy PBR → Phong/Lambert), joints (for skinned meshes), and animation clips (resampled to ticks at 24 fps). The importer SHALL NOT require an OpenGL context — all CPU-side data must be populated without GPU upload.
+
+#### Scenario: Convert a static glTF to scene.json
+- **WHEN** a user runs `./fury convert gltf Box.gltf out.json` against tinygltf's `models/Box/Box.gltf`
+- **THEN** the process exits with code 0
+- **AND** `out.json` exists on disk and is valid JSON containing top-level keys `materials`, `meshes`, `nodes`
+- **AND** loading `out.json` via `FileUtil::LoadFile` populates a `Scene` whose root has one descendant node with a `MeshRender` component pointing at one mesh
+
+#### Scenario: Convert a static glTF to scene.bin
+- **WHEN** a user runs `./fury convert gltf Box.gltf out.bin`
+- **THEN** the process exits with code 0
+- **AND** `out.bin` exists on disk and is LZ4-compressed
+- **AND** loading `out.bin` via `FileUtil::LoadCompressedFile` produces the same scene shape as the corresponding `.json` output
+
+#### Scenario: Convert a binary glTF (.glb)
+- **WHEN** a user runs `./fury convert gltf Box.glb out.json`
+- **THEN** the importer uses `tinygltf::TinyGLTF::LoadBinaryFromFile`
+- **AND** the output is byte-for-byte identical to converting the equivalent `.gltf` text variant
+
+#### Scenario: Output extension determines format
+- **WHEN** a user runs `./fury convert gltf in.gltf out.bin`
+- **THEN** the converter writes LZ4-compressed output (no `.json` is produced)
+- **AND WHEN** the same input is converted to `out.json`, plain JSON is written
+
+#### Scenario: Reject unsupported output extension
+- **WHEN** a user runs `./fury convert gltf in.gltf out.xml`
+- **THEN** the process exits with code 1 (user error)
+- **AND** stderr contains a message naming the supported output extensions (`.json`, `.bin`)
+
+### Requirement: The importer SHALL translate the glTF node hierarchy into SceneNode trees
+
+For each `scene` listed in `tinygltf::Model::scenes` (or the default if multiple are present), the importer SHALL walk the node graph and emit a corresponding `SceneNode` tree under the engine `Scene`'s root. Each glTF node's transform SHALL be applied to a `Transform` component on the emitted `SceneNode` (decomposed from the node's matrix or composed from its TRS arrays per glTF rules). Each glTF mesh reference SHALL emit a `MeshRender` component on the corresponding `SceneNode`.
+
+#### Scenario: glTF node tree maps 1:1 to SceneNode tree
+- **WHEN** the importer processes a glTF model with N nodes in a single scene
+- **THEN** the resulting engine `Scene::GetRootNode()` has descendants matching the glTF hierarchy (same parent/child relationships)
+
+#### Scenario: TRS array decoded into Transform
+- **WHEN** a glTF node specifies `translation`, `rotation`, and `scale` arrays
+- **THEN** the emitted `SceneNode`'s `Transform` component carries the same values (rotation as `Quaternion(x, y, z, w)`, scale as `Vector4(x, y, z, 1)`, translation as `Vector4(x, y, z, 1)`)
+
+#### Scenario: Matrix-only node decomposed into TRS
+- **WHEN** a glTF node specifies a 16-float `matrix` instead of TRS arrays
+- **THEN** the matrix is decomposed and stored as TRS on the `Transform` component
+
+### Requirement: The importer SHALL translate glTF meshes into engine Mesh records with precomputed AABBs and submeshes-per-material
+
+For each `tinygltf::Mesh`, the importer SHALL emit one engine `Mesh` registered in the scene's `EntityManager`. For each primitive in the glTF mesh, the importer SHALL emit one `SubMesh` containing that primitive's index buffer. Vertex attributes (`POSITION`, `NORMAL`, `TANGENT`, `TEXCOORD_0`) SHALL be read via `tinygltf::Accessor` and copied into the corresponding `ArrayBufferf` field on the engine `Mesh`. The importer SHALL compute the mesh's AABB by iterating positions (or read it from the accessor's `min` / `max` when present, since glTF 2.0 mandates them on POSITION accessors). Only triangle-list primitives (mode 4) SHALL be accepted; other primitive modes SHALL cause a clear error.
+
+#### Scenario: One submesh per primitive per material
+- **WHEN** a glTF mesh has 3 primitives referencing 3 different materials
+- **THEN** the emitted engine `Mesh` has 3 `SubMesh` records, each with its own index buffer
+- **AND** the emitted `MeshRender` component holds 3 `Material` references in the same order
+
+#### Scenario: AABB precomputed from POSITION accessor
+- **WHEN** a glTF mesh primitive has `POSITION.min` and `POSITION.max` set
+- **THEN** the emitted engine `Mesh`'s AABB matches those values without re-iterating vertices
+
+#### Scenario: Non-triangle primitive rejected
+- **WHEN** a glTF mesh primitive declares `mode = 1` (LINES)
+- **THEN** the importer fails with a clear error naming the unsupported mode
+- **AND** the process exits with code 1
+
+### Requirement: The importer SHALL translate glTF materials to engine Lambert materials with lossy PBR mapping
+
+For each `tinygltf::Material`, the importer SHALL emit one engine `Material` registered in the scene's `EntityManager` with the engine's named-uniform shape (matching today's `Material::Save` output for the Lambert pipeline). The PBR `baseColorFactor` SHALL map to the `diffuse_color` uniform; the `baseColorTexture` SHALL map to the `diffuse_texture` slot. The `emissiveFactor` SHALL map to the `emissive_color` uniform. Other PBR fields (`metallicFactor`, `roughnessFactor`, `metallicRoughnessTexture`, `normalTexture`, `occlusionTexture`) SHALL be read but not mapped to engine uniforms in v1; the importer SHALL log exactly one warning per source material that lists the discarded fields. The emitted material's `opaque` flag SHALL be `true` when the glTF material's `alphaMode` is `OPAQUE` and `false` otherwise. (Note: the engine ships a Lambert deferred pipeline only as of v1; an HDR/PBR pipeline is a deliberately deferred follow-up.)
+
+#### Scenario: baseColorFactor maps to diffuse_color
+- **WHEN** a glTF material has `pbrMetallicRoughness.baseColorFactor = [0.8, 0.2, 0.2, 1.0]`
+- **THEN** the emitted engine `Material` has a `Uniform3f` named `diffuse_color` with values `(0.8, 0.2, 0.2)`
+
+#### Scenario: baseColorTexture maps to diffuse_texture slot
+- **WHEN** a glTF material has `pbrMetallicRoughness.baseColorTexture.index` set
+- **THEN** the emitted engine `Material` has an entry in its texture map with key `diffuse_texture` and `path` set to the source image's URI (or extracted-image filename for `.glb` inputs)
+
+#### Scenario: One warning per material with discarded PBR fields
+- **WHEN** a glTF material has a non-null `normalTexture`, `metallicFactor`, and `roughnessFactor`
+- **THEN** stderr contains a single warning line for that material naming the discarded fields
+- **AND** no extra warnings are emitted for other materials that share the same discarded set
+
+#### Scenario: alphaMode controls opaque flag
+- **WHEN** a glTF material has `alphaMode = "BLEND"`
+- **THEN** the emitted engine `Material`'s `opaque` flag is `false`
+- **AND WHEN** `alphaMode` is `"OPAQUE"` (or unspecified), the flag is `true`
+
+### Requirement: The importer SHALL translate glTF skins into engine Joint trees and emit per-vertex skin data
+
+For each `tinygltf::Skin` referenced by a node, the importer SHALL build an engine `Joint` tree, populate each joint's `m_OffsetMatrix` from the skin's `inverseBindMatrices` accessor, and emit `IDs` (4 `uint` indices per vertex) and `Weights` (3 explicit `float` weights per vertex, with the 4th implicit as `1 - sum`) into the corresponding engine `Mesh`. The importer SHALL register every emitted `Joint` in the mesh's `m_JointMap` and `m_Joints` vector, and SHALL set the mesh's `m_RootJoint`. Skinned meshes thus produced SHALL survive a full `FileUtil::SaveFile` → `FileUtil::LoadFile` round-trip with no data loss (which requires fixing the existing Mesh.cpp:120 `// TODO: no joints yet` gap).
+
+#### Scenario: glTF skin emits a Joint tree
+- **WHEN** the importer processes a glTF model with one skin containing 20 joints
+- **THEN** the emitted engine `Mesh` has 20 entries in its `m_Joints` vector and `m_JointMap`
+- **AND** `m_RootJoint` points at the joint corresponding to the skin's `skeleton` node (or the common ancestor of the joints if `skeleton` is absent)
+
+#### Scenario: inverseBindMatrices populate joint offsets
+- **WHEN** the glTF skin specifies `inverseBindMatrices` via an accessor
+- **THEN** each emitted `Joint`'s `m_OffsetMatrix` matches the corresponding `inverseBindMatrices` entry
+
+#### Scenario: Per-vertex skin data emitted
+- **WHEN** a glTF mesh primitive has `JOINTS_0` and `WEIGHTS_0` accessors
+- **THEN** the emitted engine `Mesh`'s `IDs` array contains 4 `uint` values per vertex (the joint indices) and `Weights` contains 3 `float` values per vertex (the first 3 weights; the 4th is implicit)
+
+#### Scenario: Skinned-mesh round-trip
+- **WHEN** a skinned glTF is converted to `out.json` and then loaded via `FileUtil::LoadFile`
+- **THEN** the loaded `Mesh` has the same `IDs` and `Weights` data as the source
+- **AND** `m_Joints`, `m_JointMap`, and `m_RootJoint` are populated equivalently
+
+### Requirement: The importer SHALL translate glTF animations into engine AnimationClips resampled at 24 fps
+
+For each `tinygltf::Animation`, the importer SHALL emit one engine `AnimationClip` registered in the scene's `EntityManager`. For each animation channel (target node × target path ∈ {translation, rotation, scale}), the importer SHALL emit one engine `AnimationChannel` whose `name` is the target joint or node name, and whose `positions` / `rotations` / `scalings` arrays are resampled keyframes at 24 fps over the animation's time range. Rotation samples SHALL be converted from glTF quaternions to Euler radians for storage in the engine's `KeyFrame.x/y/z`. The clip's `m_TicksPerSecond` SHALL be 24; `m_Duration` SHALL be the source duration in seconds × 24 (frames).
+
+#### Scenario: Animation channel emits engine AnimationChannel
+- **WHEN** a glTF animation has one channel targeting `node[5].translation` with 60 keyframes spanning 0.0–2.0 seconds
+- **THEN** the emitted engine `AnimationChannel`'s `name` is the name of glTF node 5
+- **AND** the channel's `positions` array contains 48 keyframes (2.0s × 24fps) at consecutive ticks 0..47
+
+#### Scenario: Quaternion samples become Euler radians on storage
+- **WHEN** a glTF rotation channel samples are quaternions
+- **THEN** the emitted engine `AnimationChannel`'s `rotations` keyframes store Euler radians (YXZ order per `MathUtil::QuatToEulerRad`)
+- **AND** at playback time the engine `AnimationPlayer` recovers the original orientation within float precision
+
+#### Scenario: Unsupported interpolation mode warns and falls back
+- **WHEN** a glTF animation sampler declares `interpolation = "CUBICSPLINE"`
+- **THEN** the importer emits a one-time warning per sampler
+- **AND** treats it as LINEAR resampling at 24 fps
+
+### Requirement: The importer SHALL reject glTF features that cannot be expressed in the engine's runtime format
+
+The importer SHALL reject with a clear error message any glTF input that uses morph targets, sparse accessors, or buffer views with a non-default `byteStride`. The importer SHALL also reject glTF inputs that reference unsupported extensions (any `extensionsRequired` entry not on a documented allow-list — empty in v1). Rejections SHALL exit with code 1 and a single stderr message identifying the offending feature and the source asset name.
+
+#### Scenario: Morph targets rejected
+- **WHEN** a glTF mesh primitive has a non-empty `targets` array
+- **THEN** the converter exits with code 1
+- **AND** stderr contains a message naming `morph targets` as unsupported
+
+#### Scenario: Sparse accessor rejected
+- **WHEN** a glTF accessor has a `sparse` field set
+- **THEN** the converter exits with code 1
+- **AND** stderr names `sparse accessors` as unsupported
+
+#### Scenario: Required extension rejected
+- **WHEN** a glTF file has `extensionsRequired = ["KHR_materials_unlit"]`
+- **THEN** the converter exits with code 1
+- **AND** stderr names the unsupported extension(s)

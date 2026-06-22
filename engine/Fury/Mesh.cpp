@@ -117,9 +117,58 @@ namespace fury
 		LoadArray(wrapper, "tangents", Tangents.Data);
 		LoadArray(wrapper, "uvs", UVs.Data);
 
-		// TODO: no joints yet
-		// LoadArray(wrapper, "weights", Weights.Data);
-		// LoadArray(wrapper, "ids", IDs.Data);
+		// Per-vertex skin data — optional. Absent on static meshes; present (with the
+		// joints array below) on skinned meshes. Each vertex carries 4 bone indices
+		// and 3 explicit weights; the 4th weight is implicit (1 - sum of the first 3).
+		LoadArray(wrapper, "bone_ids", IDs.Data);
+		LoadArray(wrapper, "bone_weights", Weights.Data);
+
+		// Joint tree — flat array; parent links rebuilt below from explicit indices.
+		// Tree shape (first-child / sibling pointers) is reconstructed from parent indices.
+		std::vector<Joint::Ptr> loaded_joints;
+		LoadArray(wrapper, "joints", [&](const void* node) -> bool
+		{
+			std::string joint_name;
+			Matrix4 local, offset;
+			if (!LoadMemberValue(node, "name", joint_name)) return false;
+			LoadMemberValue(node, "local_matrix", local);
+			LoadMemberValue(node, "offset_matrix", offset);
+			auto joint = Joint::Create(joint_name, nullptr);
+			joint->SetLocalMatrix(local);
+			joint->SetOffsetMatrix(offset);
+			loaded_joints.push_back(joint);
+			m_Joints.push_back(joint);
+			m_JointMap[joint_name] = joint;
+			return true;
+		});
+		// Second pass: wire parent → first_child / sibling links by index.
+		// LoadArray<callback> doesn't expose the index, so we re-scan in parallel with
+		// loaded_joints to read each entry's parent and link it back.
+		{
+			unsigned int idx = 0;
+			LoadArray(wrapper, "joints", [&](const void* node) -> bool
+			{
+				int parent_index = -1;
+				LoadMemberValue(node, "parent", parent_index);
+				if (parent_index >= 0 && parent_index < static_cast<int>(loaded_joints.size()))
+				{
+					auto child = loaded_joints[idx];
+					auto parent = loaded_joints[parent_index];
+					child->SetParent(parent);
+					auto existing = parent->GetFirstChild();
+					child->SetSibling(existing);
+					parent->SetFirstChild(child);
+				}
+				++idx;
+				return true;
+			});
+		}
+		std::string root_joint_name;
+		if (LoadMemberValue(wrapper, "root_joint", root_joint_name))
+		{
+			auto it = m_JointMap.find(root_joint_name);
+			if (it != m_JointMap.end()) m_RootJoint = it->second;
+		}
 		
 		if (!LoadArray(wrapper, "indices", Indices.Data))
 		{
@@ -183,8 +232,56 @@ namespace fury
 			SaveKey(wrapper, "uvs");
 			SaveArray(wrapper, UVs.Data);
 		}
-		
-		// TODO: no joints yet
+
+		// Per-vertex skin data + joint tree. Emitted only when present so static-mesh
+		// scene files remain byte-identical to pre-skin-roundtrip output.
+		if (IDs.Data.size() > 0)
+		{
+			SaveKey(wrapper, "bone_ids");
+			SaveArray(wrapper, IDs.Data);
+		}
+		if (Weights.Data.size() > 0)
+		{
+			SaveKey(wrapper, "bone_weights");
+			SaveArray(wrapper, Weights.Data);
+		}
+		if (!m_Joints.empty())
+		{
+			// Build name→index map so joint.parent can be saved as an integer index
+			// (matching the rebuild-on-load contract above).
+			std::unordered_map<std::string, int> name_to_index;
+			for (unsigned int i = 0; i < m_Joints.size(); ++i)
+				name_to_index[m_Joints[i]->GetName()] = static_cast<int>(i);
+
+			SaveKey(wrapper, "joints");
+			SaveArray(wrapper, m_Joints.size(), [&](unsigned int index)
+			{
+				const auto &joint = m_Joints[index];
+				StartObject(wrapper);
+				SaveKey(wrapper, "name");
+				SaveValue(wrapper, joint->GetName());
+				SaveKey(wrapper, "local_matrix");
+				SaveValue(wrapper, joint->GetLocalMatrix());
+				SaveKey(wrapper, "offset_matrix");
+				SaveValue(wrapper, joint->GetOffsetMatrix());
+				int parent_index = -1;
+				auto parent = joint->GetParent();
+				if (parent)
+				{
+					auto it = name_to_index.find(parent->GetName());
+					if (it != name_to_index.end()) parent_index = it->second;
+				}
+				SaveKey(wrapper, "parent");
+				SaveValue(wrapper, parent_index);
+				EndObject(wrapper);
+			});
+
+			if (m_RootJoint)
+			{
+				SaveKey(wrapper, "root_joint");
+				SaveValue(wrapper, m_RootJoint->GetName());
+			}
+		}
 
 		SaveKey(wrapper, "indices");
 		SaveArray(wrapper, Indices.Data);
