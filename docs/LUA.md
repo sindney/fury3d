@@ -218,12 +218,87 @@ local r = RenderUtil.Instance()
 -- (no methods bound this round — RenderUtil is internally driven by Engine.run)
 ```
 
+### `Input`
+
+```lua
+local input = InputUtil.Instance()
+
+-- Polling — call from on_update each frame.
+if input:GetKeyDown(Key.W) then ... end
+if input:GetMouseDown(MouseButton.Left) then ... end
+local x, y     = input:GetMousePosition()    -- in window-local points
+local wheel    = input:GetMouseWheel()
+local focused  = input:GetWindowFocused()
+local w, h     = input:GetWindowSize()
+```
+
+`Key` and `MouseButton` are plain Lua tables of integer-valued enums populated
+from `sf::Keyboard::Key` and `sf::Mouse::Button`. The currently-bound subset:
+
+```
+Key.A … Key.Z
+Key.Num0 … Key.Num9
+Key.Space, Key.LShift, Key.RShift, Key.LControl, Key.RControl, Key.LAlt, Key.RAlt
+Key.Up, Key.Down, Key.Left, Key.Right
+Key.Escape, Key.Enter, Key.Tab, Key.Backspace
+
+MouseButton.Left, MouseButton.Right, MouseButton.Middle
+```
+
+Need a key that isn't here (`F1`, ``Grave``, …)? Add one line to the `Key`
+block in `engine/Fury/LuaBindings.cpp`:
+
+```cpp
+key_tbl["F1"] = static_cast<int>(sf::Keyboard::Key::F1);
+```
+
+Only polling is bound. The C++ `InputUtil::OnKeyDown` / `OnMouseMove` signals
+are not yet exposed to Lua — bridging a `sol::function` closure to the
+member-pointer-based `Signal<Args...>` requires its own change. For
+continuous input (camera fly, hold-to-move), polling is the right tool
+anyway.
+
 ### `Gui`
 
 ```lua
-Gui.ShowDefault(dt)   -- engine's built-in stats overlay
-Gui.Render()          -- emit ImGui draw lists
+-- Engine UI
+Gui.ShowDefault(dt)              -- engine's built-in menu bar + Profiler
+Gui.Render()                     -- emit ImGui draw lists
+
+-- Input-capture queries (gate camera input when cursor is over a widget)
+if Gui.WantCaptureMouse()    then ... end
+if Gui.WantCaptureKeyboard() then ... end
+
+-- Window primitives. Begin returns two values: still_open (after the X
+-- button click) and visible (false when collapsed). Always pair Begin
+-- with End regardless of visibility.
+local still_open, visible = Gui.Begin("My Panel", show_my_panel)
+if visible then
+    Gui.Text("hello")
+    move_speed = Gui.SliderFloat("Move Speed", move_speed, 0.5, 50.0)
+    enabled    = Gui.Checkbox("Enabled", enabled)
+    if Gui.Button("Click me") then ... end
+    Gui.Separator()
+end
+Gui.End()
+show_my_panel = still_open
+
+-- Menu bar extension. The callback runs inside ImGui::BeginMainMenuBar()
+-- each frame, after the engine's built-in File / View menus. Pass nil to
+-- clear.
+Gui.SetMenuBarCallback(function()
+    if Gui.BeginMenu("Camera") then
+        if Gui.MenuItem("Settings") then
+            show_camera_window = not show_camera_window
+        end
+        Gui.EndMenu()
+    end
+end)
 ```
+
+The mutating widgets (`SliderFloat`, `Checkbox`) return the new value rather
+than taking a pointer — sol2 doesn't auto-marshal Lua numbers into `float*`,
+so we use this in/out shape. Idiomatic call: `value = Gui.X("...", value, ...)`.
 
 ### `Engine`
 
@@ -277,7 +352,7 @@ Run with: `./fury hello.lua` (from the working directory you want resources reso
 - **`__window`** is a private launcher-injected global pointing at the active `sf::Window`. The Lua bindings read it inside `Engine.run`. Don't shadow this name in your scripts or you'll break `Engine.run`.
 - **Lua stdlib is fully open.** The launcher loads `base`, `string`, `math`, `table`, `io`, `os`, `package`. Scripts can read/write files, exec processes, etc. Acceptable for a dev tool today; revisit before shipping any script-running runtime to end users.
 - **Callback errors are caught.** Unhandled errors inside `on_init` / `on_update` / `on_fixed_update` / `on_shutdown` are logged via `FURYE` and the loop continues. The engine doesn't abort on a Lua callback error.
-- **No SFML-enum bindings yet.** Keyboard / mouse events are not exposed to Lua in this round. `Demo.lua` has no input handling.
+- **Only the keys listed in `LuaBindings.cpp`'s `Key` table are pre-bound.** Add more entries to the table if you need keys outside the demo's set.
 - **Component access is one-way.** `SceneNode:AddComponent(c)` works; the templated `GetComponent<T>()` is not bound. If you need to read components back, do it C++-side (the engine code can still introspect components freely).
 - **The vector type is Vector4 even for 3D positions.** This is a long-standing engine convention, not a Lua-binding artifact. See `docs/ARCHITECTURE.md` §5.1 for the rationale.
 - **macOS Retina is currently non-native.** SFML 3.1's macOS backend hardcodes `highDpi = NO` (`engine/ThirdParty/SFML/src/SFML/Window/macOS/SFOpenGLView.mm:128`), so the OpenGL surface is sized in screen points, not backing pixels. UI and scene look slightly soft on Retina displays — there's no `gui_scale` value that produces sharp pixels short of patching SFML. See `docs/ARCHITECTURE.md` §16. The engine compensates by defaulting `gui_scale` and `gui_font_scale` to `1.0` (the previous SFML-2-era 2× compensation would now double-scale).

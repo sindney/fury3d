@@ -6,45 +6,50 @@
 
 ## Introduction
 
-Fury3d is a cross-platform rendering engine written in c++11 and modern opengl.
+Fury3d is a cross-platform rendering engine written in C++17 and modern OpenGL.
 
-Works on windows && osx operating systems currentlly.
+Works on Windows and macOS currently.
 
 Please note, this is just a simple project for study purpose.
 
-Features: 
+Features:
 
-* Use modern opengl.
-* C++11 smart pointers made memory management easier.
-* Flexible signal message system. (use function pointers, so it won't accept lambdas, sry)
-* Support fbx model format, you can load static meshes, skinned meshes and lights directlly.
-* Easy rendering pipeline management through json serialization functionality.
-* Build-in light-pre pass rendering pipeling.
-* Intergates powerful gui library [ImGui](https://github.com/ocornut/imgui).
-* Support Shadow Mapping For Dir/Point/Spot Light.
-* Support custom scene format, can save to json and can be compressed.
+* Modern OpenGL (3.3+ core profile).
+* C++17 smart pointers for memory management.
+* Flexible Signal message system (member-function pointers, not lambdas).
+* Lua scripting via sol2 + Lua 5.4 — drive the main loop from a `.lua` file.
+* JSON-configurable rendering pipeline.
+* Built-in light pre-pass deferred rendering pipeline.
+* Integrated [ImGui](https://github.com/ocornut/imgui) for debug UI.
+* Shadow mapping for directional, point, and spot lights (cascaded SM optional).
+* Custom scene format — serialises to JSON or LZ4-compressed binary.
 
 Plans:
 
-* Add shadow maps. (Done, need improvements)
-* Add skeleton animation support. (Done, but need improvements)
-* Implement GLTF file format parsing, dropping support for FbxSDK.
-* Implement HDR rendering pipeline, and support PBR material.
+* Add shadow maps. (Done, needs improvements.)
+* Add skeleton animation support. (Done, needs improvements.)
+* Implement glTF 2.0 importer using vendored `tinygltf`. (In progress — FBX SDK is already removed and `tinygltf` is vendored as a submodule; the runtime importer is the next change.)
+* Implement HDR rendering pipeline and PBR materials.
 
 ## Compatibility
 
-Tested compilers: 
+Tested compilers:
 
-* MSVC 2013 Community
-* Apple LLVM version 7.0.2 (clang-700.1.81)
+* AppleClang 16 (macOS Darwin 24.x)
+* GCC 9+ / Clang 10+ on Linux
+* MSVC 16+ (Visual Studio 2019+) on Windows
 
-Because fbxsdk only offers MSVC builds on windows (FBXSDK is optional, you can load scene using engine's custom scene format), so you must use MSVC to build the library.
+Should work with any GPU that supports OpenGL 3.3+.
 
-Should work with any graphic card that supports opengl 3.3 +
+Vendored dependencies (git submodules under `engine/ThirdParty/`):
 
-Tested libraries: 
-* Rapidjson 1.1.0
-* SFML 2.4.1
+* SFML 3.1.0 — window/input/context.
+* rapidjson 1.1.0 — JSON serialisation.
+* Lua 5.4.7 + sol2 v3.5.0 — scripting bridge.
+* tinygltf v2.9.7 — glTF 2.0 loader (importer is the next change).
+* LZ4, STB image, ImGui — bundled in-tree.
+
+No FBX SDK requirement.
 
 ## Screenshots
 
@@ -52,58 +57,85 @@ Tested libraries:
 
 ![PolyScene](screenshots/2.jpg)
 
+## Run the demo
+
+```sh
+git clone --recursive https://github.com/sindney/fury3d
+cd fury3d
+cmake -S engine -B build-engine
+cmake --build build-engine --target fury -j
+cp build-engine/fury examples/bin/fury        # one-time install
+cd examples/bin && ./fury Demo.lua
+```
+
+Controls:
+
+* **WASD** / **arrows** — move along the camera's forward / strafe.
+* **Space** / **LControl** — move up / down.
+* **Hold left mouse button + drag** — yaw and pitch.
+* **Mouse wheel** — adjust move speed.
+* **LShift** — 5× speed multiplier.
+* **Menu bar** — `File → Quit`, `View → Profiler / GBuffer / Shadow Buffers`, `Camera → Settings`.
+
 ## Examples
 
-You can setup custom rendering pipeline using json file, [check it out.](https://github.com/sindney/fury3d/blob/master/examples/bin/Resource/Pipeline/DefferedLighting.json)
+The demo is now driven from `examples/Demo.lua`. A minimal scene + flythrough camera looks like this:
 
-A simple demo should look like this: 
+```lua
+local function on_init()
+    local octree = OcTree.Create(
+        Vector4(-1000, -1000, -1000, 1),
+        Vector4( 1000,  1000,  1000, 1),
+        2)
 
-~~~~~~~~~~cpp
-// This is the root of our scene
-auto m_RootNode = SceneNode::Create("Root");
+    Scene.SetActive(Scene.Create("main", FileUtil.GetAbsPath(), octree))
+    FileUtil.LoadSceneFromCompressedFile(
+        Scene.GetActive(),
+        FileUtil.GetAbsPath("Resource/Scene/scene.bin"))
 
-// You can load scene from fbx file.
-FbxParser::Instance()->LoadScene("Resource/Scene/scene.fbx", m_RootNode, importOptions);
+    local camera = Camera.Create()
+    camera:PerspectiveFov(0.7854, 1.778, 1, 100)
 
-// Or from fury's scene format.
-FileUtil::LoadCompressedFile(m_Scene, FileUtil::GetAbsPath("Resource/Scene/scene.bin"));
+    local cam_node = SceneNode.Create("camNode")
+    cam_node:SetLocalPosition(Vector4(0, 10, 25, 1))
+    cam_node:AddComponent(Transform.Create())
+    cam_node:AddComponent(camera)
+    cam_node:Recompose(true)
 
-// You can iterate a certain type of imported resources.
-Scene::Manager()->ForEach<AnimationClip>([&](const AnimationClip::Ptr &clip) -> bool
-{
-	std::cout << "Clip: " << clip->GetName() << " Duration: " << clip->GetDuration() << std::endl;
-	return true;
-});
+    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.GetActive():SetCurrentCamera(cam_node)
+    FileUtil.LoadPipelineFromFile(
+        Pipeline.GetActive(),
+        FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
+end
 
-// And you can simply find an resource by it's name or hashcode.
-auto clip = Scene::Manager()->Get<AnimationClip>("James|Walk");
+local function on_update(dt)
+    Gui.ShowDefault(dt)
+    Gui.Render()
+    Pipeline.GetActive():Execute(SceneManager.Instance())
+end
 
-// Setup octree
-auto m_OcTree = OcTree::Create(Vector4(-10000, -10000, -10000, 1), Vector4(10000, 10000, 10000, 1), 2);
-m_OcTree->AddSceneNodeRecursively(m_RootNode);
+Engine.run({ on_init = on_init, on_update = on_update })
+```
 
-// Load pipeline
-auto m_Pipeline = PrelightPipeline::Create("pipeline");
-FileUtil::LoadFile(m_Pipeline, FileUtil::GetAbsPath("Path To Pipeline.json"));
+See `docs/LUA.md` for the full bound API reference, and `examples/Demo.lua` for the WASD flythrough + Camera settings panel.
 
-// Draw scene
-m_Pipeline->Execute(m_OcTree);
-~~~~~~~~~~
+You can also configure the rendering pipeline via JSON — [see the example](https://github.com/sindney/fury3d/blob/master/examples/bin/Resource/Pipeline/DefferedLightingLambert.json).
 
 ## Special thanks
 
-* [FbxSdk](http://www.autodesk.com/products/fbx/overview) - for loading fbx model
-* [Rapidjson](https://github.com/miloyip/rapidjson) - for loading pipeline setups
-* [Plog](https://github.com/SergiusTheBest/plog) - for log implimentation
-* [ThreadPool](https://github.com/progschj/ThreadPool) - for threadpool implimentation
-* [Stbimage](https://github.com/nothings/stb) - for image loading
-* [LZ4](https://github.com/Cyan4973/lz4) - for file compressing/decompressing
-* [Sfml](http://www.sfml-dev.org) - for os related window/input/context handling
-* [ASSIMP](https://github.com/assimp/assimp) - for mesh optimization
-* [Ogre3d](http://www.ogre3d.org) - for octree implimentation
-* [ImGui](https://github.com/ocornut/imgui) - for debuging gui
-* [RenderDoc](https://github.com/baldurk/renderdoc) - for debuging opengl
+* [Rapidjson](https://github.com/miloyip/rapidjson) — loading pipeline / scene JSON
+* [Plog](https://github.com/SergiusTheBest/plog) — log implementation
+* [ThreadPool](https://github.com/progschj/ThreadPool) — threadpool implementation
+* [Stb_image](https://github.com/nothings/stb) — image loading
+* [LZ4](https://github.com/Cyan4973/lz4) — scene file compression/decompression
+* [SFML](http://www.sfml-dev.org) — OS window/input/context
+* [tinygltf](https://github.com/syoyo/tinygltf) — glTF 2.0 loader
+* [Lua](https://www.lua.org) + [sol2](https://github.com/ThePhD/sol2) — scripting bridge
+* [Ogre3d](http://www.ogre3d.org) — octree implementation reference
+* [ImGui](https://github.com/ocornut/imgui) — debug GUI
+* [RenderDoc](https://github.com/baldurk/renderdoc) — OpenGL debugging
 
 ## One more thing
 
-If you use sublimetext, you can try my [GLSLCompiler](https://github.com/sindney/GLSLCompiler) plugin to debug glsl code :D
+If you use Sublime Text, you can try my [GLSLCompiler](https://github.com/sindney/GLSLCompiler) plugin to debug GLSL code :D

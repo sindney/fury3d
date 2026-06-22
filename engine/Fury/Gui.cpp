@@ -49,6 +49,18 @@ namespace fury
 
 		static bool m_WindowHasFocus = true;
 
+		// Visibility of the engine's built-in panels. Lifted out of
+		// ShowDefault so the menu-bar handlers can flip them. Default-hidden:
+		// the demo opens with a clean view.
+		static bool m_ShowProfilerWindow      = false;
+		static bool m_ShowGBufferWindow       = false;
+		static bool m_ShowShadowBufferWindow  = false;
+
+		// Optional Lua-supplied callback invoked inside the main menu bar
+		// after the built-in menus. Cleared by the launcher before sol::state
+		// destruction.
+		static std::function<void()> m_MenuBarCallback;
+
 		bool Initialize(sf::Window *window, float scale, float fontScale)
 		{
 			m_MousePressed[0] = m_MousePressed[1] = m_MousePressed[2] = false;
@@ -381,43 +393,114 @@ namespace fury
 			ImGui::NewFrame();
 		}
 
+		bool WantCaptureMouse()
+		{
+			return ImGui::GetIO().WantCaptureMouse;
+		}
+
+		bool WantCaptureKeyboard()
+		{
+			return ImGui::GetIO().WantCaptureKeyboard;
+		}
+
+		std::pair<bool, bool> Begin(const char* title, bool open)
+		{
+			bool p_open = open;
+			bool visible = ImGui::Begin(title, &p_open);
+			return {p_open, visible};
+		}
+
+		void End()
+		{
+			ImGui::End();
+		}
+
+		float SliderFloat(const char* label, float current, float vmin, float vmax)
+		{
+			float v = current;
+			ImGui::SliderFloat(label, &v, vmin, vmax);
+			return v;
+		}
+
+		bool Checkbox(const char* label, bool current)
+		{
+			bool v = current;
+			ImGui::Checkbox(label, &v);
+			return v;
+		}
+
+		bool Button(const char* label)
+		{
+			return ImGui::Button(label);
+		}
+
+		void Separator()
+		{
+			ImGui::Separator();
+		}
+
+		void Text(const char* str)
+		{
+			ImGui::Text("%s", str);
+		}
+
+		bool BeginMenu(const char* label)
+		{
+			return ImGui::BeginMenu(label);
+		}
+
+		void EndMenu()
+		{
+			ImGui::EndMenu();
+		}
+
+		bool MenuItem(const char* label)
+		{
+			return ImGui::MenuItem(label);
+		}
+
+		void SetMenuBarCallback(std::function<void()> cb)
+		{
+			m_MenuBarCallback = std::move(cb);
+		}
+
 		void ShowDefault(float dt)
 		{
-			static bool showProfilerWindow = true, showGBufferWindow = false, showShadowBufferWindow = false;
-
-			// main menu
+			// main menu bar
 			{
 				if (ImGui::BeginMainMenuBar())
-			    {
-			        if (ImGui::BeginMenu("File"))
-			        {
-			        	if (ImGui::MenuItem("Open")) {}
-			        	ImGui::Separator();
-			        	if (ImGui::MenuItem("Quit")) 
-			        	{
-			        		if (m_Window != NULL)
-			        		{
-			        			m_Window->close();
-			        		}
-			        	}
-			            ImGui::EndMenu();
-			        }
-			        if (ImGui::BeginMenu("Edit"))
-			        {
-			            if (ImGui::MenuItem("Undo", "CTRL+Z")) {}
-			            if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {}  // Disabled item
-			            ImGui::Separator();
-			            if (ImGui::MenuItem("Cut", "CTRL+X")) {}
-			            if (ImGui::MenuItem("Copy", "CTRL+C")) {}
-			            if (ImGui::MenuItem("Paste", "CTRL+V")) {}
-			            ImGui::EndMenu();
-			        }
-			        ImGui::EndMainMenuBar();
-			    }
+				{
+					if (ImGui::BeginMenu("File"))
+					{
+						if (ImGui::MenuItem("Quit"))
+						{
+							if (m_Window != NULL)
+							{
+								m_Window->close();
+							}
+						}
+						ImGui::EndMenu();
+					}
+					if (ImGui::BeginMenu("View"))
+					{
+						ImGui::MenuItem("Profiler",       nullptr, &m_ShowProfilerWindow);
+						ImGui::MenuItem("GBuffer",        nullptr, &m_ShowGBufferWindow);
+						ImGui::MenuItem("Shadow Buffers", nullptr, &m_ShowShadowBufferWindow);
+						ImGui::EndMenu();
+					}
+					if (m_MenuBarCallback)
+					{
+						m_MenuBarCallback();
+					}
+					ImGui::EndMainMenuBar();
+				}
 			}
 
+			if (m_ShowProfilerWindow)
+			{
+
 			ImGui::SetNextWindowSize(ImVec2(240 * m_GlobalScale, 350 * m_GlobalScale));
-			ImGui::Begin("Profiler", &showProfilerWindow, 
+			ImGui::Begin("Profiler", &m_ShowProfilerWindow,
 				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 			// fps graph
@@ -461,20 +544,17 @@ namespace fury
 				static bool use_csm = true;
 				ImGui::Checkbox("Use Cascaded Shadow Map", &use_csm);
 				Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm);
-
-				ImGui::Separator();
-
-				ImGui::Checkbox("Show GBuffer Window", &showGBufferWindow);
-				ImGui::Checkbox("Show ShadowBuffer Window", &showShadowBufferWindow);
 			}
 
 			ImGui::End();
 
-			if (showShadowBufferWindow)
+			}  // end if (m_ShowProfilerWindow)
+
+			if (m_ShowShadowBufferWindow)
 			{
 				ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 300 * m_GlobalScale * m_GlobalScale, ImGui::GetIO().DisplaySize.y - 300 * m_GlobalScale), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(300 * m_GlobalScale, 300 * m_GlobalScale));
-				ImGui::Begin("Shadow Buffers", &showShadowBufferWindow, 
+				ImGui::Begin("Shadow Buffers", &m_ShowShadowBufferWindow,
 					ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 				if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*0*depth24*2d"))
@@ -641,11 +721,11 @@ namespace fury
 				ImGui::End();
 			}
 
-			if (showGBufferWindow)
+			if (m_ShowGBufferWindow)
 			{
 				ImGui::SetNextWindowPos(ImVec2(ImVec2(ImGui::GetIO().DisplaySize.x - 300 * m_GlobalScale, 0)), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(300 * m_GlobalScale, 300 * m_GlobalScale));
-				ImGui::Begin("GBuffers", &showGBufferWindow, 
+				ImGui::Begin("GBuffers", &m_ShowGBufferWindow,
 					ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoCollapse);
 
 				ImVec2 imgSize(m_GlobalScale * ImGui::GetIO().DisplaySize.x / 4, m_GlobalScale * ImGui::GetIO().DisplaySize.y / 4);

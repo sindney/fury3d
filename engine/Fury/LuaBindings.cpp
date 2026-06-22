@@ -9,6 +9,7 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Gui.h"
+#include "Fury/InputUtil.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
 #include "Fury/OcTree.h"
@@ -241,13 +242,132 @@ namespace fury
 
 			// --- Gui (free functions in a Lua table) --------------------------
 			sol::table gui_tbl = lua.create_named_table("Gui");
-			gui_tbl["ShowDefault"] = &Gui::ShowDefault;
-			gui_tbl["Render"] = &Gui::Render;
+			gui_tbl["ShowDefault"]         = &Gui::ShowDefault;
+			gui_tbl["Render"]              = &Gui::Render;
+			gui_tbl["WantCaptureMouse"]    = &Gui::WantCaptureMouse;
+			gui_tbl["WantCaptureKeyboard"] = &Gui::WantCaptureKeyboard;
+			gui_tbl["Begin"]               = &Gui::Begin;
+			gui_tbl["End"]                 = &Gui::End;
+			gui_tbl["SliderFloat"]         = &Gui::SliderFloat;
+			gui_tbl["Checkbox"]            = &Gui::Checkbox;
+			gui_tbl["Button"]              = &Gui::Button;
+			gui_tbl["Separator"]           = &Gui::Separator;
+			gui_tbl["Text"]                = &Gui::Text;
+			gui_tbl["BeginMenu"]           = &Gui::BeginMenu;
+			gui_tbl["EndMenu"]             = &Gui::EndMenu;
+			gui_tbl["MenuItem"]            = &Gui::MenuItem;
+			// Register a Lua-side menu-bar callback. Pass nil to clear.
+			gui_tbl["SetMenuBarCallback"] = [](sol::object obj) {
+				if (!obj.valid() || obj.get_type() != sol::type::function)
+				{
+					Gui::SetMenuBarCallback({});
+					return;
+				}
+				sol::protected_function pf = obj.as<sol::protected_function>();
+				Gui::SetMenuBarCallback([pf]() {
+					sol::protected_function_result r = pf();
+					if (!r.valid())
+					{
+						sol::error err = r;
+						FURYE << "Lua menu-bar callback error: " << err.what();
+					}
+				});
+			};
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------
 			lua.new_usertype<RenderUtil>("RenderUtil",
 				sol::no_constructor);
 			lua["RenderUtil"]["Instance"] = []() { return RenderUtil::Instance(); };
+
+			// --- InputUtil (singleton, polling-style accessors) ---------------
+			// Enums are exposed as plain integer tables (Key, MouseButton) so
+			// users can extend them by adding lua["Key"]["F11"] = ... lines
+			// without touching sol2's typed-enum machinery.
+			lua.new_usertype<InputUtil>("InputUtil",
+				sol::no_constructor,
+				"GetKeyDown",
+					[](InputUtil &self, int key) {
+						return self.GetKeyDown(static_cast<sf::Keyboard::Key>(key));
+					},
+				"GetMouseDown",
+					sol::overload(
+						[](InputUtil &self) { return self.GetMouseDown(); },
+						[](InputUtil &self, int btn) {
+							return self.GetMouseDown(static_cast<sf::Mouse::Button>(btn));
+						}),
+				"GetMousePosition",
+					[](InputUtil &self) {
+						auto p = self.GetMousePosition();
+						return std::make_tuple(p.first, p.second);
+					},
+				"GetMouseWheel",    &InputUtil::GetMouseWheel,
+				"GetWindowFocused", &InputUtil::GetWindowFocused,
+				"GetWindowSize",
+					[](InputUtil &self) {
+						int w = 0, h = 0;
+						self.GetWindowSize(w, h);
+						return std::make_tuple(w, h);
+					});
+			lua["InputUtil"]["Instance"] = []() { return InputUtil::Instance(); };
+
+			// --- Key / MouseButton enum tables --------------------------------
+			sol::table key_tbl = lua.create_named_table("Key");
+			key_tbl["A"] = static_cast<int>(sf::Keyboard::Key::A);
+			key_tbl["B"] = static_cast<int>(sf::Keyboard::Key::B);
+			key_tbl["C"] = static_cast<int>(sf::Keyboard::Key::C);
+			key_tbl["D"] = static_cast<int>(sf::Keyboard::Key::D);
+			key_tbl["E"] = static_cast<int>(sf::Keyboard::Key::E);
+			key_tbl["F"] = static_cast<int>(sf::Keyboard::Key::F);
+			key_tbl["G"] = static_cast<int>(sf::Keyboard::Key::G);
+			key_tbl["H"] = static_cast<int>(sf::Keyboard::Key::H);
+			key_tbl["I"] = static_cast<int>(sf::Keyboard::Key::I);
+			key_tbl["J"] = static_cast<int>(sf::Keyboard::Key::J);
+			key_tbl["K"] = static_cast<int>(sf::Keyboard::Key::K);
+			key_tbl["L"] = static_cast<int>(sf::Keyboard::Key::L);
+			key_tbl["M"] = static_cast<int>(sf::Keyboard::Key::M);
+			key_tbl["N"] = static_cast<int>(sf::Keyboard::Key::N);
+			key_tbl["O"] = static_cast<int>(sf::Keyboard::Key::O);
+			key_tbl["P"] = static_cast<int>(sf::Keyboard::Key::P);
+			key_tbl["Q"] = static_cast<int>(sf::Keyboard::Key::Q);
+			key_tbl["R"] = static_cast<int>(sf::Keyboard::Key::R);
+			key_tbl["S"] = static_cast<int>(sf::Keyboard::Key::S);
+			key_tbl["T"] = static_cast<int>(sf::Keyboard::Key::T);
+			key_tbl["U"] = static_cast<int>(sf::Keyboard::Key::U);
+			key_tbl["V"] = static_cast<int>(sf::Keyboard::Key::V);
+			key_tbl["W"] = static_cast<int>(sf::Keyboard::Key::W);
+			key_tbl["X"] = static_cast<int>(sf::Keyboard::Key::X);
+			key_tbl["Y"] = static_cast<int>(sf::Keyboard::Key::Y);
+			key_tbl["Z"] = static_cast<int>(sf::Keyboard::Key::Z);
+			key_tbl["Num0"] = static_cast<int>(sf::Keyboard::Key::Num0);
+			key_tbl["Num1"] = static_cast<int>(sf::Keyboard::Key::Num1);
+			key_tbl["Num2"] = static_cast<int>(sf::Keyboard::Key::Num2);
+			key_tbl["Num3"] = static_cast<int>(sf::Keyboard::Key::Num3);
+			key_tbl["Num4"] = static_cast<int>(sf::Keyboard::Key::Num4);
+			key_tbl["Num5"] = static_cast<int>(sf::Keyboard::Key::Num5);
+			key_tbl["Num6"] = static_cast<int>(sf::Keyboard::Key::Num6);
+			key_tbl["Num7"] = static_cast<int>(sf::Keyboard::Key::Num7);
+			key_tbl["Num8"] = static_cast<int>(sf::Keyboard::Key::Num8);
+			key_tbl["Num9"] = static_cast<int>(sf::Keyboard::Key::Num9);
+			key_tbl["Space"]     = static_cast<int>(sf::Keyboard::Key::Space);
+			key_tbl["LShift"]    = static_cast<int>(sf::Keyboard::Key::LShift);
+			key_tbl["RShift"]    = static_cast<int>(sf::Keyboard::Key::RShift);
+			key_tbl["LControl"]  = static_cast<int>(sf::Keyboard::Key::LControl);
+			key_tbl["RControl"]  = static_cast<int>(sf::Keyboard::Key::RControl);
+			key_tbl["LAlt"]      = static_cast<int>(sf::Keyboard::Key::LAlt);
+			key_tbl["RAlt"]      = static_cast<int>(sf::Keyboard::Key::RAlt);
+			key_tbl["Up"]        = static_cast<int>(sf::Keyboard::Key::Up);
+			key_tbl["Down"]      = static_cast<int>(sf::Keyboard::Key::Down);
+			key_tbl["Left"]      = static_cast<int>(sf::Keyboard::Key::Left);
+			key_tbl["Right"]     = static_cast<int>(sf::Keyboard::Key::Right);
+			key_tbl["Escape"]    = static_cast<int>(sf::Keyboard::Key::Escape);
+			key_tbl["Enter"]     = static_cast<int>(sf::Keyboard::Key::Enter);
+			key_tbl["Tab"]       = static_cast<int>(sf::Keyboard::Key::Tab);
+			key_tbl["Backspace"] = static_cast<int>(sf::Keyboard::Key::Backspace);
+
+			sol::table mb_tbl = lua.create_named_table("MouseButton");
+			mb_tbl["Left"]   = static_cast<int>(sf::Mouse::Button::Left);
+			mb_tbl["Right"]  = static_cast<int>(sf::Mouse::Button::Right);
+			mb_tbl["Middle"] = static_cast<int>(sf::Mouse::Button::Middle);
 
 			// --- Engine.run ---------------------------------------------------
 			// The launcher injects the active sf::Window into lua["__window"] as
@@ -288,6 +408,11 @@ namespace fury
 				}
 
 				Engine::Run(*window, cb, opts);
+
+				// Clear the menu-bar callback before sol::state destruction;
+				// the bound sol::protected_function holds a Lua-state ref that
+				// would dangle otherwise.
+				Gui::SetMenuBarCallback({});
 			};
 		}
 	}

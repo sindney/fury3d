@@ -48,3 +48,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# ImGui runtime layout state
+imgui.ini
