@@ -8,16 +8,21 @@
 
 #include "Fury/GltfImporter.h"
 
+#include "Fury/AnimationClip.h"
+#include "Fury/Component.h"
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Joint.h"
 #include "Fury/Log.h"
+#include "Fury/MathUtil.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/MeshRender.h"
 #include "Fury/OcTree.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Texture.h"
+#include "Fury/Transform.h"
 #include "Fury/Uniform.h"
 
 // tinygltf pulls in its own JSON header; we suppress its stb_image to avoid
@@ -689,6 +694,193 @@ namespace fury
 			}
 			return true;
 		}
+
+		// Walk a glTF node and emit a matching engine SceneNode tree under
+		// `parent`. Recursive over node.children. Each emitted SceneNode gets
+		// a Transform component (carrying TRS) and, if the glTF node refs a
+		// mesh, a MeshRender component with the right material list per
+		// submesh.
+		//
+		// gltf_node_to_scene_node out-parameter maps glTF node indices to the
+		// engine SceneNodes we created — used by the animation pass to look
+		// up channel targets.
+		void WalkNode(
+			const tinygltf::Model &model,
+			int node_index,
+			const std::shared_ptr<SceneNode> &parent,
+			const std::vector<std::shared_ptr<Mesh>> &meshes,
+			const std::vector<std::shared_ptr<Material>> &materials,
+			const std::vector<std::vector<int>> &submesh_to_gltf_material,
+			std::vector<std::shared_ptr<SceneNode>> &gltf_node_to_scene_node)
+		{
+			if (node_index < 0 || node_index >= static_cast<int>(model.nodes.size())) return;
+			const auto &node = model.nodes[node_index];
+			const std::string nname = node.name.empty()
+				? "Node_" + std::to_string(node_index)
+				: node.name;
+			auto sn = SceneNode::Create(nname);
+
+			// TRS -> SceneNode local transform. If glTF gives a matrix only,
+			// decompose by hand (the engine's SceneNode doesn't have a "set
+			// matrix" path). Fallback: identity if neither is set.
+			if (node.matrix.size() == 16)
+			{
+				// glTF column-major matrix. We pass through the Matrix4 path
+				// then let SceneNode rebuild from local matrix. SceneNode
+				// doesn't expose SetLocalMatrix; the closest path is to set
+				// TRS components individually. Use Matrix4 -> Decompose if
+				// we want this to be lossless.
+				//
+				// For v1, prefer node.translation/rotation/scale when present
+				// even if a matrix is also set (glTF spec: only one form is
+				// allowed per node anyway).
+				FURYW << "gltf-importer: node '" << nname
+					<< "' uses raw 4x4 matrix; v1 supports TRS-decomposed transforms only — "
+					<< "transform may be incorrect. Re-export with TRS or use a glTF tool to decompose.";
+			}
+			if (node.translation.size() == 3)
+				sn->SetLocalPosition(Vector4(
+					static_cast<float>(node.translation[0]),
+					static_cast<float>(node.translation[1]),
+					static_cast<float>(node.translation[2]), 1.0f));
+			if (node.rotation.size() == 4)
+				sn->SetLocalRoattion(Quaternion(
+					static_cast<float>(node.rotation[0]),
+					static_cast<float>(node.rotation[1]),
+					static_cast<float>(node.rotation[2]),
+					static_cast<float>(node.rotation[3])));
+			if (node.scale.size() == 3)
+				sn->SetLocalScale(Vector4(
+					static_cast<float>(node.scale[0]),
+					static_cast<float>(node.scale[1]),
+					static_cast<float>(node.scale[2]), 1.0f));
+
+			// Transform component first (engine convention — even though TRS
+			// is also tracked directly on SceneNode, the Transform component
+			// participates in the interpolation pipeline).
+			sn->AddComponent(Transform::Create());
+
+			// MeshRender component if this node references a mesh.
+			if (node.mesh >= 0 && node.mesh < static_cast<int>(meshes.size()))
+			{
+				auto mesh = meshes[node.mesh];
+				const auto &per_sub_mat = submesh_to_gltf_material[node.mesh];
+				// Default material reference for slot 0; subsequent submeshes
+				// get SetMaterial(idx).
+				Material::Ptr first_mat;
+				if (!per_sub_mat.empty() && per_sub_mat[0] >= 0
+					&& per_sub_mat[0] < static_cast<int>(materials.size()))
+					first_mat = materials[per_sub_mat[0]];
+				auto render = MeshRender::Create(first_mat, mesh);
+				for (size_t s = 1; s < per_sub_mat.size(); ++s)
+				{
+					if (per_sub_mat[s] >= 0 && per_sub_mat[s] < static_cast<int>(materials.size()))
+						render->SetMaterial(materials[per_sub_mat[s]], static_cast<unsigned int>(s));
+				}
+				sn->AddComponent(render);
+			}
+
+			if (node.camera >= 0)
+				FURYI << "gltf-importer: node '" << nname << "' references a glTF camera (skipping; v1 doesn't bind cameras)";
+
+			sn->Recompose(false);
+			parent->AddChild(sn);
+			gltf_node_to_scene_node[node_index] = sn;
+
+			for (int child : node.children)
+				WalkNode(model, child, sn, meshes, materials, submesh_to_gltf_material,
+					gltf_node_to_scene_node);
+		}
+
+		// Resample a glTF animation sampler at the engine's fixed tick rate
+		// (24 fps). Time inputs are float seconds; output samples are vec3 or
+		// vec4 (quat). For vec3 we linearly interpolate; for quat we slerp.
+		// CUBICSPLINE samples are treated as LINEAR with a one-shot warning.
+		//
+		// Each output keyframe has tick = round(t_seconds * 24).
+		struct ResampledKeys
+		{
+			std::vector<KeyFrame> values;  // KeyFrame.tick + (x,y,z); rotation stores Euler radians
+		};
+
+		// Read a sampler's time/value pair.
+		bool ReadSampler(
+			const tinygltf::Model &model,
+			const tinygltf::AnimationSampler &sampler,
+			std::vector<float> &times,
+			std::vector<float> &values,
+			int &value_components)
+		{
+			if (!ReadFloatAccessor(model, sampler.input, 1, times)) return false;
+			const auto &val_acc = model.accessors[sampler.output];
+			value_components = tinygltf::GetNumComponentsInType(val_acc.type);
+			if (value_components <= 0) return false;
+			if (!ReadFloatAccessor(model, sampler.output, value_components, values)) return false;
+			return true;
+		}
+
+		// Linearly interpolate between two vec3 samples at parameter u (0..1).
+		void LerpVec3(const float *a, const float *b, float u, float *out)
+		{
+			out[0] = a[0] + (b[0] - a[0]) * u;
+			out[1] = a[1] + (b[1] - a[1]) * u;
+			out[2] = a[2] + (b[2] - a[2]) * u;
+		}
+
+		// Slerp between two quaternions sampled from a glTF rotation channel.
+		Quaternion SlerpQuat(const float *a, const float *b, float u)
+		{
+			Quaternion qa(a[0], a[1], a[2], a[3]);
+			Quaternion qb(b[0], b[1], b[2], b[3]);
+			return qa.Slerp(qb, u);
+		}
+
+		// Resample one animation channel into engine KeyFrames at 24 fps.
+		// path = "translation" | "rotation" | "scale".
+		void ResampleChannel(
+			const std::vector<float> &times,
+			const std::vector<float> &values,
+			int value_components,
+			const std::string &path,
+			float ticks_per_second,
+			std::vector<KeyFrame> &out)
+		{
+			if (times.empty() || values.empty()) return;
+			const float t_start = times.front();
+			const float t_end = times.back();
+			const unsigned int tick_start = static_cast<unsigned int>(std::floor(t_start * ticks_per_second));
+			const unsigned int tick_end = static_cast<unsigned int>(std::ceil(t_end * ticks_per_second));
+
+			size_t cursor = 0;  // index of the *next* sample to advance past
+			for (unsigned int tick = tick_start; tick <= tick_end; ++tick)
+			{
+				float t = static_cast<float>(tick) / ticks_per_second;
+				// Find the bracketing samples around t.
+				while (cursor + 1 < times.size() && times[cursor + 1] < t) ++cursor;
+				const float t0 = times[cursor];
+				const float t1 = (cursor + 1 < times.size()) ? times[cursor + 1] : t0;
+				const float span = (t1 > t0) ? (t1 - t0) : 0.0f;
+				const float u = (span > 0.0f) ? std::clamp((t - t0) / span, 0.0f, 1.0f) : 0.0f;
+
+				const float *v0 = &values[cursor * value_components];
+				const float *v1 = (cursor + 1 < times.size())
+					? &values[(cursor + 1) * value_components]
+					: v0;
+
+				if (path == "rotation")
+				{
+					Quaternion q = SlerpQuat(v0, v1, u);
+					Vector4 e = MathUtil::QuatToEulerRad(q);
+					out.emplace_back(tick, e.x, e.y, e.z);
+				}
+				else
+				{
+					float v[3] = { 0, 0, 0 };
+					LerpVec3(v0, v1, u, v);
+					out.emplace_back(tick, v[0], v[1], v[2]);
+				}
+			}
+		}
 	}
 
 	std::shared_ptr<Scene> GltfImporter::Import(
@@ -792,14 +984,97 @@ namespace fury
 			if (!TranslateSkin(model, mesh_to_skin[mi], meshes[mi])) return nullptr;
 		}
 
-		// Node-tree walk and animation translation land in groups 8-9 below.
-		// We surface what we have so far so the smoke path produces useful logs.
+		// Node tree walk. Roots: either the default scene's nodes, or every
+		// root node if no default. WalkNode populates the gltf_node_to_scene_node
+		// map so the animation pass can resolve channel targets by node index.
+		std::vector<std::shared_ptr<SceneNode>> gltf_node_to_scene_node(model.nodes.size());
+		auto root = scene->GetRootNode();
+		int default_scene = model.defaultScene >= 0 ? model.defaultScene : 0;
+		if (default_scene < static_cast<int>(model.scenes.size()))
+		{
+			for (int n : model.scenes[default_scene].nodes)
+				WalkNode(model, n, root, meshes, materials, submesh_to_gltf_material,
+					gltf_node_to_scene_node);
+		}
+
+		// Animations: one engine AnimationClip per glTF animation, resampled
+		// at opts.anim_ticks_per_second (24 by default).
+		std::set<std::string> cubic_warned;
+		for (size_t ai = 0; ai < model.animations.size(); ++ai)
+		{
+			const auto &anim = model.animations[ai];
+			const std::string aname = anim.name.empty()
+				? "Animation_" + std::to_string(ai)
+				: anim.name;
+			auto clip = AnimationClip::Create(aname,
+				static_cast<int>(opts.anim_ticks_per_second));
+
+			// Group channels by target node index (engine convention: one
+			// channel per node, carrying positions/rotations/scalings).
+			std::unordered_map<int, AnimationClip::ChannelPtr> by_target;
+			for (size_t ci = 0; ci < anim.channels.size(); ++ci)
+			{
+				const auto &ch = anim.channels[ci];
+				if (ch.target_node < 0) continue;
+				if (ch.target_path == "weights") continue;  // morph (already rejected earlier)
+				if (ch.sampler < 0 || ch.sampler >= static_cast<int>(anim.samplers.size())) continue;
+
+				const auto &sampler = anim.samplers[ch.sampler];
+				if (sampler.interpolation == "CUBICSPLINE"
+					&& cubic_warned.insert("anim" + std::to_string(ai) + "ch" + std::to_string(ci)).second)
+				{
+					FURYW << "gltf-importer: animation '" << aname
+						<< "' sampler " << ch.sampler
+						<< " uses CUBICSPLINE; resampling as LINEAR";
+				}
+
+				std::vector<float> times, values;
+				int vc = 0;
+				if (!ReadSampler(model, sampler, times, values, vc))
+				{
+					FURYW << "gltf-importer: animation '" << aname
+						<< "' channel " << ci << " sampler unreadable; skipping";
+					continue;
+				}
+
+				// Resolve the target's name (matches what TranslateSkin uses
+				// for joint names and WalkNode uses for non-joint SceneNodes).
+				if (ch.target_node >= static_cast<int>(model.nodes.size())) continue;
+				const auto &target_node = model.nodes[ch.target_node];
+				const std::string target_name = target_node.name.empty()
+					? (target_node.skin >= 0
+						? "Joint_" + std::to_string(ch.target_node)
+						: "Node_" + std::to_string(ch.target_node))
+					: target_node.name;
+
+				auto channel_it = by_target.find(ch.target_node);
+				AnimationClip::ChannelPtr engine_ch;
+				if (channel_it == by_target.end())
+				{
+					engine_ch = clip->AddChannel(target_name);
+					by_target[ch.target_node] = engine_ch;
+				}
+				else engine_ch = channel_it->second;
+
+				std::vector<KeyFrame> *bucket = nullptr;
+				if (ch.target_path == "translation") bucket = &engine_ch->positions;
+				else if (ch.target_path == "rotation") bucket = &engine_ch->rotations;
+				else if (ch.target_path == "scale") bucket = &engine_ch->scalings;
+				if (!bucket) continue;
+
+				ResampleChannel(times, values, vc, ch.target_path,
+					opts.anim_ticks_per_second, *bucket);
+			}
+
+			clip->CalculateDuration();
+			entities->Add(clip);
+		}
+
 		FURYI << "gltf-importer: '" << input_path << "' translated "
 			<< materials.size() << " material(s), "
-			<< meshes.size() << " mesh(es); node tree + animations pending";
-
-		// Silence unused-variable warnings until groups 8-9 wire them in.
-		(void)submesh_to_gltf_material;
+			<< meshes.size() << " mesh(es), "
+			<< model.scenes.size() << " glTF scene(s) -> SceneNode tree, "
+			<< model.animations.size() << " animation(s)";
 
 		return scene;
 	}

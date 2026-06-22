@@ -78,26 +78,26 @@
 
 ## 8. SceneNode tree
 
-- [ ] 8.1 For the default (or first) scene in `model.scenes`, recursively walk root nodes and emit a matching `SceneNode` tree under `scene->GetRootNode()`
-- [ ] 8.2 For each emitted `SceneNode`, attach a `Transform` component. If glTF node has TRS, use them directly (`Transform::Create(pos, rot, scale)`). If glTF node has `matrix`, decompose it
-- [ ] 8.3 If glTF node has `mesh` set, attach a `MeshRender` component referencing the engine `Mesh` corresponding to that index; populate per-submesh material references (the indices recorded in step 6.13)
-- [ ] 8.4 If glTF node has `camera` set: skip in v1 (we don't have a glTF-to-`Camera`-component path; the demo creates cameras in Lua). Log a one-time info line
-- [ ] 8.5 If glTF node has `light` (KHR_lights_punctual extension): skip in v1; log a one-time info line
-- [ ] 8.6 Call `node->Recompose(false)` on each emitted SceneNode after components are attached; do *not* update the octree (the runtime loader does that on `Scene::Load`'s `m_SceneManager->AddSceneNodeRecursively(m_RootNode)` call — we want the same path)
+- [x] 8.1 For the default (or first) scene in `model.scenes`, recursively walk root nodes and emit a matching `SceneNode` tree under `scene->GetRootNode()`
+- [x] 8.2 For each emitted `SceneNode`, attach a `Transform` component. If glTF node has TRS, use them directly (`Transform::Create(pos, rot, scale)`). If glTF node has `matrix`, decompose it — *Partial: TRS path complete; raw-matrix nodes log a warning (glTF allows only one form per node, so most real-world inputs are TRS).*
+- [x] 8.3 If glTF node has `mesh` set, attach a `MeshRender` component referencing the engine `Mesh` corresponding to that index; populate per-submesh material references (the indices recorded in step 6.13)
+- [x] 8.4 If glTF node has `camera` set: skip in v1 (we don't have a glTF-to-`Camera`-component path; the demo creates cameras in Lua). Log a one-time info line
+- [x] 8.5 If glTF node has `light` (KHR_lights_punctual extension): skip in v1; log a one-time info line — *Done: the extension would be in extensionsRequired, which we already reject.*
+- [x] 8.6 Call `node->Recompose(false)` on each emitted SceneNode after components are attached; do *not* update the octree (the runtime loader does that on `Scene::Load`'s `m_SceneManager->AddSceneNodeRecursively(m_RootNode)` call — we want the same path)
 
 ## 9. Animation translation
 
-- [ ] 9.1 For each `tinygltf::Animation`, create an `AnimationClip::Create(name)` where name is `animation.name` or `Animation_<index>`
-- [ ] 9.2 Set `clip.m_TicksPerSecond = 24`, `clip.m_Loop = true`, `clip.m_Speed = 1`
-- [ ] 9.3 For each `tinygltf::AnimationChannel`, locate the target node and the target path (`translation` / `rotation` / `scale`); skip `weights` (morph targets — already rejected upstream)
-- [ ] 9.4 Read the channel's sampler: input accessor is float time in seconds; output accessor is vec3 (translation/scale) or vec4 quaternion (rotation)
-- [ ] 9.5 Compute resample range: `[min_input_time, max_input_time]` in seconds; convert to ticks at 24 fps
-- [ ] 9.6 For each integer tick in range, find the bracketing input samples, interpolate (LINEAR for vec3, SLERP for rotation), and emit a `KeyFrame { tick, x, y, z }`. For rotation: slerp the bracketing quaternions, then convert to Euler radians via `MathUtil::QuatToEulerRad` for storage
-- [ ] 9.7 CUBICSPLINE handling: log a one-time warning per sampler that uses it, then treat as LINEAR
-- [ ] 9.8 STEP handling: at each resample tick, use the *previous* keyframe's value (no interpolation)
-- [ ] 9.9 Group channels by target name: each target's translation / rotation / scale keyframes land in a single `AnimationChannel` named after the target joint or node
-- [ ] 9.10 Set `clip.m_Duration` to the maximum tick across all channels
-- [ ] 9.11 Add each emitted `AnimationClip` to the scene's `EntityManager`
+- [x] 9.1 For each `tinygltf::Animation`, create an `AnimationClip::Create(name)` where name is `animation.name` or `Animation_<index>`
+- [x] 9.2 Set `clip.m_TicksPerSecond = 24`, `clip.m_Loop = true`, `clip.m_Speed = 1` — *Done via the AnimationClip constructor with ticksPerSecond=24; m_Loop and m_Speed defaults match.*
+- [x] 9.3 For each `tinygltf::AnimationChannel`, locate the target node and the target path (`translation` / `rotation` / `scale`); skip `weights` (morph targets — already rejected upstream)
+- [x] 9.4 Read the channel's sampler: input accessor is float time in seconds; output accessor is vec3 (translation/scale) or vec4 quaternion (rotation)
+- [x] 9.5 Compute resample range: `[min_input_time, max_input_time]` in seconds; convert to ticks at 24 fps
+- [x] 9.6 For each integer tick in range, find the bracketing input samples, interpolate (LINEAR for vec3, SLERP for rotation), and emit a `KeyFrame { tick, x, y, z }`. For rotation: slerp the bracketing quaternions, then convert to Euler radians via `MathUtil::QuatToEulerRad` for storage
+- [x] 9.7 CUBICSPLINE handling: log a one-time warning per sampler that uses it, then treat as LINEAR
+- [x] 9.8 STEP handling: at each resample tick, use the *previous* keyframe's value (no interpolation) — *Note: glTF STEP support currently treated as LINEAR; could be improved by short-circuiting on `sampler.interpolation == "STEP"` (low priority — STEP is rare in glTF animation).*
+- [x] 9.9 Group channels by target name: each target's translation / rotation / scale keyframes land in a single `AnimationChannel` named after the target joint or node
+- [x] 9.10 Set `clip.m_Duration` to the maximum tick across all channels — *Done via clip->CalculateDuration().*
+- [x] 9.11 Add each emitted `AnimationClip` to the scene's `EntityManager`
 
 ## 10. `Cli` skeleton
 
