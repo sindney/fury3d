@@ -15,20 +15,20 @@
 
 ## 2. `GltfImporter` skeleton
 
-- [ ] 2.1 Create `engine/Fury/GltfImporter.h` with `class GltfImporter`, nested `Options` struct, and `static std::shared_ptr<Scene> Import(path, scene_name, working_dir, opts)` signature (per design.md)
-- [ ] 2.2 Create `engine/Fury/GltfImporter.cpp` with `#include "Fury/GltfImporter.h"` and `#include <tiny_gltf.h>` — verify the include path resolves (tinygltf is on the include path via `engine/CMakeLists.txt:92`)
-- [ ] 2.3 In `Import`, detect input extension (`.gltf` vs `.glb`) and call `tinygltf::TinyGLTF::LoadASCIIFromFile` / `LoadBinaryFromFile`; log `err` / `warn` strings on failure and return nullptr
-- [ ] 2.4 Create the `Scene` (`Scene::Create(scene_name, working_dir)`) and acquire its `EntityManager` — this is what we'll populate
-- [ ] 2.5 Verify `Cli.cpp` will be able to call `Import` without instantiating any GL: add a stub `Import` that just loads the model and returns the empty scene; build and run `./fury convert gltf <a-real-gltf> /tmp/out.json` to confirm no GL touch (process exits cleanly without opening a window)
+- [x] 2.1 Create `engine/Fury/GltfImporter.h` with `class GltfImporter`, nested `Options` struct, and `static std::shared_ptr<Scene> Import(path, scene_name, working_dir, opts)` signature (per design.md)
+- [x] 2.2 Create `engine/Fury/GltfImporter.cpp` with `#include "Fury/GltfImporter.h"` and `#include <tiny_gltf.h>` — verify the include path resolves (tinygltf is on the include path via `engine/CMakeLists.txt:92`)
+- [x] 2.3 In `Import`, detect input extension (`.gltf` vs `.glb`) and call `tinygltf::TinyGLTF::LoadASCIIFromFile` / `LoadBinaryFromFile`; log `err` / `warn` strings on failure and return nullptr
+- [x] 2.4 Create the `Scene` (`Scene::Create(scene_name, working_dir)`) and acquire its `EntityManager` — this is what we'll populate
+- [x] 2.5 Verify `Cli.cpp` will be able to call `Import` without instantiating any GL: add a stub `Import` that just loads the model and returns the empty scene; build and run `./fury convert gltf <a-real-gltf> /tmp/out.json` to confirm no GL touch (process exits cleanly without opening a window) — *Deferred: Cli.cpp lands in Group 10. Compile-only verification confirms GltfImporter has no GL includes; runtime verification will happen at end of Group 10.*
 
 ## 3. Unsupported-feature rejection
 
-- [ ] 3.1 After `Load*FromFile` returns, scan `model.extensionsRequired`; if non-empty, log a clear error naming the extensions and return nullptr
-- [ ] 3.2 Scan all `model.meshes[i].primitives[j]`: reject if `primitive.targets` is non-empty (morph targets)
-- [ ] 3.3 Scan all `model.meshes[i].primitives[j]`: reject if `primitive.mode != TINYGLTF_MODE_TRIANGLES` (we don't handle lines/points/strips)
-- [ ] 3.4 Scan all `model.accessors[i]`: reject if `accessor.sparse.isSparse == true`
-- [ ] 3.5 Scan all `model.bufferViews[i]`: reject if `bufferView.byteStride != 0` (we only support tightly-packed)
-- [ ] 3.6 Each rejection writes a single stderr line: `gltf-importer: rejected — <feature> is not supported in v1 (input: <path>; see docs/CLI.md §Limitations)`
+- [x] 3.1 After `Load*FromFile` returns, scan `model.extensionsRequired`; if non-empty, log a clear error naming the extensions and return nullptr
+- [x] 3.2 Scan all `model.meshes[i].primitives[j]`: reject if `primitive.targets` is non-empty (morph targets)
+- [x] 3.3 Scan all `model.meshes[i].primitives[j]`: reject if `primitive.mode != TINYGLTF_MODE_TRIANGLES` (we don't handle lines/points/strips)
+- [x] 3.4 Scan all `model.accessors[i]`: reject if `accessor.sparse.isSparse == true`
+- [x] 3.5 Scan all `model.bufferViews[i]`: reject if `bufferView.byteStride != 0` (we only support tightly-packed)
+- [x] 3.6 Each rejection writes a single stderr line: `gltf-importer: rejected — <feature> is not supported in v1 (input: <path>; see docs/CLI.md §Limitations)`
 
 ## 4. Material translation
 
