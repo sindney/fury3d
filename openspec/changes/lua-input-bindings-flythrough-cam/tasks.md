@@ -102,8 +102,8 @@
 
 ## 13. Commit (do NOT push)
 
-- [ ] 13.1 `git status` — verify the modified set: `engine/Fury/Gui.{h,cpp}`, `engine/Fury/LuaBindings.cpp`, `examples/Demo.lua`, `docs/LUA.md`, `README.md`, `README.ZH-CN.md`, and the openspec change directory.
-- [ ] 13.2 Stage and commit with a single message: `Add Lua input bindings + WASD/mouse flythrough demo + live tuning sliders; refresh READMEs`.
+- [x] 13.1 `git status` — verify the modified set: `engine/Fury/Gui.{h,cpp}`, `engine/Fury/LuaBindings.cpp`, `examples/Demo.lua`, `docs/LUA.md`, `README.md`, `README.ZH-CN.md`, and the openspec change directory.
+- [x] 13.2 Stage and commit with a single message: `Add Lua input bindings + WASD/mouse flythrough demo + live tuning sliders; refresh READMEs`. *(Committed as `90102f2`; not pushed.)*
 - [x] 13.3 Run `openspec validate lua-input-bindings-flythrough-cam --strict` and confirm.
 
 ## 14. Out-of-scope notes for archive
