@@ -208,13 +208,13 @@
 
 ## 20. Runtime Lua bindings — Importer + Scene:Clear + FileUtil.ListDirectory
 
-- [ ] 20.1 In `engine/Fury/LuaBindings.cpp`, after the existing `FileUtil` table block, add `FileUtil.ListDirectory(path, extensions_opt)`. Implementation: `std::filesystem::directory_iterator`; filter by extension if `extensions_opt` is a `sol::table`; skip hidden files (leading `.`); skip subdirectories; return a `sol::table` keyed `1..N`
-- [ ] 20.2 Verify `Scene:Clear()` is exposed as an instance method on the existing `Scene` usertype. If not, add it via `scene_type["Clear"] = &Scene::Clear`
-- [ ] 20.3 Create a new `Importer` Lua table. Add `Importer.LoadGltf(path)` — wraps `GltfImporter::Import` inside a try/catch that returns `nullptr` on any caught exception, logs via `FURYE` on error
-- [ ] 20.4 Add `Importer.LoadFbx(path)` — calls `FbxConverter::Convert` first (output to `std::filesystem::temp_directory_path()`), bails on failure with `nullptr` + `FURYE`, then calls `GltfImporter::Import` on the temp `.glb`, then deletes the temp file
-- [ ] 20.5 Add `Importer.LoadScene(path)` — dispatch by file extension: `.json` → `FileUtil::LoadFile` against a freshly-created `Scene::Create("imported", working_dir)`; `.bin` → `LoadCompressedFile`; `.gltf` / `.glb` → `LoadGltf`; `.fbx` → `LoadFbx`; unknown → `nullptr` + `FURYW`
-- [ ] 20.6 Add `Gui.InputText(label, value, max_len)` binding — returns the (possibly-edited) string, following the same in/out shape as `Gui.SliderFloat` / `Gui.Checkbox`. Underlying call: `ImGui::InputText(label, buffer, max_len)`
-- [ ] 20.7 Audit: confirm the bindings' return types interact correctly with sol2's `std::shared_ptr<Scene>` registration (already in use for `Scene` — see `LuaBindings.cpp:127`)
+- [x] 20.1 In `engine/Fury/LuaBindings.cpp`, after the existing `FileUtil` table block, add `FileUtil.ListDirectory(path, extensions_opt)`. Implementation: `std::filesystem::directory_iterator`; filter by extension if `extensions_opt` is a `sol::table`; skip hidden files (leading `.`); skip subdirectories; return a `sol::table` keyed `1..N`
+- [x] 20.2 Verify `Scene:Clear()` is exposed as an instance method on the existing `Scene` usertype. If not, add it via `scene_type["Clear"] = &Scene::Clear`
+- [x] 20.3 Create a new `Importer` Lua table. Add `Importer.LoadGltf(path)` — wraps `GltfImporter::Import` inside a try/catch that returns `nullptr` on any caught exception, logs via `FURYE` on error
+- [x] 20.4 Add `Importer.LoadFbx(path)` — calls `FbxConverter::Convert` first (output to `std::filesystem::temp_directory_path()`), bails on failure with `nullptr` + `FURYE`, then calls `GltfImporter::Import` on the temp `.glb`, then deletes the temp file
+- [x] 20.5 Add `Importer.LoadScene(path)` — dispatch by file extension: `.json` → `FileUtil::LoadFile` against a freshly-created `Scene::Create("imported", working_dir)`; `.bin` → `LoadCompressedFile`; `.gltf` / `.glb` → `LoadGltf`; `.fbx` → `LoadFbx`; unknown → `nullptr` + `FURYW`
+- [x] 20.6 Add `Gui.InputText(label, value, max_len)` binding — returns the (possibly-edited) string, following the same in/out shape as `Gui.SliderFloat` / `Gui.Checkbox`. Underlying call: `ImGui::InputText(label, buffer, max_len)`
+- [x] 20.7 Audit: confirm the bindings' return types interact correctly with sol2's `std::shared_ptr<Scene>` registration (already in use for `Scene` — see `LuaBindings.cpp:127`)
 
 ## 21. `Demo.lua` File menu — minimum scene editor
 

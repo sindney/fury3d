@@ -2,16 +2,22 @@
 
 #include "Fury/LuaBindings.h"
 
+#include "Fury/AnimationClip.h"
 #include "Fury/Camera.h"
 #include "Fury/Component.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
+#include "Fury/EntityManager.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/FbxConverter.h"
 #include "Fury/FileUtil.h"
+#include "Fury/GltfImporter.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
+#include "Fury/Material.h"
+#include "Fury/Mesh.h"
 #include "Fury/OcTree.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PrelightPipeline.h"
@@ -24,6 +30,10 @@
 #include "Fury/Transform.h"
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
+
+#include <algorithm>
+#include <filesystem>
+#include <vector>
 
 namespace fury
 {
@@ -150,6 +160,7 @@ namespace fury
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
 				"Create", &Scene::Create,
+				"Clear", &Scene::Clear,
 				"GetRootNode", &Scene::GetRootNode,
 				"GetSceneManager", &Scene::GetSceneManager,
 				"GetEntityManager", &Scene::GetEntityManager,
@@ -239,6 +250,172 @@ namespace fury
 			fu_tbl["LoadPipelineFromFile"] = [](const std::shared_ptr<Pipeline> &p, const std::string &path) {
 				return FileUtil::LoadFile(p, path);
 			};
+			// Save Scenes back to disk. Used by `Save Scene As` in Demo.lua's
+			// File menu. SaveFile -> human-readable JSON; SaveCompressedFile -> LZ4 .bin.
+			fu_tbl["SaveFile"] = [](const std::shared_ptr<Scene> &s, const std::string &p) {
+				return FileUtil::SaveFile(s, p);
+			};
+			fu_tbl["SaveCompressedFile"] = [](const std::shared_ptr<Scene> &s, const std::string &p) {
+				return FileUtil::SaveCompressedFile(s, p);
+			};
+			// Enumerate a directory, with an optional case-insensitive extension
+			// filter (a Lua array of strings like {".gltf", ".fbx"}). Hidden
+			// files (leading '.') and subdirectories are excluded. Returns
+			// a Lua array of relative filenames (no path prefix). Empty array
+			// on missing path (with a warning logged).
+			fu_tbl["ListDirectory"] = [&lua](const std::string &path, sol::object filter_obj) {
+				sol::table out = lua.create_table();
+				std::vector<std::string> filters;
+				if (filter_obj.valid() && filter_obj.get_type() == sol::type::table)
+				{
+					sol::table t = filter_obj;
+					for (size_t i = 1; i <= t.size(); ++i)
+					{
+						auto e = t.get<std::string>(i);
+						std::transform(e.begin(), e.end(), e.begin(),
+							[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						filters.push_back(e);
+					}
+				}
+				std::error_code ec;
+				if (!std::filesystem::exists(path, ec) || ec)
+				{
+					FURYW << "FileUtil.ListDirectory: path '" << path << "' does not exist";
+					return out;
+				}
+				int idx = 1;
+				for (const auto &entry : std::filesystem::directory_iterator(path, ec))
+				{
+					if (!entry.is_regular_file(ec)) continue;
+					std::string name = entry.path().filename().string();
+					if (name.empty() || name[0] == '.') continue;
+					if (!filters.empty())
+					{
+						std::string ext = entry.path().extension().string();
+						std::transform(ext.begin(), ext.end(), ext.begin(),
+							[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						bool match = false;
+						for (const auto &f : filters)
+							if (ext == f) { match = true; break; }
+						if (!match) continue;
+					}
+					out[idx++] = name;
+				}
+				return out;
+			};
+
+			// --- Importer (runtime asset import: glTF / FBX / engine scene) -
+			sol::table importer_tbl = lua.create_named_table("Importer");
+			// Import a .gltf or .glb into a fresh Scene::Ptr. Returns nil on
+			// error (logged via FURYE before return). The Scene's working_dir
+			// is the input file's directory so relative texture URIs resolve.
+			importer_tbl["LoadGltf"] = [](const std::string &path) -> std::shared_ptr<Scene> {
+				try
+				{
+					auto slash = path.find_last_of("/\\");
+					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
+					return GltfImporter::Import(path, path, working, {});
+				}
+				catch (const std::exception &e)
+				{
+					FURYE << "Importer.LoadGltf threw: " << e.what();
+					return nullptr;
+				}
+			};
+			// Import an .fbx through the FBX2glTF subprocess + the glTF importer.
+			// Cleans up the intermediate .glb in tempdir on success. Blocks for
+			// the duration of the FBX2glTF run (no progress reporting in v1).
+			importer_tbl["LoadFbx"] = [](const std::string &path) -> std::shared_ptr<Scene> {
+				try
+				{
+					std::string tmpdir;
+					try { tmpdir = (std::filesystem::temp_directory_path()
+						/ "fury_runtime_fbx").string(); }
+					catch (...) { tmpdir = "/tmp/fury_runtime_fbx"; }
+					std::error_code ec;
+					std::filesystem::create_directories(tmpdir, ec);
+					auto res = FbxConverter::Convert(path, tmpdir);
+					if (!res.ok())
+					{
+						FURYE << "Importer.LoadFbx: FBX2glTF failed (exit " << res.exit_code
+							<< "): " << res.stderr_capture;
+						return nullptr;
+					}
+					auto slash = path.find_last_of("/\\");
+					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
+					auto scene = GltfImporter::Import(res.output_path, path, working, {});
+					std::filesystem::remove(res.output_path, ec);
+					return scene;
+				}
+				catch (const std::exception &e)
+				{
+					FURYE << "Importer.LoadFbx threw: " << e.what();
+					return nullptr;
+				}
+			};
+			// Convenience: pick the right loader based on file extension.
+			// Recognized: .json (LoadFile), .bin (LoadCompressedFile),
+			// .gltf/.glb (LoadGltf), .fbx (LoadFbx). Anything else -> nil.
+			importer_tbl["LoadScene"] = [&lua](const std::string &path) -> std::shared_ptr<Scene> {
+				auto dot = path.find_last_of('.');
+				std::string ext = (dot == std::string::npos) ? "" : path.substr(dot);
+				std::transform(ext.begin(), ext.end(), ext.begin(),
+					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				if (ext == ".json" || ext == ".bin")
+				{
+					auto slash = path.find_last_of("/\\");
+					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
+					auto scene = Scene::Create("imported", working);
+					bool ok = (ext == ".json")
+						? FileUtil::LoadFile(scene, path)
+						: FileUtil::LoadCompressedFile(scene, path);
+					return ok ? scene : nullptr;
+				}
+				if (ext == ".gltf" || ext == ".glb")
+					return lua["Importer"]["LoadGltf"](path);
+				if (ext == ".fbx")
+					return lua["Importer"]["LoadFbx"](path);
+				FURYW << "Importer.LoadScene: unsupported extension '" << ext << "'";
+				return nullptr;
+			};
+			// Merge source -> target: append source's root children to target's
+			// root and transfer source's entities into target's EntityManager
+			// (duplicate-by-hashcode entries are dropped with a warning). Then
+			// re-register the new subtrees with the target's SceneManager so
+			// they're visible to the renderer. Returns the count of merged
+			// top-level children.
+			importer_tbl["MergeInto"] = [](const std::shared_ptr<Scene> &target,
+				const std::shared_ptr<Scene> &source) -> int
+			{
+				if (!target || !source) return 0;
+				int merged = 0;
+				auto target_root = target->GetRootNode();
+				auto source_root = source->GetRootNode();
+				// Detach children from source root and attach to target root.
+				// We pop them in reverse so AddChild's indexing is stable.
+				while (source_root->GetChildCount() > 0)
+				{
+					auto child = source_root->GetChildAt(source_root->GetChildCount() - 1);
+					source_root->RemoveChild(child);
+					target_root->AddChild(child);
+					++merged;
+				}
+				// Transfer entities. EntityManager::Add dedupes by hash; we
+				// just trust that and forward.
+				auto target_em = target->GetEntityManager();
+				auto source_em = source->GetEntityManager();
+				source_em->ForEach<Material>([&](const std::shared_ptr<Material> &m) -> bool {
+					target_em->Add(m); return true;
+				});
+				source_em->ForEach<Mesh>([&](const std::shared_ptr<Mesh> &m) -> bool {
+					target_em->Add(m); return true;
+				});
+				source_em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip> &c) -> bool {
+					target_em->Add(c); return true;
+				});
+				target->GetSceneManager()->AddSceneNodeRecursively(target_root);
+				return merged;
+			};
 
 			// --- Gui (free functions in a Lua table) --------------------------
 			sol::table gui_tbl = lua.create_named_table("Gui");
@@ -256,6 +433,10 @@ namespace fury
 			gui_tbl["BeginMenu"]           = &Gui::BeginMenu;
 			gui_tbl["EndMenu"]             = &Gui::EndMenu;
 			gui_tbl["MenuItem"]            = &Gui::MenuItem;
+			// Text input. Returns the edited string (in/out shape matching
+			// SliderFloat / Checkbox). The label doubles as the InputText id;
+			// max_len bounds the user input.
+			gui_tbl["InputText"]           = &Gui::InputText;
 			// Register a Lua-side menu-bar callback. Pass nil to clear.
 			gui_tbl["SetMenuBarCallback"] = [](sol::object obj) {
 				if (!obj.valid() || obj.get_type() != sol::type::function)

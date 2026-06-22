@@ -68,6 +68,14 @@ namespace fury
 
 		bool FURY_API MenuItem(const char* label);
 
+		// Returns the (possibly-edited) string. In/out shape matches
+		// SliderFloat / Checkbox so Lua can write `s = Gui.InputText(label, s, max_len)`.
+		std::string FURY_API InputText(const char* label, const std::string &current, int max_len);
+
+		// Returns the (possibly-edited) string. In/out shape matches
+		// SliderFloat / Checkbox so Lua can write `s = Gui.InputText(label, s, max_len)`.
+		std::string FURY_API InputText(const char* label, const std::string &current, int max_len);
+
 		// Register an optional callback invoked inside the engine's main menu
 		// bar, after the built-in File/View menus. Pass an empty std::function
 		// to clear. The caller is responsible for clearing before any captured

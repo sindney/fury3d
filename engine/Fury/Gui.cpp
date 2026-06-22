@@ -1,6 +1,8 @@
 #include <map>
 #include <cstddef> // offsetof
+#include <cstring>
 #include <array>
+#include <vector>
 
 #include "ImGui/imconfig.h"
 #include "ImGui/imgui.h"
@@ -457,6 +459,15 @@ namespace fury
 		bool MenuItem(const char* label)
 		{
 			return ImGui::MenuItem(label);
+		}
+
+		std::string InputText(const char* label, const std::string &current, int max_len)
+		{
+			if (max_len < 1) max_len = 1;
+			std::vector<char> buf(static_cast<size_t>(max_len) + 1, 0);
+			std::strncpy(buf.data(), current.c_str(), buf.size() - 1);
+			ImGui::InputText(label, buf.data(), buf.size());
+			return std::string(buf.data());
 		}
 
 		void SetMenuBarCallback(std::function<void()> cb)
