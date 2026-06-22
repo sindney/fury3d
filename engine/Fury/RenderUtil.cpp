@@ -262,12 +262,6 @@ namespace fury
 
 	void RenderUtil::BeginFrame()
 	{
-		m_DrawCall = 0;
-		m_MeshCount = 0;
-		m_TriangleCount = 0;
-		m_SkinnedMeshCount = 0;
-		m_LightCount = 0;
-
 		m_FrameClock.restart();
 
 		OnBeginFrame->Emit();
@@ -275,6 +269,18 @@ namespace fury
 
 	void RenderUtil::EndFrame()
 	{
+		m_LastDrawCall = m_DrawCall;
+		m_LastMeshCount = m_MeshCount;
+		m_LastTriangleCount = m_TriangleCount;
+		m_LastSkinnedMeshCount = m_SkinnedMeshCount;
+		m_LastLightCount = m_LightCount;
+
+		m_DrawCall = 0;
+		m_MeshCount = 0;
+		m_TriangleCount = 0;
+		m_SkinnedMeshCount = 0;
+		m_LightCount = 0;
+
 		auto frameTime = m_FrameClock.restart().asMilliseconds();
 		OnEndFrame->Emit(std::move(frameTime));
 	}
@@ -286,7 +292,7 @@ namespace fury
 
 	unsigned int RenderUtil::GetDrawCall()
 	{
-		return m_DrawCall;
+		return m_LastDrawCall;
 	}
 
 	void RenderUtil::IncreaseMeshCount(unsigned int count)
@@ -296,7 +302,7 @@ namespace fury
 
 	unsigned int RenderUtil::GetMeshCount()
 	{
-		return m_MeshCount;
+		return m_LastMeshCount;
 	}
 
 	void RenderUtil::IncreaseTriangleCount(unsigned int count)
@@ -306,7 +312,7 @@ namespace fury
 
 	unsigned int RenderUtil::GetTriangleCount()
 	{
-		return m_TriangleCount;
+		return m_LastTriangleCount;
 	}
 
 	void RenderUtil::IncreaseSkinnedMeshCount(unsigned int count)
@@ -316,7 +322,7 @@ namespace fury
 
 	unsigned int RenderUtil::GetSkinnedMeshCount()
 	{
-		return m_SkinnedMeshCount;
+		return m_LastSkinnedMeshCount;
 	}
 
 	void RenderUtil::IncreaseLightCount(unsigned int count)
@@ -326,6 +332,6 @@ namespace fury
 
 	unsigned int RenderUtil::GetLightCount()
 	{
-		return m_LightCount;
+		return m_LastLightCount;
 	}
 }

@@ -49,7 +49,7 @@ namespace fury
 
 		static bool m_WindowHasFocus = true;
 
-		bool Initialize(sf::Window *window, float scale)
+		bool Initialize(sf::Window *window, float scale, float fontScale)
 		{
 			m_MousePressed[0] = m_MousePressed[1] = m_MousePressed[2] = false;
 			m_WindowHasFocus = true;
@@ -78,7 +78,7 @@ namespace fury
 
 			io.DisplaySize = ImVec2((float)m_Window->getSize().x, (float)m_Window->getSize().y);
 			io.RenderDrawListsFn = fury::Gui::RenderDrawLists;
-			io.FontGlobalScale = 2.0f;
+			io.FontGlobalScale = fontScale;
 
 			ImGuiStyle& style = ImGui::GetStyle();
 			ImGui::StyleColorsDark(&style);

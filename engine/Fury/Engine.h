@@ -21,11 +21,23 @@ namespace fury
 		std::function<void()> OnShutdown;
 	};
 
+	// Runtime options for Engine::Run. Defaults are deliberately conservative
+	// — see openspec changes/fix-demo-fps-profiler-retina for rationale.
+	struct EngineOptions
+	{
+		// Frame-rate cap applied via sf::Window::setFramerateLimit. 0 disables.
+		int max_fps = 144;
+		// Multiplier passed to ImGuiStyle::ScaleAllSizes.
+		float gui_scale = 1.0f;
+		// Value assigned to ImGuiIO::FontGlobalScale.
+		float gui_font_scale = 1.0f;
+	};
+
 	class FURY_API Engine
 	{
 	public:
 
-		static bool Initialize(sf::Window &window, float guiScale, int numThreads,
+		static bool Initialize(sf::Window &window, int numThreads,
 			LogLevel level = LogLevel::EROR, const char* logfile = nullptr,
 			bool console = true, const LogFormatter &formatter = Formatter::Simple, bool append = false);
 
@@ -42,6 +54,8 @@ namespace fury
 		static void Shutdown();
 
 		static void Run(sf::Window &window, const EngineCallbacks &cb);
+
+		static void Run(sf::Window &window, const EngineCallbacks &cb, const EngineOptions &opts);
 
 		static std::pair<int, int> GetGLVersion();
 	};

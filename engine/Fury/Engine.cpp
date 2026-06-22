@@ -20,7 +20,7 @@ namespace fury
 
 	Signal<>::Ptr Engine::OnFixedUpdate = Signal<>::Create();
 
-	bool Engine::Initialize(sf::Window &window, float guiScale, int numThreads, LogLevel level, const char* logfile,
+	bool Engine::Initialize(sf::Window &window, int numThreads, LogLevel level, const char* logfile,
 		bool console, const LogFormatter &formatter, bool append)
 	{
 		Log<0>::Initialize(std::move(level), std::move(logfile), std::move(console), formatter, std::move(append));
@@ -45,10 +45,6 @@ namespace fury
 		RenderUtil::Initialize();
 
 		BufferManager::Initialize();
-
-#ifdef _FURY_GUI_IMP_
-		Gui::Initialize(&window, guiScale);
-#endif
 
 		if (flag == 1)
 			return true;
@@ -178,7 +174,21 @@ namespace fury
 
 	void Engine::Run(sf::Window &window, const EngineCallbacks &cb)
 	{
+		Run(window, cb, EngineOptions{});
+	}
+
+	void Engine::Run(sf::Window &window, const EngineCallbacks &cb, const EngineOptions &opts)
+	{
 		if (cb.OnInit) cb.OnInit();
+
+#ifdef _FURY_GUI_IMP_
+		Gui::Initialize(&window, opts.gui_scale, opts.gui_font_scale);
+#endif
+
+		window.setFramerateLimit(opts.max_fps < 0 ? 0u : static_cast<unsigned int>(opts.max_fps));
+		FURYD << "framerate cap: " << opts.max_fps;
+		FURYD << "gui_scale: " << opts.gui_scale;
+		FURYD << "gui_font_scale: " << opts.gui_font_scale;
 
 		const std::int32_t SKIP_TICKS = 1000 / 25;       // 25 Hz fixed
 		const int MAX_FRAMESKIP = 5;

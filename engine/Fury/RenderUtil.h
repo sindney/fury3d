@@ -57,6 +57,19 @@ namespace fury
 
 		unsigned int m_LightCount = 0;
 
+		// Snapshot of the last fully-completed frame's counters. Public getters
+		// return these so the GUI can read stable values regardless of when in
+		// the frame it queries.
+		unsigned int m_LastDrawCall = 0;
+
+		unsigned int m_LastMeshCount = 0;
+
+		unsigned int m_LastTriangleCount = 0;
+
+		unsigned int m_LastSkinnedMeshCount = 0;
+
+		unsigned int m_LastLightCount = 0;
+
 		sf::Clock m_FrameClock;
 
 		bool m_DrawingLine = false;

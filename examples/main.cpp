@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 	settings.minorVersion = 3;
 
 	sf::Window window(
-		sf::VideoMode({1920, 1080}),
+		sf::VideoMode({1280, 720}),
 		"Fury3d",
 		sf::Style::Titlebar | sf::Style::Close,
 		sf::State::Windowed,
@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 	window.setVerticalSyncEnabled(false);
 	(void)window.setActive();
 
-	if (!fury::Engine::Initialize(window, 2, 2, fury::LogLevel::DBUG,
+	if (!fury::Engine::Initialize(window, 2, fury::LogLevel::DBUG,
 		fury::FileUtil::GetAbsPath("Log.txt").c_str()))
 	{
 		std::cerr << "Engine::Initialize failed" << std::endl;

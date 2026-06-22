@@ -25,10 +25,24 @@ Engine.run({
     on_update       = function(dt) ... end,  -- called once per render frame; dt is a float (seconds-fraction since last fixed tick)
     on_fixed_update = function() ... end,    -- called 0..MAX_FRAMESKIP times per frame to catch up to 25 Hz
     on_shutdown     = function() ... end,    -- called once after the loop exits
+}, {
+    max_fps         = 144,    -- optional, default 144. 0 (or false) disables the cap.
+    gui_scale       = 1.0,    -- optional, default 1.0. ImGuiStyle::ScaleAllSizes multiplier.
+    gui_font_scale  = 1.0,    -- optional, default 1.0. Assigned to ImGuiIO::FontGlobalScale.
 })
 ```
 
 All four callbacks are optional. Omitting one is equivalent to passing `nil` — the engine just won't invoke that hook.
+
+The second argument (the options table) is also optional. Calling `Engine.run({...callbacks...})` with no second arg is fine — defaults apply.
+
+**Options:**
+
+- `max_fps` (number, default `144`): frame-rate cap applied via `sf::Window::setFramerateLimit`. `0`, `false`, or a negative number disables the cap (the demo will run as fast as the host allows). Per-frame work + the underlying SFML limiter define the actual upper bound; on macOS expect ±5 FPS slack.
+- `gui_scale` (number, default `1.0`): multiplier passed to `ImGuiStyle::ScaleAllSizes`. Controls widget sizes, padding, borders. `1.5` makes the UI about 50% larger.
+- `gui_font_scale` (number, default `1.0`): assigned directly to `ImGuiIO::FontGlobalScale`. Controls only the bitmap font size. Usually keep this equal to `gui_scale`.
+
+Unknown keys in the options table are silently ignored, so you can leave a `vsync = true` (or similar) entry in your script and it won't error — it just won't do anything yet.
 
 Ordering guarantees per frame:
 1. `RenderUtil:BeginFrame()` (engine-internal).
@@ -39,6 +53,8 @@ Ordering guarantees per frame:
 6. `window.display()` and `RenderUtil:EndFrame()` (engine-internal).
 
 The loop exits when the SFML window receives `sf::Event::Closed`. After that, `on_shutdown` fires, then `Engine.run` returns.
+
+**Profiler counters are previous-frame snapshots.** `RenderUtil:GetDrawCall()` and friends return values as of the most recently completed frame, not the in-progress one. This means `Gui.ShowDefault` can safely be drawn before or after `Pipeline.Execute` in `on_update` — counter visibility doesn't depend on ordering.
 
 **Lifetime caveat.** Lua functions stored in the callback table keep their `sol::function` refs alive for the duration of `Engine.run`. Don't stash callback closures somewhere they outlive `Engine.run`'s return — they reference the Lua state, which is closed by the launcher right after the script finishes.
 
@@ -213,9 +229,10 @@ Gui.Render()          -- emit ImGui draw lists
 
 ```lua
 Engine.run({ on_init = ..., on_update = ..., on_fixed_update = ..., on_shutdown = ... })
+Engine.run({...callbacks...}, { max_fps = 60, gui_scale = 1.25, gui_font_scale = 1.25 })
 ```
 
-`Engine.run` is the **only** Engine entry point exposed to Lua. `Initialize`, `HandleEvent`, `Update`, `FixedUpdate`, `Shutdown` are launcher-level concerns and are not callable from scripts.
+`Engine.run` is the **only** Engine entry point exposed to Lua. `Initialize`, `HandleEvent`, `Update`, `FixedUpdate`, `Shutdown` are launcher-level concerns and are not callable from scripts. The optional second argument is the options table — see the contract section above for keys.
 
 ## Hello, world
 
@@ -263,6 +280,8 @@ Run with: `./fury hello.lua` (from the working directory you want resources reso
 - **No SFML-enum bindings yet.** Keyboard / mouse events are not exposed to Lua in this round. `Demo.lua` has no input handling.
 - **Component access is one-way.** `SceneNode:AddComponent(c)` works; the templated `GetComponent<T>()` is not bound. If you need to read components back, do it C++-side (the engine code can still introspect components freely).
 - **The vector type is Vector4 even for 3D positions.** This is a long-standing engine convention, not a Lua-binding artifact. See `docs/ARCHITECTURE.md` §5.1 for the rationale.
+- **macOS Retina is currently non-native.** SFML 3.1's macOS backend hardcodes `highDpi = NO` (`engine/ThirdParty/SFML/src/SFML/Window/macOS/SFOpenGLView.mm:128`), so the OpenGL surface is sized in screen points, not backing pixels. UI and scene look slightly soft on Retina displays — there's no `gui_scale` value that produces sharp pixels short of patching SFML. See `docs/ARCHITECTURE.md` §16. The engine compensates by defaulting `gui_scale` and `gui_font_scale` to `1.0` (the previous SFML-2-era 2× compensation would now double-scale).
+- **Calling Gui functions from `on_init` is undefined.** The engine initializes ImGui inside `Engine::Run`, *after* `on_init` returns. Touching `Gui.ShowDefault` / `Gui.Render` from `on_init` will hit an uninitialized ImGui context. Stick to `on_update`.
 
 ## Future expansion
 

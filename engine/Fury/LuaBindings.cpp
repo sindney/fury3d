@@ -252,8 +252,12 @@ namespace fury
 			// --- Engine.run ---------------------------------------------------
 			// The launcher injects the active sf::Window into lua["__window"] as
 			// a userdata pointer; we read it back here and dispatch to Engine::Run.
+			//
+			// Lua signature: Engine.run(callbacks [, options])
+			//   callbacks: { on_init, on_update, on_fixed_update, on_shutdown }
+			//   options:   { max_fps, gui_scale, gui_font_scale }  (all optional)
 			sol::table engine_tbl = lua.create_named_table("Engine");
-			engine_tbl["run"] = [&lua](sol::table cb_table) {
+			engine_tbl["run"] = [&lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
 				{
@@ -265,7 +269,25 @@ namespace fury
 				cb.OnUpdate       = WrapFloat(cb_table["on_update"]);
 				cb.OnFixedUpdate  = WrapVoid(cb_table["on_fixed_update"]);
 				cb.OnShutdown     = WrapVoid(cb_table["on_shutdown"]);
-				Engine::Run(*window, cb);
+
+				EngineOptions opts;
+				if (opt_table)
+				{
+					sol::table o = *opt_table;
+					// max_fps: accept number, or boolean false → 0.
+					sol::object mf = o["max_fps"];
+					if (mf.valid())
+					{
+						if (mf.get_type() == sol::type::boolean)
+							opts.max_fps = mf.as<bool>() ? opts.max_fps : 0;
+						else if (mf.get_type() == sol::type::number)
+							opts.max_fps = mf.as<int>();
+					}
+					opts.gui_scale      = o.get_or("gui_scale", opts.gui_scale);
+					opts.gui_font_scale = o.get_or("gui_font_scale", opts.gui_font_scale);
+				}
+
+				Engine::Run(*window, cb, opts);
 			};
 		}
 	}

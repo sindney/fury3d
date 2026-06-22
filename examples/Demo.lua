@@ -52,3 +52,14 @@ Engine.run({
     on_update   = on_update,
     on_shutdown = on_shutdown,
 })
+
+-- Example: cap to 60 FPS and bump UI scale a little
+-- Engine.run({
+--     on_init     = on_init,
+--     on_update   = on_update,
+--     on_shutdown = on_shutdown,
+-- }, {
+--     max_fps        = 60,
+--     gui_scale      = 1.25,
+--     gui_font_scale = 1.25,
+-- })

@@ -1167,6 +1167,47 @@ What we have **not** decided yet (open questions for the next discussion):
 - Whether `Signal` gets a lambda-friendly variant, or whether we leave
   it alone and live with member-function-only callbacks.
 
+## 16. SFML 3 HiDPI on macOS
+
+SFML 3.1's macOS backend exposes a `highDpi` flag on the internal
+`SFOpenGLView`, but the public `sf::Window` construction path never sets
+it. See `engine/ThirdParty/SFML/src/SFML/Window/macOS/SFOpenGLView.mm:128`:
+
+```
+// Currently, isHighDpi is always expected to be NO, and so the OpenGL view will render scaled.
+```
+
+Practical consequences:
+
+- `window.getSize()` returns the window size in **screen points**, not
+  backing pixels.
+- The OpenGL framebuffer is allocated at point resolution, so on a Retina
+  display the system upscales every blit to the backing surface. UI text
+  and the deferred GBuffer look slightly soft.
+- `glViewport(0, 0, w, h)` matches `getSize()` 1:1 — we are *not* in a
+  point-vs-pixel mismatch, we're just rendering at half the native
+  resolution of the panel.
+
+The `fix-demo-fps-profiler-retina` change defaults `gui_scale` and
+`gui_font_scale` to `1.0` to avoid the previously-baked SFML-2-era 2×
+compensation, which would otherwise double-magnify the UI. Users on
+Retina displays who want a larger UI can opt in via the Lua options table
+(`{ gui_scale = 1.25, gui_font_scale = 1.25 }`); they will still see soft
+upscaling, but at least the UI won't be triple-magnified.
+
+Real HiDPI support is deferred. The path forward involves:
+
+1. Patching `SFOpenGLView.mm:101-128` to take `highDpi = YES` (or
+   vendoring a custom SFML patch).
+2. Switching `Gui.cpp:230` and `Pass.cpp:652`'s `glViewport` calls to
+   query the backing framebuffer size rather than `getSize()`.
+3. Sizing GBuffer textures and shadow maps to backing pixels, not points.
+4. Auditing every `InputUtil::m_WindowSize` consumer for point-vs-pixel
+   assumptions.
+
+That is a separate change; this one only fixes the symptom (double
+scaling) and documents the underlying limitation.
+
 ---
 
 ## Appendix A — File-by-file responsibility
