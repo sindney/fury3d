@@ -145,7 +145,7 @@
 
 ## 15. Documentation
 
-- [ ] 15.1 Create `docs/CLI.md` with the structure described in design.md and the cli capability spec:
+- [x] 15.1 Create `docs/CLI.md` with the structure described in design.md and the cli capability spec:
   - "How it works" section — dispatch shape, why no engine boot on CLI path
   - `fury convert gltf <input> <output>` reference — syntax, supported extensions, exit codes, lossy material mapping list, animation resampling note, rejected-features list
   - `fury info <path>` reference — supported extensions, output format
@@ -153,13 +153,13 @@
   - `fury version` reference
   - Appendix: "Scene format at a glance" — top-level keys (`materials`, `meshes`, `nodes`), node tree structure, common components, what's precomputed (AABBs, submesh splits, LZ4 envelope for `.bin`); 1-2 short JSON excerpts from `examples/bin/Resource/Scene/scene.json`
   - "Future expansion" section — how to add a new subcommand (where it lives in `Cli.cpp`, how help strings are wired)
-- [ ] 15.2 Update `docs/ARCHITECTURE.md` §15:
+- [x] 15.2 Update `docs/ARCHITECTURE.md` §15:
   - Move "FBX SDK removed; GLTFDom removed; tinygltf vendored" entry to note the importer landed *here*, in this change, not as a runtime class
   - Add a new "Landed" entry: "Added: CLI surface to `fury` binary with `convert gltf` and `info` subcommands. Tinygltf is consumed offline by the CLI, not at runtime. See `docs/CLI.md`."
   - Remove the now-obsolete "runtime GltfImporter is deferred" implication; explicitly note the runtime form (scene.json/.bin) is the canonical *runtime* shape, glTF is the *interchange* shape
   - Add a new "Landed" entry: "Mesh::Save/Load now round-trips skin data (joints, m_RootJoint, IDs, Weights). Closes the long-standing gap in §11."
   - Update §11's table row for "Mesh (skinned)" from "**partial**" to "yes" with a note
-- [ ] 15.3 Confirm `docs/CLI.md` and the in-binary help strings agree on: supported extensions, exit codes, lossy mappings. (Manual diff; no auto-sync in v1.)
+- [x] 15.3 Confirm `docs/CLI.md` and the in-binary help strings agree on: supported extensions, exit codes, lossy mappings. (Manual diff; no auto-sync in v1.)
 
 ## 16. Verification
 
@@ -243,11 +243,11 @@
 
 ## 23. Documentation — runtime importer + scene-editor menu
 
-- [ ] 23.1 In `docs/LUA.md`, add a new `Importer` section after the `FileUtil` section: full reference for `Importer.LoadGltf`, `Importer.LoadFbx`, `Importer.LoadScene`, `Importer.MergeInto`. Include the nil-on-error contract and the FBX-blocks-main-thread freeze caveat
-- [ ] 23.2 In `docs/LUA.md`'s `FileUtil` section, document `FileUtil.ListDirectory(path, extensions_opt)` with example usage
-- [ ] 23.3 In `docs/LUA.md`, after the `Gui` section, add a "Scene editor menu" example sub-section showing the full `File` menu Lua pattern from `Demo.lua` so future scripts can replicate it without re-deriving
-- [ ] 23.4 In `docs/LUA.md`'s "Gotchas" list, add: "Loading FBX blocks the render thread for ~1-3 seconds during the FBX2glTF subprocess invocation. The Demo.lua menu does not show a progress indicator in v1; clicking `File → Open Scene → tank.fbx` makes the window appear frozen until the conversion completes."
-- [ ] 23.5 In `docs/CLI.md`, document the `convert fbx` chained behavior (FBX → glTF → scene) and the FBX2glTF subprocess: where the binary lives, how it's located at runtime, macOS-only support in v1, Rosetta note for arm64
-- [ ] 23.6 In `docs/CLI.md`, list `info`'s acceptance of `.fbx` (which internally chains through FBX2glTF)
-- [ ] 23.7 In `docs/ARCHITECTURE.md` §15, update the landed-changes list to record: CLI surface with convert/info subcommands; runtime Lua-bound importer; FBX support restored via FBX2glTF subprocess (no FBX SDK link); scene-editor File menu in Demo.lua; Mesh skin-data round-trip closed
-- [ ] 23.8 In `docs/ARCHITECTURE.md`'s "Open questions" list (in §15), explicitly note: "HDR/PBR pipeline + PBR material variant — deferred. Lambert pipeline is sufficient until the HDR step lands; importer's PBR → Lambert mapping is the bridge."
+- [x] 23.1 In `docs/LUA.md`, add a new `Importer` section after the `FileUtil` section: full reference for `Importer.LoadGltf`, `Importer.LoadFbx`, `Importer.LoadScene`, `Importer.MergeInto`. Include the nil-on-error contract and the FBX-blocks-main-thread freeze caveat
+- [x] 23.2 In `docs/LUA.md`'s `FileUtil` section, document `FileUtil.ListDirectory(path, extensions_opt)` with example usage
+- [x] 23.3 In `docs/LUA.md`, after the `Gui` section, add a "Scene editor menu" example sub-section showing the full `File` menu Lua pattern from `Demo.lua` so future scripts can replicate it without re-deriving
+- [x] 23.4 In `docs/LUA.md`'s "Gotchas" list, add: "Loading FBX blocks the render thread for ~1-3 seconds during the FBX2glTF subprocess invocation. The Demo.lua menu does not show a progress indicator in v1; clicking `File → Open Scene → tank.fbx` makes the window appear frozen until the conversion completes."
+- [x] 23.5 In `docs/CLI.md`, document the `convert fbx` chained behavior (FBX → glTF → scene) and the FBX2glTF subprocess: where the binary lives, how it's located at runtime, macOS-only support in v1, Rosetta note for arm64
+- [x] 23.6 In `docs/CLI.md`, list `info`'s acceptance of `.fbx` (which internally chains through FBX2glTF)
+- [x] 23.7 In `docs/ARCHITECTURE.md` §15, update the landed-changes list to record: CLI surface with convert/info subcommands; runtime Lua-bound importer; FBX support restored via FBX2glTF subprocess (no FBX SDK link); scene-editor File menu in Demo.lua; Mesh skin-data round-trip closed
+- [x] 23.8 In `docs/ARCHITECTURE.md`'s "Open questions" list (in §15), explicitly note: "HDR/PBR pipeline + PBR material variant — deferred. Lambert pipeline is sufficient until the HDR step lands; importer's PBR → Lambert mapping is the bridge."

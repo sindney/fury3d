@@ -204,12 +204,57 @@ local p_fs = FileUtil.GetAbsPath("foo\\bar", true)                   -- second a
 local exists = FileUtil.FileExist(p)
 FileUtil.LoadSceneFromCompressedFile(scene, path)                    -- LZ4 .bin loader
 FileUtil.LoadPipelineFromFile(pipeline, path)                        -- JSON pipeline loader
+FileUtil.SaveFile(scene, path)                                       -- human-readable JSON writer
+FileUtil.SaveCompressedFile(scene, path)                             -- LZ4 .bin writer
+local files = FileUtil.ListDirectory(dir)                            -- enumerate files in a directory
+local gltf  = FileUtil.ListDirectory(dir, {".gltf", ".fbx"})         -- with extension filter (case-insensitive)
 ```
+
+`FileUtil.ListDirectory(path, filter)` returns a Lua array of filenames (no
+path prefix). The second argument is optional; when provided, only files
+whose extension matches one of the entries are returned. Hidden files
+(leading `.`) and subdirectories are always excluded. Missing path → empty
+array + a `FURYW` warning in `Log.txt`.
 
 > **Why typed names?** sol2's overload resolution from a Lua usertype to a
 > C++ `shared_ptr<Base>` parameter is fragile in v3.5. We bind the
 > Serializable-typed loaders as distinctly-named functions per concrete subtype
 > instead of relying on overload picking.
+
+### `Importer` — runtime asset import
+
+Same translation code as the offline `fury convert` CLI — see
+`docs/CLI.md` for the full lossy-mapping table. All four functions return
+`nil` on error; the reason is logged to `Log.txt` via `FURYE`. Demo.lua's
+File menu treats `nil` as "log and skip, keep the previous active scene
+visible."
+
+```lua
+local scene = Importer.LoadGltf(path)                                -- .gltf or .glb
+local scene = Importer.LoadFbx(path)                                 -- .fbx (chained via FBX2glTF subprocess)
+local scene = Importer.LoadScene(path)                               -- dispatch by extension
+local n     = Importer.MergeInto(target_scene, source_scene)         -- returns count of merged root children
+```
+
+`LoadScene` dispatch:
+- `.json` → `FileUtil.LoadFile` against a fresh `Scene`
+- `.bin`  → `FileUtil.LoadCompressedFile`
+- `.gltf` / `.glb` → `LoadGltf`
+- `.fbx`  → `LoadFbx`
+
+`MergeInto(target, source)` appends `source`'s root children to `target`'s
+root, transfers its materials/meshes/animations into `target`'s
+`EntityManager` (dedupes by hashcode with a `FURYW` per collision), and
+re-registers the new subtrees with `target`'s `SceneManager` so they show
+up in the next `Pipeline:Execute`. `source` is left empty and can be
+discarded.
+
+**Heads-up — FBX import blocks the render thread.** Loading an FBX runs
+the `FBX2glTF` subprocess synchronously; expect a 1–3 second freeze for
+typical models. v1 doesn't show a progress indicator; clicking
+`File → Open Scene → tank.fbx` makes the window appear unresponsive
+until the conversion completes. Use the offline CLI (`fury convert fbx`)
+for bigger models or batch jobs.
 
 ### `RenderUtil`
 
@@ -277,6 +322,7 @@ if visible then
     Gui.Text("hello")
     move_speed = Gui.SliderFloat("Move Speed", move_speed, 0.5, 50.0)
     enabled    = Gui.Checkbox("Enabled", enabled)
+    save_path  = Gui.InputText("filename", save_path, 128)
     if Gui.Button("Click me") then ... end
     Gui.Separator()
 end
@@ -296,9 +342,113 @@ Gui.SetMenuBarCallback(function()
 end)
 ```
 
-The mutating widgets (`SliderFloat`, `Checkbox`) return the new value rather
-than taking a pointer — sol2 doesn't auto-marshal Lua numbers into `float*`,
-so we use this in/out shape. Idiomatic call: `value = Gui.X("...", value, ...)`.
+The mutating widgets (`SliderFloat`, `Checkbox`, `InputText`) return the new
+value rather than taking a pointer — sol2 doesn't auto-marshal Lua numbers
+or strings into `float*` / `char*`, so we use this in/out shape. Idiomatic
+call: `value = Gui.X("...", value, ...)`.
+
+#### Scene editor menu — full pattern from Demo.lua
+
+The shipped `examples/Demo.lua` adds a `File` menu (alongside its `Camera`
+menu) with `New Scene` / `Open Scene` / `Import` / `Save Scene As`. The
+pattern is reusable for any script that wants a minimum-viable editor:
+
+```lua
+local show_save_modal = false
+local save_path       = "scene_saved.json"
+local status_text     = ""
+local status_ttl      = 0.0
+
+local function set_status(msg, ttl)
+    status_text = msg
+    status_ttl  = ttl or 3.0
+end
+
+local function list_scene_files()
+    return FileUtil.ListDirectory(
+        FileUtil.GetAbsPath("Resource/Scene/"),
+        {".json", ".bin", ".gltf", ".glb", ".fbx"})
+end
+
+Gui.SetMenuBarCallback(function()
+    if Gui.BeginMenu("File") then
+        if Gui.MenuItem("New Scene") then
+            Scene.GetActive():Clear()
+            set_status("scene cleared")
+        end
+        if Gui.BeginMenu("Open Scene") then
+            for _, name in ipairs(list_scene_files()) do
+                if Gui.MenuItem(name) then
+                    local imp = Importer.LoadScene(
+                        FileUtil.GetAbsPath("Resource/Scene/" .. name))
+                    if imp then
+                        Scene.GetActive():Clear()
+                        Importer.MergeInto(Scene.GetActive(), imp)
+                        set_status("opened " .. name)
+                    else
+                        set_status("failed to open " .. name)
+                    end
+                end
+            end
+            Gui.EndMenu()
+        end
+        if Gui.BeginMenu("Import") then
+            -- same enumeration; merges instead of clearing
+            for _, name in ipairs(list_scene_files()) do
+                if Gui.MenuItem(name) then
+                    local imp = Importer.LoadScene(
+                        FileUtil.GetAbsPath("Resource/Scene/" .. name))
+                    if imp then
+                        local n = Importer.MergeInto(Scene.GetActive(), imp)
+                        set_status("imported " .. n .. " node(s) from " .. name)
+                    end
+                end
+            end
+            Gui.EndMenu()
+        end
+        if Gui.MenuItem("Save Scene As") then show_save_modal = true end
+        Gui.EndMenu()
+    end
+end)
+
+-- Save modal — rendered from on_update, NOT the menu callback:
+function on_update(dt)
+    if status_ttl > 0 then
+        status_ttl = status_ttl - dt
+        if status_ttl <= 0 then status_text = "" end
+    end
+    -- ... other UI ...
+    if show_save_modal then
+        local still_open, visible = Gui.Begin("Save Scene As", show_save_modal)
+        if visible then
+            save_path = Gui.InputText("filename", save_path, 128)
+            if Gui.Button("Save") then
+                local full = FileUtil.GetAbsPath("Resource/Scene/" .. save_path)
+                local ext  = save_path:lower():match("%.[^.]+$") or ""
+                if ext == ".json" then FileUtil.SaveFile(Scene.GetActive(), full)
+                elseif ext == ".bin"  then FileUtil.SaveCompressedFile(Scene.GetActive(), full)
+                end
+                show_save_modal = false
+            end
+        end
+        Gui.End()
+        show_save_modal = still_open
+    end
+end
+```
+
+Key conventions from Demo.lua you may want to copy:
+
+- **The camera node lives OUTSIDE the active scene's root tree.** That way
+  `Scene:Clear()` doesn't drop your camera. Build it as a standalone
+  `SceneNode` and reference it from the pipeline via
+  `Pipeline.SetCurrentCamera(cam_node)`.
+- **Enumerate the directory every frame.** It's a cheap `directory_iterator
+  + extension filter`. Saved files appear in the `Open` submenu on the next
+  frame; intentional.
+- **Render modals from `on_update`, not the menu callback.** The menu
+  callback runs inside `ImGui::BeginMainMenuBar()`; modal windows need to be
+  outside that scope.
 
 ### `Engine`
 

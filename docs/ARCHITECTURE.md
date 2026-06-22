@@ -505,9 +505,12 @@ FileUtil::LoadFile(scene, "scene.json");
 Caveats from reading the code:
 
 - `Mesh::Save` writes positions / normals / tangents / UVs / indices /
-  submeshes / aabb / cast-shadows. **It does not write joint or weight
-  data** — there is a literal `TODO` in the file. Skinned meshes do not
-  round-trip through the JSON format yet.
+  submeshes / aabb / cast-shadows. Skinned meshes also round-trip
+  `bone_ids`, `bone_weights`, and a flat `joints` array (with parent
+  indices) + `root_joint` name. The skin keys are emitted only when
+  present, so static-mesh scene files remain byte-identical to
+  pre-skin-roundtrip output. (Closed by the add-cli-gltf-convert change;
+  the `TODO: no joints yet` in Mesh.cpp is gone.)
 - The `void*` opacity means a rapidjson API change cascades through the
   whole codebase, and there is no schema validation.
 
@@ -858,7 +861,7 @@ Useful to know before designing tests and the new asset path:
 | `SceneNode`      | yes              | hierarchy, components, local TRS                      |
 | `Transform`      | yes              | pre/post TRS                                          |
 | `Mesh` (static)  | yes              | positions, normals, tangents, UVs, indices, AABB, submeshes |
-| `Mesh` (skinned) | **partial**      | joint / weight data is `TODO` — does not round-trip   |
+| `Mesh` (skinned) | yes              | joint tree (flat array w/ parent indices) + bone_ids + bone_weights round-trip; closed via the cli-gltf-convert change |
 | `Material`       | yes              | uniforms + texture refs                               |
 | `Texture`        | by URI only      | image bytes are reloaded from disk via stb            |
 | `AnimationClip`  | yes              | channels / keyframes                                  |
@@ -877,8 +880,9 @@ Not refactor decisions — just so the next document can refer to them:
 - `Singleton<T>` everywhere makes mocking and parallel test isolation
   harder.
 - SFML enums in `InputUtil`'s public signatures.
-- Skin / animation data does not round-trip through the JSON format
-  (silent gap).
+- Skin / animation data does round-trip now (closed 2026-06-22); listed
+  here for historical reference — pre-add-cli-gltf-convert it was a
+  silent gap.
 - `Transform` mixes interpolation with the transform component (animation
   state and spatial state share a class).
 - Scene-nodes are referenced by **both** the parent hierarchy and the
@@ -1139,6 +1143,69 @@ What's landed so far:
   `virtual ~SceneManager() = default;` (sol2's templated destructor
   instantiation requires it; the pre-change code would have UB-deleted
   any heap-allocated `SceneManager` through a base pointer).
+
+- **CLI surface on the `fury` binary + asset import (2026-06-22).** The
+  `fury` binary now hosts both the Lua launcher (runtime path) and an
+  offline asset CLI. `examples/main.cpp` dispatches on `argv[1]`: if it's
+  a known subcommand (`convert`, `info`, `help`, `version`), `fury::Cli::Run`
+  takes the offline path with no SFML window, no `Engine::Initialize`,
+  and no Lua VM. Otherwise behaviour is unchanged (the Lua launcher
+  loads `argv[1]` or defaults to `Demo.lua`). New subcommands: `fury
+  convert gltf <in> <out.json|.bin>` and `fury convert fbx <in>
+  <out.gltf|.glb|.json|.bin>`; `fury info <path>` for CPU-side counts of
+  any supported asset. See `docs/CLI.md` for the full reference. The
+  Mesh.cpp:120 `TODO: no joints yet` gap is closed — `Mesh::Save`/`Load`
+  now round-trips `bone_ids`, `bone_weights`, the `joints` array (flat
+  with parent indices), and `root_joint`. Static-mesh scene files remain
+  byte-identical to pre-change output (the new keys are emitted only
+  when present).
+- **glTF importer + FBX subprocess (2026-06-22).** A new
+  `engine/Fury/GltfImporter.{h,cpp}` translates `tinygltf::Model` into
+  engine `Scene` / `SceneNode` / `Mesh` / `Material` / `Joint` /
+  `AnimationClip`. It's CPU-only — no GL touch — so the same class is
+  invoked by both the offline CLI (`fury convert gltf`) and the runtime
+  Lua binding (`Importer.LoadGltf`). The originally-planned "runtime
+  GltfImporter" is what landed; tinygltf is consumed at both offline
+  and runtime entry points. Material mapping is lossy:
+  PBR metallic-roughness → Lambert (`baseColorFactor` → `diffuse_color`,
+  `baseColorTexture` → `diffuse_texture`, `emissiveFactor` →
+  `emissive_color`, alpha mode → `opaque`; `metallicFactor`,
+  `roughnessFactor`, `metallicRoughnessTexture`, `normalTexture`,
+  `occlusionTexture` are read but discarded with one warning per source
+  material). Animation samples are resampled at 24 fps from glTF's
+  seconds-based time. Rejections: morph targets, sparse accessors,
+  non-default `byteStride`, non-triangle primitives, non-empty
+  `extensionsRequired`. FBX support is restored via a subprocess to the
+  vendored `engine/ThirdParty/FBX2glTF/FBX2glTF-{darwin,linux,windows}-x64`
+  binaries (`engine/Fury/FbxConverter.{h,cpp}` is the wrapper). The
+  engine never links the FBX SDK; FBX → glTF happens out of process,
+  then chains through the same glTF importer.
+- **Runtime scene editor in `Demo.lua` (2026-06-22).** New Lua bindings:
+  `Importer.LoadGltf / LoadFbx / LoadScene / MergeInto`,
+  `FileUtil.ListDirectory / SaveFile / SaveCompressedFile`,
+  `Scene:Clear()`, `Gui.InputText`. `Demo.lua` uses them to expose a
+  `File` menu (New Scene / Open Scene / Import / Save Scene As) so an
+  operator can drag any of the assets in `Resource/Scene/` into a live
+  viewport. See `docs/LUA.md` for the full pattern. The camera node
+  lives outside the scene's root tree so `Scene:Clear` doesn't drop it.
+
+**Decision: keep `scene.json` / `scene.bin` as the runtime form (2026-06-22).**
+The architecture question "should we drop the custom Serializable format now
+that we have glTF?" was investigated and resolved in favour of keeping it.
+The engine's runtime format encodes precomputed AABBs (the octree depends
+on them), engine-shaped material uniforms matching the Lambert pipeline,
+submesh-per-material splits, `cast_shadows` flags, and LZ4 compression
+(1.6 MB `.bin` vs 11 MB `.json` vs raw glTF). Replacing the runtime loader
+would be larger work than building a converter AND would lose that
+precomputed data. The importer is the bridge: glTF / FBX in, engine runtime
+form out, invokable offline (CLI) or at runtime (Lua binding).
+
+**HDR/PBR pipeline + PBR material variant — deferred.** The engine ships a
+Lambert deferred pipeline as of v1; HDR is a deliberately later step
+(user-confirmed). Until the HDR pipeline lands, the importer's lossy
+PBR → Lambert mapping is the right shape. When HDR arrives, a follow-up
+change can add a PBR material variant alongside Lambert without
+re-architecting the importer.
 
 **Held: ANGLE integration (2026-06-18).** Reconnaissance pass scoped a
 proposal but the work was held. Reasons enumerated in §13.1.1: ANGLE
