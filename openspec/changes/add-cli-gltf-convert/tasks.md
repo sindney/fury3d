@@ -32,23 +32,23 @@
 
 ## 4. Material translation
 
-- [ ] 4.1 For each `tinygltf::Material`, create a `Material::Create(name)` where name is `material.name` or `Material_<index>`
-- [ ] 4.2 Set the `opaque` flag: `true` when `material.alphaMode == "OPAQUE"` (or empty/default), `false` for `BLEND` / `MASK`
-- [ ] 4.3 Read `material.pbrMetallicRoughness.baseColorFactor` (vec4) and bind a `Uniform3f` named `diffuse_color` with rgb; bind a `Uniform1f` named `transparency` with `1 - a`
-- [ ] 4.4 Read `material.pbrMetallicRoughness.baseColorTexture.index`; when valid, look up `model.textures[index].source` → `model.images[image_index]`, derive a relative URI for the image, and add it to the engine `Material`'s texture map at key `diffuse_texture` with `Texture::Create` (serializable-shape only — name, path, sampling/wrap config, no `CreateFromImage` call)
-- [ ] 4.5 Read `material.emissiveFactor` (vec3) and bind a `Uniform3f` named `emissive_color`
-- [ ] 4.6 Bind `Uniform1f` defaults expected by the existing pipeline shaders: `shininess = 32`, `diffuse_factor = 1.0`, `specular_color = (0.2, 0.2, 0.2)`, `ambient_color = (0, 0, 0)`, `ambient_factor = 1.0`, `specular_factor = 1.0` (cross-reference the existing `examples/bin/Resource/Scene/scene.json` material block at line 3–115 for the exact uniform names and shapes)
-- [ ] 4.7 Build a set of discarded fields per material (`{normalTexture, metallicFactor, roughnessFactor, metallicRoughnessTexture, occlusionTexture, emissiveTexture}`), and emit one warning line listing them: `gltf-importer: material '<name>' — discarded PBR fields: <comma-separated>`
-- [ ] 4.8 De-duplicate warnings: maintain a `std::set<std::string>` of already-warned discarded-field signatures so we don't spam identical warnings across many materials
-- [ ] 4.9 Add each emitted `Material` to the scene's `EntityManager`
+- [x] 4.1 For each `tinygltf::Material`, create a `Material::Create(name)` where name is `material.name` or `Material_<index>`
+- [x] 4.2 Set the `opaque` flag: `true` when `material.alphaMode == "OPAQUE"` (or empty/default), `false` for `BLEND` / `MASK`
+- [x] 4.3 Read `material.pbrMetallicRoughness.baseColorFactor` (vec4) and bind a `Uniform3f` named `diffuse_color` with rgb; bind a `Uniform1f` named `transparency` with `1 - a`
+- [x] 4.4 Read `material.pbrMetallicRoughness.baseColorTexture.index`; when valid, look up `model.textures[index].source` → `model.images[image_index]`, derive a relative URI for the image, and add it to the engine `Material`'s texture map at key `diffuse_texture` with `Texture::Create` (serializable-shape only — name, path, sampling/wrap config, no `CreateFromImage` call)
+- [x] 4.5 Read `material.emissiveFactor` (vec3) and bind a `Uniform3f` named `emissive_color`
+- [x] 4.6 Bind `Uniform1f` defaults expected by the existing pipeline shaders: `shininess = 32`, `diffuse_factor = 1.0`, `specular_color = (0.2, 0.2, 0.2)`, `ambient_color = (0, 0, 0)`, `ambient_factor = 1.0`, `specular_factor = 1.0` (cross-reference the existing `examples/bin/Resource/Scene/scene.json` material block at line 3–115 for the exact uniform names and shapes)
+- [x] 4.7 Build a set of discarded fields per material (`{normalTexture, metallicFactor, roughnessFactor, metallicRoughnessTexture, occlusionTexture, emissiveTexture}`), and emit one warning line listing them: `gltf-importer: material '<name>' — discarded PBR fields: <comma-separated>`
+- [x] 4.8 De-duplicate warnings: maintain a `std::set<std::string>` of already-warned discarded-field signatures so we don't spam identical warnings across many materials
+- [x] 4.9 Add each emitted `Material` to the scene's `EntityManager`
 
 ## 5. Texture extraction for .glb inputs
 
-- [ ] 5.1 For `.glb` inputs whose `model.images[i].bufferView` is set (embedded image data), decode the image bytes from `model.buffers[bv.buffer].data[bv.byteOffset..]`
-- [ ] 5.2 Write the bytes to a sibling file of the output: `<output-basename>_image<i>.<ext>` where `<ext>` derives from `image.mimeType` (`image/png` → `.png`, `image/jpeg` → `.jpg`)
-- [ ] 5.3 Use that relative URI in the `diffuse_texture` slot's `path` field
-- [ ] 5.4 For `.gltf` inputs that reference external images via `image.uri`, just pass the URI through — no extraction needed
-- [ ] 5.5 Edge case: `.glb` outputs to `.bin` — extracted files land in the same directory as the `.bin`, named the same way
+- [x] 5.1 For `.glb` inputs whose `model.images[i].bufferView` is set (embedded image data), decode the image bytes from `model.buffers[bv.buffer].data[bv.byteOffset..]`
+- [x] 5.2 Write the bytes to a sibling file of the output: `<output-basename>_image<i>.<ext>` where `<ext>` derives from `image.mimeType` (`image/png` → `.png`, `image/jpeg` → `.jpg`)
+- [x] 5.3 Use that relative URI in the `diffuse_texture` slot's `path` field
+- [x] 5.4 For `.gltf` inputs that reference external images via `image.uri`, just pass the URI through — no extraction needed
+- [x] 5.5 Edge case: `.glb` outputs to `.bin` — extracted files land in the same directory as the `.bin`, named the same way
 
 ## 6. Mesh translation
 

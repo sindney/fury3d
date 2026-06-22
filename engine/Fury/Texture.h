@@ -77,6 +77,14 @@ namespace fury
 
 		void CreateFromImage(const std::string &filePath, bool srgb, bool mipMap);
 
+		// Set the serialization shape (file path + sRGB-ness) without
+		// triggering a GPU upload. Used by GltfImporter, which runs without
+		// a GL context: the actual upload happens later when the scene is
+		// loaded at runtime via Texture::Load -> CreateFromImage. After
+		// calling this, the Texture is safe to Save/Load but NOT to render
+		// against until something brings the GL context up.
+		void SetFilePathAndSRGB(const std::string &filePath, bool srgb);
+
 		void CreateEmpty(int width, int height, int depth, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
 
 		void SetPixels(const void* pixels);

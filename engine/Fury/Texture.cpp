@@ -358,6 +358,15 @@ namespace fury
 		}
 	}
 
+	void Texture::SetFilePathAndSRGB(const std::string &filePath, bool srgb)
+	{
+		m_FilePath = filePath;
+		// Use the sRGB-encoding family so Texture::Save emits "srgb": true.
+		// 3 vs 4 channels gets fixed up later by CreateFromImage on the
+		// first runtime load — for serialization the family is what matters.
+		m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
+	}
+
 	bool Texture::IsSRGB() const
 	{
 		return m_Format == TextureFormat::SRGB || m_Format == TextureFormat::SRGB8 ||
