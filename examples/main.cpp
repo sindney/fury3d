@@ -1,7 +1,15 @@
-// fury — engine launcher.
+// fury — engine launcher AND CLI.
 //
-// Loads a Lua script (path on argv, defaulting to Demo.lua), boots the engine,
-// hands control to the script's Engine.run() call, then shuts down cleanly.
+// Routing in main():
+//   - If argv[1] is a known CLI subcommand token (`convert`, `info`, `help`,
+//     `--help`, `-h`, `version`, `--version`), dispatch to fury::Cli::Run.
+//     The CLI path skips SFML window creation, engine initialization, and the
+//     Lua VM — it's pure C++ asset workflows.
+//   - Otherwise, treat argv[1] (or "Demo.lua" if no arg) as a Lua script
+//     path. Open a window, initialize the engine, hand control to the
+//     script's Engine.run() call, then shut down cleanly.
+//
+// See docs/CLI.md for the CLI surface; docs/LUA.md for the Lua surface.
 
 #include <SFML/Window.hpp>
 
@@ -11,6 +19,7 @@
 
 #include <sol/sol.hpp>
 
+#include <Fury/Cli.h>
 #include <Fury/Fury.h>
 #include <Fury/Gui.h>
 #include <Fury/LuaBindings.h>
@@ -21,7 +30,12 @@
 
 int main(int argc, char *argv[])
 {
-	// Window setup. Mirrors the old Demo.cpp window shape.
+	// Fast-path: if argv[1] looks like a CLI subcommand, take the offline
+	// path. No window, no engine, no Lua. Exit code from Cli::Run propagates.
+	if (argc >= 2 && fury::Cli::LooksLikeSubcommand(argv[1]))
+		return fury::Cli::Run(argc, argv);
+
+	// Otherwise: existing Lua launcher behavior.
 	sf::ContextSettings settings;
 	settings.depthBits = 24;
 	settings.stencilBits = 8;
@@ -46,9 +60,6 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// Lua state lives only as long as the script's Engine.run call. We close it
-	// before Engine::Shutdown so any lingering Lua-owned shared_ptrs (scene
-	// nodes, pipelines, etc.) drop their refs first.
 	int exit_code = 0;
 	{
 		sol::state lua;
@@ -75,7 +86,7 @@ int main(int argc, char *argv[])
 			FURYE << "Lua error: " << err.what();
 			exit_code = 1;
 		}
-	}  // sol::state destructor closes the Lua VM here
+	}
 
 	fury::Engine::Shutdown();
 	return exit_code;

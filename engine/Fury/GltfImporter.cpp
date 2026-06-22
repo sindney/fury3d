@@ -905,6 +905,15 @@ namespace fury
 		// decode image bytes — we keep the raw encoded bytes in the bufferView
 		// and copy them out later for embedded-image extraction.
 		loader.SetImagesAsIs(true);
+		// SetImagesAsIs flags the load_image_option but tinygltf still requires
+		// a non-null LoadImageData callback at parse time; install a no-op that
+		// just returns success (we ignore the decoded result).
+		loader.SetImageLoader(
+			[](tinygltf::Image *, const int, std::string *, std::string *,
+				int, int, const unsigned char *, int, void *) -> bool {
+				return true;
+			},
+			nullptr);
 		tinygltf::Model model;
 		std::string err, warn;
 

@@ -101,47 +101,47 @@
 
 ## 10. `Cli` skeleton
 
-- [ ] 10.1 Create `engine/Fury/Cli.h` with `class Cli` exposing `static int Run(int argc, char **argv)` and `static bool LooksLikeSubcommand(const char *arg)`
-- [ ] 10.2 Create `engine/Fury/Cli.cpp` with `LooksLikeSubcommand` returning true for `convert`, `info`, `help`, `--help`, `-h`, `version`, `--version`
-- [ ] 10.3 Implement `Run`: switch on `argv[1]`, dispatch to per-subcommand handlers `DoConvert`, `DoInfo`, `DoHelp`, `DoVersion`; wrap in try/catch returning code 2 on uncaught exceptions
-- [ ] 10.4 Add `static const char *kTopHelp` containing the top-level help text — list each subcommand with a one-line description; include "see docs/CLI.md for full reference"
-- [ ] 10.5 Add `static const char *kConvertHelp`, `kInfoHelp`, `kVersionHelp` as the per-subcommand help strings; each names supported extensions, exit codes, and known limitations
-- [ ] 10.6 `DoHelp(argc, argv)`: if `argc == 2`, print `kTopHelp`; if `argc == 3`, dispatch on `argv[2]` to print the matching per-subcommand help; unknown → print top-level help and exit 1
+- [x] 10.1 Create `engine/Fury/Cli.h` with `class Cli` exposing `static int Run(int argc, char **argv)` and `static bool LooksLikeSubcommand(const char *arg)`
+- [x] 10.2 Create `engine/Fury/Cli.cpp` with `LooksLikeSubcommand` returning true for `convert`, `info`, `help`, `--help`, `-h`, `version`, `--version`
+- [x] 10.3 Implement `Run`: switch on `argv[1]`, dispatch to per-subcommand handlers `DoConvert`, `DoInfo`, `DoHelp`, `DoVersion`; wrap in try/catch returning code 2 on uncaught exceptions
+- [x] 10.4 Add `static const char *kTopHelp` containing the top-level help text — list each subcommand with a one-line description; include "see docs/CLI.md for full reference"
+- [x] 10.5 Add `static const char *kConvertHelp`, `kInfoHelp`, `kVersionHelp` as the per-subcommand help strings; each names supported extensions, exit codes, and known limitations
+- [x] 10.6 `DoHelp(argc, argv)`: if `argc == 2`, print `kTopHelp`; if `argc == 3`, dispatch on `argv[2]` to print the matching per-subcommand help; unknown → print top-level help and exit 1
 
 ## 11. `DoConvert` handler
 
-- [ ] 11.1 Parse `argv`: expect `fury convert <kind> <input> <output>` (so `argc == 5`); if `argv[2] == "--help"` or `argv[2] == "-h"`, print `kConvertHelp` and return 0
-- [ ] 11.2 Validate `<kind>`: only `gltf` in v1. Anything else → error to stderr, return 1
-- [ ] 11.3 Validate input extension: `.gltf` or `.glb` (case-insensitive). Otherwise error, return 1
-- [ ] 11.4 Validate output extension: `.json` or `.bin`. Otherwise error to stderr listing supported extensions, return 1
-- [ ] 11.5 Call `GltfImporter::Import(input, scene_name, working_dir, opts)`; on null return, error to stderr, return 1
-- [ ] 11.6 Set `Scene::Active = scene` temporarily so any Save paths that use `Scene::Path` work (or pass working_dir explicitly)
-- [ ] 11.7 For `.json` output, call `FileUtil::SaveFile(scene, output)`; for `.bin`, call `FileUtil::SaveCompressedFile(scene, output)`
-- [ ] 11.8 On success, print `wrote <output>` to stdout, return 0
+- [x] 11.1 Parse `argv`: expect `fury convert <kind> <input> <output>` (so `argc == 5`); if `argv[2] == "--help"` or `argv[2] == "-h"`, print `kConvertHelp` and return 0
+- [x] 11.2 Validate `<kind>`: only `gltf` in v1. Anything else → error to stderr, return 1
+- [x] 11.3 Validate input extension: `.gltf` or `.glb` (case-insensitive). Otherwise error, return 1
+- [x] 11.4 Validate output extension: `.json` or `.bin`. Otherwise error to stderr listing supported extensions, return 1
+- [x] 11.5 Call `GltfImporter::Import(input, scene_name, working_dir, opts)`; on null return, error to stderr, return 1
+- [x] 11.6 Set `Scene::Active = scene` temporarily so any Save paths that use `Scene::Path` work (or pass working_dir explicitly)
+- [x] 11.7 For `.json` output, call `FileUtil::SaveFile(scene, output)`; for `.bin`, call `FileUtil::SaveCompressedFile(scene, output)`
+- [x] 11.8 On success, print `wrote <output>` to stdout, return 0
 
 ## 12. `DoInfo` handler
 
-- [ ] 12.1 Parse `argv`: expect `fury info <path>` (`argc == 3`); handle `--help` like step 11.1
-- [ ] 12.2 Detect path extension: `.json` / `.bin` / `.gltf` / `.glb`
-- [ ] 12.3 For `.json` / `.bin`: `Scene::Create("info", working_dir)`, `FileUtil::LoadFile` or `LoadCompressedFile`, then walk
-- [ ] 12.4 For `.gltf` / `.glb`: load the `tinygltf::Model` directly (no full import)
-- [ ] 12.5 Compute the summary fields per design.md "Decision: info reads CPU-side counts only": `nodes`, `meshes` (split into static / skinned), `submeshes`, `vertices`, `triangles`, `materials`, `animations`, `joints`, scene-wide `aabb`
-- [ ] 12.6 For glTF inputs: walk node hierarchy with accumulated transforms to compute world-space AABB; for engine inputs: walk loaded `SceneNode` tree with `GetWorldPosition` + each mesh's `GetAABB`
-- [ ] 12.7 Print the key/value pairs to stdout, one per line, in the order shown in design.md
-- [ ] 12.8 Exit 0 on success, 1 on bad path or unsupported extension
+- [x] 12.1 Parse `argv`: expect `fury info <path>` (`argc == 3`); handle `--help` like step 11.1
+- [x] 12.2 Detect path extension: `.json` / `.bin` / `.gltf` / `.glb`
+- [x] 12.3 For `.json` / `.bin`: `Scene::Create("info", working_dir)`, `FileUtil::LoadFile` or `LoadCompressedFile`, then walk
+- [x] 12.4 For `.gltf` / `.glb`: load the `tinygltf::Model` directly (no full import)
+- [x] 12.5 Compute the summary fields per design.md "Decision: info reads CPU-side counts only": `nodes`, `meshes` (split into static / skinned), `submeshes`, `vertices`, `triangles`, `materials`, `animations`, `joints`, scene-wide `aabb`
+- [x] 12.6 For glTF inputs: walk node hierarchy with accumulated transforms to compute world-space AABB; for engine inputs: walk loaded `SceneNode` tree with `GetWorldPosition` + each mesh's `GetAABB`
+- [x] 12.7 Print the key/value pairs to stdout, one per line, in the order shown in design.md
+- [x] 12.8 Exit 0 on success, 1 on bad path or unsupported extension
 
 ## 13. `examples/main.cpp` router
 
-- [ ] 13.1 At the top of `main()`, before SFML window construction, check `if (argc >= 2 && fury::Cli::LooksLikeSubcommand(argv[1])) return fury::Cli::Run(argc, argv);`
-- [ ] 13.2 If `argc == 1`, current behavior: load `Demo.lua`. Unchanged.
-- [ ] 13.3 If `argc >= 2` and `argv[1]` is not a subcommand, current behavior: load `argv[1]` as Lua script. Unchanged.
-- [ ] 13.4 Build and confirm: `./fury Demo.lua` still runs the demo; `./fury` runs `Demo.lua` (no behavior drift)
+- [x] 13.1 At the top of `main()`, before SFML window construction, check `if (argc >= 2 && fury::Cli::LooksLikeSubcommand(argv[1])) return fury::Cli::Run(argc, argv);`
+- [x] 13.2 If `argc == 1`, current behavior: load `Demo.lua`. Unchanged.
+- [x] 13.3 If `argc >= 2` and `argv[1]` is not a subcommand, current behavior: load `argv[1]` as Lua script. Unchanged.
+- [x] 13.4 Build and confirm: `./fury Demo.lua` still runs the demo; `./fury` runs `Demo.lua` (no behavior drift)
 
 ## 14. CMake wiring
 
-- [ ] 14.1 Verify that `engine/CMakeLists.txt:102`'s `file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)` picks up the new `Cli.cpp` and `GltfImporter.cpp` automatically — no edit needed if glob works
-- [ ] 14.2 If file is glob-cached on someone's machine, document that they need to re-run CMake configure; consider switching to explicit source list as a follow-up (out of scope here)
-- [ ] 14.3 Verify build still succeeds: `cmake --build build-engine --target fury` from a fresh configure
+- [x] 14.1 Verify that `engine/CMakeLists.txt:102`'s `file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)` picks up the new `Cli.cpp` and `GltfImporter.cpp` automatically — no edit needed if glob works
+- [x] 14.2 If file is glob-cached on someone's machine, document that they need to re-run CMake configure; consider switching to explicit source list as a follow-up (out of scope here)
+- [x] 14.3 Verify build still succeeds: `cmake --build build-engine --target fury` from a fresh configure
 
 ## 15. Documentation
 
@@ -191,20 +191,20 @@
 
 ## 18. `DoConvert` — wire in the `fbx` kind
 
-- [ ] 18.1 In `Cli.cpp::DoConvert`, accept `<kind> = "fbx"` in addition to `"gltf"`
-- [ ] 18.2 Validate input extension: `.fbx` (case-insensitive). Otherwise error and return 1
-- [ ] 18.3 Validate output extension: `.gltf`, `.glb`, `.json`, `.bin`. Otherwise error listing the supported set, return 1
-- [ ] 18.4 If output extension is `.gltf` or `.glb`: call `FbxConverter::Convert(input, output_dir)`, then move/rename `Result.output_path` to the target `<output>`. Return 0 on success
-- [ ] 18.5 If output extension is `.json` or `.bin`: invoke `FbxConverter::Convert` into a tempdir (use `std::filesystem::temp_directory_path()`), then `GltfImporter::Import(temp_glb_path, ...)`, then `FileUtil::SaveFile` or `FileUtil::SaveCompressedFile`. Clean up the temp glb on success
-- [ ] 18.6 On glTF-importer failure after FBX2glTF success: preserve the temp `.glb`, name its path in the error message, return 1
-- [ ] 18.7 Update `kConvertHelp` to document both `gltf` and `fbx` kinds, their input extensions, output extensions per kind, and the chained behavior of `convert fbx <...> <out.json|.bin>`
+- [x] 18.1 In `Cli.cpp::DoConvert`, accept `<kind> = "fbx"` in addition to `"gltf"`
+- [x] 18.2 Validate input extension: `.fbx` (case-insensitive). Otherwise error and return 1
+- [x] 18.3 Validate output extension: `.gltf`, `.glb`, `.json`, `.bin`. Otherwise error listing the supported set, return 1
+- [x] 18.4 If output extension is `.gltf` or `.glb`: call `FbxConverter::Convert(input, output_dir)`, then move/rename `Result.output_path` to the target `<output>`. Return 0 on success
+- [x] 18.5 If output extension is `.json` or `.bin`: invoke `FbxConverter::Convert` into a tempdir (use `std::filesystem::temp_directory_path()`), then `GltfImporter::Import(temp_glb_path, ...)`, then `FileUtil::SaveFile` or `FileUtil::SaveCompressedFile`. Clean up the temp glb on success
+- [x] 18.6 On glTF-importer failure after FBX2glTF success: preserve the temp `.glb`, name its path in the error message, return 1
+- [x] 18.7 Update `kConvertHelp` to document both `gltf` and `fbx` kinds, their input extensions, output extensions per kind, and the chained behavior of `convert fbx <...> <out.json|.bin>`
 
 ## 19. `DoInfo` — wire in `.fbx` inputs
 
-- [ ] 19.1 Detect `.fbx` extension in `DoInfo`'s dispatch
-- [ ] 19.2 For `.fbx` inputs: invoke `FbxConverter::Convert` into a tempdir, then load the resulting `.glb` via tinygltf and compute counts the same way as for `.gltf` inputs
-- [ ] 19.3 Clean up the temp `.glb` after the counts are read
-- [ ] 19.4 If FBX2glTF fails, print its stderr capture and exit 1
+- [x] 19.1 Detect `.fbx` extension in `DoInfo`'s dispatch
+- [x] 19.2 For `.fbx` inputs: invoke `FbxConverter::Convert` into a tempdir, then load the resulting `.glb` via tinygltf and compute counts the same way as for `.gltf` inputs
+- [x] 19.3 Clean up the temp `.glb` after the counts are read
+- [x] 19.4 If FBX2glTF fails, print its stderr capture and exit 1
 
 ## 20. Runtime Lua bindings — Importer + Scene:Clear + FileUtil.ListDirectory
 
