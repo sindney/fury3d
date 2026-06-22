@@ -1,4 +1,12 @@
-## ADDED Requirements
+# gltf-loader
+
+## Purpose
+
+Vendoring of `tinygltf` (a single-header glTF 2.0 loader) into the engine ThirdParty tree, exposed as a header dependency that future engine code (the deferred `GltfImporter`) will link against. This capability also covers the supporting build-system work that became necessary to make the Fury3D project compile cleanly on a fresh modern toolchain after dropping the FBX SDK: vendoring `SFML 3.x` and `rapidjson` as submodules, bumping the engine to C++17, and removing the FBX SDK dependency entirely.
+
+This capability is the **integration**, not the importer — it covers what `tinygltf` is, where it lives, how it's pinned, how it's wired into the build, and the surrounding constraints that keep the build green. The actual importer (walking `tinygltf::Model` into engine `SceneNode` / `Mesh` / `Material` / `Joint` / `AnimationClip`) lives in a follow-up capability.
+
+## Requirements
 
 ### Requirement: tinygltf SHALL be vendored as a pinned git submodule under engine/ThirdParty
 

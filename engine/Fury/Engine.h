@@ -13,12 +13,20 @@
 
 namespace fury
 {
-	class FURY_API Engine 
+	struct EngineCallbacks
+	{
+		std::function<void()> OnInit;
+		std::function<void(float)> OnUpdate;
+		std::function<void()> OnFixedUpdate;
+		std::function<void()> OnShutdown;
+	};
+
+	class FURY_API Engine
 	{
 	public:
 
-		static bool Initialize(sf::Window &window, float guiScale, int numThreads, 
-			LogLevel level = LogLevel::EROR, const char* logfile = nullptr, 
+		static bool Initialize(sf::Window &window, float guiScale, int numThreads,
+			LogLevel level = LogLevel::EROR, const char* logfile = nullptr,
 			bool console = true, const LogFormatter &formatter = Formatter::Simple, bool append = false);
 
 		static void HandleEvent(sf::Event &event);
@@ -32,7 +40,9 @@ namespace fury
 		static void FixedUpdate();
 
 		static void Shutdown();
-		
+
+		static void Run(sf::Window &window, const EngineCallbacks &cb);
+
 		static std::pair<int, int> GetGLVersion();
 	};
 }

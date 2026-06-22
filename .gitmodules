@@ -7,3 +7,9 @@
 [submodule "engine/ThirdParty/rapidjson"]
 	path = engine/ThirdParty/rapidjson
 	url = https://github.com/Tencent/rapidjson.git
+[submodule "engine/ThirdParty/lua"]
+	path = engine/ThirdParty/lua
+	url = https://github.com/lua/lua
+[submodule "engine/ThirdParty/sol2"]
+	path = engine/ThirdParty/sol2
+	url = https://github.com/ThePhD/sol2

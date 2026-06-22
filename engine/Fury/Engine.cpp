@@ -1,5 +1,8 @@
 #include <SFML/Window.hpp>
 
+#include <cstdint>
+#include <optional>
+
 #include "Fury/BufferManager.h"
 #include "Fury/Engine.h"
 #include "Fury/GLLoader.h"
@@ -171,5 +174,56 @@ namespace fury
 	std::pair<int, int> Engine::GetGLVersion()
 	{
 		return std::make_pair<int, int>(gl::GetMajorVersion(), gl::GetMinorVersion());
+	}
+
+	void Engine::Run(sf::Window &window, const EngineCallbacks &cb)
+	{
+		if (cb.OnInit) cb.OnInit();
+
+		const std::int32_t SKIP_TICKS = 1000 / 25;       // 25 Hz fixed
+		const int MAX_FRAMESKIP = 5;
+
+		sf::Clock clock;
+		std::int32_t next_game_tick = clock.getElapsedTime().asMilliseconds();
+		bool running = true;
+
+		while (window.isOpen() && running)
+		{
+			RenderUtil::Instance()->BeginFrame();
+
+			while (const std::optional event = window.pollEvent())
+			{
+				if (event->is<sf::Event::Closed>())
+				{
+					running = false;
+					break;
+				}
+				sf::Event ev = *event;
+				HandleEvent(ev);
+			}
+
+			int numLoops = 0;
+			while (clock.getElapsedTime().asMilliseconds() > next_game_tick && numLoops < MAX_FRAMESKIP && running)
+			{
+				if (cb.OnFixedUpdate) cb.OnFixedUpdate();
+				FixedUpdate();
+				next_game_tick += SKIP_TICKS;
+				numLoops++;
+			}
+
+			std::int32_t elapsed = clock.getElapsedTime().asMilliseconds();
+			float dt = float(elapsed + SKIP_TICKS - next_game_tick) / float(SKIP_TICKS);
+			next_game_tick -= elapsed;
+
+			Gui::NewFrame(clock.restart().asSeconds());
+			if (cb.OnUpdate) cb.OnUpdate(dt);
+			Update(dt);
+
+			window.display();
+
+			RenderUtil::Instance()->EndFrame();
+		}
+
+		if (cb.OnShutdown) cb.OnShutdown();
 	}
 }

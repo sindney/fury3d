@@ -23,7 +23,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-int-to-void-pointer-cast")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -DNDEBUG")
 
-option(BUILD_SHARED_LIBS "Build shared librarie." ON)
+# Default to building a single static fury executable (engine + Lua launcher).
+# Set BUILD_SHARED_LIBS=ON to instead get a libfury.{dylib,so,dll} for embedding.
+option(BUILD_SHARED_LIBS "Build the engine as a shared library instead of an executable." OFF)
 
 if(OS_WINDOWS)
 	option(EXPORT_DLL "Define FURY_API_EXPORT" ON)
@@ -42,6 +44,12 @@ endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf/tiny_gltf.h")
 	message(FATAL_ERROR "tinygltf submodule missing — run: git submodule update --init --recursive")
 endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/lua/lua.h")
+	message(FATAL_ERROR "lua submodule missing — run: git submodule update --init --recursive")
+endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include/sol/sol.hpp")
+	message(FATAL_ERROR "sol2 submodule missing — run: git submodule update --init --recursive")
+endif()
 
 # SFML 3.1: build only the modules we actually need
 set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
@@ -49,6 +57,24 @@ set(SFML_BUILD_NETWORK OFF CACHE BOOL "" FORCE)
 set(SFML_BUILD_GRAPHICS ON CACHE BOOL "" FORCE)
 set(SFML_BUILD_WINDOW ON CACHE BOOL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/SFML)
+
+# Lua 5.4: upstream is Makefile-only with sources flat at repo root.
+# We compile them into a static library here. Exclude the standalone-interpreter
+# main (lua.c) and the alternative single-file build (onelua.c) to avoid
+# duplicate-symbol / unwanted-main errors.
+file(GLOB LUA_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/lua/*.c)
+list(REMOVE_ITEM LUA_SRC
+	${PROJECT_SOURCE_DIR}/ThirdParty/lua/lua.c
+	${PROJECT_SOURCE_DIR}/ThirdParty/lua/onelua.c)
+add_library(lua STATIC ${LUA_SRC})
+target_include_directories(lua PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/lua)
+target_compile_definitions(lua PRIVATE
+	$<$<PLATFORM_ID:Darwin>:LUA_USE_MACOSX>
+	$<$<PLATFORM_ID:Linux>:LUA_USE_LINUX>)
+set_property(TARGET lua PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+# sol2 is header-only.
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
@@ -76,21 +102,31 @@ endif()
 file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)
 list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 
+# Path to the Lua launcher's main(). Resolves whether engine is the top-level
+# project or pulled in via add_subdirectory from examples/.
+set(FURY_LAUNCHER_SRC "${PROJECT_SOURCE_DIR}/../examples/main.cpp")
+
 if(BUILD_SHARED_LIBS)
+	# Embedder path: produce a shared libfury (no main).
 	add_library(fury SHARED ${FURY_SRC})
 	if(OS_WINDOWS)
-		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32)
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32 lua)
 	elseif(OS_MACOSX)
-		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB})
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua)
 		set_target_properties(fury PROPERTIES BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 	endif()
+	install(TARGETS fury DESTINATION lib)
 else()
-	add_library(fury STATIC ${FURY_SRC})
-	if(OS_WINDOWS)
-		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32)
-	elseif(OS_MACOSX)
-		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB})
+	# Common path: the engine IS the executable. The launcher source lives in
+	# examples/main.cpp so demo authors can read it.
+	if(NOT EXISTS "${FURY_LAUNCHER_SRC}")
+		message(FATAL_ERROR "Launcher source not found at ${FURY_LAUNCHER_SRC} — examples/main.cpp must exist alongside engine/.")
 	endif()
+	add_executable(fury ${FURY_SRC} ${FURY_LAUNCHER_SRC})
+	if(OS_WINDOWS)
+		target_link_libraries(fury PRIVATE SFML::Window SFML::System opengl32 lua)
+	elseif(OS_MACOSX)
+		target_link_libraries(fury PRIVATE SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua)
+	endif()
+	install(TARGETS fury DESTINATION bin)
 endif()
-
-install(TARGETS fury DESTINATION lib)

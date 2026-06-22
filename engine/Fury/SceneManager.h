@@ -27,6 +27,8 @@ namespace fury
 
 	public:
 
+		virtual ~SceneManager() = default;
+
 		virtual void AddSceneNode(const std::shared_ptr<SceneNode> &sceneNode) = 0;
 
 		virtual void AddSceneNodeRecursively(const std::shared_ptr<SceneNode> &sceneNode) = 0;

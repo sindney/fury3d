@@ -1,0 +1,276 @@
+# Fury3D — Lua scripting
+
+> Status (2026-06-18): minimum viable bridge — exposes the engine API surface
+> that `examples/Demo.lua` actually exercises. Wider bindings (Light,
+> MeshRender, Material, AnimationPlayer, InputUtil signals, etc.) are deferred
+> to follow-up changes.
+
+## How it works
+
+The `fury` executable is a Lua launcher. It:
+
+1. Opens an `sf::Window` at 1920×1080 with depth-24 / stencil-8 / GL 3.3 context settings (matching the previous C++ demo).
+2. Calls `fury::Engine::Initialize(...)` to bring up the engine subsystems.
+3. Opens a `sol::state` and calls `fury::LuaBindings::Register(lua)` to wire engine types into the script's global namespace.
+4. Injects the active SFML window into Lua as `__window` (a private global the bindings read; don't shadow it in your scripts).
+5. Loads and executes the script at `argv[1]`, defaulting to `Demo.lua` in the working directory.
+6. The script calls `Engine.run({...callbacks...})` — that drops into C++ and runs the main loop until the window closes.
+7. After `Engine.run` returns the Lua state is closed, then `fury::Engine::Shutdown()` runs, then the process exits.
+
+## `Engine.run` callback contract
+
+```lua
+Engine.run({
+    on_init         = function() ... end,    -- called once before the loop starts
+    on_update       = function(dt) ... end,  -- called once per render frame; dt is a float (seconds-fraction since last fixed tick)
+    on_fixed_update = function() ... end,    -- called 0..MAX_FRAMESKIP times per frame to catch up to 25 Hz
+    on_shutdown     = function() ... end,    -- called once after the loop exits
+})
+```
+
+All four callbacks are optional. Omitting one is equivalent to passing `nil` — the engine just won't invoke that hook.
+
+Ordering guarantees per frame:
+1. `RenderUtil:BeginFrame()` (engine-internal).
+2. `Engine::HandleEvent` for each pending SFML event.
+3. Zero or more `on_fixed_update` invocations (engine targets 25 Hz with a max of 5 catch-up ticks per frame, then yields).
+4. `Gui::NewFrame(frame_dt)` (engine-internal).
+5. `on_update(dt)` — your render-rate logic. **This is where you call `Pipeline.GetActive():Execute(scene_manager)`** to actually draw.
+6. `window.display()` and `RenderUtil:EndFrame()` (engine-internal).
+
+The loop exits when the SFML window receives `sf::Event::Closed`. After that, `on_shutdown` fires, then `Engine.run` returns.
+
+**Lifetime caveat.** Lua functions stored in the callback table keep their `sol::function` refs alive for the duration of `Engine.run`. Don't stash callback closures somewhere they outlive `Engine.run`'s return — they reference the Lua state, which is closed by the launcher right after the script finishes.
+
+## Bound API reference
+
+The bindings live in `engine/Fury/LuaBindings.cpp`. Read that file for the source of truth; this section is a quick reference.
+
+### `Vector4`
+
+```lua
+local v = Vector4(1.0, 2.0, 3.0)        -- (x, y, z), w defaults to 1
+local v4 = Vector4(1.0, 2.0, 3.0, 0.0)  -- full (x, y, z, w)
+local s = Vector4(5.0)                  -- splat (5, 5, 5, 1)
+v.x, v.y, v.z, v.w = 0, 1, 2, 1         -- field assignment via property
+local len = v:Length()                  -- method call uses ':'
+local n = v:Normalized()
+v:Normalize()                           -- in-place
+local sum = v + Vector4(1, 1, 1, 1)     -- binary +/-
+local scaled = v * 2.5                  -- vector * scalar
+local neg = -v                          -- unary minus
+
+-- Static helpers
+Vector4.XAxis  -- read-only constants
+Vector4.YAxis
+Vector4.ZAxis
+```
+
+### `Quaternion`
+
+```lua
+local q = Quaternion()                  -- identity (0, 0, 0, 1)
+local r = Quaternion(0, 0, 0, 1)        -- explicit (x, y, z, w)
+q:Identity()                            -- reset to identity in place
+q.x, q.y, q.z, q.w = 0, 0, 0, 1
+```
+
+### `MathUtil`
+
+```lua
+MathUtil.PI                             -- constants
+MathUtil.HalfPI
+MathUtil.DegToRad
+MathUtil.RadToDeg
+local rad = MathUtil.DegreeToRadian(45.0)
+local deg = MathUtil.RadianToDegree(rad)
+local q = MathUtil.EulerRadToQuat(yaw, pitch, roll)   -- (yaw, pitch, roll) in radians
+```
+
+### `LogLevel`
+
+```lua
+LogLevel.EROR    -- error
+LogLevel.WARN    -- warning
+LogLevel.INFO    -- info
+LogLevel.DBUG    -- debug
+```
+
+### `OcTree`
+
+```lua
+local tree = OcTree.Create(
+    Vector4(-1000, -1000, -1000, 1),
+    Vector4( 1000,  1000,  1000, 1),
+    2)  -- max depth
+```
+
+### `Scene`
+
+```lua
+local scene = Scene.Create("name", FileUtil.GetAbsPath(), tree)
+Scene.SetActive(scene)
+local s = Scene.GetActive()
+local root = s:GetRootNode()
+local mgr  = s:GetSceneManager()
+local em   = s:GetEntityManager()
+local dir  = s:GetWorkingDir()
+s:SetWorkingDir("/some/path/")
+```
+
+> **Why `Scene.SetActive(...)` instead of `Scene.Active = ...`?** sol2's
+> `sol::property` mechanism assigns onto the Lua-side metatable rather than the
+> C++ static field in some configurations. Explicit getter/setter functions
+> sidestep the issue. `Pipeline.GetActive()` / `Pipeline.SetActive()` follow
+> the same pattern.
+
+### `Component` (base type)
+
+The `Component` Lua usertype is registered with no constructor; you can't instantiate one directly. Its purpose is to let `SceneNode:AddComponent` accept any subclass.
+
+### `Transform`
+
+```lua
+local t = Transform.Create()                                   -- default
+local t = Transform.Create(Vector4(0,0,0,1), Quaternion(),
+                           Vector4(1,1,1,1))                   -- with TRS
+```
+
+### `Camera`
+
+```lua
+local cam = Camera.Create()
+cam:PerspectiveFov(0.7854, 1.778, 1, 100)   -- (fov_rad, aspect, near, far)
+cam:SetShadowFar(30)
+cam:SetShadowBounds(Vector4(-5), Vector4(5))
+cam:GetNear()       -- returns float
+cam:GetFar()        -- returns float
+cam:GetShadowFar()  -- returns float
+```
+
+### `SceneNode`
+
+```lua
+local node = SceneNode.Create("name")
+node:SetLocalPosition(Vector4(0, 10, 25, 1))         -- Vector4 form
+node:SetLocalPosition(0, 10, 25)                     -- 3-float form
+node:SetLocalRoattion(Quaternion())                  -- Quaternion form
+node:SetLocalRoattion(0, 0.5, 0)                     -- (x, y, z) Euler form
+node:SetLocalRoattion(Vector4.YAxis, MathUtil.PI)    -- (axis, angle) form
+node:SetLocalScale(Vector4(2, 2, 2, 1))
+node:SetLocalScale(2.0)                              -- uniform scalar
+node:Recompose(false)                                -- false = don't update octree yet
+node:Recompose(true)                                 -- true  = update octree (do this once after AddComponent)
+node:AddComponent(Transform.Create())
+node:AddComponent(camera)
+local pos = node:GetWorldPosition()
+local n = node:GetChildCount()
+local c = node:GetChildAt(0)
+```
+
+> **Note**: `SetLocalRoattion` is the engine-side spelling (sic) — the engine
+> source has this typo from years ago and the Lua bindings preserve it.
+
+### `Pipeline` (base) and `PrelightPipeline`
+
+```lua
+Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+Pipeline.GetActive():SetCurrentCamera(cam_node)
+Pipeline.GetActive():Execute(octree)
+```
+
+### `FileUtil`
+
+```lua
+local exe_dir = FileUtil.GetAbsPath()                                -- exe-dir, with trailing slash
+local p = FileUtil.GetAbsPath("Resource/Scene/scene.bin")            -- exe-dir + relative
+local p_fs = FileUtil.GetAbsPath("foo\\bar", true)                   -- second arg: convert backslash to forward
+local exists = FileUtil.FileExist(p)
+FileUtil.LoadSceneFromCompressedFile(scene, path)                    -- LZ4 .bin loader
+FileUtil.LoadPipelineFromFile(pipeline, path)                        -- JSON pipeline loader
+```
+
+> **Why typed names?** sol2's overload resolution from a Lua usertype to a
+> C++ `shared_ptr<Base>` parameter is fragile in v3.5. We bind the
+> Serializable-typed loaders as distinctly-named functions per concrete subtype
+> instead of relying on overload picking.
+
+### `RenderUtil`
+
+```lua
+local r = RenderUtil.Instance()
+-- (no methods bound this round — RenderUtil is internally driven by Engine.run)
+```
+
+### `Gui`
+
+```lua
+Gui.ShowDefault(dt)   -- engine's built-in stats overlay
+Gui.Render()          -- emit ImGui draw lists
+```
+
+### `Engine`
+
+```lua
+Engine.run({ on_init = ..., on_update = ..., on_fixed_update = ..., on_shutdown = ... })
+```
+
+`Engine.run` is the **only** Engine entry point exposed to Lua. `Initialize`, `HandleEvent`, `Update`, `FixedUpdate`, `Shutdown` are launcher-level concerns and are not callable from scripts.
+
+## Hello, world
+
+A minimal `.lua` script that opens a window and prints a heartbeat every fixed tick:
+
+```lua
+local frame = 0
+
+local function on_init()
+    print("hello, fury3d")
+end
+
+local function on_update(dt)
+    frame = frame + 1
+end
+
+local function on_fixed_update()
+    if frame % 25 == 0 then
+        print("frame " .. frame)
+    end
+end
+
+local function on_shutdown()
+    print("goodbye after " .. frame .. " frames")
+end
+
+Engine.run({
+    on_init = on_init,
+    on_update = on_update,
+    on_fixed_update = on_fixed_update,
+    on_shutdown = on_shutdown,
+})
+```
+
+Run with: `./fury hello.lua` (from the working directory you want resources resolved against).
+
+## Gotchas
+
+- **`:` vs `.`** — usertype methods use `:` (which passes `self` as the first arg). Free functions in tables (`MathUtil.EulerRadToQuat`, `FileUtil.GetAbsPath`) use `.`. Mixing them fails silently or with a sol2 error about argument types.
+- **Vector4 arithmetic returns by value.** `local sum = a + b` produces a new `Vector4`; the original `a` is unchanged. If you want in-place modification, use `:Normalize()` or assign through `.x`/`.y`/etc.
+- **`Scene.Active` and `Pipeline.Active` are getter/setter functions, not properties.** Use `Scene.SetActive(...)` and `Scene.GetActive()` (same for `Pipeline`). See the §6 box above for why.
+- **`__window`** is a private launcher-injected global pointing at the active `sf::Window`. The Lua bindings read it inside `Engine.run`. Don't shadow this name in your scripts or you'll break `Engine.run`.
+- **Lua stdlib is fully open.** The launcher loads `base`, `string`, `math`, `table`, `io`, `os`, `package`. Scripts can read/write files, exec processes, etc. Acceptable for a dev tool today; revisit before shipping any script-running runtime to end users.
+- **Callback errors are caught.** Unhandled errors inside `on_init` / `on_update` / `on_fixed_update` / `on_shutdown` are logged via `FURYE` and the loop continues. The engine doesn't abort on a Lua callback error.
+- **No SFML-enum bindings yet.** Keyboard / mouse events are not exposed to Lua in this round. `Demo.lua` has no input handling.
+- **Component access is one-way.** `SceneNode:AddComponent(c)` works; the templated `GetComponent<T>()` is not bound. If you need to read components back, do it C++-side (the engine code can still introspect components freely).
+- **The vector type is Vector4 even for 3D positions.** This is a long-standing engine convention, not a Lua-binding artifact. See `docs/ARCHITECTURE.md` §5.1 for the rationale.
+
+## Future expansion
+
+When the bridge needs to grow:
+
+1. Add includes and the new `lua.new_usertype<T>(...)` blocks at the bottom of `engine/Fury/LuaBindings.cpp`.
+2. If `T` derives from another bound type, list the chain via `sol::base_classes, sol::bases<...>()`.
+3. If `T` has overloads with the same arity, use `sol::overload(static_cast<...>(&T::method), ...)` to disambiguate.
+4. If a method takes `shared_ptr<Base>` where Base is registered, do **not** rely on sol2's automatic upcast — bind a typed wrapper as a free function (see `LoadSceneFromCompressedFile` / `LoadPipelineFromFile` for the pattern).
+5. Add a new section to this doc with the new methods.
+6. Run the demo to make sure existing bindings still work — sol2's heavy template instantiation can flag incompatibilities at compile time, but lifetime issues only show up at run time.

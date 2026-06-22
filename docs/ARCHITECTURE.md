@@ -918,6 +918,65 @@ native translation. If we ever want to drop ANGLE and target Vulkan/Metal
 natively, the same call sites are the rewrite target — but that's a problem
 for future-us, and YAGNI today.
 
+#### 13.1.1 Why ANGLE integration is non-trivial — findings (2026-06-18)
+
+A first reconnaissance pass for the ANGLE retargeting (proposal scoped, then
+held — see §15) surfaced constraints that materially shape how this lands.
+Recording them here so the next attempt starts from the same baseline:
+
+- **No CMake.** ANGLE's only build system is **GN + Ninja** (`BUILD.gn`,
+  `.gn`, `DEPS`). There is no `CMakeLists.txt`, no `pkg-config`, no Meson.
+  Consuming ANGLE via `add_subdirectory()` the way we consume SFML and
+  tinygltf is **not possible**. The only build paths are: (a) drive Ninja
+  from CMake via `add_custom_command` after a one-time `gclient sync` /
+  `gn gen`, then `find_library` the resulting `libGLESv2`+`libEGL`; or
+  (b) skip building and consume prebuilt binaries from elsewhere
+  (Chrome's app bundle, third-party redistributables).
+- **No release tags.** The local clone (`furyengine/angle` @ `9464aca6`) is
+  Chromium-style rolling: zero `git tag -l` output, no semver. Pin choices
+  are commit SHAs, and "latest stable" is whatever the current Chrome
+  branch ships. There is no analogue to `tinygltf v2.9.7` or `SFML 3.1.0`
+  for stability.
+- **DEPS is large.** A real `gclient sync` against ANGLE's `DEPS` pulls
+  ~10GB of Chromium-aligned deps (depot_tools, build/, third_party/...). The
+  source-only checkout we have is 322MB; a buildable checkout is
+  multi-gigabyte. This shapes CI cost and dev-machine setup.
+- **No vendor-prebuilt redistributable.** Google ships ANGLE binaries
+  inside Chrome / Edge installations as `libGLESv2.dylib` + `libEGL.dylib`,
+  but **not** as a standalone download with a stable ABI. Any "use Chrome's
+  ANGLE" path is a proof-of-concept, not production.
+- **What other engines do.** Skia and Filament embed ANGLE by checking out
+  the same GN tree and building it as part of their own GN build. Bevy's
+  wgpu route avoids ANGLE entirely. None of them go through CMake
+  `add_subdirectory`. So there is no off-the-shelf "vendor ANGLE in a
+  CMake project" pattern to crib from — we have to invent it.
+- **macOS surface attachment is platform-specific.** The plan to feed
+  `sf::WindowBase::getNativeHandle()` into `eglCreateWindowSurface` is
+  straightforward on Linux (X11 Window) and Windows (HWND). On macOS,
+  ANGLE's Metal backend requires the window's content view to be a
+  `CAMetalLayer`-backed `NSView`, not the default `NSOpenGLContext`-backed
+  view that SFML installs. This is **Objective-C++ glue we don't have
+  today** — a discrete sub-task of the retargeting, not a passing detail.
+- **Engine-side surface area is large.** §9.6 already enumerates ~200–250
+  GL entry points across the renderer. The retargeting includes: retiring
+  `GLLoader.{h,cpp}` (~2,971 lines), replacing
+  `glPolygonMode(GL_LINE)` (not in GLES) with explicit line-list rendering,
+  swapping ImGui's GL3 backend for its GLES3 backend, and gating geometry
+  shaders (used for cubemap shadow projection — not core in GLES 3.0/3.1,
+  enabled via `EXT_geometry_shader` / `OES_geometry_shader` on supported
+  ANGLE backends). Each of those is small in isolation; the aggregate is
+  the work.
+- **Implication for scoping.** The "drop in ANGLE" change cannot be a
+  single small PR and is materially larger than the FBX → tinygltf swap.
+  When we resume, the natural decomposition is several sequential
+  changes: (1) submodule + GN-driven build wiring + headers-only compile,
+  (2) EGL surface creation from `sf::WindowBase` + macOS `CAMetalLayer`
+  view, (3) `glPolygonMode` and other GLES-incompatible call-site fixes
+  + ImGui GLES3 backend swap, (4) geometry-shader fallback or extension
+  gating. The ordering means the demo doesn't run end-to-end on ANGLE
+  until step 2 lands, which is fine — each step is independently
+  reviewable.
+
 ### 13.2 `furyengine/sfml` — SFML 2.x (kept, context bypassed)
 
 Kept for windowing, input, OS event loop, clipboard, monitor enumeration,
@@ -1024,7 +1083,8 @@ What we've explicitly committed to (so the next round of work has a fixed
 reference point):
 
 - **Windowing & input → keep SFML**, but bypass its GL context. Use
-  `sf::WindowBase` and feed `getSystemHandle()` into ANGLE's EGL.
+  `sf::WindowBase` and feed `getNativeHandle()` into ANGLE's EGL.
+  (Note: `getSystemHandle` was renamed to `getNativeHandle` in SFML 3.)
 - **RHI → ANGLE GLES 3.x, no extra abstraction layer.** The renderer
   files (`Shader.cpp`, `Pass.cpp`, `Texture.cpp`, `ArrayBuffers.cpp`,
   `RenderUtil.cpp`) keep calling GLES; we treat ANGLE as the abstraction
@@ -1035,6 +1095,62 @@ reference point):
 - **Scripting → sol2 / Lua, deferred.** Bind after the C++ API stabilises.
 - **Tests → pytest + pybind11**, scoped to the GPU-free modules listed in
   §14 for the first round.
+
+What's landed so far:
+
+- **FBX SDK removed; `GLTFDom` removed; `tinygltf v2.9.7` vendored** as
+  `engine/ThirdParty/tinygltf` submodule and compiled into `libfury` (with
+  `TINYGLTF_NO_STB_IMAGE` to avoid stb_image ODR collision). No engine
+  code calls `tinygltf` yet; that's the importer change. Commit
+  `cc79a90`.
+- **SFML 2.x → SFML 3.1.0 migration done** ahead of schedule. Originally
+  the plan was "keep SFML 2.x, just bypass its GL context"; that path
+  required SFML 2.x to be installed on the build host, and the local
+  `furyengine/sfml` clone was already at 3.1.0+. Ported all 89 SFML 2 →
+  SFML 3 call sites across `Engine.{h,cpp}`, `Gui.cpp`,
+  `InputUtil.{h,cpp}`, `Demo.cpp` (variant `sf::Event`, scoped enums,
+  `sf::State`/`sf::Style` split, `pollEvent` returning
+  `std::optional<sf::Event>`, `sf::Int32` → `std::int32_t`,
+  `LostFocus`/`GainedFocus` → `FocusLost`/`FocusGained`, etc.). Bumped
+  to **C++17** + CMake 3.22 (SFML 3 requirements). Commit `cc79a90`.
+- **rapidjson v1.1.0 vendored** as `engine/ThirdParty/rapidjson`
+  submodule (header-only). System-installed paths
+  (`RAPIDJSON_INCLUDE`/`SFML_INCLUDE`/`SFML_LIB`) no longer accepted.
+  Commit `cc79a90`.
+- **Pre-existing bug fixes that became necessary**: 5 rvalue-address
+  bugs in `Shader.cpp:372-373` and `Pipeline.cpp:430,509,598,672`
+  (taking `&Matrix4_returned_by_value.Raw[0]` is ill-formed under C++17
+  AppleClang); CMake `-NDEBUG` typo → `-DNDEBUG`. Commit `cc79a90`.
+- **sol2 + Lua 5.4 scripting landed.** Vendored `Lua v5.4.7` and
+  `sol2 v3.5.0` as submodules under `engine/ThirdParty/{lua,sol2}`. The
+  fixed-timestep main loop moved out of `Demo.cpp` and into
+  `Engine::Run(window, callbacks)`. The build now produces a single
+  static `fury` executable (was: `libfury.dylib` + a separate `demo`
+  binary; the shared-lib path stays available behind
+  `BUILD_SHARED_LIBS=ON`). `examples/Demo.cpp` is gone, replaced by
+  `examples/Demo.lua` plus a thin C++ launcher at `examples/main.cpp`.
+  Lua scripts register callbacks via `Engine.run({on_init=...,
+  on_update=..., on_fixed_update=..., on_shutdown=...})`. The bound
+  surface covers what `Demo.lua` exercises end-to-end: `Vector4`,
+  `Quaternion`, `MathUtil`, `OcTree`, `Scene`, `SceneNode`, `Camera`,
+  `Transform`, `Component`, `Pipeline`, `PrelightPipeline`,
+  `FileUtil`, `LogLevel`, `RenderUtil`, `Gui`, plus `Engine.run`. See
+  `docs/LUA.md`. Pre-existing bug fix: `SceneManager` gained a
+  `virtual ~SceneManager() = default;` (sol2's templated destructor
+  instantiation requires it; the pre-change code would have UB-deleted
+  any heap-allocated `SceneManager` through a base pointer).
+
+**Held: ANGLE integration (2026-06-18).** Reconnaissance pass scoped a
+proposal but the work was held. Reasons enumerated in §13.1.1: ANGLE
+has no CMake, no release tags, no vendor-prebuilt redistributable; the
+GN/Ninja + `gclient sync` build path is materially different from
+anything else we've vendored; macOS Metal needs `CAMetalLayer` view
+glue we don't have today; and the engine-side surface area
+(`GLLoader.{h,cpp}` retirement, `glPolygonMode` replacement, ImGui
+GLES3 backend swap, geometry-shader gating) is large enough that one
+PR is not the right shape. When we resume, plan to decompose into ~4
+sequential changes (build wiring → window surface + Metal view →
+GLES-incompatible call sites + ImGui swap → geom-shader fallback).
 
 What we have **not** decided yet (open questions for the next discussion):
 

@@ -59,7 +59,7 @@
 
 - [x] 9.1 Verify the working tree contains: a new `.gitmodules` at the repo root, a gitlink `engine/ThirdParty/tinygltf` pointing at `v2.9.7`, two CMakeLists.txt edits, and the engine source deletions/edits above. No other files should be modified.
 - [x] 9.2 Run `grep -rnE 'FBX|FbxParser|_FURY_FBXPARSER_IMP_|GLTFDom' engine/CMakeLists.txt examples/CMakeLists.txt engine/Fury/` one last time as the final acceptance check; expect zero matches outside whitespace/CRLF noise.
-- [ ] 9.3 Stage and commit (do NOT push without user confirmation): `git add -A` then a single commit message like `Remove FBX SDK; vendor tinygltf v2.9.7 as submodule (compile-only milestone)`.
+- [x] 9.3 Stage and commit (do NOT push without user confirmation): `git add -A` then a single commit message like `Remove FBX SDK; vendor tinygltf v2.9.7 as submodule (compile-only milestone)`. (Done as commit `cc79a90` on `master`, not pushed.)
 
 ## 10. Out-of-scope fixes performed to make the build green (note for archive)
 

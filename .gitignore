@@ -18,11 +18,14 @@ compile_commands.json
 # Demo runtime artifacts dropped next to the binary
 /examples/bin/Log.txt
 /examples/bin/demo
+/examples/bin/fury
 /examples/bin/libfury.dylib
 /examples/bin/libsfml-*.dylib
 /examples/bin/libfury.so
 /examples/bin/libfury.a
 /examples/bin/*.pdb
+# Lua scripts get staged into bin/ when running; the canonical copy lives in examples/.
+/examples/bin/*.lua
 
 # Editor / IDE
 *.sublime-project
