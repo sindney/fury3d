@@ -88,6 +88,6 @@ These bugs / refinements weren't visible from the original proposal but had to b
 ## 9. Wrap-up
 
 - [x] 9.1 Run `openspec status --change "fix-demo-scene-import-and-menu" --json` and confirm `isComplete: true`.
-- [ ] 9.2 Commit: `Demo.lua: File menu collapses Scene; GltfImporter: KHR_lights_punctual; Importer.LoadScene .json works after New; argv startup-scene`.
-- [ ] 9.3 Run `/opsx:sync` to fold the deltas into `openspec/specs/gltf-importer/spec.md` and `openspec/specs/scene-editor/spec.md`.
-- [ ] 9.4 Run `/opsx:archive` to move the change into `openspec/changes/archive/<date>-fix-demo-scene-import-and-menu/`.
+- [x] 9.2 Commit: `Demo.lua: File menu collapses Scene; GltfImporter: KHR_lights_punctual; Importer.LoadScene .json works after New; argv startup-scene`.
+- [x] 9.3 Run `/opsx:sync` to fold the deltas into `openspec/specs/gltf-importer/spec.md` and `openspec/specs/scene-editor/spec.md`.
+- [x] 9.4 Run `/opsx:archive` to move the change into `openspec/changes/archive/<date>-fix-demo-scene-import-and-menu/`.
