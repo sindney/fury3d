@@ -76,6 +76,17 @@ int main(int argc, char *argv[])
 		lua["__window"] = &window;
 
 		const std::string script_path = (argc > 1) ? argv[1] : "Demo.lua";
+
+		// Forward extra command-line arguments to the script via the standard
+		// Lua `arg` table (matches the convention of the `lua` interpreter):
+		//   arg[0]    = script path
+		//   arg[1..N] = argv[2..argc-1]
+		// Demo.lua reads arg[1] as an optional startup-scene override.
+		sol::table arg_tbl = lua.create_named_table("arg");
+		arg_tbl[0] = script_path;
+		for (int i = 2; i < argc; ++i)
+			arg_tbl[i - 1] = std::string(argv[i]);
+
 		FURYI << "Loading Lua script: " << script_path;
 
 		sol::protected_function_result result =

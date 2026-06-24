@@ -77,10 +77,17 @@ namespace fury
 		std::string FURY_API InputText(const char* label, const std::string &current, int max_len);
 
 		// Register an optional callback invoked inside the engine's main menu
-		// bar, after the built-in File/View menus. Pass an empty std::function
-		// to clear. The caller is responsible for clearing before any captured
-		// Lua state is destroyed.
+		// bar, BEFORE the built-in View menu so script-emitted menus render
+		// to the left of View. Pass an empty std::function to clear. The
+		// caller is responsible for clearing before any captured Lua state
+		// is destroyed.
 		void FURY_API SetMenuBarCallback(std::function<void()> cb);
+
+		// Request that the engine window close. Safe to call multiple times:
+		// the second invocation is a no-op when the window has already been
+		// destroyed. Used by Lua scripts via the `Window.Close()` binding to
+		// implement File -> Quit (the engine no longer owns the File menu).
+		void FURY_API CloseWindow();
 	}
 }
 

@@ -204,7 +204,17 @@ namespace fury
 		int channels;
 		std::vector<unsigned char> pixels;
 
-		if (FileUtil::LoadImage(Scene::Path(filePath), pixels, m_Width, m_Height, channels))
+		// Resolve via Scene::Path (which prepends the active scene's
+		// working_dir) for relative paths; absolute paths are passed through
+		// untouched so glTF-importer-extracted textures (which write to
+		// /tmp/.../outdoor_imageN.jpg etc.) resolve correctly without being
+		// double-prefixed.
+		const bool isAbsolute = !filePath.empty()
+			&& (filePath.front() == '/' || filePath.front() == '\\'
+				|| (filePath.size() >= 2 && filePath[1] == ':'));
+		const std::string resolved = isAbsolute ? filePath : Scene::Path(filePath);
+
+		if (FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
 		{
 			unsigned int internalFormat, imageFormat;
 

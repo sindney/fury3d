@@ -475,22 +475,30 @@ namespace fury
 			m_MenuBarCallback = std::move(cb);
 		}
 
+		void CloseWindow()
+		{
+			// Idempotent: m_Window is null after Shutdown(), and isOpen()
+			// returns false once SFML has processed the close. A second
+			// Close() call is a no-op rather than a crash.
+			if (m_Window != nullptr && m_Window->isOpen())
+			{
+				m_Window->close();
+			}
+		}
+
 		void ShowDefault(float dt)
 		{
 			// main menu bar
 			{
 				if (ImGui::BeginMainMenuBar())
 				{
-					if (ImGui::BeginMenu("File"))
+					// Script-emitted menus render first so they appear to the
+					// LEFT of the engine's built-in View menu. The engine no
+					// longer owns a File menu — Quit lives in user scripts
+					// via the `Window.Close()` Lua binding.
+					if (m_MenuBarCallback)
 					{
-						if (ImGui::MenuItem("Quit"))
-						{
-							if (m_Window != NULL)
-							{
-								m_Window->close();
-							}
-						}
-						ImGui::EndMenu();
+						m_MenuBarCallback();
 					}
 					if (ImGui::BeginMenu("View"))
 					{
@@ -498,10 +506,6 @@ namespace fury
 						ImGui::MenuItem("GBuffer",        nullptr, &m_ShowGBufferWindow);
 						ImGui::MenuItem("Shadow Buffers", nullptr, &m_ShowShadowBufferWindow);
 						ImGui::EndMenu();
-					}
-					if (m_MenuBarCallback)
-					{
-						m_MenuBarCallback();
 					}
 					ImGui::EndMainMenuBar();
 				}

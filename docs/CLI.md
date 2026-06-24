@@ -16,6 +16,9 @@ initialization:
   window opens, `Engine::Initialize` is never called, no Lua VM is created.
 - Otherwise, `argv[1]` is treated as a Lua script path (current behavior;
   defaults to `Demo.lua` if no arg). See `docs/LUA.md` for that surface.
+  Any remaining `argv[2..]` is forwarded to the script as a standard Lua
+  `arg` table — `Demo.lua` honors `arg[1]` as an optional startup scene
+  (e.g. `./fury Demo.lua outdoor.fbx`). See LUA.md for the convention.
 
 This means a CLI invocation like `./fury convert gltf in.gltf out.json` is
 fast and predictable: no graphics state, no UI, no script VM. The CLI is

@@ -4,6 +4,7 @@
 
 #include "Fury/AnimationClip.h"
 #include "Fury/Camera.h"
+#include "Fury/Color.h"
 #include "Fury/Component.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
@@ -14,6 +15,7 @@
 #include "Fury/GltfImporter.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
+#include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Material.h"
@@ -138,7 +140,8 @@ namespace fury
 
 			// --- SceneManager (base) ------------------------------------------
 			lua.new_usertype<SceneManager>("SceneManager",
-				sol::no_constructor);  // abstract; produced via OcTree::Create
+				sol::no_constructor,  // abstract; produced via OcTree::Create
+				"AddSceneNodeRecursively", &SceneManager::AddSceneNodeRecursively);
 
 			// --- Serializable (base — needed so FileUtil::Load* can accept Scene/Pipeline) -
 			lua.new_usertype<Serializable>("Serializable",
@@ -195,6 +198,34 @@ namespace fury
 				"SetShadowFar", &Camera::SetShadowFar,
 				"SetShadowBounds", &Camera::SetShadowBounds);
 
+			// --- Color ---------------------------------------------------------
+			lua.new_usertype<Color>("Color",
+				sol::call_constructor,
+				sol::constructors<Color(float, float, float, float)>());
+
+			// --- LightType + Light --------------------------------------------
+			// LightType enum exposed as a plain Lua table so scripts can write
+			// `light:SetType(LightType.DIRECTIONAL)`.
+			sol::table light_type_tbl = lua.create_named_table("LightType");
+			light_type_tbl["DIRECTIONAL"] = static_cast<int>(LightType::DIRECTIONAL);
+			light_type_tbl["POINT"]       = static_cast<int>(LightType::POINT);
+			light_type_tbl["SPOT"]        = static_cast<int>(LightType::SPOT);
+
+			lua.new_usertype<Light>("Light",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", &Light::Create,
+				"GetType",      &Light::GetType,
+				"SetType",      [](Light &l, int t) { l.SetType(static_cast<LightType>(t)); },
+				"GetColor",     &Light::GetColor,
+				"SetColor",     &Light::SetColor,
+				"GetIntensity", &Light::GetIntensity,
+				"SetIntensity", &Light::SetIntensity,
+				"GetRadius",    &Light::GetRadius,
+				"SetRadius",    &Light::SetRadius,
+				"SetCastShadows", &Light::SetCastShadows,
+				"CalculateAABB",  &Light::CalculateAABB);
+
 			// --- SceneNode -----------------------------------------------------
 			lua.new_usertype<SceneNode>("SceneNode",
 				sol::no_constructor,
@@ -213,8 +244,15 @@ namespace fury
 					static_cast<void(SceneNode::*)(float)>(&SceneNode::SetLocalScale)),
 				"Recompose", &SceneNode::Recompose,
 				"AddComponent", &SceneNode::AddComponent,
+				"AddChild", &SceneNode::AddChild,
 				"GetChildCount", &SceneNode::GetChildCount,
-				"GetChildAt", &SceneNode::GetChildAt);
+				"GetChildAt", &SceneNode::GetChildAt,
+				// Convenience: pull the Light component (if any) so Lua can
+				// inspect / mutate the light without needing template-style
+				// GetComponent<T>() bindings. Returns nil when absent.
+				"GetLight", [](SceneNode &n) -> std::shared_ptr<Light> {
+					return n.GetComponent<Light>();
+				});
 
 			// --- Pipeline ------------------------------------------------------
 			lua.new_usertype<Pipeline>("Pipeline",
@@ -343,7 +381,20 @@ namespace fury
 					}
 					auto slash = path.find_last_of("/\\");
 					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
-					auto scene = GltfImporter::Import(res.output_path, path, working, {});
+					// Set output_basename so GltfImporter extracts embedded glb
+					// images alongside the temp glb. Without this, embedded
+					// images are dropped on the floor and material textures
+					// resolve to a stem-less "_imageN.jpg" path that
+					// CreateFromImage can't open — gbuffer_diffuse stays
+					// black and the imported scene renders pitch-black.
+					GltfImporter::Options opts;
+					{
+						auto dot = res.output_path.find_last_of('.');
+						opts.output_basename_no_ext = (dot == std::string::npos)
+							? res.output_path
+							: res.output_path.substr(0, dot);
+					}
+					auto scene = GltfImporter::Import(res.output_path, path, working, opts);
 					std::filesystem::remove(res.output_path, ec);
 					return scene;
 				}
@@ -363,12 +414,27 @@ namespace fury
 					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				if (ext == ".json" || ext == ".bin")
 				{
-					auto slash = path.find_last_of("/\\");
-					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
-					auto scene = Scene::Create("imported", working);
+					// Scene's working_dir is what Material/Texture paths inside
+					// the scene file are joined against. Engine convention (see
+					// Demo.lua's Scene.Create call): use the engine's absolute
+					// base path (the bin/ dir), NOT the directory of the input
+					// file. Texture paths inside the JSON are already stored
+					// as "Resource/Scene/foo.jpg" — prefixing with the file's
+					// own directory would produce "Resource/Scene/Resource/Scene/foo.jpg".
+					auto scene = Scene::Create("imported", FileUtil::GetAbsPath());
+					// MeshRender::Load and friends resolve mesh/material
+					// references against Scene::Active->GetEntityManager()
+					// (see Scene::Manager). When the demo is mid-edit (e.g.
+					// after File -> New cleared the active scene), that
+					// EntityManager is empty and the load would fail with
+					// "Mesh ... not found!". Swap Scene::Active to the
+					// import target for the duration of the load.
+					auto prev_active = Scene::Active;
+					Scene::Active = scene;
 					bool ok = (ext == ".json")
 						? FileUtil::LoadFile(scene, path)
 						: FileUtil::LoadCompressedFile(scene, path);
+					Scene::Active = prev_active;
 					return ok ? scene : nullptr;
 				}
 				if (ext == ".gltf" || ext == ".glb")
@@ -454,6 +520,13 @@ namespace fury
 					}
 				});
 			};
+
+			// --- Window (engine window control) ------------------------------
+			// The engine no longer renders a built-in File -> Quit. Scripts
+			// own the File menu and use Window.Close() to terminate the
+			// engine. Idempotent.
+			sol::table window_tbl = lua.create_named_table("Window");
+			window_tbl["Close"] = &Gui::CloseWindow;
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------
 			lua.new_usertype<RenderUtil>("RenderUtil",

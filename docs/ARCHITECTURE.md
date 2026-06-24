@@ -1180,6 +1180,20 @@ What's landed so far:
   binaries (`engine/Fury/FbxConverter.{h,cpp}` is the wrapper). The
   engine never links the FBX SDK; FBX → glTF happens out of process,
   then chains through the same glTF importer.
+- **glTF lights (KHR_lights_punctual) imported (2026-06-23).** The
+  `GltfImporter` now reads `tinygltf::Model::lights` and attaches engine
+  `Light` components to any `SceneNode` whose source glTF node references
+  one. Mapping: point → `LightType::POINT` (range → radius), spot →
+  `LightType::SPOT` (range → radius, inner/outer cone angles passed
+  through in radians), directional → `LightType::DIRECTIONAL`. `color`
+  copies 1:1 into engine `Color`. `intensity` is **unit-less pass-through
+  in v1** — glTF's intensity is in candela / lumen / lux depending on
+  light type per KHR_lights_punctual, and an HDR/PBR pipeline that
+  consumes those units is a deferred follow-up. Each attached light is
+  logged once at info level. Without this, deferred-Lambert renders any
+  imported scene black since there's nothing illuminating the geometry;
+  FBX2glTF emits `KHR_lights_punctual` for FBX sources by default, so
+  the chain works end-to-end.
 - **Runtime scene editor in `Demo.lua` (2026-06-22).** New Lua bindings:
   `Importer.LoadGltf / LoadFbx / LoadScene / MergeInto`,
   `FileUtil.ListDirectory / SaveFile / SaveCompressedFile`,

@@ -19,6 +19,7 @@
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Joint.h"
+#include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Material.h"
@@ -177,6 +178,7 @@ namespace fury
 			// Sampler-derived filter / wrap. tinygltf::Texture has a sampler
 			// index; we copy the basics. For v1 use the engine's defaults
 			// when no sampler is present.
+			bool mipmap = true;
 			if (gtex.sampler >= 0 && gtex.sampler < static_cast<int>(model.samplers.size()))
 			{
 				const auto &sampler = model.samplers[gtex.sampler];
@@ -188,6 +190,15 @@ namespace fury
 				if (sampler.magFilter == 9728) tex->SetFilterMode(FilterMode::NEAREST);
 				else tex->SetFilterMode(FilterMode::LINEAR);
 			}
+
+			// Eagerly upload the texture pixels. Without this, the texture
+			// stays dirty (m_FilePath set but m_ID == 0) and Shader::BindTexture
+			// silently skips the bind — the gbuffer's diffuse target ends up
+			// black, the deferred Lambert pipeline multiplies by zero, and
+			// the whole imported scene renders pitch-black. CreateFromImage
+			// is GL-touching but the engine's import flow always runs after
+			// Engine::Initialize so the context is current.
+			tex->CreateFromImage(uri, srgb, mipmap);
 			return tex;
 		}
 
@@ -265,6 +276,20 @@ namespace fury
 					<< "' — discarded PBR fields: " << sig
 					<< " (engine pipeline is Lambert in v1; HDR/PBR pipeline deferred)";
 			}
+
+			// Material::SetTexture recomputes m_TextureFlags. If we never
+			// added a texture (no baseColorTexture), flags are still 0 from
+			// the default constructor — and Pass::GetShader treats `flags == 0`
+			// as "first shader of this type", which picks `gbuffer_shader`
+			// (the with-texture variant) over `gbuffer_notexture_shader`.
+			// Result: the gbuffer fragment shader samples an unbound
+			// diffuse_texture, the diffuse buffer ends up black, and the
+			// final Lambert combine produces a black scene.
+			//
+			// Force a flag recompute by calling SetTexture(diffuse, nullptr).
+			// When no diffuse texture is registered, this sets flags to
+			// COLOR_ONLY so Pass::GetShader picks gbuffer_notexture_shader.
+			material->SetTexture(Material::DIFFUSE_TEXTURE, nullptr);
 
 			return material;
 		}
@@ -703,6 +728,86 @@ namespace fury
 			return true;
 		}
 
+		// Build engine Light prototypes from KHR_lights_punctual definitions
+		// in `model.lights`. Each prototype is cloned per-node when attached
+		// (Light::Clone()) so SceneNodes don't share state.
+		//
+		// Mapping (lossy in v1):
+		//   point  -> LightType::POINT  (range -> radius; 0/unset -> 10.0 default)
+		//   spot   -> LightType::SPOT   (range -> radius; inner/outer cones in radians, 1:1)
+		//   directional -> LightType::DIRECTIONAL (range ignored)
+		// color  (linear float[3]) -> engine Color (alpha = 1)
+		// intensity              -> engine intensity (1:1; PBR-unit conversion deferred)
+		//
+		// glTF "range == 0" means infinite per spec, but the engine's deferred
+		// Lambert pipeline draws a finite light-volume mesh scaled by radius;
+		// radius 0 produces a zero-size volume and the light contributes
+		// nothing. We default to 10.0 (matches the demo scale of hand-authored
+		// scene.json lights) so imported lights are visible by default. Users
+		// who need a different falloff can edit the scene file post-import.
+		//
+		// CalculateAABB is invoked after all fields are set so OnAttaching
+		// (which copies m_AABB onto the SceneNode for octree visibility) sees
+		// the right bounds.
+		//
+		// Unknown types fall back to POINT with a one-line warning (no abort).
+		void BuildLightPrototypes(
+			const tinygltf::Model &model,
+			std::vector<Light::Ptr> &prototypes)
+		{
+			constexpr float kDefaultPointSpotRadius = 10.0f;
+			prototypes.clear();
+			prototypes.reserve(model.lights.size());
+			for (size_t i = 0; i < model.lights.size(); ++i)
+			{
+				const auto &gl = model.lights[i];
+				auto light = Light::Create();
+
+				if (gl.type == "point")
+					light->SetType(LightType::POINT);
+				else if (gl.type == "spot")
+					light->SetType(LightType::SPOT);
+				else if (gl.type == "directional")
+					light->SetType(LightType::DIRECTIONAL);
+				else
+				{
+					FURYW << "gltf-importer: light[" << i << "] '" << gl.name
+						<< "' has unknown type '" << gl.type
+						<< "'; defaulting to POINT";
+					light->SetType(LightType::POINT);
+				}
+
+				if (gl.color.size() >= 3)
+					light->SetColor(Color(
+						static_cast<float>(gl.color[0]),
+						static_cast<float>(gl.color[1]),
+						static_cast<float>(gl.color[2]),
+						1.0f));
+
+				light->SetIntensity(static_cast<float>(gl.intensity));
+
+				if (gl.type != "directional")
+				{
+					float radius = (gl.range > 0.0)
+						? static_cast<float>(gl.range)
+						: kDefaultPointSpotRadius;
+					light->SetRadius(radius);
+				}
+
+				if (gl.type == "spot")
+				{
+					light->SetInnerAngle(static_cast<float>(gl.spot.innerConeAngle));
+					light->SetOutterAngle(static_cast<float>(gl.spot.outerConeAngle));
+				}
+
+				// Build the AABB from the now-populated fields. OnAttaching
+				// reads it onto the SceneNode for octree visibility queries.
+				light->CalculateAABB();
+
+				prototypes.push_back(light);
+			}
+		}
+
 		// Walk a glTF node and emit a matching engine SceneNode tree under
 		// `parent`. Recursive over node.children. Each emitted SceneNode gets
 		// a Transform component (carrying TRS) and, if the glTF node refs a
@@ -719,6 +824,8 @@ namespace fury
 			const std::vector<std::shared_ptr<Mesh>> &meshes,
 			const std::vector<std::shared_ptr<Material>> &materials,
 			const std::vector<std::vector<int>> &submesh_to_gltf_material,
+			const std::vector<Light::Ptr> &light_prototypes,
+			int &lights_attached,
 			std::vector<std::shared_ptr<SceneNode>> &gltf_node_to_scene_node)
 		{
 			if (node_index < 0 || node_index >= static_cast<int>(model.nodes.size())) return;
@@ -791,13 +898,57 @@ namespace fury
 			if (node.camera >= 0)
 				FURYI << "gltf-importer: node '" << nname << "' references a glTF camera (skipping; v1 doesn't bind cameras)";
 
+			// KHR_lights_punctual: attach a Light component if this node
+			// references a light. Out-of-range indices are warned and skipped
+			// rather than aborting the import.
+			if (node.light >= 0)
+			{
+				if (node.light < static_cast<int>(light_prototypes.size()))
+				{
+					auto light = std::dynamic_pointer_cast<Light>(
+						light_prototypes[node.light]->Clone());
+					if (light)
+					{
+						sn->AddComponent(light);
+						++lights_attached;
+						const auto &gl = model.lights[node.light];
+						const auto col = light->GetColor();
+						FURYI << "gltf-importer: attached "
+							<< EnumUtil::LightTypeToString(light->GetType())
+							<< " light to node '" << nname
+							<< "' (intensity=" << light->GetIntensity()
+							<< ", color=(" << col.r << "," << col.g << "," << col.b << "))";
+
+						// FBX-rooted glTFs typically inherit a 100x cm-to-m
+						// scale on every node, including light-only nodes.
+						// The deferred-Lambert pipeline draws the point-light
+						// volume by `worldMatrix.AppendScale(light_radius)`
+						// (PrelightPipeline.cpp), so a parent scale of 100
+						// produces a volume mesh thousands of units wide
+						// which gets z-clipped against the camera far plane
+						// and contributes no fragments. Light-only nodes
+						// have no geometry, so the scale is parasitic —
+						// reset it to 1 so the volume mesh renders at a
+						// sensible size.
+						sn->SetLocalScale(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+					}
+				}
+				else
+				{
+					FURYW << "gltf-importer: node '" << nname
+						<< "' references light index " << node.light
+						<< " but model has only " << light_prototypes.size()
+						<< " light(s); skipping";
+				}
+			}
+
 			sn->Recompose(false);
 			parent->AddChild(sn);
 			gltf_node_to_scene_node[node_index] = sn;
 
 			for (int child : node.children)
 				WalkNode(model, child, sn, meshes, materials, submesh_to_gltf_material,
-					gltf_node_to_scene_node);
+					light_prototypes, lights_attached, gltf_node_to_scene_node);
 		}
 
 		// Resample a glTF animation sampler at the engine's fixed tick rate
@@ -1009,6 +1160,10 @@ namespace fury
 		// Node tree walk. Roots: either the default scene's nodes, or every
 		// root node if no default. WalkNode populates the gltf_node_to_scene_node
 		// map so the animation pass can resolve channel targets by node index.
+		std::vector<Light::Ptr> light_prototypes;
+		BuildLightPrototypes(model, light_prototypes);
+
+		int lights_attached = 0;
 		std::vector<std::shared_ptr<SceneNode>> gltf_node_to_scene_node(model.nodes.size());
 		auto root = scene->GetRootNode();
 		int default_scene = model.defaultScene >= 0 ? model.defaultScene : 0;
@@ -1016,7 +1171,13 @@ namespace fury
 		{
 			for (int n : model.scenes[default_scene].nodes)
 				WalkNode(model, n, root, meshes, materials, submesh_to_gltf_material,
-					gltf_node_to_scene_node);
+					light_prototypes, lights_attached, gltf_node_to_scene_node);
+		}
+
+		if (lights_attached == 0 && model.lights.empty())
+		{
+			FURYW << "gltf-importer: '" << input_path
+				<< "' has no lights — viewport will render black under deferred Lambert pipeline";
 		}
 
 		// Animations: one engine AnimationClip per glTF animation, resampled

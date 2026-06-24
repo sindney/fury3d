@@ -222,10 +222,16 @@ namespace fury
 			}
 
 			std::int32_t elapsed = clock.getElapsedTime().asMilliseconds();
-			float dt = float(elapsed + SKIP_TICKS - next_game_tick) / float(SKIP_TICKS);
 			next_game_tick -= elapsed;
 
-			Gui::NewFrame(clock.restart().asSeconds());
+			// Wall-clock dt (real seconds since last frame). The fixed-tick
+			// loop above uses `clock` directly; we restart it here AFTER
+			// reading the elapsed-ms slice so the next iteration's
+			// `clock.getElapsedTime()` measures from this point. Scripts
+			// can sum dt across frames to get true elapsed seconds.
+			float dt = clock.restart().asSeconds();
+
+			Gui::NewFrame(dt);
 			if (cb.OnUpdate) cb.OnUpdate(dt);
 			Update(dt);
 

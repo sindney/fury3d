@@ -465,6 +465,35 @@ Engine.run({...callbacks...}, { max_fps = 60, gui_scale = 1.25, gui_font_scale =
 
 `Engine.run` is the **only** Engine entry point exposed to Lua. `Initialize`, `HandleEvent`, `Update`, `FixedUpdate`, `Shutdown` are launcher-level concerns and are not callable from scripts. The optional second argument is the options table — see the contract section above for keys.
 
+### `Window`
+
+```lua
+Window.Close()  -- request that the engine window close; idempotent
+```
+
+`Window.Close()` is the script-side handle the engine no longer owns the built-in `File → Quit` menu. The engine's main loop exits on the next iteration. Calling `Window.Close()` after the window has already closed is a no-op. `Demo.lua` uses this to wire the `File → Quit` entry in its menu.
+
+### `arg` — command-line arguments
+
+The launcher populates a standard Lua `arg` table from `argv`:
+
+```
+arg[0]    = script path (the same string passed as argv[1] to `fury`, or "Demo.lua" by default)
+arg[1..N] = argv[2..argc-1] (each entry a string)
+#arg      = count of post-script arguments
+```
+
+This matches the convention of the standalone `lua` interpreter, so scripts authored elsewhere drop in. `Demo.lua` honors `arg[1]` as an optional startup-scene path:
+
+```sh
+./fury Demo.lua                 # loads Resource/Scene/scene.bin (the default)
+./fury Demo.lua outdoor.fbx     # loads Resource/Scene/outdoor.fbx as the startup scene
+./fury Demo.lua /path/to/x.glb  # absolute paths work too
+./fury Demo.lua nope.fbx        # logs a warning, falls back to scene.bin
+```
+
+The resolution rule Demo.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Resource/Scene/`. If both miss, surface a status message and fall back to `scene.bin` so the editor is still interactive.
+
 ## Hello, world
 
 A minimal `.lua` script that opens a window and prints a heartbeat every fixed tick:
