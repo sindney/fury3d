@@ -1,0 +1,39 @@
+## Why
+
+Two related problems block visual debugging of the demo:
+
+1. **FBX imports render untextured.** Opening `tank.fbx` (or `james.fbx`) from Demo.lua produces flat-shaded geometry, even though the JPEG textures live next to the FBX in `Resource/Scene/`. The current pipeline embeds → re-embeds → extracts-to-temp → texture-loads-from-temp, with several places where the chain can silently break: `Texture::CreateFromImage` runs eagerly during import against a synthesized temp path, the temp dir's lifetime is fragile, and any `convert fbx … .json` call writes a scene that references those temp paths (non-portable). The right architecture is the obvious one: **keep embedded image bytes embedded — in memory — through the entire import, and only extract to disk when the user saves a `.json`/`.bin` that needs file references.**
+2. **Visual bugs are hard to verify from a CLI loop.** When a Lua/editor change ships, the only way to confirm it renders correctly is to launch the GUI, drive the camera, and eyeball it. There's no programmatic way to capture what a script renders, which makes regressions like (1) easy to miss and hard to bisect.
+
+## What Changes
+
+- **Embedding flows from FBX → glTF → engine `Texture`, no disk hops.** FBX2glTF already preserves embedding into the produced `.glb`. The glTF importer SHALL stop synthesizing temp-file URIs and writing extracted bytes during import; instead, for any embedded image (bufferView-backed, empty `image.uri`), it SHALL load the encoded bytes directly into the engine `Texture` via a new `Texture::CreateFromMemory(bytes, len, srgb, mipmap)` API. The texture uploads to the GPU from memory and retains the encoded bytes for later use.
+- **External-URI glTF images keep working.** When `image.uri` is non-empty (a `.gltf` with `textures/foo.png` next to it), the existing `SetFilePathAndSRGB` + `CreateFromImage` path runs unchanged.
+- **Disk extraction moves to the save path.** `FileUtil::SaveFile` and `FileUtil::SaveCompressedFile` SHALL, before serializing the `Scene`, walk every `Material`'s textures. For each texture that has embedded bytes but no `m_FilePath`, the save path SHALL write the bytes to a sibling file of the output scene (preferring the texture's recorded original filename, e.g. `body.jpg`, falling back to `<scene_stem>_image<i>.<ext>`), set the texture's `m_FilePath` to that new file, and only then proceed to serialize. Identical bytes already on disk SHALL be reused (hash-equal → skip the write).
+- **Deletes the temp-file extraction path that runs at import time.** `ExtractEmbeddedImages`, `Options::output_basename_no_ext`, and the synthesized `_image<i>.<ext>` URI scheme are removed. Their behavior is replaced by the in-memory + on-save flow above.
+- **Adds a screenshot capture mode driven from C++.** A new runtime flag `--screenshot <path>` (and optional `--screenshot-frame <N>`, default `2`) SHALL trigger after N rendered frames: read the back-buffer via `glReadPixels`, write a PNG via `stb_image_write`, and exit cleanly. The capture runs after `Pipeline::Execute` and the GUI overlay for the chosen frame, so any Lua-driven editor or gameplay scene that the engine is running can be captured. The capture is implemented in C++ in the engine's main loop, not in Lua, so it works for any script the user passes.
+- **Documents both features.** `docs/CLI.md` SHALL describe the screenshot flag set and the on-save texture extraction (the latter is a behavior change visible to anyone inspecting a saved `.json`).
+
+## Capabilities
+
+### New Capabilities
+- `screenshot-debug`: A C++-side screenshot capture mode for the `fury` runtime, triggered via CLI flags, that captures the post-pipeline back-buffer of any Lua script after a configurable frame count and writes a PNG.
+- `embedded-textures`: A texture-source policy that lets `Texture` carry encoded image bytes through scene loading and rendering without requiring a backing file, and that extracts those bytes to disk only when the scene is serialized.
+
+### Modified Capabilities
+- `gltf-importer`: Embedded-image handling switches from "extract to temp, point texture at temp path" to "load bytes into the texture, no disk write at import time." External-URI handling is unchanged.
+- `cli`: Adds the `--screenshot` and `--screenshot-frame` runtime flags to the Lua-launcher path.
+- `scene-editor`: `Demo.lua` opens of `tank.fbx` / `james.fbx` correctly render with embedded textures applied.
+
+## Impact
+
+- **Code:** `engine/Fury/Texture.h` and `engine/Fury/Texture.cpp` (`CreateFromMemory`, encoded-bytes storage, save-time hook), `engine/Fury/GltfImporter.cpp` (drop temp extraction; route embedded bytes through `CreateFromMemory`), `engine/Fury/FileUtil.cpp` (extract embedded textures to disk before serializing in `SaveFile`/`SaveCompressedFile`), `engine/Fury/LuaBindings.cpp` (drop the now-unused `Options::output_basename_no_ext` plumbing), `engine/Fury/Cli.cpp` (same), `engine/Fury/Engine.h`/`Engine.cpp` (screenshot hook in the main loop), `examples/main.cpp` (parse the new runtime flags), `docs/CLI.md` (document the flags and the texture extraction behavior).
+- **APIs:** `Texture` gains `CreateFromMemory(const unsigned char *bytes, size_t len, bool srgb, bool mipmap)` and a private `m_EncodedBytes` / `m_OriginalFilename`. `EngineOptions` gains `screenshot_path` and `screenshot_frame`. The previously-public `GltfImporter::Options::output_basename_no_ext` field is removed (breaking change for any out-of-tree code that set it; in this repo only `Cli.cpp` and `LuaBindings.cpp` use it, both updated).
+- **Dependencies:** `stb_image_write` (already vendored under `engine/ThirdParty/STB`); `stb_image` already provides `stbi_load_from_memory`.
+- **Behavior:** Existing `./fury Demo.lua` invocations are unchanged. `convert fbx in.fbx out.json` now produces a `.json` whose texture paths point at sibling files written next to it (e.g. `out_image0.jpg` or `body.jpg`) rather than at temp-dir absolute paths — saved scenes become portable. `./fury Demo.lua tank.fbx --screenshot /tmp/x.png` exits after a few frames with a PNG of the rendered scene.
+
+## Implementation drift (post-merge)
+
+- `Texture::CreateFromMemory` and `Texture::CreateFromImage` gained a no-GL-context early-return path (gated on `_ptrc_glGenTextures == nullptr`). The design didn't anticipate that the CLI converter chain (`fury convert fbx … .json` and `fury info <scene>.json`) would invoke these methods without an SFML window, so they would crash on a null function pointer. The early-return paths set the serialization shape (path, width, height, format, encoded bytes) and skip the GPU upload — exactly what the CLI path needs (the bytes are extracted to disk on save; the runtime path's first render uploads from `m_FilePath` via the existing `UpdateBuffer` path).
+- A latent bug in `TranslateMaterial` that unconditionally called `material->SetTexture(DIFFUSE_TEXTURE, nullptr)` after setting it (which Material::SetTexture interprets as "erase") — manifested as "lit but textureless" tanks even on the runtime FBX import path. Fixed in passing by guarding the nullptr-set on `!material->GetTexture(DIFFUSE_TEXTURE)`. This was pre-existing breakage, not introduced by this change; it just became visible when verification tooling (`--screenshot`) made imported geometry inspectable.
+- `LuaBindings::LoadScene` for `.json`/`.bin` now sets `working_dir = dirname(path) + "/"` instead of `FileUtil::GetAbsPath()`. Required so saved scenes whose textures are sibling files (the new on-save extraction shape) resolve under `Texture::CreateFromImage(Scene::Path("body.jpg"))`. Hand-authored scenes that reference `Resource/Scene/foo.jpg` (the demo's `scene.bin`) still work because Demo.lua loads them through `FileUtil.LoadSceneFromCompressedFile` directly with `Scene::Active`'s `working_dir = FileUtil.GetAbsPath()` — that path is unchanged.

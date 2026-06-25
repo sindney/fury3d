@@ -26,8 +26,6 @@ namespace fury
 
 		void FURY_API NewFrame(float frameTime);
 
-		void FURY_API RenderDrawLists(ImDrawData* draw_data);
-
 		void FURY_API ShowDefault(float dt);
 
 		void FURY_API Render();
@@ -72,16 +70,19 @@ namespace fury
 		// SliderFloat / Checkbox so Lua can write `s = Gui.InputText(label, s, max_len)`.
 		std::string FURY_API InputText(const char* label, const std::string &current, int max_len);
 
-		// Returns the (possibly-edited) string. In/out shape matches
-		// SliderFloat / Checkbox so Lua can write `s = Gui.InputText(label, s, max_len)`.
-		std::string FURY_API InputText(const char* label, const std::string &current, int max_len);
-
 		// Register an optional callback invoked inside the engine's main menu
-		// bar, BEFORE the built-in View menu so script-emitted menus render
-		// to the left of View. Pass an empty std::function to clear. The
-		// caller is responsible for clearing before any captured Lua state
-		// is destroyed.
+		// bar. With WITH_EDITOR=OFF this is the only menu-bar consumer; with
+		// WITH_EDITOR=ON the editor calls this between its built-in menus and
+		// the engine's internals so script-emitted menus render between
+		// `Window` and the trailing built-ins. Pass an empty std::function to
+		// clear. The caller is responsible for clearing before any captured
+		// Lua state is destroyed.
 		void FURY_API SetMenuBarCallback(std::function<void()> cb);
+
+		// Internal: invoke the menu-bar callback registered via
+		// SetMenuBarCallback. The editor uses this to render the script
+		// callback between its own built-in menus.
+		void FURY_API InvokeMenuBarCallback();
 
 		// Request that the engine window close. Safe to call multiple times:
 		// the second invocation is a no-op when the window has already been

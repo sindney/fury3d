@@ -6,6 +6,7 @@
 #include "Fury/Camera.h"
 #include "Fury/Color.h"
 #include "Fury/Component.h"
+#include "Fury/Editor/Editor.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
 #include "Fury/EntityManager.h"
@@ -41,6 +42,15 @@ namespace fury
 {
 	namespace LuaBindings
 	{
+		// Launcher options — populated by main.cpp before the script runs.
+		// Engine.run reads these (and writes back the exit code).
+		static LauncherEngineOptions *s_launcher_options = nullptr;
+
+		void SetLauncherOptions(LauncherEngineOptions *options)
+		{
+			s_launcher_options = options;
+		}
+
 		// Convert a sol::function to a std::function<void()> that protects against
 		// Lua errors and logs them via FURYE. Returns an empty std::function if the
 		// sol::function is invalid.
@@ -366,6 +376,10 @@ namespace fury
 			importer_tbl["LoadFbx"] = [](const std::string &path) -> std::shared_ptr<Scene> {
 				try
 				{
+					// FBX2glTF writes its intermediate .glb to a temp dir; the
+					// directory is cleaned up after the importer consumes it.
+					// Embedded image bytes flow through Texture::CreateFromMemory
+					// (no on-disk extraction at import time).
 					std::string tmpdir;
 					try { tmpdir = (std::filesystem::temp_directory_path()
 						/ "fury_runtime_fbx").string(); }
@@ -381,20 +395,7 @@ namespace fury
 					}
 					auto slash = path.find_last_of("/\\");
 					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
-					// Set output_basename so GltfImporter extracts embedded glb
-					// images alongside the temp glb. Without this, embedded
-					// images are dropped on the floor and material textures
-					// resolve to a stem-less "_imageN.jpg" path that
-					// CreateFromImage can't open — gbuffer_diffuse stays
-					// black and the imported scene renders pitch-black.
-					GltfImporter::Options opts;
-					{
-						auto dot = res.output_path.find_last_of('.');
-						opts.output_basename_no_ext = (dot == std::string::npos)
-							? res.output_path
-							: res.output_path.substr(0, dot);
-					}
-					auto scene = GltfImporter::Import(res.output_path, path, working, opts);
+					auto scene = GltfImporter::Import(res.output_path, path, working, {});
 					std::filesystem::remove(res.output_path, ec);
 					return scene;
 				}
@@ -414,14 +415,25 @@ namespace fury
 					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 				if (ext == ".json" || ext == ".bin")
 				{
-					// Scene's working_dir is what Material/Texture paths inside
-					// the scene file are joined against. Engine convention (see
-					// Demo.lua's Scene.Create call): use the engine's absolute
-					// base path (the bin/ dir), NOT the directory of the input
-					// file. Texture paths inside the JSON are already stored
-					// as "Resource/Scene/foo.jpg" — prefixing with the file's
-					// own directory would produce "Resource/Scene/Resource/Scene/foo.jpg".
-					auto scene = Scene::Create("imported", FileUtil::GetAbsPath());
+					// Resolve the scene's working_dir to the directory
+					// containing the input scene file. This is what the
+					// engine's relative-path resolution (Texture::CreateFromImage
+					// -> Scene::Path) joins texture paths against. For scenes
+					// produced by `convert fbx ... .json` the textures are
+					// extracted as siblings (bare filenames), so the working
+					// dir must be the scene file's directory for them to
+					// resolve. For hand-authored scenes that use prefixed
+					// paths (e.g. "Resource/Scene/foo.jpg") the working dir
+					// can still be anything that combines correctly.
+					std::string working;
+					{
+						auto slash = path.find_last_of("/\\");
+						if (slash != std::string::npos)
+							working = path.substr(0, slash + 1);
+					}
+					if (working.empty())
+						working = FileUtil::GetAbsPath();
+					auto scene = Scene::Create("imported", working);
 					// MeshRender::Load and friends resolve mesh/material
 					// references against Scene::Active->GetEntityManager()
 					// (see Scene::Manager). When the demo is mid-edit (e.g.
@@ -527,6 +539,220 @@ namespace fury
 			// engine. Idempotent.
 			sol::table window_tbl = lua.create_named_table("Window");
 			window_tbl["Close"] = &Gui::CloseWindow;
+
+			// --- Editor (C++-owned editor shell, behind WITH_EDITOR) ---------
+			// When WITH_EDITOR is on, scripts route File-menu policy, console
+			// commands, scene tree, and camera settings through the editor.
+			// When off (no -DWITH_EDITOR), every Editor.* call is a safe no-op
+			// so the same script runs unchanged in both build modes.
+			sol::table editor_tbl = lua.create_named_table("Editor");
+#ifdef WITH_EDITOR
+			editor_tbl["SetSceneIO"] = [](sol::table tbl) {
+				Editor::SceneIO io;
+				if (auto v = tbl["list_files"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.list_files = [pf]() -> std::vector<std::string> {
+						std::vector<std::string> out;
+						sol::protected_function_result r = pf();
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor list_files error: " << e.what(); return out; }
+						sol::object obj = r;
+						if (obj.is<sol::table>())
+						{
+							sol::table t = obj;
+							for (size_t i = 1; i <= t.size(); ++i) out.push_back(t.get<std::string>(i));
+						}
+						return out;
+					};
+				}
+				if (auto v = tbl["on_new"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.on_new = [pf]() {
+						sol::protected_function_result r = pf();
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor on_new error: " << e.what(); }
+					};
+				}
+				if (auto v = tbl["on_open"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.on_open = [pf](const std::string& p) {
+						sol::protected_function_result r = pf(p);
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor on_open error: " << e.what(); }
+					};
+				}
+				if (auto v = tbl["on_import"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.on_import = [pf](const std::string& p) {
+						sol::protected_function_result r = pf(p);
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor on_import error: " << e.what(); }
+					};
+				}
+				if (auto v = tbl["on_save_as"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.on_save_as = [pf](const std::string& p) {
+						sol::protected_function_result r = pf(p);
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor on_save_as error: " << e.what(); }
+					};
+				}
+				if (auto v = tbl["scene_dir"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.scene_dir = [pf]() -> std::string {
+						sol::protected_function_result r = pf();
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor scene_dir error: " << e.what(); return {}; }
+						sol::object obj = r;
+						if (obj.is<std::string>()) return obj.as<std::string>();
+						return {};
+					};
+				}
+				Editor::SetSceneIO(std::move(io));
+			};
+
+			editor_tbl["SetSceneTreeProvider"] = [](sol::object obj) {
+				if (!obj.valid() || obj.get_type() != sol::type::function)
+				{
+					Editor::ClearSceneTreeProvider();
+					return;
+				}
+				sol::protected_function pf = obj.as<sol::protected_function>();
+				Editor::SetSceneTreeProvider([pf]() -> Editor::TreeNode {
+					Editor::TreeNode root;
+					sol::protected_function_result r = pf();
+					if (!r.valid()) { sol::error e = r; FURYE << "Editor tree provider error: " << e.what(); return root; }
+					sol::object res = r;
+					if (!res.is<sol::table>()) return root;
+					std::function<void(const sol::table&, Editor::TreeNode&)> walk =
+						[&](const sol::table& t, Editor::TreeNode& tn) {
+							tn.name = t.get_or<std::string>("name", "");
+							sol::object kids = t["children"];
+							if (kids.is<sol::table>())
+							{
+								sol::table kt = kids;
+								for (size_t i = 1; i <= kt.size(); ++i)
+								{
+									sol::object child = kt[i];
+									if (child.is<sol::table>())
+									{
+										Editor::TreeNode c;
+										walk(child.as<sol::table>(), c);
+										tn.children.push_back(std::move(c));
+									}
+								}
+							}
+						};
+					walk(res.as<sol::table>(), root);
+					return root;
+				});
+			};
+
+			editor_tbl["SetCommandHandler"] = [](sol::object obj) {
+				if (!obj.valid() || obj.get_type() != sol::type::function)
+				{
+					Editor::ClearCommandHandler();
+					return;
+				}
+				sol::protected_function pf = obj.as<sol::protected_function>();
+				Editor::SetCommandHandler([pf](const std::string& line) {
+					sol::protected_function_result r = pf(line);
+					if (!r.valid()) { sol::error e = r; FURYE << "Editor command handler error: " << e.what(); }
+				});
+			};
+
+			editor_tbl["SetCameraSettings"] = [](sol::table tbl) {
+				std::vector<Editor::CameraControl> out;
+				sol::object controls_obj = tbl["controls"];
+				if (!controls_obj.is<sol::table>()) { Editor::ClearCameraControls(); return; }
+				sol::table controls = controls_obj;
+				for (size_t i = 1; i <= controls.size(); ++i)
+				{
+					sol::object e = controls[i];
+					if (!e.is<sol::table>()) continue;
+					sol::table ct = e;
+					Editor::CameraControl cc;
+					cc.label = ct.get_or<std::string>("label", "");
+					cc.kind  = ct.get_or<std::string>("kind", "slider");
+					{
+						sol::object mn = ct["min"];
+						sol::object mx = ct["max"];
+						cc.vmin = (mn.valid() && mn.is<float>()) ? mn.as<float>() : 0.0f;
+						cc.vmax = (mx.valid() && mx.is<float>()) ? mx.as<float>() : 1.0f;
+					}
+					if (cc.kind == "checkbox")
+					{
+						sol::object g = ct["get"], s = ct["set"];
+						if (g.is<sol::protected_function>())
+						{
+							sol::protected_function pf = g;
+							cc.get_b = [pf]() -> bool {
+								sol::protected_function_result r = pf();
+								if (!r.valid()) { sol::error e = r; FURYE << "camera get error: " << e.what(); return false; }
+								return ((sol::object)r).as<bool>();
+							};
+						}
+						if (s.is<sol::protected_function>())
+						{
+							sol::protected_function pf = s;
+							cc.set_b = [pf](bool v) {
+								sol::protected_function_result r = pf(v);
+								if (!r.valid()) { sol::error e = r; FURYE << "camera set error: " << e.what(); }
+							};
+						}
+					}
+					else
+					{
+						sol::object g = ct["get"], s = ct["set"];
+						if (g.is<sol::protected_function>())
+						{
+							sol::protected_function pf = g;
+							cc.get_f = [pf]() -> float {
+								sol::protected_function_result r = pf();
+								if (!r.valid()) { sol::error e = r; FURYE << "camera get error: " << e.what(); return 0.0f; }
+								return ((sol::object)r).as<float>();
+							};
+						}
+						if (s.is<sol::protected_function>())
+						{
+							sol::protected_function pf = s;
+							cc.set_f = [pf](float v) {
+								sol::protected_function_result r = pf(v);
+								if (!r.valid()) { sol::error e = r; FURYE << "camera set error: " << e.what(); }
+							};
+						}
+					}
+					out.push_back(std::move(cc));
+				}
+				Editor::SetCameraControls(std::move(out));
+			};
+
+			editor_tbl["Log"]                 = [](const std::string& level, const std::string& text) {
+				Editor::Log(level.c_str(), text.c_str());
+			};
+			editor_tbl["GetSelectedSceneNode"] = []() -> SceneNode* { return Editor::GetSelectedSceneNode(); };
+			editor_tbl["SetWindowVisible"]    = [](const std::string& name, bool v) { Editor::SetWindowVisible(name.c_str(), v); };
+			editor_tbl["GetWindowVisible"]    = [](const std::string& name) -> bool { return Editor::GetWindowVisible(name.c_str()); };
+			editor_tbl["SetImportFlag"]       = [](const std::string& name, bool v) { Editor::SetImportFlag(name.c_str(), v); };
+			editor_tbl["GetImportFlag"]       = sol::overload(
+				[](const std::string& name) -> bool { return Editor::GetImportFlag(name.c_str(), false); },
+				[](const std::string& name, bool d) -> bool { return Editor::GetImportFlag(name.c_str(), d); });
+#else
+			// No-op stubs so user scripts that reference Editor.* compose
+			// with both build modes. Each accepts and discards arguments.
+			editor_tbl["SetSceneIO"]            = [](sol::object) {};
+			editor_tbl["SetSceneTreeProvider"]  = [](sol::object) {};
+			editor_tbl["SetCommandHandler"]     = [](sol::object) {};
+			editor_tbl["SetCameraSettings"]     = [](sol::object) {};
+			editor_tbl["Log"]                   = [](sol::object, sol::object) {};
+			editor_tbl["GetSelectedSceneNode"]  = []() -> sol::object { return sol::nil; };
+			editor_tbl["SetWindowVisible"]      = [](sol::object, sol::object) {};
+			editor_tbl["GetWindowVisible"]      = [](sol::object) -> bool { return false; };
+			editor_tbl["SetImportFlag"]         = [](sol::object, sol::object) {};
+			editor_tbl["GetImportFlag"]         = sol::overload(
+				[](sol::object) -> bool { return false; },
+				[](sol::object, bool d) -> bool { return d; });
+#endif
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------
 			lua.new_usertype<RenderUtil>("RenderUtil",
@@ -661,12 +887,30 @@ namespace fury
 					opts.gui_font_scale = o.get_or("gui_font_scale", opts.gui_font_scale);
 				}
 
+				// Layer launcher-supplied options over the script's. Launcher
+				// wins for the screenshot fields (those are user-facing flags
+				// that the script has no business overriding); the script's
+				// values for max_fps / gui_scale stay intact.
+				if (s_launcher_options && !s_launcher_options->screenshot_path.empty())
+				{
+					opts.screenshot_path = s_launcher_options->screenshot_path;
+					opts.screenshot_frame = s_launcher_options->screenshot_frame;
+					opts.exit_code_out = &s_launcher_options->exit_code;
+				}
+
 				Engine::Run(*window, cb, opts);
 
 				// Clear the menu-bar callback before sol::state destruction;
 				// the bound sol::protected_function holds a Lua-state ref that
 				// would dangle otherwise.
 				Gui::SetMenuBarCallback({});
+#ifdef WITH_EDITOR
+				// Same hazard for Editor's Lua-captured callbacks.
+				Editor::ClearSceneIO();
+				Editor::ClearSceneTreeProvider();
+				Editor::ClearCommandHandler();
+				Editor::ClearCameraControls();
+#endif
 			};
 		}
 	}

@@ -49,18 +49,6 @@ namespace fury
 			// 24 matches the engine's FBX-heritage default.
 			float anim_ticks_per_second;
 
-			// Base path (no extension) used to synthesize URIs for images
-			// embedded inside .glb files. For example, if output_basename is
-			// "/tmp/foo" and the .glb has 2 embedded images, the importer
-			// writes "/tmp/foo_image0.png" / "/tmp/foo_image1.jpg" and the
-			// engine Material's diffuse_texture references those paths.
-			// For .gltf inputs (external image URIs) this is unused — the
-			// importer passes URIs through verbatim.
-			//
-			// Empty string is acceptable if the input has no embedded images
-			// or if the caller doesn't intend to extract them.
-			std::string output_basename_no_ext;
-
 			Options() : anim_ticks_per_second(24.0f) {}
 		};
 

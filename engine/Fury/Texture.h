@@ -2,7 +2,9 @@
 #define _FURY_TEXTURE_H_
 
 #include <stack>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "Fury/Buffer.h"
 #include "Fury/Color.h"
@@ -65,6 +67,15 @@ namespace fury
 
 		std::string m_FilePath;
 
+		// Memory-backed-texture state. When the GltfImporter loads an
+		// embedded glTF image, it stores the encoded JPEG/PNG/BMP bytes
+		// here and leaves m_FilePath empty. The bytes survive until the
+		// scene is saved, at which point FileUtil extracts them to a
+		// sibling file and transitions the texture to file-backed.
+		std::vector<unsigned char> m_EncodedBytes;
+
+		std::string m_OriginalFilename;
+
 	public:
 
 		Texture(const std::string &name);
@@ -77,6 +88,13 @@ namespace fury
 
 		void CreateFromImage(const std::string &filePath, bool srgb, bool mipMap);
 
+		// Decode and upload an encoded image (JPEG/PNG/BMP) from a
+		// memory buffer. On success the encoded bytes are retained on
+		// the Texture so save-time extraction can write them to disk.
+		// m_FilePath is left empty — IsMemoryBacked() returns true until
+		// FileUtil::SaveFile transitions the texture to file-backed.
+		void CreateFromMemory(const unsigned char *bytes, size_t len, bool srgb, bool mipMap);
+
 		// Set the serialization shape (file path + sRGB-ness) without
 		// triggering a GPU upload. Used by GltfImporter, which runs without
 		// a GL context: the actual upload happens later when the scene is
@@ -84,6 +102,17 @@ namespace fury
 		// calling this, the Texture is safe to Save/Load but NOT to render
 		// against until something brings the GL context up.
 		void SetFilePathAndSRGB(const std::string &filePath, bool srgb);
+
+		// Record the original filename for save-time extraction. Used by
+		// FileUtil to derive sibling-file names when extracting embedded
+		// textures (e.g. "body.jpg" lifted from a glTF image.name).
+		void SetOriginalFilename(const std::string &filename);
+
+		bool IsMemoryBacked() const;
+
+		const std::vector<unsigned char> &GetEncodedBytes() const;
+
+		const std::string &GetOriginalFilename() const;
 
 		void CreateEmpty(int width, int height, int depth, TextureFormat format = TextureFormat::RGBA8, TextureType type = TextureType::TEXTURE_2D, bool mipMap = false);
 

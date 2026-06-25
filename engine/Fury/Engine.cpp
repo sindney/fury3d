@@ -1,9 +1,12 @@
 #include <SFML/Window.hpp>
 
 #include <cstdint>
+#include <cstring>
 #include <optional>
+#include <vector>
 
 #include "Fury/BufferManager.h"
+#include "Fury/Editor/Editor.h"
 #include "Fury/Engine.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
@@ -14,8 +17,51 @@
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 namespace fury
 {
+	namespace
+	{
+		// Read the SFML window's back-buffer and write it to `path` as an
+		// 8-bit RGBA PNG. Used by the --screenshot debug capture path.
+		// Returns true on success.
+		bool WriteBackBufferAsPng(const std::string &path, sf::Window &window)
+		{
+			const sf::Vector2u sz = window.getSize();
+			const unsigned int w = sz.x;
+			const unsigned int h = sz.y;
+			if (w == 0 || h == 0)
+			{
+				FURYE << "WriteBackBufferAsPng: window has zero size";
+				return false;
+			}
+			const std::size_t row_bytes = static_cast<std::size_t>(w) * 4;
+			std::vector<unsigned char> pixels(row_bytes * h);
+			glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
+				GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+			// OpenGL's read origin is bottom-left, PNG's is top-left.
+			std::vector<unsigned char> flipped(pixels.size());
+			for (unsigned int y = 0; y < h; ++y)
+			{
+				std::memcpy(&flipped[y * row_bytes],
+					&pixels[(h - 1 - y) * row_bytes],
+					row_bytes);
+			}
+
+			const int rc = stbi_write_png(path.c_str(),
+				static_cast<int>(w), static_cast<int>(h),
+				4, flipped.data(), static_cast<int>(row_bytes));
+			if (rc == 0)
+			{
+				FURYE << "stbi_write_png failed for path '" << path << "'";
+				return false;
+			}
+			return true;
+		}
+	}
 	Signal<float>::Ptr Engine::OnUpdate = Signal<float>::Create();
 
 	Signal<>::Ptr Engine::OnFixedUpdate = Signal<>::Create();
@@ -164,6 +210,7 @@ namespace fury
 	void Engine::Shutdown()
 	{
 		// TODO: reset singleton's pointer.
+		Editor::Shutdown();
 		Gui::Shutdown();
 	}
 
@@ -183,6 +230,7 @@ namespace fury
 
 #ifdef _FURY_GUI_IMP_
 		Gui::Initialize(&window, opts.gui_scale, opts.gui_font_scale);
+		Editor::Initialize();
 #endif
 
 		window.setFramerateLimit(opts.max_fps < 0 ? 0u : static_cast<unsigned int>(opts.max_fps));
@@ -196,6 +244,7 @@ namespace fury
 		sf::Clock clock;
 		std::int32_t next_game_tick = clock.getElapsedTime().asMilliseconds();
 		bool running = true;
+		int frame_index = 0;
 
 		while (window.isOpen() && running)
 		{
@@ -232,12 +281,36 @@ namespace fury
 			float dt = clock.restart().asSeconds();
 
 			Gui::NewFrame(dt);
+			// Editor::Tick must run AFTER Gui::NewFrame and BEFORE Gui::Render.
+			// (Gui::Render is invoked from Lua's on_update at the end of the
+			// frame, after Pipeline::Execute, so the editor draws on top of
+			// the 3D scene.)
+			Editor::Tick();
 			if (cb.OnUpdate) cb.OnUpdate(dt);
 			Update(dt);
 
 			window.display();
 
 			RenderUtil::Instance()->EndFrame();
+
+			++frame_index;
+			if (!opts.screenshot_path.empty() && frame_index == opts.screenshot_frame)
+			{
+				const bool ok = WriteBackBufferAsPng(opts.screenshot_path, window);
+				if (ok)
+				{
+					FURYI << "captured screenshot to " << opts.screenshot_path
+						<< " at frame " << frame_index;
+					if (opts.exit_code_out) *opts.exit_code_out = 0;
+				}
+				else
+				{
+					FURYE << "screenshot capture failed for path '"
+						<< opts.screenshot_path << "'";
+					if (opts.exit_code_out) *opts.exit_code_out = 1;
+				}
+				running = false;
+			}
 		}
 
 		if (cb.OnShutdown) cb.OnShutdown();

@@ -31,6 +31,15 @@ namespace fury
 		float gui_scale = 1.0f;
 		// Value assigned to ImGuiIO::FontGlobalScale.
 		float gui_font_scale = 1.0f;
+
+		// Screenshot capture (debug). When `screenshot_path` is non-empty,
+		// the engine reads the back-buffer after frame `screenshot_frame`,
+		// writes a PNG to disk, and stops the main loop. `exit_code_out`
+		// receives 0 on success, 1 on capture failure (left untouched if
+		// no capture was requested). The launcher passes &local_int.
+		std::string screenshot_path;
+		int screenshot_frame = 2;
+		int *exit_code_out = nullptr;
 	};
 
 	class FURY_API Engine

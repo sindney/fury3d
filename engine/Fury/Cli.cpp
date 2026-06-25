@@ -261,9 +261,6 @@ namespace fury
 				}
 
 				GltfImporter::Options opts;
-				opts.output_basename_no_ext = DirOf(output).empty()
-					? StemNoExt(output)
-					: DirOf(output) + "/" + StemNoExt(output);
 				auto scene = GltfImporter::Import(input, StemNoExt(input),
 					DirOf(output).empty() ? std::string{} : DirOf(output) + "/", opts);
 				if (!scene)
@@ -352,9 +349,6 @@ namespace fury
 			// Step 2: chain through the glTF importer to produce the engine
 			// runtime form.
 			GltfImporter::Options opts;
-			opts.output_basename_no_ext = DirOf(output).empty()
-				? StemNoExt(output)
-				: DirOf(output) + "/" + StemNoExt(output);
 			auto scene = GltfImporter::Import(fbx_res.output_path, StemNoExt(input),
 				DirOf(output).empty() ? std::string{} : DirOf(output) + "/", opts);
 			if (!scene)

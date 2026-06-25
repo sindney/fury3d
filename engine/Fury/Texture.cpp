@@ -1,4 +1,5 @@
 #include <array>
+#include <cassert>
 #include <sstream>
 
 #include "Fury/BufferManager.h"
@@ -8,6 +9,8 @@
 #include "Fury/Scene.h"
 #include "Fury/Texture.h"
 #include "Fury/EnumUtil.h"
+
+#include "stb_image.h"
 
 namespace fury
 {
@@ -156,6 +159,12 @@ namespace fury
 
 	void Texture::Save(void* wrapper, bool object)
 	{
+		// FileUtil::SaveFile / SaveCompressedFile must extract any
+		// memory-backed textures to sibling files before serialization
+		// runs. If a memory-backed texture reaches Save it indicates a
+		// missed extraction call site.
+		assert(!IsMemoryBacked() && "Texture::Save reached with memory-backed texture; FileUtil should have extracted");
+
 		if (object)
 			StartObject(wrapper);
 
@@ -214,6 +223,25 @@ namespace fury
 				|| (filePath.size() >= 2 && filePath[1] == ':'));
 		const std::string resolved = isAbsolute ? filePath : Scene::Path(filePath);
 
+		// CLI / no-GL-context path: set the serialization shape (path,
+		// width/height, format) so `fury info` can report sensible
+		// counts, but skip the GPU upload (which would dereference a
+		// null function pointer when LoadGLFunctions hasn't run).
+		if (_ptrc_glGenTextures == nullptr)
+		{
+			if (FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
+			{
+				m_Format = srgb
+					? (channels == 3 ? TextureFormat::SRGB8 : TextureFormat::SRGB8_ALPHA8)
+					: (channels == 3 ? TextureFormat::RGB8 : TextureFormat::RGBA8);
+				m_Depth = 0;
+				m_Mipmap = mipMap;
+				m_FilePath = filePath;
+				m_Dirty = true;
+			}
+			return;
+		}
+
 		if (FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
 		{
 			unsigned int internalFormat, imageFormat;
@@ -268,6 +296,122 @@ namespace fury
 
 			IncreaseMemory();
 		}
+	}
+
+	void Texture::CreateFromMemory(const unsigned char *bytes, size_t len, bool srgb, bool mipMap)
+	{
+		if (bytes == nullptr || len == 0)
+		{
+			FURYE << "Texture::CreateFromMemory: empty input buffer";
+			return;
+		}
+
+		// CLI / no-GL-context path: store bytes for later save extraction
+		// and set the serialization shape, but skip the GPU upload. Detect
+		// via the engine's GL function-pointer loader — when LoadGLFunctions
+		// hasn't run, the function pointer is null.
+		if (_ptrc_glGenTextures == nullptr)
+		{
+			DeleteBuffer();
+			// Quick image header probe to set width/height. stbi can read
+			// these without decoding the full image — but its public API
+			// doesn't expose that; we accept a small wasted decode here so
+			// the serialized texture record's width/height are non-zero.
+			int width = 0, height = 0, channels = 0;
+			if (unsigned char *probe = stbi_load_from_memory(bytes,
+				static_cast<int>(len), &width, &height, &channels, 0))
+			{
+				stbi_image_free(probe);
+			}
+			m_Width = width;
+			m_Height = height;
+			m_Depth = 0;
+			m_Mipmap = mipMap;
+			m_FilePath = "";
+			m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
+			m_EncodedBytes.assign(bytes, bytes + len);
+			m_Dirty = true;
+			FURYD << m_Name << " [memory-backed CPU-only, " << len << " bytes]";
+			return;
+		}
+
+		int width = 0;
+		int height = 0;
+		int channels = 0;
+		unsigned char *pixels = stbi_load_from_memory(
+			bytes, static_cast<int>(len), &width, &height, &channels, 0);
+		if (!pixels || width == 0 || height == 0)
+		{
+			FURYE << "Texture::CreateFromMemory: stbi_load_from_memory failed: "
+				<< (stbi_failure_reason() ? stbi_failure_reason() : "(unknown)");
+			if (pixels) stbi_image_free(pixels);
+			return;
+		}
+
+		DeleteBuffer();
+
+		unsigned int internalFormat = 0;
+		unsigned int imageFormat = 0;
+		switch (channels)
+		{
+		case 3:
+			m_Format = srgb ? TextureFormat::SRGB8 : TextureFormat::RGB8;
+			internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
+			imageFormat = GL_RGB;
+			break;
+		case 4:
+			m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
+			internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+			imageFormat = GL_RGBA;
+			break;
+		default:
+			m_Format = TextureFormat::UNKNOW;
+			FURYW << channels << " channel image not supported!";
+			stbi_image_free(pixels);
+			return;
+		}
+
+		m_Width = width;
+		m_Height = height;
+		m_Depth = 0;
+		m_Mipmap = mipMap;
+		m_FilePath = "";
+		m_Dirty = false;
+
+		glGenTextures(1, &m_ID);
+		glBindTexture(m_TypeUint, m_ID);
+
+		glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
+		glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, pixels);
+
+		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
+		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
+
+		glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
+
+		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
+		glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
+
+		if (m_Mipmap)
+			glGenerateMipmap(m_TypeUint);
+
+		glBindTexture(m_TypeUint, 0);
+
+		stbi_image_free(pixels);
+
+		// Retain encoded bytes so FileUtil::SaveFile can extract them to
+		// disk when the scene is serialized.
+		m_EncodedBytes.assign(bytes, bytes + len);
+
+		FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x "
+			<< EnumUtil::TextureTypeToString(m_Type) << " from memory, "
+			<< len << " bytes]";
+
+		IncreaseMemory();
 	}
 
 	void Texture::CreateEmpty(int width, int height, int depth, TextureFormat format, TextureType type, bool mipMap)
@@ -365,6 +509,7 @@ namespace fury
 			m_Width = m_Height = 0;
 			m_Format = TextureFormat::UNKNOW;
 			m_FilePath = "";
+			m_EncodedBytes.clear();
 		}
 	}
 
@@ -375,6 +520,26 @@ namespace fury
 		// 3 vs 4 channels gets fixed up later by CreateFromImage on the
 		// first runtime load — for serialization the family is what matters.
 		m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
+	}
+
+	void Texture::SetOriginalFilename(const std::string &filename)
+	{
+		m_OriginalFilename = filename;
+	}
+
+	bool Texture::IsMemoryBacked() const
+	{
+		return m_FilePath.empty() && !m_EncodedBytes.empty();
+	}
+
+	const std::vector<unsigned char> &Texture::GetEncodedBytes() const
+	{
+		return m_EncodedBytes;
+	}
+
+	const std::string &Texture::GetOriginalFilename() const
+	{
+		return m_OriginalFilename;
 	}
 
 	bool Texture::IsSRGB() const

@@ -309,6 +309,11 @@ namespace fury
 		return m_Textures.size();
 	}
 
+	const Material::TextureMap &Material::GetTextures() const
+	{
+		return m_Textures;
+	}
+
 	void Material::SetUniform(const std::string &name, const std::shared_ptr<UniformBase> &ptr)
 	{
 		auto it = m_Uniforms.find(name);

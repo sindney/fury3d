@@ -528,7 +528,7 @@ holds GL handles directly — load and GPU upload are the same call.
 ### 9.1 Pass / Pipeline data model
 
 The pipeline is JSON-described at runtime. Excerpt from
-`examples/bin/Resource/Pipeline/DefferedLightingLambert.json`:
+`examples/Resource/Pipeline/DefferedLightingLambert.json`:
 
 ```jsonc
 {

@@ -42,7 +42,6 @@
 #include <tiny_gltf.h>
 
 #include <algorithm>
-#include <fstream>
 #include <set>
 #include <string>
 
@@ -128,56 +127,64 @@ namespace fury
 			return false;
 		}
 
-		// Derive an on-disk URI for a glTF image. For external-file images
-		// (image.uri non-empty, no embedded buffer view) we pass the URI
-		// through verbatim — Texture::Load will resolve it against
-		// Scene::Path() at runtime. For .glb-embedded images (image.uri
-		// empty, bufferView set) we synthesize a path next to the output:
-		// "<output_stem>_image<i>.<ext>". The actual bytes are extracted
-		// in ExtractEmbeddedImage() when the converter writes the scene.
-		std::string DeriveImageUri(
+		// Derive a hint at the original filename for an embedded glTF
+		// image. Used by FileUtil::SaveFile when it extracts memory-backed
+		// textures to sibling files: prefer image.name (FBX2glTF preserves
+		// the original FBX texture filename here, e.g. "body.jpg"); else
+		// fall back to "<input_stem>_image<i>.<ext>" with the extension
+		// sniffed from mimeType. The returned string is purely a hint; it
+		// does NOT participate in URI resolution at import time.
+		std::string DeriveOriginalFilename(
 			const tinygltf::Model &model,
 			int image_index,
-			const std::string &output_basename_no_ext)
+			const std::string &input_stem)
 		{
 			if (image_index < 0 || image_index >= static_cast<int>(model.images.size()))
 				return "";
 			const auto &image = model.images[image_index];
-			if (!image.uri.empty())
-				return image.uri;
-			// Embedded image — Group 5 will extract bytes to this file. We
-			// derive the extension from mimeType.
+			if (!image.name.empty())
+				return image.name;
 			std::string ext = ".png";
 			if (image.mimeType == "image/jpeg") ext = ".jpg";
 			else if (image.mimeType == "image/bmp") ext = ".bmp";
-			return output_basename_no_ext + "_image" + std::to_string(image_index) + ext;
+			return input_stem + "_image" + std::to_string(image_index) + ext;
 		}
 
 		// Map a glTF texture index to the engine Texture::Ptr we cached for it.
+		// External-URI images go through SetFilePathAndSRGB + CreateFromImage
+		// (existing path; runtime resolves via Scene::Path). Embedded images
+		// (image.uri empty + non-negative bufferView) go through the new
+		// CreateFromMemory path: bytes flow straight to the GPU and stay
+		// attached to the Texture for save-time extraction.
 		Texture::Ptr CreateEngineTexture(
 			const tinygltf::Model &model,
 			int texture_index,
 			bool srgb,
-			const std::string &output_basename_no_ext)
+			const std::string &input_stem)
 		{
 			if (texture_index < 0 || texture_index >= static_cast<int>(model.textures.size()))
 				return nullptr;
 			const auto &gtex = model.textures[texture_index];
-			const std::string uri = DeriveImageUri(model, gtex.source, output_basename_no_ext);
-			if (uri.empty()) return nullptr;
+			const int image_index = gtex.source;
+			if (image_index < 0 || image_index >= static_cast<int>(model.images.size()))
+				return nullptr;
+			const auto &image = model.images[image_index];
 
-			// Name: prefer the image's name or the URI basename; the engine
-			// looks up textures by name in some paths.
-			std::string name = uri;
-			auto slash = uri.find_last_of("/\\");
-			if (slash != std::string::npos) name = uri.substr(slash + 1);
+			// Sampler -> filter / wrap mode (applied to the engine Texture
+			// before any GPU upload runs).
+			const std::string original_filename = DeriveOriginalFilename(model, image_index, input_stem);
 
+			// Texture name: prefer the image name or original-filename hint;
+			// the engine looks up textures by name in some paths.
+			std::string name = original_filename;
+			if (name.empty()) name = "tex_" + std::to_string(texture_index);
+			else
+			{
+				auto slash = name.find_last_of("/\\");
+				if (slash != std::string::npos) name = name.substr(slash + 1);
+			}
 			auto tex = Texture::Create(name);
-			tex->SetFilePathAndSRGB(uri, srgb);
 
-			// Sampler-derived filter / wrap. tinygltf::Texture has a sampler
-			// index; we copy the basics. For v1 use the engine's defaults
-			// when no sampler is present.
 			bool mipmap = true;
 			if (gtex.sampler >= 0 && gtex.sampler < static_cast<int>(model.samplers.size()))
 			{
@@ -191,14 +198,39 @@ namespace fury
 				else tex->SetFilterMode(FilterMode::LINEAR);
 			}
 
-			// Eagerly upload the texture pixels. Without this, the texture
-			// stays dirty (m_FilePath set but m_ID == 0) and Shader::BindTexture
-			// silently skips the bind — the gbuffer's diffuse target ends up
-			// black, the deferred Lambert pipeline multiplies by zero, and
-			// the whole imported scene renders pitch-black. CreateFromImage
-			// is GL-touching but the engine's import flow always runs after
-			// Engine::Initialize so the context is current.
-			tex->CreateFromImage(uri, srgb, mipmap);
+			if (!image.uri.empty())
+			{
+				// External-URI case. Pass the URI through; runtime resolves
+				// it against Scene::Path and uploads via CreateFromImage.
+				tex->SetFilePathAndSRGB(image.uri, srgb);
+				tex->CreateFromImage(image.uri, srgb, mipmap);
+				return tex;
+			}
+
+			// Embedded case: image.uri empty, bytes live in a bufferView.
+			if (image.bufferView < 0
+				|| image.bufferView >= static_cast<int>(model.bufferViews.size()))
+			{
+				FURYW << "gltf-importer: image[" << image_index
+					<< "] is neither external nor bufferView-backed; texture will be missing";
+				return nullptr;
+			}
+			const auto &bv = model.bufferViews[image.bufferView];
+			if (bv.buffer < 0 || bv.buffer >= static_cast<int>(model.buffers.size()))
+			{
+				FURYW << "gltf-importer: image[" << image_index
+					<< "] bufferView references invalid buffer; texture will be missing";
+				return nullptr;
+			}
+			const auto &buf = model.buffers[bv.buffer];
+			if (bv.byteOffset + bv.byteLength > buf.data.size())
+			{
+				FURYW << "gltf-importer: image[" << image_index
+					<< "] bufferView slice out of buffer bounds; texture will be missing";
+				return nullptr;
+			}
+			tex->CreateFromMemory(buf.data.data() + bv.byteOffset, bv.byteLength, srgb, mipmap);
+			tex->SetOriginalFilename(original_filename);
 			return tex;
 		}
 
@@ -213,7 +245,7 @@ namespace fury
 		Material::Ptr TranslateMaterial(
 			const tinygltf::Model &model,
 			int material_index,
-			const std::string &output_basename_no_ext,
+			const std::string &input_stem,
 			std::set<std::string> &already_warned)
 		{
 			const auto &gm = model.materials[material_index];
@@ -240,7 +272,7 @@ namespace fury
 				auto tex = CreateEngineTexture(model,
 					gm.pbrMetallicRoughness.baseColorTexture.index,
 					/*srgb=*/true,                  // base color is colorspace data
-					output_basename_no_ext);
+					input_stem);
 				if (tex) material->SetTexture(Material::DIFFUSE_TEXTURE, tex);
 			}
 
@@ -286,10 +318,12 @@ namespace fury
 			// diffuse_texture, the diffuse buffer ends up black, and the
 			// final Lambert combine produces a black scene.
 			//
-			// Force a flag recompute by calling SetTexture(diffuse, nullptr).
-			// When no diffuse texture is registered, this sets flags to
-			// COLOR_ONLY so Pass::GetShader picks gbuffer_notexture_shader.
-			material->SetTexture(Material::DIFFUSE_TEXTURE, nullptr);
+			// Force a flag recompute by calling SetTexture(diffuse, nullptr)
+			// when no diffuse texture is registered. With a real diffuse
+			// texture present, an unconditional SetTexture(name, nullptr)
+			// would erase it — so check first.
+			if (!material->GetTexture(Material::DIFFUSE_TEXTURE))
+				material->SetTexture(Material::DIFFUSE_TEXTURE, nullptr);
 
 			return material;
 		}
@@ -670,63 +704,10 @@ namespace fury
 		}
 
 
-		// Extract bytes for embedded images (image.uri empty, bufferView set)
-		// into files alongside the converter's output. Returns true on success,
-		// false on any IO error. For .gltf inputs with external image URIs this
-		// is a no-op.
-		bool ExtractEmbeddedImages(
-			const tinygltf::Model &model,
-			const std::string &output_basename_no_ext)
-		{
-			if (output_basename_no_ext.empty()) return true;  // no extraction target
-			for (size_t i = 0; i < model.images.size(); ++i)
-			{
-				const auto &image = model.images[i];
-				if (!image.uri.empty()) continue;  // external — nothing to write
-				if (image.bufferView < 0) continue;
-				if (image.image.empty())
-				{
-					FURYW << "gltf-importer: image[" << i
-						<< "] is embedded but tinygltf produced no decoded bytes; skipping";
-					continue;
-				}
-				const std::string uri = DeriveImageUri(model, static_cast<int>(i),
-					output_basename_no_ext);
-				// tinygltf decoded the image to raw RGBA pixels in image.image.
-				// We can't re-encode without an image-write library; writing the
-				// raw .bin would mismatch the engine's stb_image-driven load path.
-				// Workaround: dump the *encoded* bytes from the buffer view if
-				// they're available there.
-				if (image.bufferView < static_cast<int>(model.bufferViews.size()))
-				{
-					const auto &bv = model.bufferViews[image.bufferView];
-					if (bv.buffer >= 0 && bv.buffer < static_cast<int>(model.buffers.size()))
-					{
-						const auto &buf = model.buffers[bv.buffer];
-						if (bv.byteOffset + bv.byteLength <= buf.data.size())
-						{
-							std::ofstream out(uri, std::ios::binary);
-							if (!out)
-							{
-								FURYE << "gltf-importer: failed to open '" << uri
-									<< "' for embedded image extraction";
-								return false;
-							}
-							out.write(reinterpret_cast<const char*>(buf.data.data() + bv.byteOffset),
-								bv.byteLength);
-							out.close();
-							FURYD << "gltf-importer: extracted image[" << i
-								<< "] (" << bv.byteLength << " bytes) -> " << uri;
-							continue;
-						}
-					}
-				}
-				FURYW << "gltf-importer: image[" << i
-					<< "] had no usable bufferView bytes; texture path '" << uri
-					<< "' will be a dangling reference";
-			}
-			return true;
-		}
+		// Extract bytes for embedded images: deleted. Embedded image bytes
+		// flow through Texture::CreateFromMemory at import time and are
+		// extracted to disk by FileUtil::SaveFile / SaveCompressedFile when
+		// (and only when) the scene is serialized.
 
 		// Build engine Light prototypes from KHR_lights_punctual definitions
 		// in `model.lights`. Each prototype is cloned per-node when attached
@@ -1048,8 +1029,6 @@ namespace fury
 		const std::string &working_dir,
 		const Options &opts)
 	{
-		(void)opts;
-
 		tinygltf::TinyGLTF loader;
 		// We build with TINYGLTF_NO_STB_IMAGE (the engine vendors its own stb;
 		// having two copies linked is an ODR violation). Tell tinygltf not to
@@ -1091,11 +1070,22 @@ namespace fury
 		if (HasUnsupportedFeatures(model, input_path))
 			return nullptr;
 
-		// Extract embedded image bytes (no-op for .gltf with external URIs).
-		// Done before material translation so a failure aborts the import
-		// before any Scene is created.
-		if (!ExtractEmbeddedImages(model, opts.output_basename_no_ext))
-			return nullptr;
+		// Embedded image bytes are routed through Texture::CreateFromMemory
+		// during material translation below; extraction to sibling files is
+		// deferred to FileUtil::SaveFile / SaveCompressedFile.
+
+		// Derive a stem from the input path for synthesizing
+		// "<stem>_image<i>.<ext>" original-filename hints when the embedded
+		// glTF image lacks an `image.name` (which FBX2glTF normally fills in).
+		std::string input_stem;
+		{
+			auto slash = input_path.find_last_of("/\\");
+			std::string base = (slash == std::string::npos)
+				? input_path
+				: input_path.substr(slash + 1);
+			auto dot = base.find_last_of('.');
+			input_stem = (dot == std::string::npos) ? base : base.substr(0, dot);
+		}
 
 		auto tree = OcTree::Create(Vector4(-1000), Vector4(1000), 2);
 		auto scene = Scene::Create(scene_name, working_dir, tree);
@@ -1109,7 +1099,7 @@ namespace fury
 		for (size_t mi = 0; mi < model.materials.size(); ++mi)
 		{
 			auto mat = TranslateMaterial(model, static_cast<int>(mi),
-				opts.output_basename_no_ext, warned_signatures);
+				input_stem, warned_signatures);
 			entities->Add(mat);
 			materials.push_back(mat);
 		}

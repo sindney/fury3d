@@ -1,7 +1,7 @@
 # Fury3D — Lua scripting
 
 > Status (2026-06-18): minimum viable bridge — exposes the engine API surface
-> that `examples/Demo.lua` actually exercises. Wider bindings (Light,
+> that `examples/Editor.lua` actually exercises. Wider bindings (Light,
 > MeshRender, Material, AnimationPlayer, InputUtil signals, etc.) are deferred
 > to follow-up changes.
 
@@ -13,7 +13,7 @@ The `fury` executable is a Lua launcher. It:
 2. Calls `fury::Engine::Initialize(...)` to bring up the engine subsystems.
 3. Opens a `sol::state` and calls `fury::LuaBindings::Register(lua)` to wire engine types into the script's global namespace.
 4. Injects the active SFML window into Lua as `__window` (a private global the bindings read; don't shadow it in your scripts).
-5. Loads and executes the script at `argv[1]`, defaulting to `Demo.lua` in the working directory.
+5. Loads and executes the script at `argv[1]`, defaulting to `Editor.lua` in the working directory.
 6. The script calls `Engine.run({...callbacks...})` — that drops into C++ and runs the main loop until the window closes.
 7. After `Engine.run` returns the Lua state is closed, then `fury::Engine::Shutdown()` runs, then the process exits.
 
@@ -225,7 +225,7 @@ array + a `FURYW` warning in `Log.txt`.
 
 Same translation code as the offline `fury convert` CLI — see
 `docs/CLI.md` for the full lossy-mapping table. All four functions return
-`nil` on error; the reason is logged to `Log.txt` via `FURYE`. Demo.lua's
+`nil` on error; the reason is logged to `Log.txt` via `FURYE`. Editor.lua's
 File menu treats `nil` as "log and skip, keep the previous active scene
 visible."
 
@@ -347,9 +347,9 @@ value rather than taking a pointer — sol2 doesn't auto-marshal Lua numbers
 or strings into `float*` / `char*`, so we use this in/out shape. Idiomatic
 call: `value = Gui.X("...", value, ...)`.
 
-#### Scene editor menu — full pattern from Demo.lua
+#### Scene editor menu — full pattern from Editor.lua
 
-The shipped `examples/Demo.lua` adds a `Scene` menu (alongside its `Camera`
+The shipped `examples/Editor.lua` adds a `Scene` menu (alongside its `Camera`
 menu) with `New` / `Open` / `Import` / `Save As...`. The pattern is
 reusable for any script that wants a minimum-viable editor.
 
@@ -443,7 +443,7 @@ function on_update(dt)
 end
 ```
 
-Key conventions from Demo.lua you may want to copy:
+Key conventions from Editor.lua you may want to copy:
 
 - **The camera node lives OUTSIDE the active scene's root tree.** That way
   `Scene:Clear()` doesn't drop your camera. Build it as a standalone
@@ -465,34 +465,100 @@ Engine.run({...callbacks...}, { max_fps = 60, gui_scale = 1.25, gui_font_scale =
 
 `Engine.run` is the **only** Engine entry point exposed to Lua. `Initialize`, `HandleEvent`, `Update`, `FixedUpdate`, `Shutdown` are launcher-level concerns and are not callable from scripts. The optional second argument is the options table — see the contract section above for keys.
 
+### `Editor`
+
+The C++ editor shell (built when `WITH_EDITOR=ON`, default) owns the menu bar, dockspace, and four built-in windows (Scene Inspector / Console / Content Browser / Profiler). The `Editor.*` Lua surface lets scripts wire project policy into those built-in components without re-emitting menus from Lua.
+
+When the engine is built with `WITH_EDITOR=OFF`, every `Editor.*` function is a no-op so the same script runs unchanged.
+
+```lua
+-- File menu / Content Browser policy.
+Editor.SetSceneIO({
+    list_files = function() return {"a.json", "b.gltf"} end,    -- powers Open / Import submenus
+    on_new     = function() Scene.GetActive():Clear() end,
+    on_open    = function(filename) ... end,                    -- relative path
+    on_import  = function(filename) ... end,
+    on_save_as = function(filename) ... end,                    -- user-typed name from the modal
+    scene_dir  = function() return FileUtil.GetAbsPath("Resource/Scene/") end,
+})
+
+-- Scene Inspector tree provider (optional; when not registered the inspector
+-- walks Scene::Active->GetRootNode() in C++).
+Editor.SetSceneTreeProvider(function()
+    return { name = "root", children = { ... } }
+end)
+
+-- Console input -> command handler. The line is also echoed into the log
+-- view as `> <line>` (Info level).
+Editor.SetCommandHandler(function(line)
+    -- evaluate `line` as Lua; surface errors via Editor.Log("error", ...)
+end)
+
+-- Settings → Camera section. `controls` is an array of {label, kind, get,
+-- set, min, max} entries. kind = "slider" (default) renders a SliderFloat;
+-- kind = "checkbox" renders a Checkbox. min/max only apply to sliders.
+Editor.SetCameraSettings({
+    controls = {
+        { label = "Move Speed", kind = "slider", min = 0.5, max = 50.0,
+          get = function() return move_speed end,
+          set = function(v) move_speed = v end },
+    }
+})
+
+-- Push a line into the Console log view. level ∈ {"info","warn","error","debug","critical"}.
+Editor.Log("info", "scene saved")
+
+-- Selection state from the Scene Inspector.
+local node = Editor.GetSelectedSceneNode()  -- SceneNode* or nil
+
+-- Programmatic show/hide. name ∈ {"Settings","Profiler","SceneInspector","Console","ContentBrowser"}.
+Editor.SetWindowVisible("Settings", true)
+local visible = Editor.GetWindowVisible("Settings")
+
+-- Settings → Import flags. The built-in checkbox `Auto-Add Default Sun`
+-- corresponds to flag name "auto_default_sun".
+Editor.SetImportFlag("auto_default_sun", true)
+local sun = Editor.GetImportFlag("auto_default_sun", true)
+```
+
+The Settings window has three sections in this order:
+
+1. **Camera** — populated from `Editor.SetCameraSettings`. Empty when no controls are registered.
+2. **Import** — built-in `Auto-Add Default Sun` checkbox; reads/writes `Editor.GetImportFlag("auto_default_sun")`.
+3. **Themes** — combo over the 12 bundled themes (Dark, Forest Green, Amethyst, Sapphire, Amber Yellow, Dracula, Catppuccin Mocha, Gruvbox Hard, Crimson Vesuvius, Rose Quartz, Cyberpunk, Paper And Ink). Selection persists in `imgui.ini` via a custom settings handler.
+
+The script-side `Gui.SetMenuBarCallback` still works under `WITH_EDITOR=ON` — it runs after the editor's File and Window menus, so script-emitted menus (e.g. a per-project `Camera` menu) appear to the right of the built-ins.
+
 ### `Window`
 
 ```lua
 Window.Close()  -- request that the engine window close; idempotent
 ```
 
-`Window.Close()` is the script-side handle the engine no longer owns the built-in `File → Quit` menu. The engine's main loop exits on the next iteration. Calling `Window.Close()` after the window has already closed is a no-op. `Demo.lua` uses this to wire the `File → Quit` entry in its menu.
+`Window.Close()` is the script-side handle the engine no longer owns the built-in `File → Quit` menu. The engine's main loop exits on the next iteration. Calling `Window.Close()` after the window has already closed is a no-op. `Editor.lua` uses this to wire the `File → Quit` entry in its menu.
 
 ### `arg` — command-line arguments
 
 The launcher populates a standard Lua `arg` table from `argv`:
 
 ```
-arg[0]    = script path (the same string passed as argv[1] to `fury`, or "Demo.lua" by default)
+arg[0]    = script path (the same string passed as argv[1] to `fury`, or "Editor.lua" by default)
 arg[1..N] = argv[2..argc-1] (each entry a string)
 #arg      = count of post-script arguments
 ```
 
-This matches the convention of the standalone `lua` interpreter, so scripts authored elsewhere drop in. `Demo.lua` honors `arg[1]` as an optional startup-scene path:
+This matches the convention of the standalone `lua` interpreter, so scripts authored elsewhere drop in. `Editor.lua` honors `arg[1]` as an optional startup-scene path:
 
 ```sh
-./fury Demo.lua                 # loads Resource/Scene/scene.bin (the default)
-./fury Demo.lua outdoor.fbx     # loads Resource/Scene/outdoor.fbx as the startup scene
-./fury Demo.lua /path/to/x.glb  # absolute paths work too
-./fury Demo.lua nope.fbx        # logs a warning, falls back to scene.bin
+./fury Editor.lua                 # loads Resource/Scene/scene.bin (the default)
+./fury Editor.lua outdoor.fbx     # loads Resource/Scene/outdoor.fbx as the startup scene
+./fury Editor.lua /path/to/x.glb  # absolute paths work too
+./fury Editor.lua nope.fbx        # logs a warning, falls back to scene.bin
 ```
 
-The resolution rule Demo.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Resource/Scene/`. If both miss, surface a status message and fall back to `scene.bin` so the editor is still interactive.
+The resolution rule Editor.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Resource/Scene/`. If both miss, surface a status message and fall back to `scene.bin` so the editor is still interactive.
+
+The launcher also recognizes two **runtime flags** — `--screenshot <path>` and `--screenshot-frame <N>` — anywhere in `argv` after the script path. They drive a debug PNG capture and are stripped from `arg` before the script sees it; scripts run identically with or without them. See `docs/CLI.md` (§ "Screenshot mode") for the full reference.
 
 ## Hello, world
 

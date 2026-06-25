@@ -15,14 +15,66 @@ initialization:
   `fury::Cli::Run`. The CLI path is **pure C++ asset workflows**: no SFML
   window opens, `Engine::Initialize` is never called, no Lua VM is created.
 - Otherwise, `argv[1]` is treated as a Lua script path (current behavior;
-  defaults to `Demo.lua` if no arg). See `docs/LUA.md` for that surface.
+  defaults to `Editor.lua` if no arg). See `docs/LUA.md` for that surface.
   Any remaining `argv[2..]` is forwarded to the script as a standard Lua
-  `arg` table — `Demo.lua` honors `arg[1]` as an optional startup scene
-  (e.g. `./fury Demo.lua outdoor.fbx`). See LUA.md for the convention.
+  `arg` table — `Editor.lua` honors `arg[1]` as an optional startup scene
+  (e.g. `./fury Editor.lua outdoor.fbx`). See LUA.md for the convention.
+  Two **runtime flags** (`--screenshot`, `--screenshot-frame`) are
+  recognized on the launcher path and stripped from `arg` before the
+  script sees it. See "Screenshot mode" below.
 
 This means a CLI invocation like `./fury convert gltf in.gltf out.json` is
 fast and predictable: no graphics state, no UI, no script VM. The CLI is
 exactly what an AI agent or build system wants.
+
+## Screenshot mode
+
+The launcher path accepts two runtime flags that capture a PNG of the
+rendered scene and exit. Useful for verifying a Lua script's visual output
+from a CLI loop, screenshotting a regression, or smoke-testing imports
+without driving the GUI by hand.
+
+```
+fury <script.lua> [args...] --screenshot <path> [--screenshot-frame <N>]
+```
+
+**Flags:**
+
+- `--screenshot <path>` — capture an 8-bit RGBA PNG of the rendered
+  back-buffer to `<path>` after the configured number of frames, then
+  exit cleanly. The PNG is encoded via the engine's vendored
+  `stb_image_write`; no new third-party dependency. The flag and its
+  value are stripped from `arg` so user scripts can be run identically
+  with or without capture.
+- `--screenshot-frame <N>` — frame index (1-based) at which capture
+  happens. Default `2` (one full update tick has run, so scripts that
+  set state in `on_init` and animate in `on_update` show their first
+  animated frame). `N` must be a positive integer; values larger than
+  `1000` are clamped with a warning. `N <= 0` exits with code 1.
+
+**Headless caveat.** SFML/OpenGL needs a window to provide a GL context,
+so an `sf::Window` opens briefly during capture (typically 50–150 ms
+before the engine exits). True offscreen rendering is out of scope for v1.
+
+**Exit codes:**
+
+- `0` — capture succeeded; the PNG exists at `<path>`.
+- `1` — capture failed (e.g. the parent directory doesn't exist), or
+  the user supplied a bad flag value. The error is logged via the engine
+  logger and the process exits without crashing.
+
+**Examples:**
+
+```bash
+# Capture the demo's startup scene at frame 2 (default).
+./fury Editor.lua --screenshot /tmp/demo_default.png
+
+# Capture an FBX import — verify imported textures applied correctly.
+./fury Editor.lua tank.fbx --screenshot /tmp/demo_tank.png
+
+# Wait 30 frames so an on_update animation has progressed.
+./fury Editor.lua --screenshot /tmp/late.png --screenshot-frame 30
+```
 
 ## Subcommands
 
@@ -47,6 +99,26 @@ fury convert fbx  <input.fbx>      <output.gltf|.glb|.json|.bin>
   are cleaned up on success (preserved with their path named in the error
   on failure of the importer step). `.gltf` output is **not supported** in
   v1 because FBX2glTF is invoked with `--binary` and writes `.glb`.
+
+**Texture sibling files (`.json`/`.bin` outputs).** When the output is
+`.json` or `.bin`, embedded glTF/FBX texture bytes are extracted to
+sibling files next to the output and the saved scene's texture entries
+reference those files by bare filename. Filename rules:
+
+- Prefer the original filename carried by the source (FBX2glTF preserves
+  the original FBX texture filename in `image.name`, e.g. `body.jpg`).
+- Otherwise synthesize `<output_stem>_<texture_name>.<ext>`, where
+  `<ext>` is sniffed from the encoded bytes (JPEG / PNG / BMP).
+- On filename collision, the second/third/etc. extracted file gets a
+  `_<n>` suffix.
+- If a byte-equal file already exists at the target path, the write is
+  skipped (idempotent re-saves don't re-touch mtimes).
+
+So `fury convert fbx tank.fbx /tmp/tank_out.json` produces
+`/tmp/tank_out.json` plus `/tmp/body.jpg`, `/tmp/wheels.jpg`,
+`/tmp/grass.jpg` (the original FBX-embedded texture filenames). Saved
+scenes are portable — copy the output directory anywhere and the texture
+references resolve.
 
 **Output format is inferred from the extension.** Mismatches error clearly
 with exit code 1.
@@ -97,7 +169,7 @@ before the glTF importer resamples.
 ./fury convert gltf character.glb character.json
 
 # FBX → engine .bin (chained via FBX2glTF)
-./fury convert fbx examples/bin/Resource/Scene/james.fbx /tmp/james.bin
+./fury convert fbx examples/Resource/Scene/james.fbx /tmp/james.bin
 
 # FBX → glTF only (no engine chain)
 ./fury convert fbx in.fbx out.glb

@@ -99,6 +99,10 @@ namespace fury
 
 		unsigned int GetTextureCount() const;
 
+		// Read-only access to the full texture map. Used by FileUtil's
+		// save-time extraction of memory-backed textures.
+		const TextureMap &GetTextures() const;
+
 		void SetUniform(const std::string &name, const std::shared_ptr<UniformBase> &ptr);
 
 		std::shared_ptr<UniformBase> GetUniform(const std::string &name);

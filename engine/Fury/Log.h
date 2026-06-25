@@ -106,6 +106,12 @@ namespace fury
 
 	typedef std::function<void(std::ostream&, const Record&)> LogFormatter;
 
+	// Optional sink invoked alongside the file/console outputs. Used by
+	// the editor's Console window to mirror engine log lines into a
+	// ring buffer. Single-callback; setting it again replaces. Empty by
+	// default (no extra fan-out).
+	using LogSink = std::function<void(const Record&)>;
+
 	// thread safe
 	template<int instance>
 	class FURY_API Log : public Singleton<Log<instance>, LogLevel, const char*, bool, const LogFormatter&, bool>
@@ -126,6 +132,8 @@ namespace fury
 		LogFormatter m_Formatter;
 
 		LogLevel m_LogLevel = LogLevel::DBUG;
+
+		LogSink m_ExtraSink;
 
 	public:
 
@@ -155,6 +163,16 @@ namespace fury
 			return m_LogLevel;
 		}
 
+		// Install a side-channel sink that's called for every accepted
+		// record. Pass an empty std::function to clear. Replaces any
+		// previously-installed sink. Thread-safe vs. operator+= because
+		// they share the stream mutex.
+		void SetExtraSink(LogSink sink)
+		{
+			std::lock_guard<std::mutex> lock(m_StreamMutex);
+			m_ExtraSink = std::move(sink);
+		}
+
 		void operator += (const Record& record)
 		{
 			std::lock_guard<std::mutex> lock(m_StreamMutex);
@@ -170,6 +188,11 @@ namespace fury
 				m_Formatter(m_FileStream, record);
 				m_FileStream << record.stream.str() << "\n";
 				m_FileStream.flush();
+			}
+
+			if (m_ExtraSink)
+			{
+				m_ExtraSink(record);
 			}
 		}
 	};

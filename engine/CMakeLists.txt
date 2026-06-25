@@ -15,6 +15,17 @@ if(GUI_IMP)
 	add_definitions(-D_FURY_GUI_IMP_)
 endif()
 
+# Editor shell sits behind its own gate so a runtime/embedded build can
+# keep the ImGui overlay (HUD, debug widgets) without compiling the editor
+# subsystem. Editor requires ImGui to function.
+option(WITH_EDITOR "Build the C++ editor shell." ON)
+if(WITH_EDITOR AND NOT GUI_IMP)
+	message(FATAL_ERROR "WITH_EDITOR=ON requires GUI_IMP=ON")
+endif()
+if(WITH_EDITOR)
+	add_definitions(-DWITH_EDITOR)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -85,6 +96,13 @@ include_directories(${PROJECT_SOURCE_DIR}/ThirdParty)
 include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/STB)
 
 file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
+# Backends live in their own subdirectory so we glob them separately;
+# both backends (OpenGL3 + the fury-3d-bespoke SFML3) are required whenever
+# GUI_IMP is on. Upstream backend headers `#include "imgui.h"` directly,
+# so the ImGui core directory must be in the search path.
+include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImGui)
+file(GLOB IMGUI_BACKEND_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/backends/*.cpp)
+list(APPEND IMGUI_SRC ${IMGUI_BACKEND_SRC})
 
 include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
 file(GLOB LZ4_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4/*.c)
@@ -100,6 +118,10 @@ if(OS_MACOSX)
 endif()
 
 file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)
+if(WITH_EDITOR)
+	file(GLOB FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/Fury/Editor/*.cpp)
+	list(APPEND FURY_SRC ${FURY_EDITOR_SRC})
+endif()
 list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 
 # Path to the Lua launcher's main(). Resolves whether engine is the top-level
@@ -131,31 +153,13 @@ else()
 	install(TARGETS fury DESTINATION bin)
 endif()
 
-# Copy the host-platform FBX2glTF binary next to the built `fury` executable
-# (or library, if BUILD_SHARED_LIBS). FbxConverter::LocateBinary() looks for
-# this file in the same directory as the running executable; without the copy
-# the runtime falls back to the engine source tree, which is fine for
-# development but breaks any installed layout.
-if(OS_MACOSX)
-	set(FBX2GLTF_BINARY "FBX2glTF-darwin-x64")
-elseif(OS_WINDOWS)
-	set(FBX2GLTF_BINARY "FBX2glTF-windows-x64.exe")
-else()
-	set(FBX2GLTF_BINARY "FBX2glTF-linux-x64")
-endif()
-set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BINARY}")
-if(EXISTS "${FBX2GLTF_SRC_BINARY}")
-	add_custom_command(TARGET fury POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-			"${FBX2GLTF_SRC_BINARY}"
-			"$<TARGET_FILE_DIR:fury>/${FBX2GLTF_BINARY}"
-		COMMENT "Copying FBX2glTF binary next to fury"
-		VERBATIM)
-	if(NOT OS_WINDOWS)
-		add_custom_command(TARGET fury POST_BUILD
-			COMMAND chmod +x "$<TARGET_FILE_DIR:fury>/${FBX2GLTF_BINARY}"
-			VERBATIM)
-	endif()
+# Output the fury executable directly into examples/ so launching is just
+# `cd examples && ./fury`. Resource/ now lives at examples/Resource/, alongside
+# Editor.lua and the host-platform FBX2glTF binary copied below; nothing has
+# to be moved into a sub-bin/ directory at run time.
+if(NOT BUILD_SHARED_LIBS)
+	set_target_properties(fury PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples")
 endif()
 
 # Copy the host-platform FBX2glTF binary next to the built `fury` executable
