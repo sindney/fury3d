@@ -63,88 +63,56 @@ Each function SHALL be safe to call from `on_init` or `on_update` (no GL context
 - **THEN** an empty array is returned (not an error)
 - **AND** a one-line warning is logged via `FURYW`
 
-### Requirement: `Demo.lua` SHALL expose a single `File` menu owning New / Open / Import / Save As / Quit
+### Requirement: `Editor.lua` SHALL extend the editor-owned File menu via `Editor.SetSceneIO` and register camera controls via `Editor.SetCameraSettings`
 
-The shipped `examples/Demo.lua` SHALL register one menu-bar callback (via `Gui.SetMenuBarCallback`) that emits a single top-level `File` menu. The engine SHALL NOT emit its own `File` menu block; this top-level menu is owned exclusively by the running script. The `File` menu SHALL contain the following items in order:
+The shipped `examples/Editor.lua` (renamed from `examples/Demo.lua`) SHALL register its file-IO behavior through the C++ editor's `Editor.SetSceneIO(...)` Lua surface — it SHALL NOT emit `File → New / Open / Import / Save As` items via `Gui.SetMenuBarCallback`. The editor (C++) owns the entire `File` menu structure; Editor.lua provides the policy by passing callbacks into `Editor.SetSceneIO`:
 
-- **`New`** — clears the active scene (`Scene.GetActive():Clear()`). Camera and pipeline remain active. The viewport renders an empty scene afterwards.
-- **`Open`** — a submenu listing each entry from `FileUtil.ListDirectory("Resource/Scene/", {".json", ".bin", ".gltf", ".glb", ".fbx"})`. Selecting an entry: clears the active scene, calls `Importer.LoadScene(path)` to build a new scene, and merges the imported content into the active scene (so the camera/pipeline wiring survives).
-- **`Import`** — a submenu with the same enumeration as `Open`. Selecting an entry: loads the file via `Importer.LoadScene` and calls `Importer.MergeInto(active, imported)` rather than replacing the active scene.
-- **`Save As...`** — opens an ImGui modal containing a `Gui.InputText` field pre-filled with `scene_saved.json`. On confirm, writes the active scene to `Resource/Scene/<filename>` via `FileUtil.SaveFile` (for `.json`) or `FileUtil.SaveCompressedFile` (for `.bin`). A status line in `Log.txt` confirms the save.
-- **(Separator)**
-- **`Quit`** — calls the new `Window.Close()` Lua binding to close the engine window.
+- `list_files = function() return FileUtil.ListDirectory("Resource/Scene/", {".json",".bin",".gltf",".glb",".fbx"}) end`
+- `on_new = function() Scene.GetActive():Clear(); set_status("scene cleared") end`
+- `on_open = function(filename) ... open_scene(filename) end` (existing helper from Demo.lua, slightly adjusted)
+- `on_import = function(filename) ... import_scene(filename) end`
+- `on_save_as = function(filename) save_active_scene(filename) end`
+- `scene_dir = function() return FileUtil.GetAbsPath("Resource/Scene/") end` (or the directory of the most-recently-opened/saved file)
 
-Demo.lua SHALL also continue to register a `Camera` top-level menu (alongside the engine's `View` menu) carrying its existing camera-tuning panel item. No top-level `Scene` menu is registered — that menu is retired.
+The legacy custom `Save As` modal in Demo.lua (lines ~401-414) SHALL be removed; the editor's built-in modal serves this role. The legacy `Auto-Add Default Sun` File-menu toggle SHALL be moved into the editor's Settings → Import section by registering its boolean state with the editor's settings panel (or by reading it from a Lua-side function the editor exposes through `Editor.SetSceneIO`'s settings hook — the spec leaves the exact wiring to design.md but the user-facing outcome is that the toggle lives in Settings → Import, not in the File menu).
 
-The Demo SHALL handle the case where `Importer.LoadScene` rejects a file (returns `nil`): a one-line status message (rendered via the existing `set_status` helper) SHALL inform the user, and the previous scene SHALL remain active.
+The `File → Quit` item SHALL be rendered by the editor (C++) and SHALL invoke `Gui::CloseWindow` to close the engine window. Closing via the OS window controls remains supported and equivalent.
 
-#### Scenario: Single top-level File menu replaces the prior File + Scene pair
+The legacy script-emitted `Camera` top-level menu SHALL NOT be registered by `Editor.lua`. Camera tuning controls live inside `Settings → Camera`, populated by `Editor.SetCameraSettings({controls = {...}})`. The Settings window itself is reachable via `File → Settings`. Editor.lua MAY still register a `Gui.SetMenuBarCallback` for any other project-specific menus, but SHALL NOT use that callback to emit a `Camera` menu.
 
-- **WHEN** Demo.lua is loaded and the engine renders the top menu bar
-- **THEN** exactly one top-level menu labeled `File` is visible
-- **AND** no top-level menu labeled `Scene` is visible
-- **AND** the `File` menu contains, in order: `New`, `Open ▸`, `Import ▸`, `Save As...`, a separator, and `Quit`
+#### Scenario: Editor.lua does not emit File menu items
 
-#### Scenario: New clears geometry without affecting camera or pipeline
+- **WHEN** Editor.lua loads
+- **THEN** it does not call `Gui.BeginMenu("File")` or any `Gui.MenuItem` directly under the File menu
 
-- **WHEN** the user clicks `File → New` in Demo.lua
-- **THEN** the next frame renders no geometry (just the clear color)
-- **AND** the camera flythrough still works (camera and pipeline unaffected)
+#### Scenario: File → New uses Editor.lua's on_new policy
 
-#### Scenario: Open replaces the active scene
+- **WHEN** the user clicks `File → New`
+- **THEN** the editor invokes the registered `on_new` callback
+- **AND** Editor.lua's `on_new` clears the active scene and emits a status message
 
-- **WHEN** the user clicks `File → Open → james.fbx`
-- **THEN** Demo.lua calls `Importer.LoadScene("Resource/Scene/james.fbx")`
-- **AND** the previous scene is cleared
-- **AND** the new scene is visible in the viewport
-- **AND** the camera continues to work
+#### Scenario: File → Open lists files from Editor.lua's list_files
 
-#### Scenario: Open of a .json scene works against an empty active scene
+- **WHEN** the user opens `File → Open`
+- **THEN** the submenu items match exactly the list returned by Editor.lua's `list_files()` callback
 
-- **WHEN** the user clicks `File → New` and then `File → Open → scene.json` (with `Resource/Scene/scene.json` being the bundled tank-on-grass scene)
-- **THEN** `Importer.LoadScene` returns a non-nil scene with the tank mesh and its materials resolved
-- **AND** Demo.lua merges that scene into the active scene
-- **AND** the viewport renders the tank on the grass plane (no `Mesh T90 not found!` error, no `Serialization failed!` error)
+#### Scenario: File → Save As routes through Editor.lua's on_save_as
 
-#### Scenario: Import merges into the existing scene
+- **WHEN** the user clicks `File → Save As…`, types `mything.json`, and clicks Save
+- **THEN** the editor invokes the registered `on_save_as` callback with `"mything.json"`
+- **AND** Editor.lua writes `Resource/Scene/mything.json`
 
-- **WHEN** the user clicks `File → Import → tank.fbx` while a scene is already loaded
-- **THEN** both the original scene's geometry and the imported tank are visible
-- **AND** the imported subtree is reachable via the octree's visibility query (renders correctly when in frustum)
-
-#### Scenario: Save As writes to a user-supplied path
-
-- **WHEN** the user clicks `File → Save As...`, types `mything.json` into the modal's text field, and confirms
-- **THEN** `Resource/Scene/mything.json` is written
-- **AND** loading `mything.json` via `Importer.LoadScene` produces an equivalent scene (same node count, mesh count, material count)
-
-#### Scenario: Quit closes the engine window
+#### Scenario: File → Quit closes the engine window
 
 - **WHEN** the user clicks `File → Quit`
-- **THEN** `Window.Close()` is invoked
-- **AND** the engine window closes (next frame, the main loop exits)
+- **THEN** the editor invokes `Gui::CloseWindow`
+- **AND** the engine main loop exits on the next iteration
 
-#### Scenario: Import failure preserves active scene
+#### Scenario: Settings opens via File → Settings (no Camera top-level menu)
 
-- **WHEN** the user clicks `File → Open → broken.gltf` and the importer rejects the file
-- **THEN** `Importer.LoadScene` returns `nil`
-- **AND** the active scene remains the previous one (no clear is performed on error)
-- **AND** a visible status message is shown in the UI
-
-### Requirement: The Lua surface SHALL expose `Window.Close()`
-
-The Lua bindings SHALL register a `Window` table with a `Close()` function that closes the engine window via the same path the engine's previous built-in `File → Quit` menu item used (`m_Window->close()`). Calling `Window.Close()` SHALL cause the main loop to exit on the next iteration. The call SHALL be idempotent — calling it after the window has already been closed SHALL be a no-op (no exception, no log spam).
-
-#### Scenario: Window.Close closes the engine window
-
-- **WHEN** a Lua script calls `Window.Close()` while the engine is running
-- **THEN** the engine's main loop exits on the next iteration
-- **AND** the process terminates cleanly
-
-#### Scenario: Window.Close is idempotent
-
-- **WHEN** a Lua script calls `Window.Close()` twice in succession
-- **THEN** the second call does not throw, log an error, or cause undefined behavior
+- **WHEN** the engine renders the main menu bar
+- **THEN** no top-level `Camera` menu is emitted by Editor.lua
+- **AND** `File → Settings` toggles the Settings window, whose Camera section is populated by `Editor.SetCameraSettings`
 
 ### Requirement: `FileUtil.ListDirectory` enumerates `Resource/Scene/` dynamically (not hard-coded)
 
@@ -200,53 +168,45 @@ The script-path argument SHALL continue to be `argv[1]` (no change to the existi
 - **WHEN** the engine is invoked as `./fury` (no arguments)
 - **THEN** `arg[0] == "Demo.lua"` and `#arg == 0`
 
-### Requirement: `Demo.lua` SHALL honor `arg[1]` as a startup scene path; otherwise SHALL load the default `Resource/Scene/scene.bin`
+### Requirement: `Editor.lua` SHALL honor `arg[1]` as a startup scene path; otherwise SHALL load the default `Resource/Scene/scene.bin`
 
-In `on_init`, after the active scene and pipeline are created, `Demo.lua` SHALL inspect `arg[1]`:
+In `on_init`, after the active scene and pipeline are created, `Editor.lua` SHALL inspect `arg[1]` and apply the same fallback logic that `Demo.lua` previously used:
 
-- If `arg[1]` is nil or an empty string: load `Resource/Scene/scene.bin` via the existing `FileUtil.LoadSceneFromCompressedFile` path (unchanged from today's behavior).
-- If `arg[1]` is set: resolve the path with the following fallback order:
-  1. The literal value, if it names an existing file (absolute or relative to the current working directory).
-  2. `Resource/Scene/` + literal value, if step (1) failed.
-  Then dispatch through `Importer.LoadScene` (which handles `.json` / `.bin` / `.gltf` / `.glb` / `.fbx` per extension).
-- If `Importer.LoadScene` returns `nil` (resolution failed or unsupported extension): log a warning, surface a one-line status message in the demo UI, and fall back to loading the default `scene.bin`. The demo SHALL NOT refuse to start.
+- If `arg[1]` is nil or an empty string: load `Resource/Scene/scene.bin` via `FileUtil.LoadSceneFromCompressedFile`.
+- If `arg[1]` is set: resolve via the literal path first, then `Resource/Scene/` + literal, then dispatch through `Importer.LoadScene`.
+- On failure: log a warning, set a one-line status, and fall back to the default scene.
 
-When the argv-provided scene loads successfully, the demo SHALL merge it into the active scene (so camera and pipeline wiring survive) and SHALL surface a one-line status message naming the loaded file.
+This requirement is unchanged from the prior `Demo.lua` requirement except for the script's filename. The behavior is preserved verbatim; only the file the engine looks for has been renamed.
 
-#### Scenario: ./fury Demo.lua with no extra args loads the default scene
+`examples/main.cpp` SHALL update its default-script-path argv resolution from `"Demo.lua"` to `"Editor.lua"` so `./fury` (no args) loads the new file.
 
-- **WHEN** the user runs `./fury Demo.lua`
-- **THEN** the active scene contains the tank-on-grass content from `Resource/Scene/scene.bin`
+#### Scenario: ./fury with no extra args loads Editor.lua and the default scene
 
-#### Scenario: ./fury Demo.lua outdoor.fbx loads outdoor.fbx at startup
+- **WHEN** the user runs `./fury` from `examples/`
+- **THEN** the engine loads `Editor.lua` (not `Demo.lua`)
+- **AND** the active scene contains the tank-on-grass content from `Resource/Scene/scene.bin`
 
-- **WHEN** the user runs `./fury Demo.lua outdoor.fbx` from `examples/bin/`
-- **THEN** `Demo.lua` calls `Importer.LoadScene` on `Resource/Scene/outdoor.fbx` (the `Resource/Scene/` prefix fallback resolves the literal `outdoor.fbx`)
-- **AND** the active scene contains the imported FBX content
-- **AND** the viewport renders that content (lit, once KHR_lights_punctual translation is in place)
+#### Scenario: ./fury Editor.lua outdoor.fbx loads outdoor.fbx
 
-#### Scenario: ./fury Demo.lua with an absolute path
+- **WHEN** the user runs `./fury Editor.lua outdoor.fbx`
+- **THEN** Editor.lua resolves `outdoor.fbx` via the `Resource/Scene/` prefix fallback
+- **AND** the imported FBX renders in the viewport
 
-- **WHEN** the user runs `./fury Demo.lua /Users/me/Models/scene.json` and that path exists
-- **THEN** `Demo.lua` calls `Importer.LoadScene` on the literal path (no `Resource/Scene/` prefix)
-- **AND** the active scene contains that file's content
+#### Scenario: ./fury Editor.lua with a missing file falls back gracefully
 
-#### Scenario: ./fury Demo.lua with a missing file falls back gracefully
+- **WHEN** the user runs `./fury Editor.lua does_not_exist.fbx`
+- **THEN** Editor.lua logs a warning and falls back to `Resource/Scene/scene.bin`
+- **AND** the editor is interactive
 
-- **WHEN** the user runs `./fury Demo.lua does_not_exist.fbx`
-- **THEN** `Importer.LoadScene` returns `nil` (after both literal and `Resource/Scene/`-prefix resolution failed)
-- **AND** `Demo.lua` logs a warning and falls back to `Resource/Scene/scene.bin`
-- **AND** the demo is interactive (does not crash, does not abort)
+### Requirement: `Editor.lua` opens of `tank.fbx` and `james.fbx` SHALL render textured
 
-### Requirement: `Demo.lua` opens of `tank.fbx` and `james.fbx` SHALL render textured
+When the user clicks `File → Open → tank.fbx` (or `File → Open → james.fbx`) in `Editor.lua`, the active scene SHALL render with the FBX's diffuse textures applied. The viewport SHALL show the textured tank body, wheels, and grass plane (for `tank.fbx`) or the textured character mesh (for `james.fbx`), not flat-colored geometry.
 
-When the user clicks `File → Open → tank.fbx` (or `File → Open → james.fbx`) in `Demo.lua`, the active scene SHALL render with the FBX's diffuse textures applied. The viewport SHALL show the textured tank body, wheels, and grass plane (for `tank.fbx`) or the textured character mesh (for `james.fbx`), not flat-colored geometry.
-
-Implementation note (non-normative): this is satisfied by the new `embedded-textures` capability and the modified `gltf-importer` capability — embedded JPEGs from the FBX→glTF chain are uploaded to the GPU directly from memory via `Texture::CreateFromMemory`. No extraction to temp files happens at import time. Demo.lua itself is not modified.
+This requirement is unchanged in substance from the prior `Demo.lua` version; only the script name has been updated. The implementation continues to be backed by the `embedded-textures` capability and the modified `gltf-importer` capability — embedded JPEGs from the FBX→glTF chain are uploaded to the GPU directly from memory via `Texture::CreateFromMemory`. Editor.lua itself contains no texture-handling code.
 
 #### Scenario: Open tank.fbx renders the embedded JPEGs
 
-- **WHEN** a user runs `./fury Demo.lua` and clicks `File → Open → tank.fbx`
+- **WHEN** a user runs `./fury Editor.lua` and clicks `File → Open → tank.fbx`
 - **THEN** the imported scene's tank body material has a non-null diffuse-texture upload (`m_ID != 0`)
 - **AND** the rendered viewport shows the body's texture (the JPEG that was embedded in the FBX), not a flat gray
 - **AND** no `Texture::CreateFromImage failed` errors appear in `Log.txt`
@@ -254,12 +214,12 @@ Implementation note (non-normative): this is satisfied by the new `embedded-text
 
 #### Scenario: Open james.fbx renders the embedded character textures
 
-- **WHEN** a user runs `./fury Demo.lua` and clicks `File → Open → james.fbx`
+- **WHEN** a user runs `./fury Editor.lua` and clicks `File → Open → james.fbx`
 - **THEN** the imported character renders with its source textures, not flat-colored
 
 #### Scenario: Save As after opening an FBX produces a self-contained scene
 
-- **WHEN** a user opens `tank.fbx` and then uses `File → Save As...` to write `Resource/Scene/tank_saved.json`
+- **WHEN** a user opens `tank.fbx` and then uses `File → Save As…` to write `Resource/Scene/tank_saved.json`
 - **THEN** `Resource/Scene/tank_saved.json` is created
 - **AND** the JPEG textures (e.g. `body.jpg`, `wheels.jpg`, `grass.jpg`) are extracted to `Resource/Scene/` next to the saved scene
 - **AND** loading `Resource/Scene/tank_saved.json` via `File → Open` afterwards renders the same textured scene
