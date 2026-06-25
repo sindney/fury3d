@@ -157,7 +157,7 @@ namespace fury
 
 		// draw debug
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
-			PipelineSwitch::MESH_BOUNDS }, true))
+			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS }, true))
 			DrawDebug(query);
 
 		// gui

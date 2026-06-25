@@ -38,10 +38,11 @@ namespace fury
 
 	enum class PipelineSwitch : unsigned int
 	{
-		CASCADED_SHADOW_MAP = 0, 
-		MESH_BOUNDS, 
-		LIGHT_BOUNDS, 
-		CUSTOM_BOUNDS, 
+		CASCADED_SHADOW_MAP = 0,
+		MESH_BOUNDS,
+		LIGHT_BOUNDS,
+		CUSTOM_BOUNDS,
+		OCTREE_BOUNDS,
 		LENGTH
 	};
 

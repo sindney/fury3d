@@ -1087,7 +1087,7 @@ namespace fury
 			input_stem = (dot == std::string::npos) ? base : base.substr(0, dot);
 		}
 
-		auto tree = OcTree::Create(Vector4(-1000), Vector4(1000), 2);
+		auto tree = OcTree::Create();
 		auto scene = Scene::Create(scene_name, working_dir, tree);
 		auto entities = scene->GetEntityManager();
 

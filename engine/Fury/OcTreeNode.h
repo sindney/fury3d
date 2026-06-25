@@ -41,6 +41,8 @@ namespace fury
 
 		std::vector<std::shared_ptr<SceneNode>> m_SceneNodes;
 
+		// Mutable post-construction: OcTree::GrowRootToContain reassigns this
+		// when wrapping the existing root inside a new outer root.
 		OcTreeNode::Ptr m_Parent;
 
 		bool m_IsLeaf;

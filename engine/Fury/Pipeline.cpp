@@ -21,6 +21,8 @@
 #include "Fury/RenderQuery.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
+#include "Fury/OcTree.h"
+#include "Fury/OcTree.h"
 #include "Fury/Shader.h"
 #include "Fury/SphereBounds.h"
 #include "Fury/Texture.h"
@@ -721,6 +723,12 @@ namespace fury
 
 			for (const auto &bounds : m_DebugBoxBounds)
 				renderUtil->DrawBoxBounds(bounds, Color::Green);
+		}
+
+		if (IsSwitchOn(PipelineSwitch::OCTREE_BOUNDS) && Scene::Active)
+		{
+			if (auto tree = std::dynamic_pointer_cast<OcTree>(Scene::Active->GetSceneManager()))
+				tree->DrawDebugBounds(*renderUtil);
 		}
 
 		renderUtil->EndDrawLines();

@@ -419,7 +419,7 @@ namespace fury
 			std::error_code ec;
 			std::string working_dir = DirOf(path);
 			if (!working_dir.empty()) working_dir += "/";
-			auto tree = OcTree::Create(Vector4(-1000), Vector4(1000), 2);
+			auto tree = OcTree::Create();
 			auto scene = Scene::Create("info", working_dir, tree);
 			Scene::Active = scene;
 			bool ok = (ext == ".json")

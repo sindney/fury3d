@@ -34,7 +34,7 @@ namespace fury
 	{
 		m_TypeIndex = typeid(Scene);
 		if (sceneManager == nullptr)
-			m_SceneManager = OcTree::Create(Vector4(-1000), Vector4(1000), 2);
+			m_SceneManager = OcTree::Create();
 		else
 			m_SceneManager = sceneManager;
 

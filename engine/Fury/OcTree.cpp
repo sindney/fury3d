@@ -1,4 +1,5 @@
 #include <deque>
+#include <utility>
 
 #include "Fury/Frustum.h"
 #include "Fury/Light.h"
@@ -8,15 +9,44 @@
 #include "Fury/OcTreeNode.h"
 #include "Fury/OcTree.h"
 #include "Fury/RenderQuery.h"
+#include "Fury/RenderUtil.h"
 #include "Fury/SceneNode.h"
 #include "Fury/SphereBounds.h"
 #include "Fury/Log.h"
 
 namespace fury
 {
+	const float OcTree::kDefaultHalfExtent = 1000.0f;
+
+	OcTree::Ptr OcTree::Create()
+	{
+		return std::make_shared<OcTree>();
+	}
+
+	OcTree::Ptr OcTree::Create(unsigned int maxDepth)
+	{
+		return std::make_shared<OcTree>(maxDepth);
+	}
+
 	OcTree::Ptr OcTree::Create(Vector4 min, Vector4 max, unsigned int maxDepth)
 	{
 		return std::make_shared<OcTree>(min, max, maxDepth);
+	}
+
+	OcTree::OcTree() :
+		m_TypeIndex(typeid(OcTree)), m_MaxDepth(kDefaultMaxDepth)
+	{
+		Vector4 min(-kDefaultHalfExtent, -kDefaultHalfExtent, -kDefaultHalfExtent, 1.0f);
+		Vector4 max( kDefaultHalfExtent,  kDefaultHalfExtent,  kDefaultHalfExtent, 1.0f);
+		m_Root = OcTreeNode::Create(*this, nullptr, min, max);
+	}
+
+	OcTree::OcTree(unsigned int maxDepth) :
+		m_TypeIndex(typeid(OcTree)), m_MaxDepth(maxDepth)
+	{
+		Vector4 min(-kDefaultHalfExtent, -kDefaultHalfExtent, -kDefaultHalfExtent, 1.0f);
+		Vector4 max( kDefaultHalfExtent,  kDefaultHalfExtent,  kDefaultHalfExtent, 1.0f);
+		m_Root = OcTreeNode::Create(*this, nullptr, min, max);
 	}
 
 	OcTree::OcTree(Vector4 min, Vector4 max, unsigned int maxDepth) :
@@ -38,6 +68,11 @@ namespace fury
 
 	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode)
 	{
+		BoxBounds nodeBounds = sceneNode->GetWorldAABB();
+
+		if (m_Root != nullptr && m_Root->GetAABB().IsInside(nodeBounds) != Side::IN)
+			GrowRootToContain(nodeBounds);
+
 		AddSceneNode(sceneNode, m_Root, 0);
 	}
 
@@ -69,7 +104,7 @@ namespace fury
 		{
 			if (sceneNode->GetComponent<Light>() != nullptr)
 				renderQuery->AddLight(sceneNode);
-			
+
 			if (auto render = sceneNode->GetComponent<MeshRender>())
 			{
 				if (render->GetRenderable())
@@ -83,7 +118,7 @@ namespace fury
 		if (clear)
 			sceneNodes.clear();
 
-		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode) 
+		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
 			sceneNodes.push_back(sceneNode);
 		});
@@ -149,6 +184,9 @@ namespace fury
 
 	void OcTree::WalkScene(const Collidable &collider, const FilterFunc &filterFunc) const
 	{
+		if (m_Root == nullptr)
+			return;
+
 		using TreeNodePair = std::pair<bool, OcTreeNode::Ptr>;
 
 		std::deque<TreeNodePair> possiblePairs;
@@ -194,15 +232,141 @@ namespace fury
 		}
 	}
 
+	void OcTree::Reset()
+	{
+		Reset(kDefaultMaxDepth);
+	}
+
+	void OcTree::Reset(unsigned int maxDepth)
+	{
+		m_Root.reset();
+		m_MaxDepth = maxDepth;
+		Vector4 min(-kDefaultHalfExtent, -kDefaultHalfExtent, -kDefaultHalfExtent, 1.0f);
+		Vector4 max( kDefaultHalfExtent,  kDefaultHalfExtent,  kDefaultHalfExtent, 1.0f);
+		m_Root = OcTreeNode::Create(*this, nullptr, min, max);
+	}
+
 	void OcTree::Reset(Vector4 min, Vector4 max, unsigned int maxDepth)
 	{
 		m_Root.reset();
+		m_MaxDepth = maxDepth;
 		m_Root = OcTreeNode::Create(*this, nullptr, min, max);
 	}
 
 	void OcTree::Clear()
 	{
-		m_Root->Clear();
+		if (m_Root != nullptr)
+			m_Root->Clear();
+	}
+
+	bool OcTree::IsRooted() const
+	{
+		return m_Root != nullptr;
+	}
+
+	BoxBounds OcTree::GetRootAABB() const
+	{
+		if (m_Root != nullptr)
+			return m_Root->GetAABB();
+		return BoxBounds();
+	}
+
+	unsigned int OcTree::GetTotalSceneNodeCount() const
+	{
+		return m_Root != nullptr ? m_Root->GetTotalSceneNodeCount() : 0u;
+	}
+
+	unsigned int OcTree::GetOccupiedNodeCount() const
+	{
+		if (m_Root == nullptr)
+			return 0;
+
+		unsigned int count = 0;
+		std::deque<OcTreeNode*> stack;
+		stack.push_back(m_Root.get());
+
+		while (!stack.empty())
+		{
+			OcTreeNode *node = stack.back();
+			stack.pop_back();
+			++count;
+
+			for (int i = 0; i < 8; ++i)
+			{
+				if (node->m_Childs[i] != nullptr)
+					stack.push_back(node->m_Childs[i].get());
+			}
+		}
+
+		return count;
+	}
+
+	unsigned int OcTree::GetMaxOccupiedDepth() const
+	{
+		if (m_Root == nullptr)
+			return 0;
+
+		unsigned int maxDepth = 0;
+		std::deque<std::pair<OcTreeNode*, unsigned int>> stack;
+		stack.push_back(std::make_pair(m_Root.get(), 0u));
+
+		while (!stack.empty())
+		{
+			auto pair = stack.back();
+			stack.pop_back();
+
+			OcTreeNode *node = pair.first;
+			unsigned int depth = pair.second;
+
+			if (node->GetSceneNodeCount() > 0 && depth > maxDepth)
+				maxDepth = depth;
+
+			for (int i = 0; i < 8; ++i)
+			{
+				if (node->m_Childs[i] != nullptr)
+					stack.push_back(std::make_pair(node->m_Childs[i].get(), depth + 1));
+			}
+		}
+
+		return maxDepth;
+	}
+
+	void OcTree::DrawDebugBounds(RenderUtil &renderUtil) const
+	{
+		if (m_Root == nullptr)
+			return;
+
+		// Caller must have bracketed this call with BeginDrawLines / EndDrawLines
+		// (see Pipeline::DrawDebug for the canonical wiring).
+		static const Color kPalette[6] = {
+			Color::White,
+			Color::Yellow,
+			Color::Green,
+			Color::Cyan,
+			Color::Blue,
+			Color::Magenta,
+		};
+
+		std::deque<std::pair<OcTreeNode*, unsigned int>> stack;
+		stack.push_back(std::make_pair(m_Root.get(), 0u));
+
+		while (!stack.empty())
+		{
+			auto pair = stack.back();
+			stack.pop_back();
+
+			OcTreeNode *node = pair.first;
+			unsigned int depth = pair.second;
+
+			if (node->GetTotalSceneNodeCount() > 0)
+				renderUtil.DrawBoxBounds(node->GetAABB(), kPalette[depth % 6]);
+
+			for (int i = 0; i < 8; ++i)
+			{
+				if (node->m_Childs[i] != nullptr)
+					stack.push_back(std::make_pair(node->m_Childs[i].get(), depth + 1));
+			}
+		}
 	}
 
 	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode, const OcTreeNode::Ptr &treeNode, unsigned int depth)
@@ -219,6 +383,69 @@ namespace fury
 		{
 			treeNode->AddSceneNode(sceneNode);
 		}
+	}
+
+	void OcTree::GrowRootToContain(const BoxBounds &nodeBounds)
+	{
+		const int kMaxWraps = 32;
+
+		for (int i = 0; i < kMaxWraps; ++i)
+		{
+			Side side = m_Root->GetAABB().IsInside(nodeBounds);
+			if (side == Side::IN)
+				return;
+
+			Vector4 rootCenter = m_Root->GetAABB().GetCenter();
+			Vector4 rootMin = m_Root->GetAABB().GetMin();
+			Vector4 rootMax = m_Root->GetAABB().GetMax();
+			Vector4 rootSize = m_Root->GetAABB().GetSize();
+			Vector4 nodeCenter = nodeBounds.GetCenter();
+
+			// Decide which direction to grow on each axis: if the node's center
+			// is on the +side of the root center, grow toward +; otherwise -.
+			bool growPlusX = nodeCenter.x >= rootCenter.x;
+			bool growPlusY = nodeCenter.y >= rootCenter.y;
+			bool growPlusZ = nodeCenter.z >= rootCenter.z;
+
+			Vector4 newMin = rootMin;
+			Vector4 newMax = rootMax;
+
+			if (growPlusX) newMax.x = rootMax.x + rootSize.x; else newMin.x = rootMin.x - rootSize.x;
+			if (growPlusY) newMax.y = rootMax.y + rootSize.y; else newMin.y = rootMin.y - rootSize.y;
+			if (growPlusZ) newMax.z = rootMax.z + rootSize.z; else newMin.z = rootMin.z - rootSize.z;
+
+			newMin.w = 1.0f;
+			newMax.w = 1.0f;
+
+			// The old root becomes one of the eight children of the new root,
+			// in the corner *opposite* the growth direction (i.e., where the
+			// old root's AABB still sits inside the new root).
+			//
+			// Child index layout per OcTreeNode.h:
+			//   index = first + second * 2 + third * 4
+			// where first  == X >= splitCenter (set when growPlusX is FALSE,
+			//                  i.e. the old root is on the +X half of the new
+			//                  root; same logic for Y and Z).
+			int childIndex = 0;
+			if (!growPlusX) childIndex += 1;
+			if (!growPlusY) childIndex += 2;
+			if (!growPlusZ) childIndex += 4;
+
+			OcTreeNode::Ptr newRoot = OcTreeNode::Create(*this, nullptr, newMin, newMax);
+			OcTreeNode::Ptr oldRoot = m_Root;
+
+			newRoot->m_Childs[childIndex] = oldRoot;
+			oldRoot->m_Parent = newRoot;
+			newRoot->m_TotalSceneNodeCount = oldRoot->GetTotalSceneNodeCount();
+
+			m_Root = newRoot;
+		}
+
+		FURYE << "OcTree::GrowRootToContain hit " << kMaxWraps
+			<< "-wrap cap; nodeCenter=("
+			<< nodeBounds.GetCenter().x << ", "
+			<< nodeBounds.GetCenter().y << ", "
+			<< nodeBounds.GetCenter().z << ")";
 	}
 
 }

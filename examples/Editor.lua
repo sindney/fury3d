@@ -171,10 +171,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function on_init()
-    octree = OcTree.Create(
-        Vector4(-1000, -1000, -1000, 1),
-        Vector4( 1000,  1000,  1000, 1),
-        2)
+    octree = OcTree.Create()
 
     Scene.SetActive(Scene.Create("main", FileUtil.GetAbsPath(), octree))
 

@@ -166,7 +166,11 @@ namespace fury
 			lua.new_usertype<OcTree>("OcTree",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<SceneManager>(),
-				"Create", &OcTree::Create);
+				"Create", sol::overload(
+					[]() { return OcTree::Create(); },
+					[](unsigned int maxDepth) { return OcTree::Create(maxDepth); },
+					static_cast<OcTree::Ptr(*)(Vector4, Vector4, unsigned int)>(&OcTree::Create)
+				));
 
 			// --- Scene ---------------------------------------------------------
 			lua.new_usertype<Scene>("Scene",

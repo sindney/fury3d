@@ -13,8 +13,10 @@
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/BufferManager.h"
+#include "Fury/BoxBounds.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Matrix4.h"
+#include "Fury/OcTree.h"
 #include "Fury/Pipeline.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -164,6 +166,51 @@ namespace fury
 					Pipeline::Active->SetSwitch(PipelineSwitch::MESH_BOUNDS,         draw_mesh_bounds);
 					Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS,       draw_custom_bounds);
 					Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm);
+				}
+
+				ImGui::Separator();
+				ImGui::Text("OcTree:");
+
+				auto sm = Scene::Active ? Scene::Active->GetSceneManager() : nullptr;
+				if (!sm)
+				{
+					ImGui::TextDisabled("(no active scene)");
+				}
+				else if (auto tree = std::dynamic_pointer_cast<OcTree>(sm))
+				{
+					if (!tree->IsRooted())
+					{
+						ImGui::Text("Root: (unrooted)");
+						ImGui::Text("Scene Nodes: 0  Tree Nodes: 0  Max Depth: 0");
+					}
+					else
+					{
+						BoxBounds aabb = tree->GetRootAABB();
+						Vector4 mn = aabb.GetMin();
+						Vector4 mx = aabb.GetMax();
+						ImGui::Text("Root Min: (%.1f, %.1f, %.1f)", mn.x, mn.y, mn.z);
+						ImGui::Text("Root Max: (%.1f, %.1f, %.1f)", mx.x, mx.y, mx.z);
+						ImGui::Text("Scene Nodes: %u  Tree Nodes: %u  Max Depth: %u",
+							tree->GetTotalSceneNodeCount(),
+							tree->GetOccupiedNodeCount(),
+							tree->GetMaxOccupiedDepth());
+					}
+
+					static bool draw_octree_bounds = false;
+					if (ImGui::Checkbox("Draw OcTree Bounds", &draw_octree_bounds))
+					{
+						if (Pipeline::Active)
+							Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
+					}
+					else if (Pipeline::Active)
+					{
+						// Keep pipeline state in sync if something else flipped it.
+						Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
+					}
+				}
+				else
+				{
+					ImGui::TextDisabled("(non-octree scene manager)");
 				}
 			}
 
