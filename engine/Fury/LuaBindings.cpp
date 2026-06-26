@@ -163,12 +163,18 @@ namespace fury
 				sol::base_classes, sol::bases<Serializable>());
 
 			// --- OcTree --------------------------------------------------------
+			// Static-cast all three overloads to function pointers. With
+			// the lambda form, sol2 returns a raw `std::shared_ptr<OcTree>`
+			// from the lambda's auto-deduced return type and never registers
+			// the upcast registry that lets `sol::bases<SceneManager>` map
+			// `shared_ptr<OcTree>` → `shared_ptr<SceneManager>` — Scene.Create
+			// then rejects the userdata with "unrecognized userdata".
 			lua.new_usertype<OcTree>("OcTree",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<SceneManager>(),
 				"Create", sol::overload(
-					[]() { return OcTree::Create(); },
-					[](unsigned int maxDepth) { return OcTree::Create(maxDepth); },
+					static_cast<OcTree::Ptr(*)()>(&OcTree::Create),
+					static_cast<OcTree::Ptr(*)(unsigned int)>(&OcTree::Create),
 					static_cast<OcTree::Ptr(*)(Vector4, Vector4, unsigned int)>(&OcTree::Create)
 				));
 
@@ -593,6 +599,14 @@ namespace fury
 						if (!r.valid()) { sol::error e = r; FURYE << "Editor on_import error: " << e.what(); }
 					};
 				}
+				if (auto v = tbl["on_save"]; v.valid() && v.get_type() == sol::type::function)
+				{
+					sol::protected_function pf = v;
+					io.on_save = [pf](const std::string& p) {
+						sol::protected_function_result r = pf(p);
+						if (!r.valid()) { sol::error e = r; FURYE << "Editor on_save error: " << e.what(); }
+					};
+				}
 				if (auto v = tbl["on_save_as"]; v.valid() && v.get_type() == sol::type::function)
 				{
 					sol::protected_function pf = v;
@@ -741,6 +755,11 @@ namespace fury
 			editor_tbl["GetImportFlag"]       = sol::overload(
 				[](const std::string& name) -> bool { return Editor::GetImportFlag(name.c_str(), false); },
 				[](const std::string& name, bool d) -> bool { return Editor::GetImportFlag(name.c_str(), d); });
+			editor_tbl["SetCurrentScene"]     = [](const std::string& path, bool is_native) {
+				Editor::SetCurrentScene(path, is_native);
+			};
+			editor_tbl["ClearCurrentScene"]   = []() { Editor::ClearCurrentScene(); };
+			editor_tbl["GetCurrentScenePath"] = []() -> std::string { return Editor::GetCurrentScenePath(); };
 #else
 			// No-op stubs so user scripts that reference Editor.* compose
 			// with both build modes. Each accepts and discards arguments.
@@ -756,6 +775,9 @@ namespace fury
 			editor_tbl["GetImportFlag"]         = sol::overload(
 				[](sol::object) -> bool { return false; },
 				[](sol::object, bool d) -> bool { return d; });
+			editor_tbl["SetCurrentScene"]       = [](sol::object, sol::object) {};
+			editor_tbl["ClearCurrentScene"]     = []() {};
+			editor_tbl["GetCurrentScenePath"]   = []() -> std::string { return {}; };
 #endif
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------

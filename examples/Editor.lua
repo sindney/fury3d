@@ -65,11 +65,20 @@ local function list_scene_files()
         {".json", ".bin", ".gltf", ".glb", ".fbx"})
 end
 
+-- True for formats the engine can save back to (.json / .bin). Any other
+-- extension routes File → Save through the Save As modal so imported
+-- assets aren't silently overwritten.
+local function is_native_format(filename)
+    local ext = filename:lower():match("%.[^.]+$")
+    return ext == ".json" or ext == ".bin"
+end
+
 local function open_scene(filename)
     local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
     local imported = Importer.LoadScene(full)
     if imported then
         replace_active_scene(imported)
+        Editor.SetCurrentScene(full, is_native_format(filename))
         set_status("opened " .. filename)
     else
         set_status("failed to open " .. filename)
@@ -88,10 +97,11 @@ local function import_scene(filename)
     end
 end
 
-local function save_active_scene(filename)
-    -- Output goes into Resource/Scene/. Extension dictates format.
-    local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
-    local ext  = filename:lower():match("%.[^.]+$") or ""
+-- Shared core for File → Save (in-place) and File → Save As (named target).
+-- Both pass an absolute path under Resource/Scene/ and expect a .json or .bin
+-- extension. Returns true on success.
+local function write_scene_to_path(full)
+    local ext  = full:lower():match("%.[^.]+$") or ""
     local ok
     if ext == ".json" then
         ok = FileUtil.SaveFile(Scene.GetActive(), full)
@@ -99,9 +109,26 @@ local function save_active_scene(filename)
         ok = FileUtil.SaveCompressedFile(Scene.GetActive(), full)
     else
         set_status("Save: unsupported extension '" .. ext .. "' (use .json or .bin)")
-        return
+        return false
     end
-    set_status(ok and ("wrote " .. filename) or ("save failed for " .. filename))
+    if ok then
+        Editor.SetCurrentScene(full, true)
+        set_status("wrote " .. full)
+    else
+        set_status("save failed for " .. full)
+    end
+    return ok
+end
+
+local function save_active_scene(filename)
+    -- Save As path. Output goes into Resource/Scene/.
+    write_scene_to_path(FileUtil.GetAbsPath("Resource/Scene/" .. filename))
+end
+
+local function save_scene_in_place(full)
+    -- Save (no rename): Cmd+S already verified the path is native, so the
+    -- extension dispatch in write_scene_to_path is a tautological double-check.
+    write_scene_to_path(full)
 end
 
 -- ---------------------------------------------------------------------------
@@ -148,9 +175,9 @@ ensure_default_sun = ensure_default_sun_impl
 -- Startup scene resolution
 
 local function load_default_scene()
-    FileUtil.LoadSceneFromCompressedFile(
-        Scene.GetActive(),
-        FileUtil.GetAbsPath("Resource/Scene/scene.bin"))
+    local path = FileUtil.GetAbsPath("Resource/Scene/scene.bin")
+    FileUtil.LoadSceneFromCompressedFile(Scene.GetActive(), path)
+    Editor.SetCurrentScene(path, true)
 end
 
 local function file_exists(path)
@@ -183,6 +210,7 @@ local function on_init()
             local imported = Importer.LoadScene(resolved)
             if imported then
                 replace_active_scene(imported)
+                Editor.SetCurrentScene(resolved, is_native_format(startup))
                 set_status("opened " .. startup)
             else
                 print("Editor.lua: Importer.LoadScene rejected '" .. startup .. "'; falling back to scene.bin")
@@ -224,10 +252,12 @@ local function on_init()
         list_files = list_scene_files,
         on_new     = function()
             Scene.GetActive():Clear()
+            Editor.ClearCurrentScene()
             set_status("scene cleared")
         end,
         on_open    = open_scene,
         on_import  = import_scene,
+        on_save    = save_scene_in_place,
         on_save_as = save_active_scene,
         scene_dir  = function() return FileUtil.GetAbsPath("Resource/Scene/") end,
     })

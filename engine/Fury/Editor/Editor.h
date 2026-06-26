@@ -55,6 +55,7 @@ namespace fury
 			std::function<void()> on_new;
 			std::function<void(const std::string&)> on_open;
 			std::function<void(const std::string&)> on_import;
+			std::function<void(const std::string&)> on_save;
 			std::function<void(const std::string&)> on_save_as;
 			std::function<std::string()> scene_dir;
 		};
@@ -66,6 +67,15 @@ namespace fury
 		// Returns the resolved scene directory: SceneIO.scene_dir() if set,
 		// otherwise the absolute path to "Resource/Scene/".
 		std::string FURY_API GetSceneDir();
+
+		// Track which file the user is currently editing so File → Save can
+		// route to in-place save (native .json/.bin) or fall through to Save
+		// As (non-native: .gltf/.glb/.fbx, or no path tracked).
+		void FURY_API SetCurrentScene(const std::string& path, bool is_native);
+
+		void FURY_API ClearCurrentScene();
+
+		std::string FURY_API GetCurrentScenePath();
 
 		struct TreeNode
 		{
@@ -109,6 +119,9 @@ namespace fury
 		inline void SetImportFlag(const char*, bool) {}
 		inline bool GetImportFlag(const char*, bool d = false) { return d; }
 		inline void Log(const char*, const char*) {}
+		inline void SetCurrentScene(const std::string&, bool) {}
+		inline void ClearCurrentScene() {}
+		inline std::string GetCurrentScenePath() { return {}; }
 #endif
 	}
 }

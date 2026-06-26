@@ -34,6 +34,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-int-to-void-pointer-cast")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -DNDEBUG")
 
+# ImReflect (vendored at ThirdParty/ImReflect) uses C++17 template-template
+# parameters with defaulted template arguments — accepted by P0522 but
+# Clang gates it behind -frelaxed-template-template-args until C++20.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frelaxed-template-template-args")
+endif()
+
 # Default to building a single static fury executable (engine + Lua launcher).
 # Set BUILD_SHARED_LIBS=ON to instead get a libfury.{dylib,so,dll} for embedding.
 option(BUILD_SHARED_LIBS "Build the engine as a shared library instead of an executable." OFF)
@@ -119,6 +126,11 @@ endif()
 
 file(GLOB FURY_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)
 if(WITH_EDITOR)
+	# ImReflect is a single-header library; only the editor TUs include it,
+	# so the include path is gated on WITH_EDITOR. The header pulls in
+	# <imgui_stdlib.h> which is satisfied by ThirdParty/ImGui (already on
+	# the unconditional include path via include_directories above).
+	include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImReflect)
 	file(GLOB FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/Fury/Editor/*.cpp)
 	list(APPEND FURY_SRC ${FURY_EDITOR_SRC})
 endif()
