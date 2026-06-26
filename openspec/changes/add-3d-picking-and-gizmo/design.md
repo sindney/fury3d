@@ -152,34 +152,39 @@ Adding `R32UI` to the enum is a strictly additive change — no existing enumera
 
 **Alternative considered:** Encode IDs into RGBA8 (4×8-bit channels) — sidesteps the enum change but requires bit-fiddling on read and limits us to 2^32 ids in a non-obvious way. Rejected: explicit R32UI is clearer.
 
-### Decision 5: The viewport's clickable region is the central dock node, not the whole window
+### Decision 5: The viewport's clickable region is the central dock node, but the gizmo + picking operate in full-window pixel space
 
-ImGui's `DockSpaceOverViewport` with `PassthruCentralNode` produces a transparent central area where the 3D scene shows through. We need the click + gizmo to interact only with that region (not over docked panels).
+**Two different rectangles are at play:**
 
-`ImGui::DockBuilderGetCentralNode(s_DockspaceID)->Pos / Size` gives us the central rect each frame. Picking and gizmo use that rect:
-- Click is "in viewport" iff `cursor` is inside the central rect AND `!ImGui::GetIO().WantCaptureMouse` AND no gizmo is being used.
-- Gizmo's `ImGuizmo::SetRect(centralRect)` clamps gizmo interactivity to the same region.
-- Picking clicks fired through the central rect compute cursor coords as `cursor.x - rect.x, cursor.y - rect.y` for the viewport-relative pixel coordinate (Y-flip handled by GL convention: `pickY = pickH - 1 - rectRelativeY`).
+- **Click-gating rect** = `ImGui::DockBuilderGetCentralNode(s_DockspaceID)->Pos / Size`. A left-click only schedules a pick when the cursor lies inside this rect AND `!ImGui::GetIO().WantCaptureMouse` AND no gizmo is being used. This stops clicks on docked panels (Settings, Console, Scene Inspector) from selecting whatever 3D node happens to be behind the panel.
+- **Render rect** = `ImGui::GetMainViewport()->Pos / Size` (== the SFML window). The 3D scene currently renders at full window size — the camera projection's aspect is set to the full-window aspect (see `Editor.lua`: `camera:PerspectiveFov(0.7854, 1.778, 1, 100)`) and the pipeline's last pass binds the default framebuffer (the SFML back buffer), with `PassthruCentralNode` letting the dockspace's central area show that scene through. So the visible 3D pixels for any node live in *full-window* coordinates, not central-rect coordinates.
 
-**Why:** Clicking on a docked panel must drive ImGui as today (no accidental selection through a Settings checkbox).
+What that means for this change:
+- `ImGuizmo::SetRect` must take **full-window** pos/size. The view+projection we hand it are matched to the full-window render — feeding it the central rect would clamp gizmo handles to a sub-region they're not actually positioned in, producing the visible "gizmo lands to the side of the selected node" failure.
+- `Picking::RequestPickAt(...)` cursor coordinates must be **full-window** relative (`mp - viewport_pos`), not central-rect relative. The picking FBO is sized to `InputUtil::GetWindowSize()` (full window) and rendered using the same camera matrices as the main pipeline; reading at central-rect-relative coords would sample the wrong pixel.
+- The central rect remains useful only as an input-routing predicate, never as a coordinate transform.
+
+**If the editor later moves to a docked viewport** (3D scene drawn into an offscreen RT and `ImGui::Image`'d into a child window — like Unity/Unreal/Godot's editor mode), the relationship inverts: the *render rect* becomes the dock node's content rect, the camera projection's aspect must match it, and both gizmo + picking switch to dock-relative pixels. Only `Editor::Tick`'s placement code and (likely) `Pipeline::Execute`'s color-attachment setup change — `EditorPicking` and `EditorGizmo` already plumb a single rect through and would just receive a different one. Adding that mode would also let the editor scale the pick FBO to the viewport's actual size instead of the entire SFML window, saving GPU memory.
+
+**Why:** Clicking on a docked panel must drive ImGui as today (no accidental selection through a Settings checkbox); but the 3D coordinates we hand to ImGuizmo / read back from `glReadPixels` MUST match the render rect, which today is the full window — not the central dock rect.
 
 ### Decision 6: Gizmo state lives in editor C++; Lua bindings are optional
 
 ```cpp
-// In Editor.cpp
-enum class GizmoMode { Translate, Rotate, Scale };
-enum class GizmoSpace { Local, World };
-GizmoMode  g_GizmoMode  = GizmoMode::Translate;
-GizmoSpace g_GizmoSpace = GizmoSpace::World;
-bool       g_SnapEnabled = false;
-float      g_SnapTranslate = 1.0f;
-float      g_SnapRotate    = 15.0f;   // degrees
-float      g_SnapScale     = 0.1f;
+// In EditorGizmo.cpp
+ImGuizmo::OPERATION g_GizmoOp     = ImGuizmo::TRANSLATE;
+ImGuizmo::MODE      g_GizmoSpace  = ImGuizmo::WORLD; // persisted; not surfaced in v1 UI
+bool                g_SnapEnabled = false;
+float               g_SnapTranslate = 1.0f;
+float               g_SnapRotate    = 15.0f;   // degrees
+float               g_SnapScale     = 0.1f;
 ```
 
 `Editor::SetGizmoMode(const char*)`, `Editor::SetGizmoSpace(const char*)`, `Editor::SetSnapEnabled(bool)` are exposed. The Lua bindings (`Editor.SetGizmoMode("rotate")`, etc.) are added but no script changes are required — Editor.lua continues to work unchanged.
 
 State persists via the same `imgui.ini` settings handler that already persists the theme: extend the FuryEditor section to include `Gizmo=mode,space,snap_enabled,snap_t,snap_r,snap_s`.
+
+**Local vs World — direct manipulation is always WORLD in v1.** Surfacing a Local/World radio in the gizmo UI was confusing in practice: SCALE silently forced LOCAL anyway (ImGuizmo can only scale along local axes), and TRANSLATE/ROTATE in LOCAL means "drag along the node's own rotated axes" which most users don't expect by default. Direct world-space drag matches Unity / Godot's default. The Local/World concept now lives in the *Node Properties* section — a radio that switches the **read-out** of position/rotation/scale numbers between local (canonical, editable) and world (decomposed, read-only). The persisted `g_GizmoSpace` is kept for forward-compat with imgui.ini files that already wrote a space index, and remains reachable through `Editor::SetGizmoSpace` for scripts that want to opt back in.
 
 **Why:** Symmetric with the existing theme persistence. Avoids a JSON config sidecar.
 

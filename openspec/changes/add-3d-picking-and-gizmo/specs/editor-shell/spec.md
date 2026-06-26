@@ -2,14 +2,14 @@
 
 ### Requirement: The editor SHALL render an in-viewport TRS gizmo on the selected SceneNode
 
-When `WITH_EDITOR` is enabled and `Editor::GetSelectedSceneNode()` is non-null, the editor SHALL render an ImGuizmo-driven TRS (translate / rotate / scale) gizmo over the selected node's world position. The gizmo SHALL be drawn into ImGui's draw lists during `Editor::Tick` (before `Gui::Render`), inside an invisible full-viewport ImGui window with `ImGuizmo::SetRect` clamped to the central dock node's rect (so it interacts only over the 3D viewport area, not over docked panels).
+When `WITH_EDITOR` is enabled and `Editor::GetSelectedSceneNode()` is non-null, the editor SHALL render an ImGuizmo-driven TRS (translate / rotate / scale) gizmo over the selected node's world position. The gizmo SHALL be drawn into ImGui's draw lists during `Editor::Tick` (before `Gui::Render`), inside an invisible full-viewport ImGui window with `ImGuizmo::SetRect` clamped to the **full SFML window's pos/size** (matching the rect into which the 3D pipeline renders). Click-gating against the central dock node is handled separately so docked panels still absorb their own clicks.
 
 The gizmo SHALL receive:
 - `view = inverse(camera_node->GetWorldMatrix())` — the active pipeline camera's view matrix.
 - `projection = camera->GetProjectionMatrix()` — already in OpenGL column-major layout via `Matrix4::Raw[16]`.
 - `matrix = node->GetWorldMatrix()` — the selected node's world transform.
-- `operation` — TRANSLATE, ROTATE, or SCALE per `g_GizmoMode`.
-- `mode` — LOCAL or WORLD per `g_GizmoSpace`.
+- `operation` — TRANSLATE, ROTATE, or SCALE per `g_GizmoOp`.
+- `mode` — `ImGuizmo::WORLD` unconditionally in v1 (see "gizmo controls" requirement below for the rationale).
 - `snap` — `&snap_value` when `g_SnapEnabled == true` (snap_value = `g_SnapTranslate` for TRANSLATE, `g_SnapRotate` for ROTATE, `g_SnapScale` for SCALE), else `nullptr`.
 
 When the gizmo reports a change (`ImGuizmo::IsUsing()`), the editor SHALL:
@@ -133,17 +133,23 @@ The Lua bindings SHALL expose `Editor.SetGizmoMode(name)`, `Editor.SetGizmoSpace
 
 The Node Properties window SHALL render an additional "Gizmo" section above the existing Node / Light sections. The section SHALL contain:
 
-1. A 3-button row (Translate / Rotate / Scale) implemented as `ImGui::RadioButton` driven by `g_GizmoMode`.
-2. A 2-button row (Local / World) implemented as `ImGui::RadioButton` driven by `g_GizmoSpace`.
-3. A `Snap` checkbox driven by `g_SnapEnabled`.
-4. When `g_SnapEnabled` is true: three `DragFloat` widgets for `g_SnapTranslate`, `g_SnapRotate`, `g_SnapScale`. When false: those widgets SHALL be hidden (or disabled — implementation choice).
+1. A 3-button row (Translate / Rotate / Scale) implemented as `ImGui::RadioButton` driven by `g_GizmoOp`.
+2. A `Snap` checkbox driven by `g_SnapEnabled`.
+3. When `g_SnapEnabled` is true: three `DragFloat` widgets for `g_SnapTranslate`, `g_SnapRotate`, `g_SnapScale`. When false: those widgets SHALL be hidden (or disabled — implementation choice).
 
-The section SHALL render even when no node is selected (the gizmo doesn't appear, but the user can still configure mode / snap ahead of selecting).
+The gizmo SHALL always operate in world space. The Local/World concept is NOT surfaced as a gizmo-section toggle in v1 — surfacing it produced confusing UX (SCALE silently forced LOCAL; LOCAL TRANSLATE/ROTATE drags along the node's rotated axes which most users don't expect by default). The persisted `g_GizmoSpace` value is retained for forward-compat with imgui.ini files and is exposed through `Editor::SetGizmoSpace` for scripts that want to opt in.
+
+The "Node" section SHALL render a Local / World radio at its top that switches the position/rotation/scale read-out:
+
+- **Local** (default) — the position/rotation/scale widgets are bound to `node->GetLocal*` / `node->SetLocal*` (the canonical state).
+- **World** — the position/rotation/scale widgets are bound to `node->GetWorld*` and rendered read-only (`ImGui::BeginDisabled` / `EndDisabled`). Editing world transforms when a parent has non-uniform scale produces shear that the local TRS slot cannot represent, so the cleanest UX is to expose World as inspect-only.
+
+The Gizmo section SHALL render even when no node is selected (the gizmo doesn't appear, but the user can still configure mode / snap ahead of selecting). The Node section's Local/World radio MAY only render when a node is selected — it edits node-bound state.
 
 #### Scenario: Mode buttons reflect and update state
 
 - **WHEN** the user clicks the `Rotate` radio button in the Node Properties panel
-- **THEN** `g_GizmoMode == GizmoMode::Rotate` on the next frame
+- **THEN** `g_GizmoOp == ImGuizmo::ROTATE` on the next frame
 - **AND** the active gizmo (if a node is selected) renders rotation handles
 
 #### Scenario: Snap controls are gated by the Snap checkbox
@@ -160,6 +166,14 @@ The section SHALL render even when no node is selected (the gizmo doesn't appear
 - **WHEN** the user selects node A, picks ROTATE, then selects node B
 - **THEN** the Node Properties panel still shows ROTATE
 - **AND** the gizmo on node B is in ROTATE mode
+
+#### Scenario: Node section Local/World toggle switches the readout
+
+- **WHEN** a node is selected with `Local` chosen in the Node section
+- **THEN** the position/rotation/scale widgets show `node->GetLocal*` and edits commit through `SetLocal*`
+
+- **WHEN** the user clicks the `World` radio in the Node section
+- **THEN** the same widgets show `node->GetWorld*` and are read-only (disabled)
 
 ## MODIFIED Requirements
 

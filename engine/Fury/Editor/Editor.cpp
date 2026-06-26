@@ -1,6 +1,7 @@
 #ifdef WITH_EDITOR
 
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Gui.h"
@@ -11,6 +12,8 @@
 
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
+
+#include "ImGuizmo.h"
 
 #include <cstdio>
 #include <cstring>
@@ -30,6 +33,20 @@ namespace fury
 		void RenderConsoleWindow(bool* open);
 		void RenderContentBrowserWindow(bool* open);
 		void RenderNodePropertiesWindow(bool* open);
+
+		// Defined in EditorGizmo.cpp.
+		void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size);
+
+		// Gizmo state owned by EditorGizmo.cpp; read here for the imgui.ini
+		// persistence handler. Using extern (rather than going through the
+		// public string-keyed setters) keeps the Write/Read path symmetric
+		// with how Theme=N is persisted.
+		extern ImGuizmo::OPERATION g_GizmoOp;
+		extern ImGuizmo::MODE      g_GizmoSpace;
+		extern bool                g_SnapEnabled;
+		extern float               g_SnapTranslate;
+		extern float               g_SnapRotate;
+		extern float               g_SnapScale;
 
 		// Public-ish accessors used by the window rendering code, kept in
 		// this TU so we don't multiply globals.
@@ -118,6 +135,27 @@ namespace fury
 				if (std::sscanf(line, "Theme=%d", &v) == 1)
 				{
 					SetCurrentThemeIndex(v);
+					return;
+				}
+
+				// Gizmo persistence. Single line:
+				// Gizmo=<op>,<space>,<snap_enabled>,<snap_t>,<snap_r>,<snap_s>
+				// op: 0=translate, 1=rotate, 2=scale (matches the order we
+				// write below, NOT ImGuizmo's bitmask values, so adding
+				// future ops doesn't break files in the wild).
+				int op = 0, space = 0, snap = 0;
+				float st = 0, sr = 0, sc = 0;
+				if (std::sscanf(line, "Gizmo=%d,%d,%d,%f,%f,%f",
+					&op, &space, &snap, &st, &sr, &sc) == 6)
+				{
+					g_GizmoOp = (op == 1) ? ImGuizmo::ROTATE
+						: (op == 2) ? ImGuizmo::SCALE
+						: ImGuizmo::TRANSLATE;
+					g_GizmoSpace = (space == 0) ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
+					g_SnapEnabled = (snap != 0);
+					g_SnapTranslate = st;
+					g_SnapRotate    = sr;
+					g_SnapScale     = sc;
 				}
 			}
 
@@ -131,6 +169,13 @@ namespace fury
 			{
 				buf->appendf("[%s][Editor]\n", handler->TypeName);
 				buf->appendf("Theme=%d\n", GetCurrentThemeIndex());
+				const int op_idx =
+					(g_GizmoOp == ImGuizmo::ROTATE) ? 1 :
+					(g_GizmoOp == ImGuizmo::SCALE)  ? 2 : 0;
+				const int space_idx = (g_GizmoSpace == ImGuizmo::LOCAL) ? 0 : 1;
+				buf->appendf("Gizmo=%d,%d,%d,%.6f,%.6f,%.6f\n",
+					op_idx, space_idx, g_SnapEnabled ? 1 : 0,
+					g_SnapTranslate, g_SnapRotate, g_SnapScale);
 				buf->append("\n");
 			}
 
@@ -554,6 +599,55 @@ namespace fury
 			if (g_ShowNodeProperties)  RenderNodePropertiesWindow(&g_ShowNodeProperties);
 			if (g_ShowConsole)         RenderConsoleWindow(&g_ShowConsole);
 			if (g_ShowContentBrowser)  RenderContentBrowserWindow(&g_ShowContentBrowser);
+
+			// The 3D scene renders at full window size with the camera's
+			// projection matched to the full window's aspect — the docked
+			// panels overlay the scene via PassthruCentralNode. So the
+			// gizmo and picking both have to operate in full-window
+			// screen space, not central-rect space, otherwise they land
+			// at the wrong pixel. We still use the central rect to gate
+			// where clicks count as "on the viewport" vs "on a panel".
+			const ImVec2 viewport_pos  = ImGui::GetMainViewport()->Pos;
+			const ImVec2 viewport_size = ImGui::GetMainViewport()->Size;
+
+			ImVec2 central_pos  = viewport_pos;
+			ImVec2 central_size = viewport_size;
+			if (auto* dockNode = ImGui::DockBuilderGetCentralNode(s_DockspaceID))
+			{
+				central_pos  = dockNode->Pos;
+				central_size = dockNode->Size;
+			}
+
+			// Render the gizmo BEFORE click resolution, so ImGuizmo's
+			// IsOver()/IsUsing() reflect the gizmo state for THIS frame
+			// (those flags are set during Manipulate). Clicks that hit
+			// the gizmo don't fall through to picking.
+			RenderGizmo(viewport_pos, viewport_size);
+
+			// Viewport-click → picking. Conditions:
+			//  - Left mouse just clicked
+			//  - cursor is inside the central rect (so clicks on docked
+			//    panels don't pick — even though the 3D scene renders
+			//    behind them, the user expects the panel to absorb the
+			//    click)
+			//  - ImGui doesn't want the mouse (no docked panel under cursor)
+			//  - ImGuizmo isn't hovered or being dragged
+			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			{
+				ImVec2 mp = ImGui::GetIO().MousePos;
+				const bool in_central =
+					mp.x >= central_pos.x && mp.x <= central_pos.x + central_size.x &&
+					mp.y >= central_pos.y && mp.y <= central_pos.y + central_size.y;
+				const bool gizmo_busy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+				if (in_central && !ImGui::GetIO().WantCaptureMouse && !gizmo_busy)
+				{
+					// Convert from ImGui screen coords to full-window
+					// pixel coords (the picking FBO's coordinate space,
+					// matching the 3D pipeline's render target).
+					Picking::RequestPickAt(ImVec2(mp.x - viewport_pos.x,
+						mp.y - viewport_pos.y));
+				}
+			}
 		}
 
 		void Shutdown()

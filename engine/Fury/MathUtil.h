@@ -47,6 +47,12 @@ namespace fury
 
 		static bool PointInCone(Vector4 coneCenter, Vector4 coneDir, float height, float theta, Vector4 point);
 
+		// Decompose an affine transform Matrix4 into translation, rotation,
+		// scale. Assumes a TRS layout (no shear). Scale signs are folded
+		// onto the X axis so the rotation comes out a proper quaternion.
+		// Returns true on success; false if the matrix has zero-length
+		// columns and the rotation can't be recovered.
+		static bool Decompose(const Matrix4 &m, Vector4 &translation, Quaternion &rotation, Vector4 &scale);
 	};
 }
 

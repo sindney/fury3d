@@ -21,6 +21,12 @@ namespace fury
 		// windows. Must run AFTER Gui::NewFrame and BEFORE Gui::Render.
 		void FURY_API Tick();
 
+		// Drive the editor's post-render work: the viewport-picking
+		// state machine. Called from Engine.cpp once per frame, AFTER
+		// the user pipeline (Pipeline::Active->Execute) has run and
+		// BEFORE Gui::Render flushes ImGui draws to the back buffer.
+		void FURY_API TickPostRender();
+
 		void FURY_API Shutdown();
 
 		// ----- selection / visibility -------------------------------------
@@ -34,6 +40,25 @@ namespace fury
 		void FURY_API SetWindowVisible(const char* name, bool visible);
 
 		bool FURY_API GetWindowVisible(const char* name);
+
+		// ----- gizmo controls --------------------------------------------
+		// Set the active TRS gizmo mode. Valid name values: "translate",
+		// "rotate", "scale". Unknown names are silently ignored. The
+		// change applies on the next frame.
+		void FURY_API SetGizmoMode(const char* name);
+
+		// Set the gizmo's reference space. Valid name values: "local",
+		// "world". Unknown names are silently ignored. SCALE always
+		// operates in local space regardless of this setting.
+		void FURY_API SetGizmoSpace(const char* name);
+
+		void FURY_API SetSnapEnabled(bool enabled);
+
+		const char* FURY_API GetGizmoMode();
+
+		const char* FURY_API GetGizmoSpace();
+
+		bool FURY_API GetSnapEnabled();
 
 		// ----- import flags -----------------------------------------------
 		// Project-supplied import flag (e.g. "auto_default_sun") backing the
@@ -112,10 +137,17 @@ namespace fury
 		// linker has nothing to resolve.
 		inline void Initialize() {}
 		inline void Tick() {}
+		inline void TickPostRender() {}
 		inline void Shutdown() {}
 		inline SceneNode* GetSelectedSceneNode() { return nullptr; }
 		inline void SetWindowVisible(const char*, bool) {}
 		inline bool GetWindowVisible(const char*) { return false; }
+		inline void SetGizmoMode(const char*) {}
+		inline void SetGizmoSpace(const char*) {}
+		inline void SetSnapEnabled(bool) {}
+		inline const char* GetGizmoMode() { return "translate"; }
+		inline const char* GetGizmoSpace() { return "world"; }
+		inline bool GetSnapEnabled() { return false; }
 		inline void SetImportFlag(const char*, bool) {}
 		inline bool GetImportFlag(const char*, bool d = false) { return d; }
 		inline void Log(const char*, const char*) {}

@@ -71,6 +71,7 @@ namespace fury
 		R16,
 		R16F,
 		R32F,
+		R32UI,
 		RG8,
 		RG16,
 		RG16F,

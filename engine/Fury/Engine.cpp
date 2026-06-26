@@ -289,6 +289,12 @@ namespace fury
 			if (cb.OnUpdate) cb.OnUpdate(dt);
 			Update(dt);
 
+			// Editor post-render hook: drives the viewport-picking state
+			// machine after the user pipeline has rendered the 3D scene
+			// and before window.display(). With WITH_EDITOR=OFF this
+			// resolves to an inline no-op.
+			Editor::TickPostRender();
+
 			window.display();
 
 			RenderUtil::Instance()->EndFrame();

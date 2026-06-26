@@ -131,7 +131,11 @@ if(WITH_EDITOR)
 	# <imgui_stdlib.h> which is satisfied by ThirdParty/ImGui (already on
 	# the unconditional include path via include_directories above).
 	include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImReflect)
+	# ImGuizmo is the editor-only TRS gizmo. Its include path and one .cpp
+	# are gated on WITH_EDITOR so non-editor builds drop the dependency.
+	include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo)
 	file(GLOB FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/Fury/Editor/*.cpp)
+	list(APPEND FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImGuizmo.cpp)
 	list(APPEND FURY_SRC ${FURY_EDITOR_SRC})
 endif()
 list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})

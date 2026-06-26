@@ -15,11 +15,24 @@
 
 #include "ImGui/imgui.h"
 
+#include "ImGuizmo.h"
+
 namespace fury
 {
 	namespace Editor
 	{
 		extern SceneNode* g_SelectedSceneNode;
+
+		// Gizmo state lives in EditorGizmo.cpp; we read/write it directly
+		// from the Gizmo CollapsingHeader rendered at the top of this
+		// window. Marking imgui.ini dirty on each change persists the
+		// new value via the FuryEditor settings handler.
+		extern ImGuizmo::OPERATION g_GizmoOp;
+		extern ImGuizmo::MODE      g_GizmoSpace;
+		extern bool                g_SnapEnabled;
+		extern float               g_SnapTranslate;
+		extern float               g_SnapRotate;
+		extern float               g_SnapScale;
 
 		namespace
 		{
@@ -36,33 +49,135 @@ namespace fury
 				return false;
 			}
 
+			// Top-of-window Gizmo controls. Always rendered (independent of
+			// selection) so the user can pick a default mode before clicking
+			// a node. Each control marks imgui.ini dirty on change so the
+			// FuryEditor settings handler persists the new value.
+			//
+			// The gizmo always operates in world space — this is the
+			// convention DCC tools (Maya / Blender / Unity / Godot in the
+			// default mode) settle on for direct manipulation: dragging
+			// the green axis moves the object along world Y regardless of
+			// its parent transform. The Local/World toggle that USED to
+			// live here was confusing because picking SCALE forced LOCAL
+			// implicitly anyway. The toggle now lives in the Node section
+			// and controls READOUT of position/rotation/scale numbers.
+			void RenderGizmoSection()
+			{
+				if (!ImGui::CollapsingHeader("Gizmo", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+				bool changed = false;
+
+				// Mode radio buttons.
+				if (ImGui::RadioButton("Translate", g_GizmoOp == ImGuizmo::TRANSLATE))
+				{
+					g_GizmoOp = ImGuizmo::TRANSLATE;
+					changed = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::RadioButton("Rotate", g_GizmoOp == ImGuizmo::ROTATE))
+				{
+					g_GizmoOp = ImGuizmo::ROTATE;
+					changed = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::RadioButton("Scale", g_GizmoOp == ImGuizmo::SCALE))
+				{
+					g_GizmoOp = ImGuizmo::SCALE;
+					changed = true;
+				}
+
+				if (ImGui::Checkbox("Snap", &g_SnapEnabled))
+				{
+					changed = true;
+				}
+
+				// Snap-step inputs are visible only when snap is on. We
+				// hide rather than disable so they don't add visual noise
+				// in the common case (snap off).
+				if (g_SnapEnabled)
+				{
+					if (ImGui::DragFloat("Translate Step", &g_SnapTranslate, 0.1f, 0.001f, 1000.0f, "%.3f"))
+					{
+						changed = true;
+					}
+					if (ImGui::DragFloat("Rotate Step",    &g_SnapRotate,    0.5f, 0.1f,    180.0f,  "%.1f deg"))
+					{
+						changed = true;
+					}
+					if (ImGui::DragFloat("Scale Step",     &g_SnapScale,     0.01f, 0.001f, 100.0f, "%.3f"))
+					{
+						changed = true;
+					}
+				}
+
+				if (changed) ImGui::MarkIniSettingsDirty();
+			}
+
+			// Per-window state: which transform space the Node section
+			// reads / edits. Local is the canonical model (matches what
+			// SceneNode actually stores); World shows the composed
+			// transform and is convenient for sanity checks. We keep
+			// this as a window-local flag rather than persisted state —
+			// the user picks display mode per session.
+			bool g_NodeShowWorld = false;
+
 			void RenderSceneNodeSection(SceneNode* node)
 			{
 				if (!ImGui::CollapsingHeader("Node", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
 				ImGui::Text("Name: %s", node->GetName().empty() ? "(unnamed)" : node->GetName().c_str());
 
+				// Local / World display toggle. Local is the editable
+				// canonical state; World is read-only (decomposed from
+				// the cached world matrix) — mirrors what most DCC
+				// tools do, since editing a world-space transform
+				// implies an inverse-parent-multiply that doesn't
+				// round-trip cleanly when parents have non-uniform
+				// scale.
+				if (ImGui::RadioButton("Local##NodeSpace", !g_NodeShowWorld)) g_NodeShowWorld = false;
+				ImGui::SameLine();
+				if (ImGui::RadioButton("World##NodeSpace",  g_NodeShowWorld)) g_NodeShowWorld = true;
+
 				bool changed = false;
 
-				Vector4 pos = node->GetLocalPosition();
-				if (ImReflect::Input("Local Position", pos).get<Vector4>().is_changed())
+				if (!g_NodeShowWorld)
 				{
-					node->SetLocalPosition(pos);
-					changed = true;
-				}
+					Vector4 pos = node->GetLocalPosition();
+					if (ImReflect::Input("Position", pos).get<Vector4>().is_changed())
+					{
+						node->SetLocalPosition(pos);
+						changed = true;
+					}
 
-				Quaternion rot = node->GetLocalRoattion();
-				if (ImReflect::Input("Local Rotation", rot).get<Quaternion>().is_changed())
-				{
-					node->SetLocalRoattion(rot);
-					changed = true;
-				}
+					Quaternion rot = node->GetLocalRoattion();
+					if (ImReflect::Input("Rotation", rot).get<Quaternion>().is_changed())
+					{
+						node->SetLocalRoattion(rot);
+						changed = true;
+					}
 
-				Vector4 scl = node->GetLocalScale();
-				if (ImReflect::Input("Local Scale", scl).get<Vector4>().is_changed())
+					Vector4 scl = node->GetLocalScale();
+					if (ImReflect::Input("Scale", scl).get<Vector4>().is_changed())
+					{
+						node->SetLocalScale(scl);
+						changed = true;
+					}
+				}
+				else
 				{
-					node->SetLocalScale(scl);
-					changed = true;
+					// World readout — read-only. Editing world transforms
+					// when a parent has non-uniform scale produces shear
+					// that the local TRS slot can't represent, so the
+					// cleanest UX is to expose World as inspect-only.
+					Vector4 pos = node->GetWorldPosition();
+					Quaternion rot = node->GetWorldRoattion();
+					Vector4 scl = node->GetWorldScale();
+					ImGui::BeginDisabled();
+					ImReflect::Input("Position", pos);
+					ImReflect::Input("Rotation", rot);
+					ImReflect::Input("Scale", scl);
+					ImGui::EndDisabled();
 				}
 
 				if (changed) node->Recompose(false);
@@ -166,6 +281,11 @@ namespace fury
 				}
 				ImGui::Separator();
 			}
+
+			// Gizmo section is rendered FIRST and unconditionally —
+			// the user can configure mode/snap before any node is
+			// selected, and switching nodes shouldn't reset state.
+			RenderGizmoSection();
 
 			// Dangling-pointer walk: if the selected node was removed from the
 			// active scene since selection, drop the stale pointer.

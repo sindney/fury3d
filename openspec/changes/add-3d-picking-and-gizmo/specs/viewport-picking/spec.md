@@ -10,7 +10,7 @@ The editor SHALL implement a picking-only shader pair (`id_pass.vs` / `id_pass.f
 
 When the user left-clicks inside the central viewport region (see editor-shell modified requirement), the editor SHALL:
 
-1. Capture the cursor position relative to the central node's rect.
+1. Capture the cursor position in **full SFML window** pixel coordinates (origin = top-left of the engine window). The cursor IS gated against the central dock rect — clicks on docked panels are discarded — but the captured pixel must be in the same coordinate space as the picking FBO (which is sized to the full window because today the 3D pipeline renders to the full back buffer).
 2. Mark its internal `pick_state = RenderRequested`.
 
 On the next `Editor::TickPostRender` call where `pick_state == RenderRequested`, the editor SHALL:

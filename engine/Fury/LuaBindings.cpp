@@ -179,10 +179,25 @@ namespace fury
 				));
 
 			// --- Scene ---------------------------------------------------------
+			// Wrap `Create` so the third argument is taken as the concrete
+			// `OcTree::Ptr` (the only `SceneManager` derivative lua ever
+			// holds) and explicitly upcast in C++. Going through
+			// `&Scene::Create` directly relies on sol2's
+			// `sol::bases<SceneManager>` upcast registry to translate the
+			// OcTree userdata into a `shared_ptr<SceneManager>` — which
+			// fails at runtime with "unrecognized userdata" against the
+			// vendored sol2 we ship. The explicit upcast restores the
+			// `Scene.Create(name, dir, octree)` call shape lua expects.
 			lua.new_usertype<Scene>("Scene",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
-				"Create", &Scene::Create,
+				"Create", sol::overload(
+					[](const std::string &name, const std::string &dir) {
+						return Scene::Create(name, dir);
+					},
+					[](const std::string &name, const std::string &dir, OcTree::Ptr octree) {
+						return Scene::Create(name, dir, std::static_pointer_cast<SceneManager>(octree));
+					}),
 				"Clear", &Scene::Clear,
 				"GetRootNode", &Scene::GetRootNode,
 				"GetSceneManager", &Scene::GetSceneManager,
@@ -247,6 +262,12 @@ namespace fury
 				"CalculateAABB",  &Light::CalculateAABB);
 
 			// --- SceneNode -----------------------------------------------------
+			// AddComponent is overloaded per-derived-type so sol2 doesn't
+			// have to upcast the lua userdata into `shared_ptr<Component>`
+			// itself — it returns "unrecognized userdata" against the
+			// vendored sol2 we ship even though `sol::bases<Component>` is
+			// declared on each derived. Same workaround pattern as the
+			// `Scene.Create(name, dir, octree)` binding above.
 			lua.new_usertype<SceneNode>("SceneNode",
 				sol::no_constructor,
 				"Create", &SceneNode::Create,
@@ -263,7 +284,16 @@ namespace fury
 					static_cast<void(SceneNode::*)(Vector4)>(&SceneNode::SetLocalScale),
 					static_cast<void(SceneNode::*)(float)>(&SceneNode::SetLocalScale)),
 				"Recompose", &SceneNode::Recompose,
-				"AddComponent", &SceneNode::AddComponent,
+				"AddComponent", sol::overload(
+					[](SceneNode &n, Transform::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, Camera::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, Light::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					}),
 				"AddChild", &SceneNode::AddChild,
 				"GetChildCount", &SceneNode::GetChildCount,
 				"GetChildAt", &SceneNode::GetChildAt,
@@ -275,16 +305,33 @@ namespace fury
 				});
 
 			// --- Pipeline ------------------------------------------------------
+			// `Execute` takes `shared_ptr<SceneManager>`; lua passes the
+			// concrete `OcTree::Ptr`. Wrap to upcast in C++ — same sol2
+			// upcast workaround as Scene.Create / SceneNode:AddComponent /
+			// Pipeline.SetActive.
 			lua.new_usertype<Pipeline>("Pipeline",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
 				"SetCurrentCamera", &Pipeline::SetCurrentCamera,
-				"Execute", &Pipeline::Execute);
+				"Execute", sol::overload(
+					[](Pipeline &p, std::shared_ptr<SceneManager> sm) { p.Execute(sm); },
+					[](Pipeline &p, OcTree::Ptr octree) {
+						p.Execute(std::static_pointer_cast<SceneManager>(octree));
+					}));
 			// Static property — Lua scripts read/write Pipeline.Active. Use
 			// explicit getter/setter functions because sol::property on the
 			// usertype's class table doesn't reliably round-trip in sol2 v3.5.
 			lua["Pipeline"]["GetActive"] = []() -> Pipeline::Ptr { return Pipeline::Active; };
-			lua["Pipeline"]["SetActive"] = [](Pipeline::Ptr p) { Pipeline::Active = p; };
+			// Take the concrete `PrelightPipeline::Ptr` (the only Pipeline
+			// derivative lua produces) and upcast in C++ — sol2 fails to
+			// unwrap `shared_ptr<PrelightPipeline>` into `shared_ptr<Pipeline>`
+			// even with `sol::bases<Pipeline>` declared. Same workaround as
+			// Scene.Create / SceneNode.AddComponent above.
+			lua["Pipeline"]["SetActive"] = sol::overload(
+				[](Pipeline::Ptr p) { Pipeline::Active = p; },
+				[](PrelightPipeline::Ptr p) {
+					Pipeline::Active = std::static_pointer_cast<Pipeline>(p);
+				});
 
 			// --- PrelightPipeline ---------------------------------------------
 			lua.new_usertype<PrelightPipeline>("PrelightPipeline",
@@ -760,6 +807,16 @@ namespace fury
 			};
 			editor_tbl["ClearCurrentScene"]   = []() { Editor::ClearCurrentScene(); };
 			editor_tbl["GetCurrentScenePath"] = []() -> std::string { return Editor::GetCurrentScenePath(); };
+
+			// Gizmo controls — optional power-user surface; the editor
+			// works without scripts touching these. Unknown name strings
+			// are silently ignored at the C++ layer.
+			editor_tbl["SetGizmoMode"]        = [](const std::string& name) { Editor::SetGizmoMode(name.c_str()); };
+			editor_tbl["SetGizmoSpace"]       = [](const std::string& name) { Editor::SetGizmoSpace(name.c_str()); };
+			editor_tbl["SetSnapEnabled"]      = [](bool v) { Editor::SetSnapEnabled(v); };
+			editor_tbl["GetGizmoMode"]        = []() -> std::string { return Editor::GetGizmoMode(); };
+			editor_tbl["GetGizmoSpace"]       = []() -> std::string { return Editor::GetGizmoSpace(); };
+			editor_tbl["GetSnapEnabled"]      = []() -> bool { return Editor::GetSnapEnabled(); };
 #else
 			// No-op stubs so user scripts that reference Editor.* compose
 			// with both build modes. Each accepts and discards arguments.
@@ -778,6 +835,15 @@ namespace fury
 			editor_tbl["SetCurrentScene"]       = [](sol::object, sol::object) {};
 			editor_tbl["ClearCurrentScene"]     = []() {};
 			editor_tbl["GetCurrentScenePath"]   = []() -> std::string { return {}; };
+
+			// Gizmo no-ops for non-editor builds: same surface as the
+			// editor path so user scripts compose without #ifdefs.
+			editor_tbl["SetGizmoMode"]          = [](sol::object) {};
+			editor_tbl["SetGizmoSpace"]         = [](sol::object) {};
+			editor_tbl["SetSnapEnabled"]        = [](bool) {};
+			editor_tbl["GetGizmoMode"]          = []() -> std::string { return "translate"; };
+			editor_tbl["GetGizmoSpace"]         = []() -> std::string { return "world"; };
+			editor_tbl["GetSnapEnabled"]        = []() -> bool { return false; };
 #endif
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------
