@@ -48,8 +48,9 @@ compile_commands.json
 .idea/
 *.code-workspace
 
-# Tooling-specific (Claude Code session state — user-local)
+# Tooling-specific (user-local session state)
 .claude/
+.codebuddy/
 
 # OS noise
 .DS_Store
