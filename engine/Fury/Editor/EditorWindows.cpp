@@ -14,10 +14,13 @@
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/BufferManager.h"
 #include "Fury/BoxBounds.h"
+#include "Fury/Camera.h"
 #include "Fury/EntityManager.h"
+#include "Fury/Log.h"
 #include "Fury/Matrix4.h"
 #include "Fury/OcTree.h"
 #include "Fury/Pipeline.h"
+#include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
@@ -38,6 +41,14 @@ namespace fury
 		extern std::vector<CameraControl> g_CameraControls;
 		extern std::unordered_map<std::string, bool> g_ImportFlags;
 		extern SceneNode* g_SelectedSceneNode;
+		extern bool g_ShowViewport;
+		extern ImVec2 g_ViewportContentMin;
+		extern ImVec2 g_ViewportContentSize;
+		extern bool g_ViewportHovered;
+		extern bool g_ViewportVisible;
+
+		// Defined in EditorGizmo.cpp.
+		void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size);
 
 		// ----------------------------------------------------------------
 		// Settings window (Camera / Import / Themes)
@@ -425,8 +436,8 @@ namespace fury
 				bool open = ImGui::TreeNodeEx((void*)node.get(), flags, "%s",
 					name.empty() ? "(unnamed)" : name.c_str());
 
-				if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-					g_SelectedSceneNode = node.get();
+			if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+				SetSelectedSceneNode(node.get());
 
 				if (open && node->GetChildCount() > 0)
 				{
@@ -451,8 +462,8 @@ namespace fury
 				bool open = ImGui::TreeNodeEx((const void*)&tn, flags, "%s",
 					tn.name.empty() ? "(unnamed)" : tn.name.c_str());
 
-				if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-					g_SelectedSceneNode = tn.node;
+			if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+				SetSelectedSceneNode(tn.node);
 
 				if (open && !tn.children.empty())
 				{
@@ -625,6 +636,108 @@ namespace fury
 				{
 					g_SelectedFile = name;
 				}
+			}
+
+			ImGui::End();
+		}
+
+		// ----------------------------------------------------------------
+		// Viewport window — docks the 3D scene into the editor dockspace.
+		// The scene renders to an offscreen RenderTarget (sized to the
+		// window's content rect) and is presented via ImGui::Image. The
+		// captured content rect (g_ViewportContentMin/Size) is what the
+		// gizmo and picking use for viewport-space coordinates.
+		// ----------------------------------------------------------------
+		void RenderViewportWindow(bool* open)
+		{
+			// Function-local static: the RT persists across frames and is
+			// resized as the window resizes. Owned by this TU.
+			static RenderTarget::Ptr rt;
+			if (!rt) rt = RenderTarget::Create("EditorViewport");
+
+		ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+		// NoNavFocus: clicking the viewport must NOT steal keyboard focus,
+		// otherwise WantCaptureKeyboard goes true and the WASD camera-move
+		// (gated on `not WantCaptureKeyboard` in Editor.lua) stops working
+		// while the user drag-rotates over the viewport.
+		if (!ImGui::Begin("Viewport", open,
+			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavFocus))
+			{
+				// Collapsed: no content rect. Mark not visible so gizmo +
+				// picking no-op, and clear the pipeline RT so the scene
+				// doesn't render into a stale target.
+				g_ViewportVisible = false;
+				g_ViewportContentSize = ImVec2(0, 0);
+				if (Pipeline::Active)
+					Pipeline::Active->SetRenderTarget(nullptr);
+				ImGui::End();
+				return;
+			}
+
+			const ImVec2 avail = ImGui::GetContentRegionAvail();
+			const ImVec2 pos = ImGui::GetCursorScreenPos();
+
+			// Capture the content rect for the gizmo + picking regardless
+			// of whether we have a usable size this frame.
+			g_ViewportContentMin = pos;
+			g_ViewportContentSize = avail;
+			g_ViewportHovered = ImGui::IsWindowHovered();
+
+			if (avail.x > 0.0f && avail.y > 0.0f && Pipeline::Active)
+			{
+				const int w = static_cast<int>(avail.x);
+				const int h = static_cast<int>(avail.y);
+
+				// Resize the RT to the content rect (no-op if unchanged).
+				// If the RT fails to allocate (e.g. FBO incomplete), skip
+				// the image this frame rather than crash on a null texture.
+				if (!rt->Resize(w, h))
+				{
+					g_ViewportVisible = false;
+					if (Pipeline::Active)
+						Pipeline::Active->SetRenderTarget(nullptr);
+					ImGui::End();
+					return;
+				}
+
+				// Hand the RT to the pipeline so the next Execute renders
+				// the 3D scene into it (see Pass::Bind's RT override).
+				Pipeline::Active->SetRenderTarget(rt.get());
+
+				// Re-derive the camera aspect from the content rect so the
+				// scene isn't stretched when the window is resized. FOV /
+				// near / far are preserved. SetAspect (unlike PerspectiveFov)
+				// preserves the frustum's world transform so culling keeps
+				// working — the camera node owns that transform.
+				if (auto camNode = Pipeline::Active->GetCurrentCamera())
+				{
+					if (auto cam = camNode->GetComponent<Camera>())
+					{
+						const float aspect = static_cast<float>(w) / static_cast<float>(h);
+						cam->SetAspect(aspect);
+					}
+				}
+
+				g_ViewportVisible = true;
+
+				// Present the RT's color texture. The texture is sampled
+				// during Gui::Render (after Pipeline::Execute has written
+				// this frame's scene into it), so there's no one-frame lag.
+				ImTextureID tex = (ImTextureID)(intptr_t)rt->GetColorTexture()->GetID();
+				ImGui::Image(tex, avail, ImVec2(0, 1), ImVec2(1, 0));
+
+				// Render the TRS gizmo into the Viewport window's own draw
+				// list, on top of the image. RenderGizmo uses
+				// ImGui::GetWindowDrawList() (this window) so the gizmo
+				// composites over the viewport rather than being hidden
+				// behind the docked window.
+				RenderGizmo(pos, avail);
+			}
+			else
+			{
+				g_ViewportVisible = false;
+				if (Pipeline::Active)
+					Pipeline::Active->SetRenderTarget(nullptr);
 			}
 
 			ImGui::End();

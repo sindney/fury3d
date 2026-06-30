@@ -241,7 +241,15 @@ namespace fury
 					light->SetCastShadows(cast);
 				}
 
-				if (aabb_dirty) light->CalculateAABB();
+				if (aabb_dirty)
+			{
+				light->CalculateAABB();
+				// Rebuild the convex volume mesh so the selection overlay
+				// (and the Profiler's LIGHT_BOUNDS overlay) draw a sphere /
+				// cone consistent with the current radius + outer angle.
+				// CalculateAABB alone leaves the cached mesh stale.
+				light->EvaluateVolume();
+			}
 			}
 		}
 
@@ -287,19 +295,19 @@ namespace fury
 			// selected, and switching nodes shouldn't reset state.
 			RenderGizmoSection();
 
-			// Dangling-pointer walk: if the selected node was removed from the
-			// active scene since selection, drop the stale pointer.
-			if (g_SelectedSceneNode && Scene::Active)
+		// Dangling-pointer walk: if the selected node was removed from the
+		// active scene since selection, drop the stale pointer.
+		if (g_SelectedSceneNode && Scene::Active)
+		{
+			if (!IsReachable(Scene::Active->GetRootNode(), g_SelectedSceneNode))
 			{
-				if (!IsReachable(Scene::Active->GetRootNode(), g_SelectedSceneNode))
-				{
-					g_SelectedSceneNode = nullptr;
-				}
+				SetSelectedSceneNode(nullptr);
 			}
-			else if (g_SelectedSceneNode && !Scene::Active)
-			{
-				g_SelectedSceneNode = nullptr;
-			}
+		}
+		else if (g_SelectedSceneNode && !Scene::Active)
+		{
+			SetSelectedSceneNode(nullptr);
+		}
 
 			if (g_SelectedSceneNode == nullptr)
 			{

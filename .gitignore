@@ -67,3 +67,9 @@ Desktop.ini
 # ImGui runtime layout state
 imgui.ini
 examples/bin/FBX2glTF-darwin-x64
+
+# Manual play-test scratch scenes dropped under examples/Resource/Scene/
+# during editor testing (Save As, open-by-name, etc.). Real scene assets
+# are tracked; these are user-local one-offs.
+examples/Resource/Scene/outdoor.json
+examples/Resource/Scene/scene_saved.json

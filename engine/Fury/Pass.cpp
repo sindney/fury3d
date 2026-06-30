@@ -8,6 +8,7 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Pipeline.h"
+#include "Fury/RenderTarget.h"
 #include "Fury/InputUtil.h"
 
 namespace fury
@@ -648,7 +649,28 @@ namespace fury
 
 		m_Binded = true;
 
-		glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+		// Render-target override: when the active pipeline has an
+		// offscreen RenderTarget set, the final composite pass (the one
+		// with no output textures, which normally renders to the default
+		// framebuffer) renders into the RT instead. This is what lets the
+		// editor's dockable Viewport window capture the 3D scene. Passes
+		// that have their own output textures (GBuffer etc.) are
+		// unaffected — they keep using their dedicated FBOs.
+		unsigned int bindFBO = m_FrameBuffer;
+		if (m_OutputTextures.size() == 0 && Pipeline::Active != nullptr)
+		{
+			if (auto* rt = Pipeline::Active->GetRenderTarget())
+			{
+				if (rt->IsAllocated())
+				{
+					bindFBO = rt->GetFBO();
+					m_ViewPortWidth = rt->GetWidth();
+					m_ViewPortHeight = rt->GetHeight();
+				}
+			}
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, bindFBO);
 		glViewport(0, 0, m_ViewPortWidth, m_ViewPortHeight);
 
 		if (clear)

@@ -27,7 +27,17 @@ namespace fury
 	namespace Editor
 	{
 		// Defined in Editor.cpp; we write through it when a pick resolves.
+		// SetSelectedSceneNode (declared in Editor.h) emits the
+		// OnSelectionChanged signal — picking uses it so subscribers hear
+		// about viewport-driven selection changes.
 		extern SceneNode* g_SelectedSceneNode;
+
+		// Defined in Editor.cpp; captured each frame by RenderViewportWindow.
+		// The picking FBO is sized to the viewport content rect and pick
+		// coordinates are content-rect-relative, so the sampled pixel lines
+		// up with what the user sees inside the Viewport window.
+		extern ImVec2 g_ViewportContentSize;
+		extern bool g_ViewportVisible;
 
 		namespace Picking
 		{
@@ -258,19 +268,19 @@ namespace fury
 					glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &id);
 					glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
-					if (id == 0)
-					{
-						g_SelectedSceneNode = nullptr;
-						return;
-					}
+				if (id == 0)
+				{
+					SetSelectedSceneNode(nullptr);
+					return;
+				}
 
-					if (id - 1 >= g_IdTable.size())
-						return; // out of range — id_table changed; leave selection alone
+				if (id - 1 >= g_IdTable.size())
+					return; // out of range — id_table changed; leave selection alone
 
-					if (auto locked = g_IdTable[id - 1].lock())
-					{
-						g_SelectedSceneNode = locked.get();
-					}
+				if (auto locked = g_IdTable[id - 1].lock())
+				{
+					SetSelectedSceneNode(locked.get());
+				}
 					// else: node was destroyed between request and readback — silently no-op.
 				}
 			} // namespace
@@ -308,17 +318,26 @@ namespace fury
 					return;
 				}
 
-				if (g_State == State::RenderRequested)
+			if (g_State == State::RenderRequested)
+			{
+				// Size the picking FBO to the Viewport window's content
+				// rect (not the full SFML window). When the viewport is
+				// hidden / collapsed, discard the pick — there's nothing
+				// on screen to pick.
+				if (!g_ViewportVisible)
 				{
-					int w = 0, h = 0;
-					InputUtil::Instance()->GetWindowSize(w, h);
-					if (!EnsureFBO(w, h))
-					{
-						g_State = State::Idle;
-						return;
-					}
-					g_CapturedW = w;
-					g_CapturedH = h;
+					g_State = State::Idle;
+					return;
+				}
+				int w = static_cast<int>(g_ViewportContentSize.x);
+				int h = static_cast<int>(g_ViewportContentSize.y);
+				if (!EnsureFBO(w, h))
+				{
+					g_State = State::Idle;
+					return;
+				}
+				g_CapturedW = w;
+				g_CapturedH = h;
 
 					// Snapshot existing GL state so we don't disturb the
 					// next frame's user pipeline more than necessary.
@@ -346,12 +365,17 @@ namespace fury
 			}
 		} // namespace Picking
 
+	// Defined in EditorSelectionViz.cpp.
+	void DrawSelectionOverlay();
+
 		// Public entry point declared in Editor.h. Forwards to the picking
-		// state machine; future post-render work (e.g. screenshot capture)
-		// could chain here.
+		// state machine, then draws the selection-visualization overlay so it
+		// composites over the scene in the viewport render target before
+		// Gui::Render samples it for the Viewport window's Image.
 		void TickPostRender()
 		{
 			Picking::TickPostRender();
+			DrawSelectionOverlay();
 		}
 	}
 }

@@ -280,22 +280,31 @@ namespace fury
 			// can sum dt across frames to get true elapsed seconds.
 			float dt = clock.restart().asSeconds();
 
-			Gui::NewFrame(dt);
-			// Editor::Tick must run AFTER Gui::NewFrame and BEFORE Gui::Render.
-			// (Gui::Render is invoked from Lua's on_update at the end of the
-			// frame, after Pipeline::Execute, so the editor draws on top of
-			// the 3D scene.)
-			Editor::Tick();
-			if (cb.OnUpdate) cb.OnUpdate(dt);
-			Update(dt);
+		Gui::NewFrame(dt);
+		// Editor::Tick must run AFTER Gui::NewFrame and BEFORE the user
+		// on_update callback. Editor::Tick builds the editor's ImGui
+		// windows (menu bar, dockspace, built-in windows, gizmo) into the
+		// current frame's draw lists.
+		Editor::Tick();
+		if (cb.OnUpdate) cb.OnUpdate(dt);
+		Update(dt);
 
-			// Editor post-render hook: drives the viewport-picking state
-			// machine after the user pipeline has rendered the 3D scene
-			// and before window.display(). With WITH_EDITOR=OFF this
-			// resolves to an inline no-op.
-			Editor::TickPostRender();
+		// Editor post-render hook: drives the viewport-picking state
+		// machine and the selection-visualization overlay after the user
+		// pipeline has rendered the 3D scene and before Gui::Render
+		// flushes ImGui draws. With WITH_EDITOR=OFF this resolves to an
+		// inline no-op.
+		Editor::TickPostRender();
 
-			window.display();
+		// Flush ImGui draw lists to the default framebuffer LAST so the
+		// editor (and any script-side floating windows) composite on top
+		// of the 3D scene — including the Viewport window's ImGui::Image,
+		// which samples the scene's offscreen render target. This runs
+		// after TickPostRender so the selection overlay (drawn into the
+		// render target) is visible inside the Viewport window this frame.
+		Gui::Render();
+
+		window.display();
 
 			RenderUtil::Instance()->EndFrame();
 

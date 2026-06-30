@@ -6,6 +6,8 @@
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Gui.h"
 #include "Fury/Log.h"
+#include "Fury/MeshRender.h"
+#include "Fury/Pipeline.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/FileUtil.h"
@@ -33,9 +35,13 @@ namespace fury
 		void RenderConsoleWindow(bool* open);
 		void RenderContentBrowserWindow(bool* open);
 		void RenderNodePropertiesWindow(bool* open);
+		void RenderViewportWindow(bool* open);
 
 		// Defined in EditorGizmo.cpp.
 		void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size);
+
+		// Defined in EditorSelectionViz.cpp.
+		void DrawSelectionOverlay();
 
 		// Gizmo state owned by EditorGizmo.cpp; read here for the imgui.ini
 		// persistence handler. Using extern (rather than going through the
@@ -62,6 +68,11 @@ namespace fury
 		extern bool g_ShowNodeProperties;
 		extern bool g_ShowConsole;
 		extern bool g_ShowContentBrowser;
+		extern bool g_ShowViewport;
+		extern ImVec2 g_ViewportContentMin;
+		extern ImVec2 g_ViewportContentSize;
+		extern bool g_ViewportHovered;
+		extern bool g_ViewportVisible;
 		extern bool g_SaveAsModalOpen;
 		extern bool g_OpenModalOpen;
 		extern bool g_ImportModalOpen;
@@ -82,6 +93,15 @@ namespace fury
 		bool g_ShowNodeProperties = true;   // visible by default — docked right
 		bool g_ShowConsole = true;          // visible by default — bottom dock
 		bool g_ShowContentBrowser = true;   // visible by default — bottom dock
+		bool g_ShowViewport = true;         // visible by default — docked center
+		// Captured each frame by RenderViewportWindow so the gizmo and
+		// picking operate in viewport-content-rect space (not full-window
+		// space). When the Viewport window is hidden/collapsed, size is
+		// zero and g_ViewportVisible is false — gizmo + picking no-op.
+		ImVec2 g_ViewportContentMin(0, 0);
+		ImVec2 g_ViewportContentSize(0, 0);
+		bool g_ViewportHovered = false;
+		bool g_ViewportVisible = false;
 		bool g_SaveAsModalOpen = false;
 		bool g_OpenModalOpen = false;
 		bool g_ImportModalOpen = false;
@@ -97,6 +117,24 @@ namespace fury
 			// Did imgui.ini exist at startup? Determines whether we should
 			// run BuildDefaultLayout on the first frame.
 			bool s_HadIniOnStartup = false;
+
+			// Layout-version migration. The imgui.ini stores `Layout=N`
+			// under [FuryEditor][Editor]. When a new build ships a layout
+			// change (e.g. adding the Viewport window), bump
+			// kCurrentLayoutVersion; on startup, an ini with an older
+			// version triggers a one-time BuildDefaultLayout so the new
+			// window snaps into place without disturbing future custom
+			// layouts.
+			const int kCurrentLayoutVersion = 2;
+			int s_LoadedLayoutVersion = 0;
+
+			// Click-vs-drag state machine for viewport picking. A pick
+			// fires only on a true click: LMB press + release at (approx)
+			// the same spot with no intervening drag. A press that moves
+			// past MouseDragThreshold is a camera-drag, not a pick.
+			bool  s_PickDownValid = false;   // LMB pressed inside viewport
+			ImVec2 s_PickDownPos(0, 0);      // press position (screen px)
+			bool  s_PickIsDrag = false;      // exceeded threshold since press
 
 			void HookEngineLog()
 			{
@@ -138,6 +176,12 @@ namespace fury
 					return;
 				}
 
+				if (std::sscanf(line, "Layout=%d", &v) == 1)
+				{
+					s_LoadedLayoutVersion = v;
+					return;
+				}
+
 				// Gizmo persistence. Single line:
 				// Gizmo=<op>,<space>,<snap_enabled>,<snap_t>,<snap_r>,<snap_s>
 				// op: 0=translate, 1=rotate, 2=scale (matches the order we
@@ -163,12 +207,21 @@ namespace fury
 			{
 				// Apply the persisted theme once ImGui finishes loading the ini.
 				ApplyPersistedTheme();
+
+				// One-time layout migration: if the ini predates the current
+				// layout version (e.g. an ini from before the Viewport window
+				// existed), rebuild the default layout so new windows snap
+				// into place. Future launches keep the user's custom layout
+				// (the new version is persisted below).
+				if (s_LoadedLayoutVersion < kCurrentLayoutVersion)
+					s_RequestRebuildLayout = true;
 			}
 
 			void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf)
 			{
 				buf->appendf("[%s][Editor]\n", handler->TypeName);
 				buf->appendf("Theme=%d\n", GetCurrentThemeIndex());
+				buf->appendf("Layout=%d\n", kCurrentLayoutVersion);
 				const int op_idx =
 					(g_GizmoOp == ImGuizmo::ROTATE) ? 1 :
 					(g_GizmoOp == ImGuizmo::SCALE)  ? 2 : 0;
@@ -191,27 +244,28 @@ namespace fury
 				ImGui::AddSettingsHandler(&ini);
 			}
 
-			void BuildDefaultLayout(ImGuiID dockspace_id)
-			{
-				ImGui::DockBuilderRemoveNode(dockspace_id);
-				ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_PassthruCentralNode | ImGuiDockNodeFlags_DockSpace);
-				ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
+		void BuildDefaultLayout(ImGuiID dockspace_id)
+		{
+			ImGui::DockBuilderRemoveNode(dockspace_id);
+			ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
-				// Split order: left → right → bottom. The bottom region then
-				// spans the central area between the two side panels (Unity /
-				// Godot convention).
-				ImGuiID center = dockspace_id;
-				ImGuiID left   = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left,  0.20f, nullptr, &center);
-				ImGuiID right  = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
-				ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down,  0.30f, nullptr, &center);
+			// Split order: left → right → bottom. The bottom region then
+			// spans the central area between the two side panels (Unity /
+			// Godot convention). The center node hosts the Viewport window.
+			ImGuiID center = dockspace_id;
+			ImGuiID left   = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left,  0.20f, nullptr, &center);
+			ImGuiID right  = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
+			ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down,  0.30f, nullptr, &center);
 
-				ImGui::DockBuilderDockWindow("Scene Inspector", left);
-				ImGui::DockBuilderDockWindow("Node Properties", right);
-				ImGui::DockBuilderDockWindow("Console",         bottom);
-				ImGui::DockBuilderDockWindow("Content Browser", bottom);
+			ImGui::DockBuilderDockWindow("Scene Inspector", left);
+			ImGui::DockBuilderDockWindow("Node Properties", right);
+			ImGui::DockBuilderDockWindow("Console",         bottom);
+			ImGui::DockBuilderDockWindow("Content Browser", bottom);
+			ImGui::DockBuilderDockWindow("Viewport",        center);
 
-				ImGui::DockBuilderFinish(dockspace_id);
-			}
+			ImGui::DockBuilderFinish(dockspace_id);
+		}
 
 			// Returns "Cmd+S" on macOS (when ImGui's macOS-style behaviors are
 			// active), else "Ctrl+S". The shortcut text is display-only;
@@ -225,7 +279,7 @@ namespace fury
 			{
 				if (g_SceneIO.on_new) try { g_SceneIO.on_new(); } catch (...) {}
 				ClearCurrentScene();
-				g_SelectedSceneNode = nullptr;
+				SetSelectedSceneNode(nullptr);
 			}
 
 			void TriggerSave()
@@ -401,7 +455,7 @@ namespace fury
 							if (ImGui::MenuItem(f.c_str()))
 							{
 								if (g_SceneIO.on_open) try { g_SceneIO.on_open(f); } catch (...) {}
-								g_SelectedSceneNode = nullptr;
+								SetSelectedSceneNode(nullptr);
 							}
 						}
 						ImGui::EndMenu();
@@ -456,23 +510,25 @@ namespace fury
 					ImGui::EndMenu();
 				}
 
-				if (ImGui::BeginMenu("Window"))
+			if (ImGui::BeginMenu("Window"))
+			{
+				ImGui::MenuItem("Viewport",         nullptr, &g_ShowViewport);
+				ImGui::MenuItem("Profiler",         nullptr, &g_ShowProfiler);
+				ImGui::MenuItem("Scene Inspector",  nullptr, &g_ShowSceneInspector);
+				ImGui::MenuItem("Node Properties",  nullptr, &g_ShowNodeProperties);
+				ImGui::MenuItem("Console",          nullptr, &g_ShowConsole);
+				ImGui::MenuItem("Content Browser",  nullptr, &g_ShowContentBrowser);
+				ImGui::Separator();
+				if (ImGui::MenuItem("Reset Layout"))
 				{
-					ImGui::MenuItem("Profiler",         nullptr, &g_ShowProfiler);
-					ImGui::MenuItem("Scene Inspector",  nullptr, &g_ShowSceneInspector);
-					ImGui::MenuItem("Node Properties",  nullptr, &g_ShowNodeProperties);
-					ImGui::MenuItem("Console",          nullptr, &g_ShowConsole);
-					ImGui::MenuItem("Content Browser",  nullptr, &g_ShowContentBrowser);
-					ImGui::Separator();
-					if (ImGui::MenuItem("Reset Layout"))
-					{
-						s_RequestRebuildLayout = true;
-						g_ShowSettings = false;
-						g_ShowProfiler = false;
-						g_ShowNodeProperties = true;
-					}
-					ImGui::EndMenu();
+					s_RequestRebuildLayout = true;
+					g_ShowSettings = false;
+					g_ShowProfiler = false;
+					g_ShowNodeProperties = true;
+					g_ShowViewport = true;
 				}
+				ImGui::EndMenu();
+			}
 
 				// Script-emitted menus render between Window and the trailing
 				// (currently empty) built-ins, matching today's contract.
@@ -571,9 +627,9 @@ namespace fury
 
 			RenderMenuBar();
 
-			s_DockspaceID = ImGui::DockSpaceOverViewport(0,
-				ImGui::GetMainViewport(),
-				ImGuiDockNodeFlags_PassthruCentralNode);
+		s_DockspaceID = ImGui::DockSpaceOverViewport(0,
+			ImGui::GetMainViewport(),
+			ImGuiDockNodeFlags_None);
 
 			if ((s_FirstFrame && !s_HadIniOnStartup) || s_RequestRebuildLayout)
 			{
@@ -586,69 +642,102 @@ namespace fury
 			RenderOpenImportModal("Open Scene", "Open", &g_OpenModalOpen,
 				[](const std::string& f) {
 					if (g_SceneIO.on_open) try { g_SceneIO.on_open(f); } catch (...) {}
-					g_SelectedSceneNode = nullptr;
+					SetSelectedSceneNode(nullptr);
 				});
 			RenderOpenImportModal("Import Scene", "Import", &g_ImportModalOpen,
 				[](const std::string& f) {
 					if (g_SceneIO.on_import) try { g_SceneIO.on_import(f); } catch (...) {}
 				});
 
-			if (g_ShowSettings)        RenderSettingsWindow(&g_ShowSettings);
-			if (g_ShowProfiler)        RenderProfilerWindow(&g_ShowProfiler);
-			if (g_ShowSceneInspector)  RenderSceneInspectorWindow(&g_ShowSceneInspector);
-			if (g_ShowNodeProperties)  RenderNodePropertiesWindow(&g_ShowNodeProperties);
-			if (g_ShowConsole)         RenderConsoleWindow(&g_ShowConsole);
-			if (g_ShowContentBrowser)  RenderContentBrowserWindow(&g_ShowContentBrowser);
+		if (g_ShowSettings)        RenderSettingsWindow(&g_ShowSettings);
+		if (g_ShowProfiler)        RenderProfilerWindow(&g_ShowProfiler);
+		if (g_ShowSceneInspector)  RenderSceneInspectorWindow(&g_ShowSceneInspector);
+		if (g_ShowNodeProperties)  RenderNodePropertiesWindow(&g_ShowNodeProperties);
+		if (g_ShowConsole)         RenderConsoleWindow(&g_ShowConsole);
+		if (g_ShowContentBrowser)  RenderContentBrowserWindow(&g_ShowContentBrowser);
+		if (g_ShowViewport)        RenderViewportWindow(&g_ShowViewport);
 
-			// The 3D scene renders at full window size with the camera's
-			// projection matched to the full window's aspect — the docked
-			// panels overlay the scene via PassthruCentralNode. So the
-			// gizmo and picking both have to operate in full-window
-			// screen space, not central-rect space, otherwise they land
-			// at the wrong pixel. We still use the central rect to gate
-			// where clicks count as "on the viewport" vs "on a panel".
-			const ImVec2 viewport_pos  = ImGui::GetMainViewport()->Pos;
-			const ImVec2 viewport_size = ImGui::GetMainViewport()->Size;
+		// If the Viewport window is hidden, the editor has no offscreen
+		// render target — tell the pipeline to render to the default
+		// framebuffer so the 3D scene doesn't silently keep rendering into
+		// a stale RT. RenderViewportWindow sets the RT when visible.
+		if (!g_ShowViewport && Pipeline::Active)
+			Pipeline::Active->SetRenderTarget(nullptr);
 
-			ImVec2 central_pos  = viewport_pos;
-			ImVec2 central_size = viewport_size;
-			if (auto* dockNode = ImGui::DockBuilderGetCentralNode(s_DockspaceID))
+		// The 3D scene now renders into the Viewport window's offscreen
+		// render target, so the gizmo and picking operate in the Viewport
+		// window's content-rect space (captured by RenderViewportWindow),
+		// NOT full-window space. When the Viewport window is hidden or
+		// collapsed, g_ViewportVisible is false and gizmo + picking no-op.
+		const ImVec2 vp_min  = g_ViewportContentMin;
+		const ImVec2 vp_size = g_ViewportContentSize;
+
+		// The gizmo is rendered inside RenderViewportWindow (into the
+		// Viewport window's draw list, on top of the image), so it runs
+		// before this point. ImGuizmo::IsOver()/IsUsing() reflect the
+		// gizmo state for THIS frame for the click-resolution below.
+
+		// Click-vs-drag disambiguation for viewport picking. A pick is
+		// scheduled only on a true click (press + release at the same
+		// spot, no intervening drag). A drag (camera-look) does NOT pick.
+		//
+		// NOTE: we deliberately do NOT gate on io.WantCaptureMouse here.
+		// The Viewport window is a real ImGui window now, so hovering it
+		// sets WantCaptureMouse=true — but that's exactly when we WANT
+		// picking to work. g_ViewportHovered (IsWindowHovered on the
+		// Viewport window) is the correct gate: it's true only over the
+		// viewport, false over docked panels.
+		const ImGuiIO& io = ImGui::GetIO();
+		const float threshold = io.MouseDragThreshold;
+		const bool gizmo_busy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+
+		// Helper: is the cursor inside the viewport content rect?
+		auto cursor_in_viewport = [&](const ImVec2& mp) -> bool
+		{
+			return g_ViewportVisible
+				&& mp.x >= vp_min.x && mp.x <= vp_min.x + vp_size.x
+				&& mp.y >= vp_min.y && mp.y <= vp_min.y + vp_size.y;
+		};
+
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			ImVec2 mp = io.MousePos;
+			if (g_ViewportHovered && cursor_in_viewport(mp) && !gizmo_busy)
 			{
-				central_pos  = dockNode->Pos;
-				central_size = dockNode->Size;
+				s_PickDownValid = true;
+				s_PickDownPos = mp;
+				s_PickIsDrag = false;
 			}
-
-			// Render the gizmo BEFORE click resolution, so ImGuizmo's
-			// IsOver()/IsUsing() reflect the gizmo state for THIS frame
-			// (those flags are set during Manipulate). Clicks that hit
-			// the gizmo don't fall through to picking.
-			RenderGizmo(viewport_pos, viewport_size);
-
-			// Viewport-click → picking. Conditions:
-			//  - Left mouse just clicked
-			//  - cursor is inside the central rect (so clicks on docked
-			//    panels don't pick — even though the 3D scene renders
-			//    behind them, the user expects the panel to absorb the
-			//    click)
-			//  - ImGui doesn't want the mouse (no docked panel under cursor)
-			//  - ImGuizmo isn't hovered or being dragged
-			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			else
 			{
-				ImVec2 mp = ImGui::GetIO().MousePos;
-				const bool in_central =
-					mp.x >= central_pos.x && mp.x <= central_pos.x + central_size.x &&
-					mp.y >= central_pos.y && mp.y <= central_pos.y + central_size.y;
-				const bool gizmo_busy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
-				if (in_central && !ImGui::GetIO().WantCaptureMouse && !gizmo_busy)
-				{
-					// Convert from ImGui screen coords to full-window
-					// pixel coords (the picking FBO's coordinate space,
-					// matching the 3D pipeline's render target).
-					Picking::RequestPickAt(ImVec2(mp.x - viewport_pos.x,
-						mp.y - viewport_pos.y));
-				}
+				s_PickDownValid = false;
 			}
 		}
+
+		// While LMB is held, track displacement; flag as drag past threshold.
+		if (s_PickDownValid && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			ImVec2 mp = io.MousePos;
+			float dx = mp.x - s_PickDownPos.x;
+			float dy = mp.y - s_PickDownPos.y;
+			if ((dx * dx + dy * dy) > (threshold * threshold))
+				s_PickIsDrag = true;
+		}
+
+		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && s_PickDownValid)
+		{
+			ImVec2 mp = io.MousePos;
+			const bool release_in_vp = cursor_in_viewport(mp);
+			if (!s_PickIsDrag && release_in_vp && !gizmo_busy)
+			{
+				// True click — schedule a pick. Coordinates are relative to
+				// the viewport content rect (the picking FBO's space).
+				Picking::RequestPickAt(ImVec2(mp.x - vp_min.x, mp.y - vp_min.y));
+			}
+			s_PickDownValid = false;
+			s_PickIsDrag = false;
+		}
+	}
 
 		void Shutdown()
 		{
@@ -658,7 +747,7 @@ namespace fury
 			ClearCommandHandler();
 			ClearCameraControls();
 			ClearCurrentScene();
-			g_SelectedSceneNode = nullptr;
+			SetSelectedSceneNode(nullptr);
 		}
 
 		SceneNode* GetSelectedSceneNode()
@@ -666,10 +755,56 @@ namespace fury
 			return g_SelectedSceneNode;
 		}
 
+		void SetSelectedSceneNode(SceneNode* node)
+		{
+			if (g_SelectedSceneNode == node)
+				return;
+			g_SelectedSceneNode = node;
+			if (auto sig = OnSelectionChanged())
+				sig->Emit(std::move(node));
+		}
+
+		std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged()
+		{
+			// Function-local static: initialized on first call, survives
+			// across frames, destroyed at program exit. Avoids static-init
+			// ordering hazards with other file-scope globals.
+			static auto sig = Signal<SceneNode*>::Create();
+			return sig;
+		}
+
+		bool IsPickInFlight()
+		{
+			return Picking::IsPickInFlight();
+		}
+
+		bool IsViewportHovered()
+		{
+			return g_ViewportHovered;
+		}
+
+		bool IsViewportContentHovered()
+		{
+			// Same predicate the picking / cursor_in_viewport helper in
+			// Editor::Tick uses: must be visible AND sized AND the mouse
+			// must be inside the content rect (not the title bar / borders).
+			// g_ViewportContentMin/Size are written each frame by
+			// RenderViewportWindow; if the viewport is hidden or collapsed,
+			// size is zero and this short-circuits to false.
+			if (!g_ViewportVisible)
+				return false;
+			if (g_ViewportContentSize.x <= 0.0f || g_ViewportContentSize.y <= 0.0f)
+				return false;
+			const ImVec2 mp = ImGui::GetIO().MousePos;
+			return mp.x >= g_ViewportContentMin.x && mp.x <= g_ViewportContentMin.x + g_ViewportContentSize.x
+				&& mp.y >= g_ViewportContentMin.y && mp.y <= g_ViewportContentMin.y + g_ViewportContentSize.y;
+		}
+
 		void SetWindowVisible(const char* name, bool visible)
 		{
 			if (!name) return;
-			if      (std::strcmp(name, "Settings")       == 0) g_ShowSettings = visible;
+			if      (std::strcmp(name, "Viewport")        == 0) g_ShowViewport = visible;
+			else if (std::strcmp(name, "Settings")       == 0) g_ShowSettings = visible;
 			else if (std::strcmp(name, "Profiler")       == 0) g_ShowProfiler = visible;
 			else if (std::strcmp(name, "SceneInspector") == 0) g_ShowSceneInspector = visible;
 			else if (std::strcmp(name, "NodeProperties") == 0) g_ShowNodeProperties = visible;
@@ -680,7 +815,8 @@ namespace fury
 		bool GetWindowVisible(const char* name)
 		{
 			if (!name) return false;
-			if      (std::strcmp(name, "Settings")       == 0) return g_ShowSettings;
+			if      (std::strcmp(name, "Viewport")        == 0) return g_ShowViewport;
+			else if (std::strcmp(name, "Settings")       == 0) return g_ShowSettings;
 			else if (std::strcmp(name, "Profiler")       == 0) return g_ShowProfiler;
 			else if (std::strcmp(name, "SceneInspector") == 0) return g_ShowSceneInspector;
 			else if (std::strcmp(name, "NodeProperties") == 0) return g_ShowNodeProperties;

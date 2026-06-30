@@ -43,6 +43,14 @@ namespace fury
 
 		void PerspectiveFov(float fov, float ratio, float near, float far);
 
+		// Update only the aspect ratio of a perspective projection,
+		// preserving FOV / near / far AND the frustum's current world
+		// transform (unlike PerspectiveFov, which resets the frustum
+		// transform to identity). Used by the editor when the Viewport
+		// window is resized — the camera node's world transform stays
+		// intact so culling continues to work. No-op for orthographic.
+		void SetAspect(float ratio);
+
 		void PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far);
 
 		void OrthoOffCenter(float left, float right, float bottom, float top, float near, float far);
@@ -58,6 +66,11 @@ namespace fury
 		float GetNear() const;
 
 		float GetFar() const;
+
+		// Vertical FOV in radians for a perspective camera. Returns 0 for
+		// orthographic. Used by the editor to rebuild the projection with
+		// a new aspect ratio (viewport resize) while preserving FOV.
+		float GetFov() const;
 
 		float GetShadowFar() const;
 

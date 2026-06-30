@@ -17,6 +17,7 @@
 #include "Fury/MeshRender.h"
 #include "Fury/Pipeline.h"
 #include "Fury/Pass.h"
+#include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/SceneManager.h"
@@ -261,6 +262,16 @@ namespace fury
 	void Pipeline::SetCurrentCamera(const std::shared_ptr<SceneNode> &ptr)
 	{
 		m_CurrentCamera = ptr;
+	}
+
+	void Pipeline::SetRenderTarget(RenderTarget* target)
+	{
+		m_RenderTarget = target;
+	}
+
+	RenderTarget* Pipeline::GetRenderTarget() const
+	{
+		return m_RenderTarget;
 	}
 
 	void Pipeline::FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions)

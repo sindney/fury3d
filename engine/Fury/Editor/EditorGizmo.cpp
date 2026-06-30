@@ -4,6 +4,7 @@
 #include "Fury/Editor/EditorPicking.hpp"
 
 #include "Fury/Camera.h"
+#include "Fury/Log.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Pipeline.h"
@@ -50,6 +51,12 @@ namespace fury
 		// central node so the gizmo only interacts in the 3D viewport area.
 		void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size)
 		{
+			// Skip entirely when the viewport has no area (hidden / collapsed
+			// Viewport window). ImGuizmo's per-frame setup still needs to
+			// run when we DO draw, so we gate before BeginFrame.
+			if (central_rect_size.x <= 0.0f || central_rect_size.y <= 0.0f)
+				return;
+
 			// ImGuizmo's per-frame setup MUST run every frame so its hover
 			// state stays correct, even when the gizmo isn't drawn. We
 			// install the rect + drawlist unconditionally, then short-
@@ -73,76 +80,66 @@ namespace fury
 			// started the pick belongs to picking, not to a gizmo drag.
 			if (Picking::IsPickInFlight()) return;
 
-			// Build a fullscreen invisible window that owns the central
-			// rect, so ImGuizmo can attach to its drawlist (which sits
-			// above the dockspace passthru). NoInputs lets clicks fall
-			// through to ImGuizmo's own hit-testing.
-			ImGui::SetNextWindowPos(central_rect_min);
-			ImGui::SetNextWindowSize(central_rect_size);
-			ImGuiWindowFlags flags =
-				ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar |
-				ImGuiWindowFlags_NoResize     | ImGuiWindowFlags_NoMove |
-				ImGuiWindowFlags_NoScrollbar  | ImGuiWindowFlags_NoScrollWithMouse |
-				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-				ImGuiWindowFlags_NoNavFocus   | ImGuiWindowFlags_NoDocking |
-				ImGuiWindowFlags_NoInputs;
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			if (ImGui::Begin("##GizmoCanvas", nullptr, flags))
+			// Draw into the CURRENT window's draw list. RenderGizmo is
+			// called from inside RenderViewportWindow (after its
+			// ImGui::Image), so this is the Viewport window's draw list —
+			// the gizmo composites on top of the viewport image. A
+			// separate floating window would render BEHIND the docked
+			// Viewport window and be invisible.
+			ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+
+			Matrix4 view  = cameraNode->GetInvertWorldMatrix();
+			Matrix4 proj  = camera->GetProjectionMatrix();
+			Matrix4 world = g_SelectedSceneNode->GetWorldMatrix();
+
+			// Snap value: ImGuizmo expects either nullptr or a 3-float
+			// array (x/y/z) regardless of operation; we replicate the
+			// scalar across components. Rotation snap is interpreted
+			// in degrees by ImGuizmo, matching our UI.
+			float snapValues[3] = { 0, 0, 0 };
+			const float* snapPtr = nullptr;
+			if (g_SnapEnabled)
 			{
-				ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+				float v = g_SnapTranslate;
+				if (g_GizmoOp == ImGuizmo::ROTATE) v = g_SnapRotate;
+				else if (g_GizmoOp == ImGuizmo::SCALE) v = g_SnapScale;
+				snapValues[0] = snapValues[1] = snapValues[2] = v;
+				snapPtr = snapValues;
+			}
 
-				Matrix4 view  = cameraNode->GetInvertWorldMatrix();
-				Matrix4 proj  = camera->GetProjectionMatrix();
-				Matrix4 world = g_SelectedSceneNode->GetWorldMatrix();
+			// Gizmo always operates in WORLD space. Local-axis
+			// manipulation surfaced from the UI was confusing —
+			// SCALE silently forced LOCAL anyway, ROTATE in
+			// LOCAL didn't visibly differ for unrotated nodes,
+			// and TRANSLATE in LOCAL means "drag along the
+			// node's own axes" which most users don't expect by
+			// default. Direct world-space drag matches Unity /
+			// Godot's default behavior. The persisted
+			// `g_GizmoSpace` is kept for forward-compat with
+			// imgui.ini files that already wrote a space index.
+			ImGuizmo::MODE mode = ImGuizmo::WORLD;
 
-				// Snap value: ImGuizmo expects either nullptr or a 3-float
-				// array (x/y/z) regardless of operation; we replicate the
-				// scalar across components. Rotation snap is interpreted
-				// in degrees by ImGuizmo, matching our UI.
-				float snapValues[3] = { 0, 0, 0 };
-				const float* snapPtr = nullptr;
-				if (g_SnapEnabled)
+			ImGuizmo::Manipulate(&view.Raw[0], &proj.Raw[0],
+				g_GizmoOp, mode, &world.Raw[0], nullptr, snapPtr);
+
+			if (ImGuizmo::IsUsing())
+			{
+				// Convert the modified world matrix back to a local
+				// matrix on the selected node, then decompose. We
+				// only write the components affected by the active
+				// op so a translate drag doesn't quantize the
+				// existing rotation through round-trip.
+				Matrix4 parent_world;
+				if (auto parent = g_SelectedSceneNode->GetParent())
+					parent_world = parent->GetWorldMatrix();
+				Matrix4 local = parent_world.Inverse() * world;
+
+				Vector4 t, s;
+				Quaternion r;
+				if (MathUtil::Decompose(local, t, r, s))
 				{
-					float v = g_SnapTranslate;
-					if (g_GizmoOp == ImGuizmo::ROTATE) v = g_SnapRotate;
-					else if (g_GizmoOp == ImGuizmo::SCALE) v = g_SnapScale;
-					snapValues[0] = snapValues[1] = snapValues[2] = v;
-					snapPtr = snapValues;
-				}
-
-				// Gizmo always operates in WORLD space. Local-axis
-				// manipulation surfaced from the UI was confusing —
-				// SCALE silently forced LOCAL anyway, ROTATE in
-				// LOCAL didn't visibly differ for unrotated nodes,
-				// and TRANSLATE in LOCAL means "drag along the
-				// node's own axes" which most users don't expect by
-				// default. Direct world-space drag matches Unity /
-				// Godot's default behavior. The persisted
-				// `g_GizmoSpace` is kept for forward-compat with
-				// imgui.ini files that already wrote a space index.
-				ImGuizmo::MODE mode = ImGuizmo::WORLD;
-
-				ImGuizmo::Manipulate(&view.Raw[0], &proj.Raw[0],
-					g_GizmoOp, mode, &world.Raw[0], nullptr, snapPtr);
-
-				if (ImGuizmo::IsUsing())
-				{
-					// Convert the modified world matrix back to a local
-					// matrix on the selected node, then decompose. We
-					// only write the components affected by the active
-					// op so a translate drag doesn't quantize the
-					// existing rotation through round-trip.
-					Matrix4 parent_world;
-					if (auto parent = g_SelectedSceneNode->GetParent())
-						parent_world = parent->GetWorldMatrix();
-					Matrix4 local = parent_world.Inverse() * world;
-
-					Vector4 t, s;
-					Quaternion r;
-					if (MathUtil::Decompose(local, t, r, s))
+					switch (g_GizmoOp)
 					{
-						switch (g_GizmoOp)
-						{
 						case ImGuizmo::TRANSLATE:
 							g_SelectedSceneNode->SetLocalPosition(t);
 							break;
@@ -154,13 +151,10 @@ namespace fury
 							break;
 						default:
 							break;
-						}
-						g_SelectedSceneNode->Recompose(false);
 					}
+					g_SelectedSceneNode->Recompose(false);
 				}
 			}
-			ImGui::End();
-			ImGui::PopStyleVar();
 		}
 
 		// Public API mirroring Editor::SetWindowVisible's tolerant-name

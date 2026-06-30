@@ -2,6 +2,8 @@
 #include "Fury/Plane.h"
 #include "Fury/SceneNode.h"
 
+#include <cmath>
+
 namespace fury
 {
 	Camera::Ptr Camera::Create()
@@ -42,6 +44,34 @@ namespace fury
 
 		m_ProjectionMatrix.PerspectiveOffCenter(-right, right, -top, top, near, far);
 		m_Frustum.Setup(-right, right, -top, top, near, far);
+	}
+
+	void Camera::SetAspect(float ratio)
+	{
+		if (!m_Perspective) return;
+
+		// Preserve top (= tan(fov/2) * near), recompute right from the new
+		// ratio. near / far / bottom are unchanged.
+		const float top   = m_ProjectionParams[3];
+		const float bot   = m_ProjectionParams[2];
+		const float near  = m_ProjectionParams[4];
+		const float far   = m_ProjectionParams[5];
+		const float right = top * ratio;
+		const float left  = -right;
+
+		m_ProjectionParams[0] = left;
+		m_ProjectionParams[1] = right;
+
+		m_ProjectionMatrix.PerspectiveOffCenter(left, right, bot, top, near, far);
+
+		// Frustum::Setup resets the world transform to identity — save it
+		// here and re-apply so the camera's view transform survives the
+		// aspect change. (PerspectiveFov doesn't do this because it's a
+		// full re-init, typically called before the camera is attached to
+		// a moving node.)
+		Matrix4 savedTransform = m_Frustum.GetTransformMatrix();
+		m_Frustum.Setup(left, right, bot, top, near, far);
+		m_Frustum.Transform(savedTransform);
 	}
 
 	void Camera::PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far)
@@ -121,6 +151,15 @@ namespace fury
 	float Camera::GetFar() const
 	{
 		return m_ProjectionParams[5];
+	}
+
+	float Camera::GetFov() const
+	{
+		// For a perspective camera, top = tan(fov/2) * near, so
+		// fov = 2 * atan(top / near). Meaningless for orthographic.
+		if (!m_Perspective || m_ProjectionParams[4] == 0.0f)
+			return 0.0f;
+		return 2.0f * std::atan(m_ProjectionParams[3] / m_ProjectionParams[4]);
 	}
 
 	float Camera::GetShadowFar() const

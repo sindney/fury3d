@@ -7,6 +7,7 @@
 #include <bitset>
 
 #include "Fury/Entity.h"
+#include "Fury/Matrix4.h"
 
 namespace fury
 {
@@ -35,6 +36,8 @@ namespace fury
 	class SphereBounds;
 
 	class RenderQuery;
+
+	class RenderTarget;
 
 	enum class PipelineSwitch : unsigned int
 	{
@@ -77,6 +80,13 @@ namespace fury
 		std::shared_ptr<Pass> m_SharedPass;
 
 		Matrix4 m_OffsetMatrix;
+
+		// When non-null, the final (no-output) composite pass renders into
+		// this offscreen target instead of the default framebuffer. Used by
+		// the editor's dockable Viewport window. Null = render to the
+		// default framebuffer (the historical behavior, used by non-editor
+		// builds and any sample that calls Execute without an RT).
+		RenderTarget* m_RenderTarget = nullptr;
 
 		// end rendering
 
@@ -124,6 +134,15 @@ namespace fury
 		std::shared_ptr<SceneNode> GetCurrentCamera() const;
 
 		void SetCurrentCamera(const std::shared_ptr<SceneNode> &ptr);
+
+		// Offscreen render-target override. When set, the final composite
+		// pass (and Pipeline::DrawDebug) render into this target instead of
+		// the default framebuffer. Non-owning; the caller (the editor) owns
+		// the RenderTarget and must keep it alive while set here. Pass
+		// nullptr to revert to default-framebuffer rendering.
+		void SetRenderTarget(RenderTarget* target);
+
+		RenderTarget* GetRenderTarget() const;
 
 		// begin shaodw mapping
 

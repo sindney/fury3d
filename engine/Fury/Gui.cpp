@@ -35,6 +35,16 @@ namespace fury
 
 			ImGuiIO& io = ImGui::GetIO();
 			io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+			// Restrict window dragging to the title bar only. The ImGui
+			// default lets a user click+drag on any empty space inside a
+			// window to move it, which conflicts with the editor's
+			// content-relative input: dragging inside the Viewport's
+			// ImGui::Image of the render target counts as "empty space"
+			// (Image has no interactive id) and would both rotate the
+			// camera AND drag the undocked Viewport window. Title-bar-
+			// only matches what users expect from Unity/Unreal/Godot and
+			// keeps the Viewport content rect a clean input surface.
+			io.ConfigWindowsMoveFromTitleBarOnly = true;
 			io.FontGlobalScale = fontScale;
 
 			ImGuiStyle& style = ImGui::GetStyle();

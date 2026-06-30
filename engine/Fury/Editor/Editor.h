@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "Fury/Macros.h"
+#include "Fury/Signal.h"
 
 namespace fury
 {
@@ -34,9 +35,38 @@ namespace fury
 		// or nullptr if none / the selection has been invalidated.
 		SceneNode* FURY_API GetSelectedSceneNode();
 
+		// Set the selected SceneNode and emit OnSelectionChanged. Every
+		// internal write to the selection goes through this helper so the
+		// signal fires uniformly. Passing nullptr deselects.
+		void FURY_API SetSelectedSceneNode(SceneNode* node);
+
+		// Signal emitted exactly once per selection change (including
+		// deselect-to-nullptr). Consumers subscribe via Connect; the
+		// returned shared_ptr owns the signal. Selection visualization
+		// and other editor systems use this instead of polling.
+		std::shared_ptr<Signal<SceneNode*>> FURY_API OnSelectionChanged();
+
+		// True while the viewport-picking state machine is resolving a
+		// pick (RenderRequested or AwaitingReadback). Exposed so the
+		// camera-drag script can short-circuit during a pick.
+		bool FURY_API IsPickInFlight();
+
+		// True when the Viewport window is the hovered ImGui window (the
+		// cursor is over the viewport, not a docked panel). The camera-drag
+		// script uses this to arm over the viewport even though the
+		// Viewport ImGui window sets WantCaptureMouse.
+		bool FURY_API IsViewportHovered();
+
+		// True only when the cursor is inside the Viewport window's content
+		// rect — NOT the title bar or resize borders. Use this for camera-
+		// input gating (drag-to-look, WASD-to-move) so dragging the window
+		// chrome doesn't also rotate the camera, and so the camera only
+		// responds when the user is actually pointing at the scene.
+		bool FURY_API IsViewportContentHovered();
+
 		// Programmatic show/hide of built-in editor windows. Valid names:
-		// "Profiler", "SceneInspector", "Console", "ContentBrowser",
-		// "Settings". Unknown names are silently ignored.
+		// "Viewport", "Profiler", "SceneInspector", "Console",
+		// "ContentBrowser", "Settings". Unknown names are silently ignored.
 		void FURY_API SetWindowVisible(const char* name, bool visible);
 
 		bool FURY_API GetWindowVisible(const char* name);
@@ -140,6 +170,11 @@ namespace fury
 		inline void TickPostRender() {}
 		inline void Shutdown() {}
 		inline SceneNode* GetSelectedSceneNode() { return nullptr; }
+		inline void SetSelectedSceneNode(SceneNode*) {}
+		inline std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged() { return nullptr; }
+		inline bool IsPickInFlight() { return false; }
+		inline bool IsViewportHovered() { return false; }
+		inline bool IsViewportContentHovered() { return false; }
 		inline void SetWindowVisible(const char*, bool) {}
 		inline bool GetWindowVisible(const char*) { return false; }
 		inline void SetGizmoMode(const char*) {}

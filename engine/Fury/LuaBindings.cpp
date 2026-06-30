@@ -795,9 +795,12 @@ namespace fury
 			editor_tbl["Log"]                 = [](const std::string& level, const std::string& text) {
 				Editor::Log(level.c_str(), text.c_str());
 			};
-			editor_tbl["GetSelectedSceneNode"] = []() -> SceneNode* { return Editor::GetSelectedSceneNode(); };
-			editor_tbl["SetWindowVisible"]    = [](const std::string& name, bool v) { Editor::SetWindowVisible(name.c_str(), v); };
-			editor_tbl["GetWindowVisible"]    = [](const std::string& name) -> bool { return Editor::GetWindowVisible(name.c_str()); };
+		editor_tbl["GetSelectedSceneNode"] = []() -> SceneNode* { return Editor::GetSelectedSceneNode(); };
+		editor_tbl["SetWindowVisible"]    = [](const std::string& name, bool v) { Editor::SetWindowVisible(name.c_str(), v); };
+		editor_tbl["GetWindowVisible"]    = [](const std::string& name) -> bool { return Editor::GetWindowVisible(name.c_str()); };
+		editor_tbl["IsPickInFlight"]      = []() -> bool { return Editor::IsPickInFlight(); };
+		editor_tbl["IsViewportHovered"]   = []() -> bool { return Editor::IsViewportHovered(); };
+		editor_tbl["IsViewportContentHovered"] = []() -> bool { return Editor::IsViewportContentHovered(); };
 			editor_tbl["SetImportFlag"]       = [](const std::string& name, bool v) { Editor::SetImportFlag(name.c_str(), v); };
 			editor_tbl["GetImportFlag"]       = sol::overload(
 				[](const std::string& name) -> bool { return Editor::GetImportFlag(name.c_str(), false); },
@@ -825,9 +828,12 @@ namespace fury
 			editor_tbl["SetCommandHandler"]     = [](sol::object) {};
 			editor_tbl["SetCameraSettings"]     = [](sol::object) {};
 			editor_tbl["Log"]                   = [](sol::object, sol::object) {};
-			editor_tbl["GetSelectedSceneNode"]  = []() -> sol::object { return sol::nil; };
-			editor_tbl["SetWindowVisible"]      = [](sol::object, sol::object) {};
-			editor_tbl["GetWindowVisible"]      = [](sol::object) -> bool { return false; };
+		editor_tbl["GetSelectedSceneNode"]  = []() -> sol::object { return sol::nil; };
+		editor_tbl["SetWindowVisible"]      = [](sol::object, sol::object) {};
+		editor_tbl["GetWindowVisible"]      = [](sol::object) -> bool { return false; };
+		editor_tbl["IsPickInFlight"]        = []() -> bool { return false; };
+		editor_tbl["IsViewportHovered"]     = []() -> bool { return false; };
+		editor_tbl["IsViewportContentHovered"] = []() -> bool { return false; };
 			editor_tbl["SetImportFlag"]         = [](sol::object, sol::object) {};
 			editor_tbl["GetImportFlag"]         = sol::overload(
 				[](sol::object) -> bool { return false; },

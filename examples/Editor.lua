@@ -311,11 +311,22 @@ end
 local function on_update(dt)
     local input  = InputUtil.Instance()
     local has_kb = not Gui.WantCaptureKeyboard()
-    local has_mo = not Gui.WantCaptureMouse()
+    -- The Viewport window is a real ImGui window, so hovering it sets
+    -- WantCaptureMouse=true. We still want the camera-drag and wheel to
+    -- work over the viewport, so treat the mouse as "available" when
+    -- either ImGui doesn't want it OR the cursor is inside the viewport
+    -- content rect (NOT the title bar / resize borders — IsViewportHovered
+    -- would fire there too and cause the camera to rotate while the user
+    -- drags the undocked viewport window around).
+    local has_mo = (not Gui.WantCaptureMouse()) or Editor.IsViewportContentHovered()
     local focused = input:GetWindowFocused()
 
     -- ── mouse-drag yaw / pitch ────────────────────────────────────────────
-    local lmb_down = focused and has_mo and input:GetMouseDown(MouseButton.Left)
+    -- Suppress the camera-drag while a pick is resolving (defense in depth
+    -- alongside the click-vs-drag gate in the C++ editor): a true click
+    -- schedules a pick whose readback completes over the next two frames,
+    -- and we don't want an immediately-following drag to fight it.
+    local lmb_down = focused and has_mo and input:GetMouseDown(MouseButton.Left) and not Editor.IsPickInFlight()
     if lmb_down then
         local mx, my = input:GetMousePosition()
         if dragging then
@@ -332,7 +343,12 @@ local function on_update(dt)
     end
 
     -- ── WASD / arrows / Space / LControl translate ────────────────────────
-    if focused and has_kb then
+    -- Gated on content-rect hover (not just OS window focus), so WASD
+    -- doesn't translate the camera while the user is interacting with a
+    -- docked panel or the viewport window's chrome. Combined with the
+    -- same gate on the LMB drag, this guarantees drag and WASD share a
+    -- single predicate — they cannot fall out of sync with each other.
+    if focused and Editor.IsViewportContentHovered() then
         local fwd, rgt = camera_basis()
         local up       = Vector4(0.0, 1.0, 0.0, 0.0)
         local move     = Vector4(0.0, 0.0, 0.0, 0.0)
@@ -376,9 +392,10 @@ local function on_update(dt)
 
     Pipeline.GetActive():Execute(octree)
 
-    -- Render the ImGui draw lists LAST so the editor (and any script-side
-    -- floating windows) composite on top of the 3D scene.
-    Gui.Render()
+    -- Gui::Render is invoked from the engine's main loop (Engine::Run),
+    -- after Editor::TickPostRender, so ImGui composites on top of the 3D
+    -- scene (including the Viewport window's render-target image). The
+    -- pipeline no longer calls Gui::Render itself.
 end
 
 local function on_shutdown()

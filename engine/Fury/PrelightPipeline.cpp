@@ -16,6 +16,7 @@
 #include "Fury/MeshUtil.h"
 #include "Fury/Pass.h"
 #include "Fury/PrelightPipeline.h"
+#include "Fury/RenderTarget.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/SceneManager.h"
@@ -158,10 +159,31 @@ namespace fury
 		// draw debug
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
 			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS }, true))
+		{
+			// When an offscreen RenderTarget is set, the final composite
+			// pass rendered into it (see Pass::Bind). The last pass's
+			// UnBind rebound framebuffer 0, so re-bind the RT here so the
+			// debug overlays composite over the scene inside the viewport
+			// image. Restore framebuffer 0 afterward so the caller (and
+			// Gui::Render) draw to the default framebuffer.
+			GLint prev_fbo = 0;
+			GLint prev_vp[4] = { 0, 0, 0, 0 };
+			if (m_RenderTarget != nullptr && m_RenderTarget->IsAllocated())
+			{
+				glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
+				glGetIntegerv(GL_VIEWPORT, prev_vp);
+				glBindFramebuffer(GL_FRAMEBUFFER, m_RenderTarget->GetFBO());
+				glViewport(0, 0, m_RenderTarget->GetWidth(), m_RenderTarget->GetHeight());
+			}
+
 			DrawDebug(query);
 
-		// gui
-		Gui::Render();
+			if (m_RenderTarget != nullptr && m_RenderTarget->IsAllocated())
+			{
+				glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
+				glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
+			}
+		}
 
 		// post
 		m_CurrentShader = nullptr;
@@ -513,6 +535,13 @@ namespace fury
 
 		shader->BindMesh(mesh);
 		shader->BindCamera(m_CurrentCamera);
+
+		// When rendering into the editor's offscreen viewport RT (a
+		// non-sRGB RGBA8 FBO), GL_FRAMEBUFFER_SRGB is a no-op, so the
+		// lambert shader gamma-encodes its output itself to keep the
+		// viewport from rendering too dark. The default-framebuffer path
+		// leaves this 0 and lets GL_FRAMEBUFFER_SRGB do the encoding.
+		shader->BindInt("u_gamma_correct", m_RenderTarget != nullptr ? 1 : 0);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 		{
