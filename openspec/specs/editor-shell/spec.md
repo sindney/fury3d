@@ -81,12 +81,12 @@ On first run (no `imgui.ini` present, or after the user invokes `Window → Rese
 - A LEFT region (~20% of width) hosting the **Scene Inspector** window.
 - A RIGHT region (~20% of width) hosting the **Node Properties** window.
 - A BOTTOM region (~30% of height of the central area, between left and right) hosting the **Console** and **Content Browser** windows in the same tab group.
-- The remaining CENTER region is the un-docked viewport area (no built-in window docks here — the 3D scene renders behind the dockspace).
+- The CENTER region hosts the **Viewport** window (see editor-viewport-window spec), which displays the 3D scene rendered to its offscreen render target.
 - The **Settings** and **Profiler** windows SHALL NOT be pre-docked; they SHALL appear floating when first toggled visible.
 
 The split order SHALL be: left first, right second, bottom third — so the bottom region spans the central area without overlapping the side panels.
 
-The dockspace SHALL use `ImGuiDockNodeFlags_PassthruCentralNode` so the 3D scene rendered by `Pipeline::Execute` is visible through the empty center region.
+The dockspace SHALL NOT use `ImGuiDockNodeFlags_PassthruCentralNode`. The 3D scene is rendered into the Viewport window's offscreen render target and presented via `ImGui::Image` inside the Viewport window (see editor-viewport-window spec), so the central dock node is occupied by a real window and no passthru is needed.
 
 #### Scenario: Default layout on first run
 
@@ -94,13 +94,13 @@ The dockspace SHALL use `ImGuiDockNodeFlags_PassthruCentralNode` so the 3D scene
 - **THEN** the Scene Inspector window is docked along the left edge
 - **AND** the Node Properties window is docked along the right edge
 - **AND** the Console and Content Browser windows are tabbed together along the bottom (between the two side panels)
-- **AND** the central area is transparent so the rendered 3D scene is visible
+- **AND** the Viewport window is docked in the central region and displays the rendered 3D scene
 
 #### Scenario: Reset Layout restores defaults
 
 - **WHEN** the user has rearranged windows and clicks `Window → Reset Layout`
-- **THEN** the dockspace is rebuilt with the default left/right/bottom split
-- **AND** Scene Inspector, Node Properties, Console, Content Browser snap back to their default docks
+- **THEN** the dockspace is rebuilt with the default left/right/bottom/center split
+- **AND** Scene Inspector, Node Properties, Console, Content Browser, and Viewport snap back to their default docks
 - **AND** Settings and Profiler windows close (visibility flags cleared)
 
 #### Scenario: Layout persists across restarts
@@ -109,11 +109,11 @@ The dockspace SHALL use `ImGuiDockNodeFlags_PassthruCentralNode` so the 3D scene
 - **AND** the engine is launched again from the same working directory
 - **THEN** the window opens in the position it was docked
 
-#### Scenario: Pre-existing imgui.ini without Node Properties dock
+#### Scenario: Pre-existing imgui.ini without Viewport dock
 
-- **WHEN** the engine starts with `WITH_EDITOR=ON` and an `imgui.ini` from a prior version that has no entry for `Node Properties`
+- **WHEN** the engine starts with `WITH_EDITOR=ON` and an `imgui.ini` from a prior version that has no entry for `Viewport`
 - **THEN** the editor does not auto-rebuild the layout (preserves the user's other dock arrangement)
-- **AND** the Node Properties window opens floating until the user clicks `Window → Reset Layout` or docks it manually
+- **AND** the Viewport window opens floating until the user clicks `Window → Reset Layout` or docks it manually
 
 ### Requirement: The editor SHALL own the top-level menu bar with File and Window menus
 
@@ -132,6 +132,7 @@ The editor (not Lua scripts) SHALL emit the `File` menu and the `Window` menu in
   - (Separator)
   - `Quit` — `Ctrl+Q` shortcut. Closes the engine window via `Gui::CloseWindow` (idempotent; the OS window-close button does the same thing).
 - **Window**: bullet-button style toggles (`ImGui::MenuItem(..., nullptr, &show)`) for each built-in window:
+  - `Viewport`
   - `Profiler`
   - `Scene Inspector`
   - `Node Properties`
@@ -160,6 +161,13 @@ The editor (not Lua scripts) SHALL emit the `File` menu and the `Window` menu in
 - **THEN** `Node Properties` appears between `Scene Inspector` and `Console` (or in the documented order above)
 - **AND** clicking it toggles the Node Properties window's visibility
 - **AND** a checkmark / bullet glyph next to `Node Properties` reflects the visible state
+
+#### Scenario: Window menu includes Viewport toggle
+
+- **WHEN** the user opens the `Window` menu
+- **THEN** `Viewport` appears at the top of the built-in-window list
+- **AND** clicking it toggles the Viewport window's visibility
+- **AND** a checkmark / bullet glyph next to `Viewport` reflects the visible state
 
 #### Scenario: File → Save As opens a modal
 
@@ -366,9 +374,10 @@ The Lua bindings registered by `LuaBindings::Register` SHALL include an `Editor`
 - `Editor.SetCameraSettings(table)` — accepts a Lua table that drives the Camera section of the Settings window. The shape is `{controls = { {label="Move Speed", get=fn, set=fn, kind="slider", min=..., max=...}, ... }}`. Each control entry produces one widget in the Settings → Camera section.
 - `Editor.Log(level, text)` — push a line into the Console log view. `level` is one of `"info"`, `"warn"`, `"error"`, `"debug"`.
 - `Editor.GetSelectedSceneNode()` — returns the `SceneNode` currently selected in the Scene Inspector, or nil.
-- `Editor.SetWindowVisible(name, bool)` / `Editor.GetWindowVisible(name)` — programmatic control of the built-in window visibility flags. Valid names: `"Profiler"`, `"SceneInspector"`, `"NodeProperties"`, `"Console"`, `"ContentBrowser"`, `"Settings"`.
+- `Editor.SetWindowVisible(name, bool)` / `Editor.GetWindowVisible(name)` — programmatic control of the built-in window visibility flags. Valid names: `"Viewport"`, `"Profiler"`, `"SceneInspector"`, `"NodeProperties"`, `"Console"`, `"ContentBrowser"`, `"Settings"`.
+- `Editor.IsPickInFlight()` — returns true while the picking state machine is not `Idle` (see viewport-picking spec). Used by `Editor.lua`'s camera-drag to short-circuit during an in-flight pick.
 
-When `WITH_EDITOR` is not defined, the `Editor` table SHALL still exist but every function SHALL be a safe no-op (so user scripts compose with both builds).
+When `WITH_EDITOR` is not defined, the `Editor` table SHALL still exist but every function SHALL be a safe no-op (so user scripts compose with both builds). `Editor.IsPickInFlight()` SHALL return `false` in that case.
 
 #### Scenario: Editor.SetSceneIO drives the File menu
 
@@ -390,6 +399,12 @@ When `WITH_EDITOR` is not defined, the `Editor` table SHALL still exist but ever
 - **THEN** the Save As modal opens
 - **AND** the registered `on_save` callback is NOT invoked
 
+#### Scenario: Editor.SetWindowVisible accepts Viewport
+
+- **WHEN** Editor.lua calls `Editor.SetWindowVisible("Viewport", false)`
+- **THEN** the Viewport window is hidden on the next frame
+- **AND** `Editor.GetWindowVisible("Viewport")` returns false
+
 #### Scenario: Editor.SetWindowVisible accepts NodeProperties
 
 - **WHEN** Editor.lua calls `Editor.SetWindowVisible("NodeProperties", false)`
@@ -410,8 +425,9 @@ When `WITH_EDITOR` is not defined, the `Editor` table SHALL still exist but ever
 
 #### Scenario: Editor table is a no-op when WITH_EDITOR=OFF
 
-- **WHEN** the engine is built with `WITH_EDITOR=OFF` and Editor.lua calls `Editor.SetSceneIO(...)` and `Editor.SetCurrentScene(...)` and `Editor.Log(...)`
+- **WHEN** the engine is built with `WITH_EDITOR=OFF` and Editor.lua calls `Editor.SetSceneIO(...)` and `Editor.SetCurrentScene(...)` and `Editor.Log(...)` and `Editor.IsPickInFlight()`
 - **THEN** none of the calls throws or logs an error
+- **AND** `Editor.IsPickInFlight()` returns `false`
 - **AND** subsequent script logic continues normally
 
 ### Requirement: The editor SHALL bundle 12 themes from `themes-by-TheAncientOwl.md`
@@ -703,11 +719,13 @@ The Lua surface SHALL expose:
 
 ### Requirement: The editor SHALL render an in-viewport TRS gizmo on the selected SceneNode
 
-When `WITH_EDITOR` is enabled and `Editor::GetSelectedSceneNode()` is non-null, the editor SHALL render an ImGuizmo-driven TRS (translate / rotate / scale) gizmo over the selected node's world position. The gizmo SHALL be drawn into ImGui's draw lists during `Editor::Tick` (before `Gui::Render`), inside an invisible full-viewport ImGui window with `ImGuizmo::SetRect` clamped to the **full SFML window's pos/size** (matching the rect into which the 3D pipeline renders). Click-gating against the central dock node is handled separately so docked panels still absorb their own clicks.
+When `WITH_EDITOR` is enabled and `Editor::GetSelectedSceneNode()` is non-null, the editor SHALL render an ImGuizmo-driven TRS (translate / rotate / scale) gizmo over the selected node's world position. The gizmo SHALL be drawn into ImGui's draw lists during `Editor::Tick` (before `Gui::Render`), inside an invisible ImGui window whose rect matches the **Viewport window's content rect** (the same rect into which the 3D pipeline renders via the Viewport window's render target — see editor-viewport-window spec). `ImGuizmo::SetRect` SHALL be called with the Viewport window's content-rect min and size, NOT the full SFML window's pos/size.
+
+When the Viewport window is hidden, collapsed, or has a zero-size content rect, the gizmo SHALL NOT be rendered (skip entirely that frame).
 
 The gizmo SHALL receive:
 - `view = inverse(camera_node->GetWorldMatrix())` — the active pipeline camera's view matrix.
-- `projection = camera->GetProjectionMatrix()` — already in OpenGL column-major layout via `Matrix4::Raw[16]`.
+- `projection = camera->GetProjectionMatrix()` — already in OpenGL column-major layout via `Matrix4::Raw[16]`, and computed with the aspect derived from the Viewport window's content rect (see editor-viewport-window spec).
 - `matrix = node->GetWorldMatrix()` — the selected node's world transform.
 - `operation` — TRANSLATE, ROTATE, or SCALE per `g_GizmoOp`.
 - `mode` — `ImGuizmo::WORLD` unconditionally in v1 (see "gizmo controls" requirement below for the rationale).
@@ -726,13 +744,15 @@ When the gizmo reports a change (`ImGuizmo::IsUsing()`), the editor SHALL:
 The gizmo SHALL be hidden (skip rendering) when:
 - `Editor::GetSelectedSceneNode() == nullptr`, OR
 - `Pipeline::Active == nullptr`, OR
-- `Pipeline::Active->GetCurrentCamera() == nullptr`.
+- `Pipeline::Active->GetCurrentCamera() == nullptr`, OR
+- the Viewport window is hidden, collapsed, or has a zero-size content rect.
 
-#### Scenario: Gizmo appears on the selected node
+#### Scenario: Gizmo appears on the selected node inside the Viewport window
 
-- **WHEN** the user clicks a node in the Scene Inspector (or in the viewport)
+- **WHEN** the user clicks a node in the Scene Inspector (or true-clicks it in the Viewport window)
 - **AND** the engine has an active pipeline + camera
-- **THEN** an ImGuizmo TRS gizmo is rendered at the node's world position on the next frame
+- **AND** the Viewport window is visible
+- **THEN** an ImGuizmo TRS gizmo is rendered at the node's world position on the next frame, positioned inside the Viewport window's content rect
 
 #### Scenario: Gizmo follows the selected node when its transform changes
 
@@ -771,9 +791,14 @@ The gizmo SHALL be hidden (skip rendering) when:
 - **WHEN** `Editor::GetSelectedSceneNode() == nullptr`
 - **THEN** no ImGuizmo manipulator is drawn on the next frame
 
-#### Scenario: Gizmo only interacts inside the central viewport region
+#### Scenario: Gizmo hidden when the Viewport window is hidden
 
-- **WHEN** the user moves the cursor over a docked panel (Scene Inspector / Console / etc.)
+- **WHEN** the Viewport window is hidden (visibility off) or collapsed
+- **THEN** no ImGuizmo manipulator is drawn on the next frame, even if a node is selected
+
+#### Scenario: Gizmo only interacts inside the Viewport window
+
+- **WHEN** the user moves the cursor over a docked panel (Scene Inspector / Console / etc.) that is not the Viewport window
 - **THEN** ImGuizmo's hover state for the gizmo is false
 - **AND** clicking the panel does not start a gizmo drag
 
