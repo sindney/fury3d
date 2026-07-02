@@ -11,7 +11,7 @@
 - [x] 2.1 Add `RemoveChild`, `RemoveFromParent`, `RemoveComponent` (overloaded by `std::type_index` for each registered component, mirroring the existing `AddComponent` overload set) to the `SceneNode` usertype in `engine/Fury/LuaBindings.cpp` (lines 271–305)
 - [x] 2.2 Add `Clone` and `CloneTree` bindings on `SceneNode`
 - [x] 2.3 Add `GetName` and `SetName` bindings on `SceneNode`
-- [ ] 2.4 Rebuild with `WITH_EDITOR=ON` and confirm the engine compiles; smoke-test by running `examples/Editor.lua` and exercising the new bindings
+- [x] 2.4 Rebuild with `WITH_EDITOR=ON` and confirm the engine compiles; smoke-test by running `examples/Editor.lua` and exercising the new bindings
 
 ## 3. Editor — Scene Inspector context menu, rename, drag-drop, hover-expand
 
