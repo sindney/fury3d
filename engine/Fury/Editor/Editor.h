@@ -40,6 +40,18 @@ namespace fury
 		// signal fires uniformly. Passing nullptr deselects.
 		void FURY_API SetSelectedSceneNode(SceneNode* node);
 
+		// ----- Edit-menu actions on the currently selected node -----
+		// Backing for File → Edit menu items (and their keyboard
+		// shortcuts). No-op when nothing is selected; the scene-graph
+		// mutations (add / delete / duplicate / reparent) happen via
+		// the same deferred queue as the Scene Inspector's right-click
+		// context menu, so they observe identical safety invariants.
+		void FURY_API DeleteSelectedSceneNode();
+
+		void FURY_API DuplicateSelectedSceneNode();
+
+		void FURY_API AddChildToSelectedSceneNode();
+
 		// Signal emitted exactly once per selection change (including
 		// deselect-to-nullptr). Consumers subscribe via Connect; the
 		// returned shared_ptr owns the signal. Selection visualization
@@ -132,6 +144,21 @@ namespace fury
 
 		std::string FURY_API GetCurrentScenePath();
 
+		// ----- scene dirty tracking --------------------------------------
+		// The Scene Inspector / Node Properties can mutate the active
+		// scene (add child, delete, duplicate, rename, reparent, add /
+		// remove component). Each of those calls MarkSceneDirty so the
+		// editor knows the on-disk scene file is out of sync. The Save
+		// menu / Cmd+S handler reads IsSceneDirty to decide between
+		// in-place save (native .json/.bin) and Save As (non-native
+		// .fbx/.gltf — we'd otherwise silently overwrite the imported
+		// asset). ClearSceneDirty is called by the save path on success.
+		void FURY_API MarkSceneDirty();
+
+		bool FURY_API IsSceneDirty();
+
+		void FURY_API ClearSceneDirty();
+
 		struct TreeNode
 		{
 			std::string name;
@@ -172,6 +199,9 @@ namespace fury
 		inline SceneNode* GetSelectedSceneNode() { return nullptr; }
 		inline void SetSelectedSceneNode(SceneNode*) {}
 		inline std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged() { return nullptr; }
+		inline void DeleteSelectedSceneNode() {}
+		inline void DuplicateSelectedSceneNode() {}
+		inline void AddChildToSelectedSceneNode() {}
 		inline bool IsPickInFlight() { return false; }
 		inline bool IsViewportHovered() { return false; }
 		inline bool IsViewportContentHovered() { return false; }
@@ -189,6 +219,9 @@ namespace fury
 		inline void SetCurrentScene(const std::string&, bool) {}
 		inline void ClearCurrentScene() {}
 		inline std::string GetCurrentScenePath() { return {}; }
+		inline void MarkSceneDirty() {}
+		inline bool IsSceneDirty() { return false; }
+		inline void ClearSceneDirty() {}
 #endif
 	}
 }

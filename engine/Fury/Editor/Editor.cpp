@@ -105,6 +105,7 @@ namespace fury
 		bool g_SaveAsModalOpen = false;
 		bool g_OpenModalOpen = false;
 		bool g_ImportModalOpen = false;
+		bool g_SceneDirty = false;  // set on inspector mutation, cleared on save
 		std::string g_CurrentScenePath;
 		bool g_CurrentSceneIsNative = false;
 
@@ -285,7 +286,14 @@ namespace fury
 			void TriggerSave()
 			{
 				if (Scene::Active == nullptr) return;
-				if (g_CurrentSceneIsNative && !g_CurrentScenePath.empty() && g_SceneIO.on_save)
+				// In-place save is only available when we have a tracked
+				// native (.json / .bin) path. The dirty flag tracks whether
+				// the in-memory scene has diverged from the on-disk file,
+				// but does NOT gate Save — the user can always save when
+				// they want. Non-native paths (FBX, glTF) always go
+				// through Save As since the engine can't write those formats.
+				const bool path_ok = !g_CurrentScenePath.empty() && g_CurrentSceneIsNative;
+				if (path_ok && g_SceneIO.on_save)
 				{
 					try { g_SceneIO.on_save(g_CurrentScenePath); } catch (...) {}
 				}
@@ -509,6 +517,52 @@ namespace fury
 
 					ImGui::EndMenu();
 				}
+
+			// Edit menu: scene-graph actions on the current selection.
+			if (ImGui::BeginMenu("Edit"))
+			{
+				const bool has_selection = (g_SelectedSceneNode != nullptr);
+				const bool can_mutate   = has_selection && g_SelectedSceneNode->GetParent() != nullptr;
+
+				if (ImGui::MenuItem("Add Child", nullptr, false, has_selection))
+				{
+					AddChildToSelectedSceneNode();
+				}
+				if (ImGui::MenuItem("Duplicate", PlatformShortcut("Cmd+D", "Ctrl+D"), false, can_mutate))
+				{
+					DuplicateSelectedSceneNode();
+				}
+				if (ImGui::MenuItem("Delete", PlatformShortcut("Cmd+Del", "Ctrl+Del"), false, can_mutate))
+				{
+					DeleteSelectedSceneNode();
+				}
+				ImGui::EndMenu();
+			}
+
+			// Global keyboard shortcuts for the Edit menu. We trigger
+			// them on the same frame the menu is rendered so the user
+			// sees the action in the menu even when triggered by key.
+			// ImGui's IsKeyPressed returns true on the first frame the
+			// key transitions down; we also gate on !WantCaptureKeyboard
+			// so typing in a text field doesn't trigger the action.
+			{
+				const bool can_mutate = (g_SelectedSceneNode != nullptr
+					&& g_SelectedSceneNode->GetParent() != nullptr);
+				if (can_mutate && !Gui::WantCaptureKeyboard())
+				{
+					const bool cmd = ImGui::GetIO().KeySuper;
+					const bool ctrl = ImGui::GetIO().KeyCtrl;
+					const bool mod = (ImGui::GetIO().ConfigMacOSXBehaviors ? cmd : ctrl);
+					if (mod && ImGui::IsKeyPressed(ImGuiKey_D))
+					{
+						DuplicateSelectedSceneNode();
+					}
+					else if (mod && ImGui::IsKeyPressed(ImGuiKey_Delete))
+					{
+						DeleteSelectedSceneNode();
+					}
+				}
+			}
 
 			if (ImGui::BeginMenu("Window"))
 			{
@@ -852,17 +906,34 @@ namespace fury
 		{
 			g_CurrentScenePath    = path;
 			g_CurrentSceneIsNative = is_native;
+			g_SceneDirty = false;
 		}
 
 		void ClearCurrentScene()
 		{
 			g_CurrentScenePath.clear();
 			g_CurrentSceneIsNative = false;
+			g_SceneDirty = false;
 		}
 
 		std::string GetCurrentScenePath()
 		{
 			return g_CurrentScenePath;
+		}
+
+		void MarkSceneDirty()
+		{
+			g_SceneDirty = true;
+		}
+
+		bool IsSceneDirty()
+		{
+			return g_SceneDirty;
+		}
+
+		void ClearSceneDirty()
+		{
+			g_SceneDirty = false;
 		}
 
 		std::string GetSceneDir()

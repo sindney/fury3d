@@ -50,6 +50,13 @@ namespace fury
 			if (auto mesh = Scene::Manager()->Get<Mesh>(str))
 			{
 				SetMesh(mesh);
+				// Seed the per-instance cast_shadows from the asset's
+				// flag when the field is absent from the file.
+				// Pre-existing .json / .bin scenes don't store
+				// cast_shadows on MeshRender; reading the mesh's
+				// flag preserves their behavior. New writes always
+				// include the field.
+				m_CastShadows = mesh->GetCastShadows();
 			}
 			else
 			{
@@ -63,7 +70,8 @@ namespace fury
 			return false;
 		}
 
-		// 次数有问题
+		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
+
 		// load materials
 		m_Materials.clear();
 		if (!LoadArray(wrapper, "materials", [&](const void* node) -> bool
@@ -107,6 +115,13 @@ namespace fury
 			SaveValue(wrapper, ptr->GetName());
 		}
 
+		// Per-instance shadow-casting flag. The mesh itself has its
+		// own cast_shadows (asset-level default), but MeshRender
+		// overrides per-instance so a user can toggle one tank's
+		// shadow without touching every other instance of the mesh.
+		SaveKey(wrapper, "cast_shadows");
+		SaveValue(wrapper, m_CastShadows);
+
 		// save materials
 		SaveKey(wrapper, "materials");
 		StartArray(wrapper);
@@ -137,7 +152,7 @@ namespace fury
 			auto material = m_Materials[i];
 			clone->SetMaterial(material.lock(), i);
 		}
-		
+
 		return clone;
 	}
 
@@ -191,6 +206,16 @@ namespace fury
 		}
 
 		return true;
+	}
+
+	bool MeshRender::GetCastShadows() const
+	{
+		return m_CastShadows;
+	}
+
+	void MeshRender::SetCastShadows(bool state)
+	{
+		m_CastShadows = state;
 	}
 
 	void MeshRender::OnAttaching(const std::shared_ptr<SceneNode> &node)

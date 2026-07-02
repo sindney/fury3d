@@ -84,8 +84,15 @@ namespace fury
 
 		virtual void Save(void* wrapper, bool object = true) override;
 
-		// copies components and translations.
+		// copies components and translations (leaf-only — does NOT recurse
+		// into m_Childs). Use CloneTree when the caller needs descendants
+		// copied as well.
 		Ptr Clone(const std::string &name) const;
+
+		// Deep clone: copies this node's components and local transform, and
+		// recursively clones each child via CloneTree. The returned node is
+		// not attached to any parent.
+		Ptr CloneTree(const std::string &name) const;
 
 		// remove this sceneNode from attached ocTree.
 		// set recursively to true will call this on child nodes.

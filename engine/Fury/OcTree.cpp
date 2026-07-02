@@ -145,7 +145,11 @@ namespace fury
 		WalkScene(collider, [&](const SceneNode::Ptr &sceneNode)
 		{
 			auto render = sceneNode->GetComponent<MeshRender>();
-			if (render != nullptr && render->GetRenderable() && render->GetMesh()->GetCastShadows())
+			// Per-instance shadow casting. MeshRender::GetCastShadows is
+			// the source of truth now — the mesh's own flag is the
+			// asset-level default that's seeded into MeshRender on load
+			// but doesn't override per-instance toggles.
+			if (render != nullptr && render->GetRenderable() && render->GetCastShadows())
 				renderables.push_back(sceneNode);
 		});
 	}

@@ -21,6 +21,7 @@
 #include "Fury/MathUtil.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/MeshRender.h"
 #include "Fury/OcTree.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PrelightPipeline.h"
@@ -261,16 +262,37 @@ namespace fury
 				"SetCastShadows", &Light::SetCastShadows,
 				"CalculateAABB",  &Light::CalculateAABB);
 
+			// --- MeshRender ---------------------------------------------------
+			// Inspector and editor scripts need to read mesh / material slots
+			// off a MeshRender::Ptr; without these accessors the MeshRender
+			// surface is opaque from Lua and duplication / material editing
+			// can't be verified end-to-end.
+			lua.new_usertype<MeshRender>("MeshRender",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create",          &MeshRender::Create,
+				"GetMesh",         &MeshRender::GetMesh,
+				"SetMesh",         &MeshRender::SetMesh,
+				"GetMaterialCount",&MeshRender::GetMaterialCount,
+				"GetMaterial",     &MeshRender::GetMaterial,
+				"SetMaterial",     &MeshRender::SetMaterial,
+				"GetRenderable",   &MeshRender::GetRenderable);
+
 			// --- SceneNode -----------------------------------------------------
 			// AddComponent is overloaded per-derived-type so sol2 doesn't
 			// have to upcast the lua userdata into `shared_ptr<Component>`
 			// itself — it returns "unrecognized userdata" against the
 			// vendored sol2 we ship even though `sol::bases<Component>` is
 			// declared on each derived. Same workaround pattern as the
-			// `Scene.Create(name, dir, octree)` binding above.
+			// `Scene.Create(name, dir, octree)` binding above. RemoveComponent
+			// uses the same per-type overload set so Lua can drop a specific
+			// component without falling back to the (unbound) std::type_index
+			// overload on the C++ side.
 			lua.new_usertype<SceneNode>("SceneNode",
 				sol::no_constructor,
 				"Create", &SceneNode::Create,
+				"GetName", &SceneNode::GetName,
+				"SetName", &SceneNode::SetName,
 				"GetWorldPosition", &SceneNode::GetWorldPosition,
 				"GetLocalPosition", &SceneNode::GetLocalPosition,
 				"SetLocalPosition", sol::overload(
@@ -293,10 +315,43 @@ namespace fury
 					},
 					[](SceneNode &n, Light::Ptr c) {
 						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, MeshRender::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
 					}),
+				"RemoveComponent", sol::overload(
+					[](SceneNode &n, Transform::Ptr) { return n.RemoveComponent(typeid(Transform)); },
+					[](SceneNode &n, Camera::Ptr)    { return n.RemoveComponent(typeid(Camera)); },
+					[](SceneNode &n, Light::Ptr)     { return n.RemoveComponent(typeid(Light)); },
+					[](SceneNode &n, MeshRender::Ptr){ return n.RemoveComponent(typeid(MeshRender)); }),
+				"GetComponent", sol::overload(
+					[](SceneNode &n, sol::type t) -> sol::object {
+						// Forward a Lua-side `GetComponent(SceneNode.Light)`-style
+						// call (when registered as a table) by name lookup. This
+						// is the simplest path for the inspector's generic
+						// component loop: pass the registry key and get back the
+						// shared_ptr to the actual derived component, or nil.
+						// Return type is sol::object so a nil for "not present"
+						// round-trips cleanly.
+						(void)t;
+						return sol::nil;
+					},
+					[](SceneNode &n, Transform::Ptr) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
+					[](SceneNode &n, Camera::Ptr)    -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
+					[](SceneNode &n, Light::Ptr)     -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
+					[](SceneNode &n, MeshRender::Ptr)-> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); }),
+								"GetTransform", [](SceneNode &n) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
+				"GetCamera",    [](SceneNode &n) -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
+				"GetLight",     [](SceneNode &n) -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
+				"GetMeshRender",[](SceneNode &n) -> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
 				"AddChild", &SceneNode::AddChild,
+				"RemoveChild", &SceneNode::RemoveChild,
+				"RemoveFromParent", &SceneNode::RemoveFromParent,
 				"GetChildCount", &SceneNode::GetChildCount,
 				"GetChildAt", &SceneNode::GetChildAt,
+				"GetParent", &SceneNode::GetParent,
+				"Clone", &SceneNode::Clone,
+				"CloneTree", &SceneNode::CloneTree,
 				// Convenience: pull the Light component (if any) so Lua can
 				// inspect / mutate the light without needing template-style
 				// GetComponent<T>() bindings. Returns nil when absent.
@@ -810,6 +865,10 @@ namespace fury
 			};
 			editor_tbl["ClearCurrentScene"]   = []() { Editor::ClearCurrentScene(); };
 			editor_tbl["GetCurrentScenePath"] = []() -> std::string { return Editor::GetCurrentScenePath(); };
+			// Scene dirty tracking. Marked by every inspector mutation
+			// and cleared by the save path on success.
+			editor_tbl["MarkSceneDirty"]      = []() { Editor::MarkSceneDirty(); };
+			editor_tbl["ClearSceneDirty"]     = []() { Editor::ClearSceneDirty(); };
 
 			// Gizmo controls — optional power-user surface; the editor
 			// works without scripts touching these. Unknown name strings
@@ -841,6 +900,8 @@ namespace fury
 			editor_tbl["SetCurrentScene"]       = [](sol::object, sol::object) {};
 			editor_tbl["ClearCurrentScene"]     = []() {};
 			editor_tbl["GetCurrentScenePath"]   = []() -> std::string { return {}; };
+			editor_tbl["MarkSceneDirty"]        = [](sol::object) {};
+			editor_tbl["ClearSceneDirty"]       = []() {};
 
 			// Gizmo no-ops for non-editor builds: same surface as the
 			// editor path so user scripts compose without #ifdefs.

@@ -6,6 +6,13 @@
 --   * Camera-tuning controls registered with Editor.SetCameraSettings
 --   * Optional Camera top-level menu (Settings shortcut)
 --
+-- Scene-graph mutations (add child / delete / duplicate / rename) are
+-- applied by the C++ Scene Inspector's right-click / hover / F2 / drag-drop
+-- affordances. Lua scripts that need to mutate the hierarchy from code
+-- can call SceneNode:AddChild / RemoveChild / RemoveFromParent /
+-- Clone / CloneTree / SetName / GetName / AddComponent / RemoveComponent
+-- directly.
+--
 -- Menu ownership:
 --   The C++ editor (engine/Fury/Editor) owns File and Window menus.
 --   This script provides project-specific behavior via Editor.* callbacks.
@@ -122,14 +129,19 @@ end
 
 local function save_active_scene(filename)
     -- Save As path. Output goes into Resource/Scene/.
-    write_scene_to_path(FileUtil.GetAbsPath("Resource/Scene/" .. filename))
+    if write_scene_to_path(FileUtil.GetAbsPath("Resource/Scene/" .. filename)) then
+        Editor.ClearSceneDirty()
+    end
 end
 
 local function save_scene_in_place(full)
     -- Save (no rename): Cmd+S already verified the path is native, so the
     -- extension dispatch in write_scene_to_path is a tautological double-check.
-    write_scene_to_path(full)
+    if write_scene_to_path(full) then
+        Editor.ClearSceneDirty()
+    end
 end
+
 
 -- ---------------------------------------------------------------------------
 -- Default-sun fallback
@@ -282,9 +294,18 @@ local function on_init()
         }
     })
 
+
+    
+
+
+    
+
+    
+
     -- Console: evaluate ad-hoc Lua snippets. Errors land in the Console as
     -- error-level entries instead of crashing the engine.
-    Editor.SetCommandHandler(function(line)
+
+Editor.SetCommandHandler(function(line)
         local fn, err = load(line, "console")
         if not fn then
             Editor.Log("error", err)

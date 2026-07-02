@@ -21,6 +21,9 @@ namespace fury
 
 		std::vector<std::weak_ptr<Material>> m_Materials;
 
+		// Per-instance shadow-casting flag. See GetCastShadows() below.
+		bool m_CastShadows = true;
+
 		std::weak_ptr<Mesh> m_Mesh;
 
 	public:
@@ -48,6 +51,16 @@ namespace fury
 		std::shared_ptr<Mesh> GetMesh() const;
 
 		bool GetRenderable() const;
+
+		// Per-instance shadow-casting flag. Mesh is a shared resource
+		// (multiple MeshRender instances can reference the same mesh),
+		// so a flag on the mesh itself is shared across every tank
+		// that uses it. Storing it on MeshRender makes "Cast Shadows"
+		// genuinely per-instance — toggling it on one tank leaves the
+		// other tanks using the same mesh unaffected.
+		bool GetCastShadows() const;
+
+		void SetCastShadows(bool state);
 
 	protected:
 

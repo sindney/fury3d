@@ -490,4 +490,32 @@ namespace fury
 		}
 	}
 
+	std::string FileUtil::SerializeToString(const std::shared_ptr<Serializable> &source, int maxDecimalPlaces)
+	{
+		using namespace rapidjson;
+		StringBuffer sb;
+		PrettyWriter<StringBuffer> writer(sb);
+		writer.SetMaxDecimalPlaces(maxDecimalPlaces);
+		source->Save(&writer);
+		return std::string(sb.GetString(), sb.GetSize());
+	}
+
+	bool FileUtil::DeserializeFromString(const std::shared_ptr<Serializable> &target, const std::string &json)
+	{
+		using namespace rapidjson;
+		Document dom;
+		dom.Parse(json.c_str());
+		if (dom.HasParseError())
+		{
+			FURYE << "FileUtil::DeserializeFromString: parse error " << dom.GetParseError();
+			return false;
+		}
+		if (!target->Load(&dom))
+		{
+			FURYE << "FileUtil::DeserializeFromString: Load returned false";
+			return false;
+		}
+		return true;
+	}
+
 }

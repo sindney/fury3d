@@ -421,50 +421,335 @@ namespace fury
 		// ----------------------------------------------------------------
 		namespace
 		{
+			// Per-row rename state.
+			struct RenameState
+			{
+				bool active = false;
+				bool needsFocus = false;
+				char buffer[256] = {};
+				SceneNode* target = nullptr;
+			};
+			static std::unordered_map<SceneNode*, RenameState> g_RenameStates;
+
+			// Hover dwell times for collapsed rows during a drag.
+			static std::unordered_map<SceneNode*, double> g_HoverExpandStart;
+			static constexpr double kHoverExpandDelay = 0.5;
+
+			// Deferred drag/drop reparenting. Mutations run at the end of the frame so ImGui's tree state stays balanced.
+			struct PendingReparent { SceneNode* source; SceneNode* target; };
+			static std::vector<PendingReparent> g_PendingReparents;
+
+			// Deferred add/delete, same reasoning as the reparent queue.
+			struct PendingAdd    { SceneNode::Ptr parent; SceneNode::Ptr child; };
+			struct PendingDelete { SceneNode* target; };
+			static std::vector<PendingAdd>    g_PendingAdds;
+			static std::vector<PendingDelete> g_PendingDeletes;
+
+			// ImGui drag-drop payload key. Pointer-sized payloads are safe
+			// because both source and target live in the same process.
+			static constexpr const char* kSceneNodeDragPayload = "FURY_SCENE_NODE";
+
+			// True iff target is reachable from ancestor.
+			bool IsDescendantOf(SceneNode* ancestor, SceneNode* target)
+			{
+				if (!ancestor || !target) return false;
+				for (unsigned int i = 0; i < ancestor->GetChildCount(); ++i)
+				{
+					auto child = ancestor->GetChildAt(i);
+					if (child.get() == target) return true;
+					if (IsDescendantOf(child.get(), target)) return true;
+				}
+				return false;
+			}
+
+			// Adjust node's local TRS so the world transform stays the same after reparenting. Call BEFORE RemoveChild/AddChild.
+			void PreserveWorldTransformOnReparent(SceneNode* node, SceneNode* newParent)
+			{
+				if (!node || !newParent) return;
+				Vector4 worldPos = node->GetWorldPosition();
+				Quaternion worldRot = node->GetWorldRoattion();
+				Vector4 worldScl = node->GetWorldScale();
+
+				// newLocalPos = newParentWorldMatrix^-1 * worldPos
+				Matrix4 invParent = newParent->GetWorldMatrix().Inverse();
+				Vector4 newLocalPos = invParent.Multiply(worldPos);
+
+				// newLocalRot = newParentWorldRot^-1 * worldRot
+				Quaternion parentRot = newParent->GetWorldRoattion();
+				Quaternion newLocalRot = parentRot.Conjugate() * worldRot;
+
+				// newLocalScl = worldScl / newParentScl (component-wise)
+				Vector4 parentScl = newParent->GetWorldScale();
+				Vector4 newLocalScl = worldScl;
+				auto safeDiv = [](float a, float b) -> float {
+					return std::abs(b) > 1e-6f ? a / b : a;
+				};
+				newLocalScl.x = safeDiv(worldScl.x, parentScl.x);
+				newLocalScl.y = safeDiv(worldScl.y, parentScl.y);
+				newLocalScl.z = safeDiv(worldScl.z, parentScl.z);
+
+				node->SetLocalPosition(newLocalPos);
+				node->SetLocalRoattion(newLocalRot);
+				node->SetLocalScale(newLocalScl);
+			}
+
+			// Pick a sibling-unique name under `parent`. "Node", "Node (1)",
+			// "Node (2)", … Mirrors the engine's lack of unique-name enforcement
+			// (siblings may legitimately share a name) — we just want
+			// inspector-generated names to never collide.
+			std::string UniqueChildName(SceneNode* parent, const std::string& base)
+			{
+				if (!parent || !parent->FindChild(base)) return base;
+				for (int i = 1; i < 100000; ++i)
+				{
+					std::string name = base + " (" + std::to_string(i) + ")";
+					if (!parent->FindChild(name)) return name;
+				}
+				return base + " (?)";
+			}
+
+			// Action: create a fresh child under `target` and select it.
+			void DoAddChild(SceneNode* target)
+			{
+				if (!target) return;
+				auto name = UniqueChildName(target, "Node");
+				auto child = SceneNode::Create(name);
+
+				g_PendingAdds.push_back({ target->shared_from_this(), child });
+				SetSelectedSceneNode(child.get());
+				Editor::MarkSceneDirty();
+			}
+
+			// Action: deep-clone `target` (including descendants) under the
+			// same parent, with a "(copy)" / "(copy N)" suffix. The clone
+			// becomes the new selection. The root node is not duplicable.
+			void DoDuplicate(SceneNode* target)
+			{
+				if (!target) return;
+				auto parent = target->GetParent();
+				if (!parent) return; // root — caller filters the menu
+				std::string baseName = target->GetName();
+				if (baseName.empty()) baseName = "Node";
+				std::string copyName = baseName + " (copy)";
+				if (parent->FindChild(copyName))
+				{
+					for (int i = 1; i < 100000; ++i)
+					{
+						copyName = baseName + " (copy " + std::to_string(i) + ")";
+						if (!parent->FindChild(copyName)) break;
+					}
+				}
+				auto clone = target->CloneTree(copyName);
+				// Defer parent attachment + SceneManager re-registration.
+				g_PendingAdds.push_back({ parent, clone });
+				SetSelectedSceneNode(clone.get());
+				Editor::MarkSceneDirty();
+			}
+
+			// Action: detach `target` from its parent. If the editor's
+			// selection pointed at the deleted node, clear it.
+			void DoDelete(SceneNode* target)
+			{
+				if (!target) return;
+				if (!target->GetParent()) return; // root — caller filters the menu
+				if (g_SelectedSceneNode == target)
+					SetSelectedSceneNode(nullptr);
+				g_RenameStates.erase(target);
+				g_PendingDeletes.push_back({ target });
+				Editor::MarkSceneDirty();
+			}
+
+			// Action: start in-place rename of `target`. Cancels any other
+			// in-flight rename so only one field is active at a time.
+			void DoRenameActivate(SceneNode* target)
+			{
+				if (!target) return;
+				for (auto& pair : g_RenameStates) pair.second.active = false;
+				auto& state = g_RenameStates[target];
+				state.active = true;
+				state.needsFocus = true;
+				state.target = target;
+				std::string name = target->GetName();
+				std::strncpy(state.buffer, name.c_str(), sizeof(state.buffer) - 1);
+				state.buffer[sizeof(state.buffer) - 1] = '\0';
+				Editor::MarkSceneDirty();
+			}
+
+			// Per-row input handling that does NOT depend on the row's tree
+			// structure: the right-click context menu and drag-drop. The
+			// actual TreeNodeEx lives in the caller so it can also recurse
+			// into children when the node is open.
+			void HandleRowInteractions(SceneNode* node, int depth, bool isOpen)
+			{
+				if (!node) return;
+				const bool isRoot = (depth == 0);
+				const std::string popupId = "NodeMenu##" + std::to_string(reinterpret_cast<uintptr_t>(node));
+
+				// --- Right-click context menu ------------------------------
+				if (ImGui::BeginPopupContextItem(popupId.c_str()))
+				{
+					if (ImGui::MenuItem("Add Child")) DoAddChild(node);
+					if (!isRoot)
+					{
+						ImGui::Separator();
+						if (ImGui::MenuItem("Duplicate")) DoDuplicate(node);
+						if (ImGui::MenuItem("Rename"))   DoRenameActivate(node);
+						if (ImGui::MenuItem("Delete"))   DoDelete(node);
+					}
+					ImGui::EndPopup();
+				}
+
+				// --- Drag source --------------------------------------------
+				// Disabled for the root: the spec only allows reparenting
+				// across parents, never "out of" the root.
+				if (!isRoot && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+				{
+					SceneNode* payload = node;
+					ImGui::SetDragDropPayload(kSceneNodeDragPayload, &payload, sizeof(payload));
+					ImGui::Text("%s", node->GetName().empty() ? "(unnamed)" : node->GetName().c_str());
+					ImGui::EndDragDropSource();
+				}
+
+				// --- Drop target --------------------------------------------
+				// Queue the reparent; the actual mutation runs at the end of
+				// the frame (see RenderSceneInspectorWindow's tail) so we don't
+				// mutate the scene graph while ImGui is mid-tree.
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kSceneNodeDragPayload))
+					{
+						IM_ASSERT(payload->DataSize == sizeof(SceneNode*));
+						SceneNode* dragged = *(SceneNode**)payload->Data;
+						if (dragged && dragged != node && !IsDescendantOf(dragged, node))
+						{
+							g_PendingReparents.push_back({ dragged, node });
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				// --- Hover-to-expand during drag ---------------------------
+				// Track first-hover time on a collapsed row; expand the row
+				// once the dwell exceeds the threshold.
+				if (ImGui::IsDragDropActive() && ImGui::IsItemHovered() && !isOpen && node->GetChildCount() > 0)
+				{
+					double now = ImGui::GetTime();
+					auto it = g_HoverExpandStart.find(node);
+					if (it == g_HoverExpandStart.end())
+						g_HoverExpandStart[node] = now;
+					else if (now - it->second > kHoverExpandDelay)
+					{
+						ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+						g_HoverExpandStart.erase(it);
+					}
+				}
+				else
+				{
+					// Cursor left the row — reset the dwell timer.
+					g_HoverExpandStart.erase(node);
+				}
+			}
+
+			// Shared row renderer used by both the Scene::Active path and the
+			// Lua-provided TreeNode path. `node` may be nullptr for synthetic
+			// rows supplied by Lua (read-only display only — interactions
+			// are skipped when node is null).
+			void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, bool* outOpen)
+			{
+				const bool isRoot = (depth == 0);
+				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow
+					| ImGuiTreeNodeFlags_OpenOnDoubleClick;
+				if (isRoot) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+				if (node && g_SelectedSceneNode == node)
+					flags |= ImGuiTreeNodeFlags_Selected;
+				bool isLeaf = true;
+				if (node) isLeaf = (node->GetChildCount() == 0);
+				else      isLeaf = false; // unknown child count for synthetic rows
+				if (isLeaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+				bool open = false;
+				auto rit = node ? g_RenameStates.find(node) : g_RenameStates.end();
+				if (rit != g_RenameStates.end() && rit->second.active)
+				{
+					// Render an empty tree node + InputText on the same line.
+					// The Leaf + NoTreePushOnOpen flags prevent the tree node
+					// from opening/closing or pushing onto the ID stack — we
+					// also force `open=false` so the caller's TreePop() is
+					// skipped (ImGui asserts if TreePop has no matching
+					// push). The user can keep editing children visually
+					// collapsed while the rename field is active.
+					flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+					ImGui::TreeNodeEx((void*)node, flags, "");
+					open = false;
+					ImGui::SameLine();
+					ImGui::PushItemWidth(200);
+					bool committed = ImGui::InputText("##rename", rit->second.buffer,
+						sizeof(rit->second.buffer),
+						ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+					if (rit->second.needsFocus)
+					{
+						ImGui::SetKeyboardFocusHere(-1);
+						rit->second.needsFocus = false;
+					}
+					bool cancelled = ImGui::IsKeyPressed(ImGuiKey_Escape);
+					bool deactivated = ImGui::IsItemDeactivated();
+					if (committed || (deactivated && !cancelled))
+					{
+						if (node->GetName() != rit->second.buffer)
+						{
+							node->SetName(rit->second.buffer);
+							Editor::MarkSceneDirty();
+						}
+						rit->second.active = false;
+					}
+					else if (cancelled)
+					{
+						rit->second.active = false;
+					}
+					ImGui::PopItemWidth();
+				}
+				else
+				{
+					open = ImGui::TreeNodeEx((void*)node, flags, "%s",
+						displayName.empty() ? "(unnamed)" : displayName.c_str());
+				}
+
+				if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+				{
+					if (node) SetSelectedSceneNode(node);
+				}
+
+				// Double-click on the label (not the arrow) starts rename.
+				if (node && !isRoot && ImGui::IsItemHovered()
+					&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+				{
+					DoRenameActivate(node);
+				}
+
+				// Only the C++ scene-graph path exposes mutations: synthetic
+				// Lua-owned rows are read-only.
+				if (node) HandleRowInteractions(node, depth, open);
+
+				if (outOpen) *outOpen = open;
+			}
+
 			void RenderSceneNodeRecursive(const std::shared_ptr<SceneNode>& node, int depth)
 			{
 				if (!node) return;
-				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow
-					| ImGuiTreeNodeFlags_OpenOnDoubleClick;
-				if (depth == 0) flags |= ImGuiTreeNodeFlags_DefaultOpen;
-				if (g_SelectedSceneNode == node.get())
-					flags |= ImGuiTreeNodeFlags_Selected;
-				if (node->GetChildCount() == 0)
-					flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-
-				const std::string name = node->GetName();
-				bool open = ImGui::TreeNodeEx((void*)node.get(), flags, "%s",
-					name.empty() ? "(unnamed)" : name.c_str());
-
-			if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-				SetSelectedSceneNode(node.get());
-
+				bool open = false;
+				RenderNodeRow(node.get(), node->GetName(), depth, &open);
 				if (open && node->GetChildCount() > 0)
 				{
 					for (unsigned int i = 0; i < node->GetChildCount(); ++i)
-					{
 						RenderSceneNodeRecursive(node->GetChildAt(i), depth + 1);
-					}
 					ImGui::TreePop();
 				}
 			}
 
 			void RenderTreeFromProvider(const TreeNode& tn, int depth)
 			{
-				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow
-					| ImGuiTreeNodeFlags_OpenOnDoubleClick;
-				if (depth == 0) flags |= ImGuiTreeNodeFlags_DefaultOpen;
-				if (g_SelectedSceneNode == tn.node && tn.node != nullptr)
-					flags |= ImGuiTreeNodeFlags_Selected;
-				if (tn.children.empty())
-					flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-
-				bool open = ImGui::TreeNodeEx((const void*)&tn, flags, "%s",
-					tn.name.empty() ? "(unnamed)" : tn.name.c_str());
-
-			if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-				SetSelectedSceneNode(tn.node);
-
+				bool open = false;
+				RenderNodeRow(tn.node, tn.name, depth, &open);
 				if (open && !tn.children.empty())
 				{
 					for (auto& c : tn.children)
@@ -482,6 +767,22 @@ namespace fury
 				ImGui::End();
 				return;
 			}
+
+			// F2 activates rename on the currently selected node. We only
+			// trigger if the inspector window itself has focus — otherwise
+			// F2 in the viewport or another panel could surprise the user.
+			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+				&& ImGui::IsKeyPressed(ImGuiKey_F2)
+				&& g_SelectedSceneNode
+				&& g_SelectedSceneNode->GetParent() != nullptr)
+			{
+				DoRenameActivate(g_SelectedSceneNode);
+			}
+
+			// Clear hover-expand bookkeeping whenever no drag is in flight
+			// so a fresh drag doesn't inherit stale timers.
+			if (!ImGui::IsDragDropActive())
+				g_HoverExpandStart.clear();
 
 			if (g_TreeProvider)
 			{
@@ -502,9 +803,72 @@ namespace fury
 				ImGui::TextDisabled("(no active scene)");
 			}
 
+			// Empty-space drop target: dropping on the trailing blank area
+			// reparents the dragged node to the root. A drop on the title
+			// bar / window chrome is ignored because that area isn't part of
+			// the inspector's draw list.
+			SceneNode* root = Scene::Active ? Scene::Active->GetRootNode().get() : nullptr;
+			ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 24.0f));
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kSceneNodeDragPayload))
+				{
+					IM_ASSERT(payload->DataSize == sizeof(SceneNode*));
+					SceneNode* dragged = *(SceneNode**)payload->Data;
+					if (dragged && root && dragged != root && !IsDescendantOf(dragged, root))
+					{
+						g_PendingReparents.push_back({ dragged, root });
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+
+			// Apply deferred mutations. Re-register with SceneManager so the
+		// renderer sees the new state.
+			for (auto& pr : g_PendingReparents)
+			{
+				if (!pr.source || !pr.target) continue;
+				PreserveWorldTransformOnReparent(pr.source, pr.target);
+				auto sp = pr.source->shared_from_this();
+				auto srcParent = pr.source->GetParent();
+				if (srcParent) srcParent->RemoveChild(sp);
+				pr.target->AddChild(sp);
+				if (Scene::Active)
+				{
+					Scene::Active->GetSceneManager()->AddSceneNodeRecursively(sp);
+				}
+			}
+			for (auto& pa : g_PendingAdds)
+			{
+				if (!pa.parent || !pa.child) continue;
+				pa.parent->AddChild(pa.child);
+				if (Scene::Active)
+				{
+					Scene::Active->GetSceneManager()->AddSceneNodeRecursively(pa.child);
+				}
+			}
+			for (auto& pd : g_PendingDeletes)
+			{
+				if (!pd.target) continue;
+				auto sp = pd.target->shared_from_this();
+				if (Scene::Active)
+				{
+					Scene::Active->GetSceneManager()->RemoveSceneNode(sp);
+				}
+				pd.target->RemoveFromParent();
+			}
+			if (!g_PendingReparents.empty() ||
+				!g_PendingAdds.empty() ||
+				!g_PendingDeletes.empty())
+			{
+				Editor::MarkSceneDirty();
+			}
+			g_PendingReparents.clear();
+			g_PendingAdds.clear();
+			g_PendingDeletes.clear();
+
 			ImGui::End();
 		}
-
 		// ----------------------------------------------------------------
 		// Console
 		// ----------------------------------------------------------------
@@ -741,6 +1105,23 @@ namespace fury
 			}
 
 			ImGui::End();
+		}
+
+		// Public wrappers for the Edit menu (called from Editor.cpp).
+
+		void DeleteSelectedSceneNode()
+		{
+			if (g_SelectedSceneNode) DoDelete(g_SelectedSceneNode);
+		}
+
+		void DuplicateSelectedSceneNode()
+		{
+			if (g_SelectedSceneNode) DoDuplicate(g_SelectedSceneNode);
+		}
+
+		void AddChildToSelectedSceneNode()
+		{
+			if (g_SelectedSceneNode) DoAddChild(g_SelectedSceneNode);
 		}
 	}
 }

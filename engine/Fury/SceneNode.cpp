@@ -1,5 +1,7 @@
 #include "Fury/MathUtil.h"
+#include "Fury/Camera.h"
 #include "Fury/Component.h"
+#include "Fury/FileUtil.h"
 #include "Fury/Log.h"
 #include "Fury/Light.h"
 #include "Fury/OcTreeNode.h"
@@ -10,13 +12,16 @@
 #include "Fury/MeshRender.h"
 #include "Fury/Mesh.h"
 #include "Fury/Material.h"
+#include "Fury/Transform.h"
 
 namespace fury
 {
-	std::unordered_map<std::string, std::function<Component::Ptr()>> SceneNode::ComponentRegistry = 
+	std::unordered_map<std::string, std::function<Component::Ptr()>> SceneNode::ComponentRegistry =
 	{
 		{ "MeshRender", []() -> Component::Ptr { return MeshRender::Create(nullptr, nullptr); } },
-		{ "Light", []() -> Component::Ptr { return Light::Create(); } }
+		{ "Light",      []() -> Component::Ptr { return Light::Create(); } },
+		{ "Camera",     []() -> Component::Ptr { return Camera::Create(); } },
+		{ "Transform",  []() -> Component::Ptr { return Transform::Create(); } }
 	};
 
 	SceneNode::Ptr SceneNode::Create(const std::string &name)
@@ -176,14 +181,35 @@ namespace fury
 
 	SceneNode::Ptr SceneNode::Clone(const std::string &name) const
 	{
+		// Round-trip through Save/Load so component references resolve
+		// against the active scene's EntityManager. The output's
+		// "name" field is overwritten with the requested name.
+		auto self = std::const_pointer_cast<SceneNode>(shared_from_this());
+		std::string json = FileUtil::SerializeToString(self);
 		auto ptr = SceneNode::Create(name);
-		// clone components
-		for (auto &comp : m_Components)
-			ptr->AddComponent(comp.second->Clone());
-		// clone translations
-		ptr->SetLocalPosition(m_LocalPosition);
-		ptr->SetLocalRoattion(m_LocalRotation);
-		ptr->SetLocalScale(m_LocalScale);
+		if (!FileUtil::DeserializeFromString(ptr, json))
+		{
+			FURYE << "SceneNode::Clone: deserialize failed for '" << name << "'";
+			return nullptr;
+		}
+		ptr->SetName(name);
+		return ptr;
+	}
+
+	SceneNode::Ptr SceneNode::CloneTree(const std::string &name) const
+	{
+		// Round-trip through Save/Load so component references resolve.
+		// Robust against new component types -- no per-component Clone
+		// override to maintain.
+		auto self = std::const_pointer_cast<SceneNode>(shared_from_this());
+		std::string json = FileUtil::SerializeToString(self);
+		auto ptr = SceneNode::Create(name);
+		if (!FileUtil::DeserializeFromString(ptr, json))
+		{
+			FURYE << "SceneNode::CloneTree: deserialize failed for '" << name << "'";
+			return nullptr;
+		}
+		ptr->SetName(name);
 		return ptr;
 	}
 

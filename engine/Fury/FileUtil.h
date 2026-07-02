@@ -50,6 +50,16 @@ namespace fury
 		static bool LoadCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath);
 
 		static bool SaveCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
+
+		// In-memory serialization. Used by CloneTree to round-trip a
+		// node subtree through the engine's existing Save/Load — the
+		// single source of truth for "what's in a SceneNode". This
+		// avoids per-component Clone() maintenance: every component
+		// already knows how to serialize itself, and Load resolves
+		// weak_ptrs to entities in the active scene's EntityManager.
+		static std::string SerializeToString(const std::shared_ptr<Serializable> &source, int maxDecimalPlaces = 5);
+
+		static bool DeserializeFromString(const std::shared_ptr<Serializable> &target, const std::string &json);
 	};
 }
 

@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
 	sf::Window window(
 		sf::VideoMode({1280, 720}),
 		"Fury3d",
-		sf::Style::Titlebar | sf::Style::Close,
+		sf::Style::Titlebar | sf::Style::Resize | sf::Style::Close,
 		sf::State::Windowed,
 		settings);
 	window.setKeyRepeatEnabled(true);
