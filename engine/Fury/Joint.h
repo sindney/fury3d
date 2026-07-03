@@ -4,98 +4,94 @@
 #include "Fury/Entity.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Quaternion.h"
+#include "Fury/Vector4.h"
 
-namespace fury
-{
-	class Mesh;
+namespace fury {
+class Mesh;
 
-	class FURY_API Joint final : public Entity
-	{
-	public:
+class FURY_API Joint final : public Entity {
+public:
+	friend class Shader;
 
-		friend class Shader;
+	typedef std::shared_ptr<Joint> Ptr;
 
-		typedef std::shared_ptr<Joint> Ptr;
+	static Ptr Create(const std::string& name, const std::shared_ptr<Mesh>& mesh);
 
-		static Ptr Create(const std::string &name, const std::shared_ptr<Mesh> &mesh);
+	static Ptr FindFromRoot(const std::string& name, const Ptr& root);
 
-		static Ptr FindFromRoot(const std::string &name, const Ptr &root);
+protected:
+	std::weak_ptr<Mesh> m_Mesh;
 
-	protected:
+	Joint::Ptr m_FirstChild;
 
-		std::weak_ptr<Mesh> m_Mesh;
+	Joint::Ptr m_Sibling;
 
-		Joint::Ptr m_FirstChild;
+	std::weak_ptr<Joint> m_Parent;
 
-		Joint::Ptr m_Sibling;
+	Matrix4 m_LocalMatrix;
 
-		std::weak_ptr<Joint> m_Parent;
+	Matrix4 m_CombinedMatrix;
 
-		Matrix4 m_LocalMatrix;
+	Matrix4 m_OffsetMatrix;
 
-		Matrix4 m_CombinedMatrix;
+	Matrix4 m_FinalMatrix;
 
-		Matrix4 m_OffsetMatrix;
+	std::pair<Vector4, Vector4> m_Position;
 
-		Matrix4 m_FinalMatrix;
+	std::pair<Quaternion, Quaternion> m_Rotation;
 
-		std::pair<Vector4, Vector4> m_Position;
+	std::pair<Vector4, Vector4> m_Scaling;
 
-		std::pair<Quaternion, Quaternion> m_Rotation;
+public:
+	Joint(const std::string& name, const std::shared_ptr<Mesh>& mesh);
 
-		std::pair<Vector4, Vector4> m_Scaling;
+	~Joint();
 
-	public:
+	void Update(const Matrix4& matrix);
 
-		Joint(const std::string &name, const std::shared_ptr<Mesh> &mesh);
+	// update local matrix by interpolated TRS value pairs.
+	void Update(float dt);
 
-		~Joint();
+	void SetRotation(Quaternion rot, bool old = false);
 
-		void Update(const Matrix4 &matrix);
+	void SetPosition(Vector4 pos, bool old = false);
 
-		// update local matrix by interpolated TRS value pairs.
-		void Update(float dt);
+	void SetScaling(Vector4 scl, bool old = false);
 
-		void SetRotation(Quaternion rot, bool old = false);
+	Quaternion GetRotation(bool old = false);
 
-		void SetPosition(Vector4 pos, bool old = false);
+	Vector4 GetPosition(bool old = false);
 
-		void SetScaling(Vector4 scl, bool old = false);
+	Vector4 GetScaling(bool old = false);
 
-		Quaternion GetRotation(bool old = false);
+	void SetLocalMatrix(const Matrix4& matrix);
 
-		Vector4 GetPosition(bool old = false);
+	Matrix4 GetLocalMatrix() const;
 
-		Vector4 GetScaling(bool old = false);
+	void SetCombinedMatrix(const Matrix4& matrix);
 
-		void SetLocalMatrix(const Matrix4 &matrix);
+	Matrix4 GetCombinedMatrix() const;
 
-		Matrix4 GetLocalMatrix() const;
+	void SetOffsetMatrix(const Matrix4& matrix);
 
-		void SetCombinedMatrix(const Matrix4 &matrix);
+	Matrix4 GetOffsetMatrix() const;
 
-		Matrix4 GetCombinedMatrix() const;
+	Matrix4 GetFinalMatrix();
 
-		void SetOffsetMatrix(const Matrix4 &matrix);
+	Joint::Ptr GetFirstChild() const;
 
-		Matrix4 GetOffsetMatrix() const;
+	void SetFirstChild(const Joint::Ptr& joint);
 
-		Matrix4 GetFinalMatrix();
+	Joint::Ptr GetSibling() const;
 
-		Joint::Ptr GetFirstChild() const;
+	void SetSibling(const Joint::Ptr& joint);
 
-		void SetFirstChild(const Joint::Ptr &joint);
+	Joint::Ptr GetParent() const;
 
-		Joint::Ptr GetSibling() const;
+	void SetParent(const Joint::Ptr& joint);
 
-		void SetSibling(const Joint::Ptr &joint);
-
-		Joint::Ptr GetParent() const;
-
-		void SetParent(const Joint::Ptr &joint);
-
-		std::shared_ptr<Mesh> GetMesh() const;
-	};
-}
+	std::shared_ptr<Mesh> GetMesh() const;
+};
+} // namespace fury
 
 #endif // _FURY_JOINT_H_

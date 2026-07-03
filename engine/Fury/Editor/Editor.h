@@ -4,6 +4,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <typeindex>
 
 #include "Fury/Macros.h"
 #include "Fury/Signal.h"
@@ -76,7 +77,16 @@ namespace fury
 		// responds when the user is actually pointing at the scene.
 		bool FURY_API IsViewportContentHovered();
 
-		// Programmatic show/hide of built-in editor windows. Valid names:
+		// ----- content browser selection --------------------------------
+		// Select an asset (Mesh / Material / Texture) in the Content
+		// Browser by (type, name) and scroll the grid so the matching
+		// tile is visible on the next frame. This is the "jump to asset"
+		// mechanism used by the Node Properties inspector's mesh /
+		// material / texture rows. No-op if no asset of (type, name)
+		// exists in the active scene's EntityManager.
+		void FURY_API SelectAssetInBrowser(std::type_index type, const std::string& name);
+
+		// ----- programmatic show/hide of built-in editor windows.
 		// "Viewport", "Profiler", "SceneInspector", "Console",
 		// "ContentBrowser", "Settings". Unknown names are silently ignored.
 		void FURY_API SetWindowVisible(const char* name, bool visible);
@@ -205,6 +215,7 @@ namespace fury
 		inline bool IsPickInFlight() { return false; }
 		inline bool IsViewportHovered() { return false; }
 		inline bool IsViewportContentHovered() { return false; }
+		inline void SelectAssetInBrowser(std::type_index, const std::string&) {}
 		inline void SetWindowVisible(const char*, bool) {}
 		inline bool GetWindowVisible(const char*) { return false; }
 		inline void SetGizmoMode(const char*) {}

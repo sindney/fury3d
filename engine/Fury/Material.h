@@ -109,6 +109,10 @@ namespace fury
 
 		unsigned int GetUniformCount() const;
 
+		// Read-only access to the full uniform map. Used by the
+		// material editor's Uniforms table (asset-editor-windows).
+		const UniformMap &GetUniforms() const { return m_Uniforms; }
+
 		void SetShaderForPass(unsigned int index, const std::shared_ptr<Shader> &shader);
 
 		std::shared_ptr<Shader> GetShaderForPass(unsigned int index);
