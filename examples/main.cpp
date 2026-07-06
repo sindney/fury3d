@@ -28,6 +28,7 @@
 #include <sol/sol.hpp>
 
 #include <Fury/Cli.h>
+#include <Fury/Editor/Editor.h>
 #include <Fury/Fury.h>
 #include <Fury/Gui.h>
 #include <Fury/LuaBindings.h>
@@ -182,6 +183,22 @@ int main(int argc, char *argv[])
 			exit_code = launcher_options.exit_code;
 
 		fury::LuaBindings::SetLauncherOptions(nullptr);
+
+		// Tear down the editor's Lua-callback statics (g_SceneIO,
+		// g_CommandHandler, g_FrameSelectionHandler, g_TreeProvider,
+		// g_CameraControls) BEFORE `sol::state` is destroyed. They hold
+		// std::function closures that captured sol::protected_function
+		// values by copy; those sol2 references own Lua registry slots
+		// that must be released while the lua_State is still alive.
+		// sol::protected_function's destructor calls
+		// luaL_unref(L_, LUA_REGISTRYINDEX, ref) on its cached
+		// lua_State*, and after `sol::state`'s dtor runs lua_close that
+		// pointer is dangling (freed memory, not nullptr), so the
+		// null-check in basic_reference's dtor is bypassed and the
+		// unref reads freed global_State — segfault in luaH_getint.
+		// Engine::Shutdown calls Editor::Shutdown again later, but by
+		// then the fields are already empty so it's a cheap no-op.
+		fury::Editor::Shutdown();
 	}
 
 	fury::Engine::Shutdown();
