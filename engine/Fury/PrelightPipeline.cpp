@@ -194,8 +194,22 @@ namespace fury
 	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit)
 	{
 		auto node = unit.node;
-		auto mesh = unit.mesh;
 		auto material = unit.material;
+
+		// LOD selection: refresh the active LOD from the camera's
+		// screen-coverage of the model's AABB, then draw the picked
+		// mesh. When the MeshRender has no LodGroup bound,
+		// GetActiveMesh() returns the original unit.mesh and
+		// UpdateActiveLod is a no-op — preserving the pre-LOD draw
+		// path exactly.
+		auto render = node->GetComponent<MeshRender>();
+		if (render) render->UpdateActiveLod(m_CurrentCamera);
+		auto mesh = unit.mesh;
+		if (render)
+		{
+			auto active = render->GetActiveMesh();
+			if (active) mesh = active;
+		}
 
 		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
@@ -257,7 +271,7 @@ namespace fury
 
 		//shader->UnBind();
 
-		// TODO: Maybe subMeshCount ? 
+		// TODO: Maybe subMeshCount ?
 		if (mesh->IsSkinnedMesh())
 			RenderUtil::Instance()->IncreaseSkinnedMeshCount();
 		else

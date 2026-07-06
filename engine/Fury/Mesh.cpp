@@ -5,6 +5,8 @@
 #include "Fury/Mesh.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Joint.h"
+#include "Fury/EntityManager.h"
+#include "Fury/Serializable.h"
 
 namespace fury
 {
@@ -199,6 +201,23 @@ namespace fury
 			return false;
 		}
 
+		// LOD chain (LOD 1..N). Optional — pre-LOD scene files don't
+		// have it. Each entry in `lod_meshes` is a full Mesh JSON
+		// object; `lod_thresholds` is the parallel screen-coverage
+		// array.
+		LoadArray(wrapper, "lod_thresholds", m_LodThresholds);
+		LoadArray(wrapper, "lod_meshes", [&](const void* node) -> bool
+		{
+			auto lod = Mesh::Create("");
+			if (lod->Load(node, false))
+			{
+				m_LodMeshes.push_back(lod);
+				return true;
+			}
+			FURYE << "Mesh::Load: failed to load an entry in 'lod_meshes'";
+			return false;
+		});
+
 		return true;
 	}
 
@@ -294,6 +313,20 @@ namespace fury
 
 		SaveKey(wrapper, "aabb");
 		SaveValue(wrapper, m_AABB);
+
+		// LOD chain (LOD 1..N). Written inline as a sub-object so a
+		// "loded mesh" is a single asset on disk. Absent when empty
+		// (pre-LOD scene files load unchanged).
+		if (!m_LodMeshes.empty())
+		{
+			SaveKey(wrapper, "lod_meshes");
+			SaveArray(wrapper, m_LodMeshes.size(), [&](unsigned int index)
+			{
+				m_LodMeshes[index]->Save(wrapper, true);
+			});
+			SaveKey(wrapper, "lod_thresholds");
+			SaveArray(wrapper, m_LodThresholds);
+		}
 
 		if (object)
 			EndObject(wrapper);
@@ -478,5 +511,192 @@ namespace fury
 	void Mesh::SetCastShadows(bool state)
 	{
 		m_CastShadows = state;
+	}
+
+	// LOD chain accessors. LOD 0 is the source mesh itself; LOD
+	// 1..N are stored in m_LodMeshes. The threshold for LOD 0 is
+	// always 1.0 (highest detail is active whenever the model is
+	// on-screen).
+	unsigned int Mesh::GetLodCount() const
+	{
+		return static_cast<unsigned int>(m_LodMeshes.size()) + 1;
+	}
+
+	std::shared_ptr<Mesh> Mesh::GetLodMesh(unsigned int i) const
+	{
+		if (i == 0) return std::const_pointer_cast<Mesh>(shared_from_this());
+		if (i <= m_LodMeshes.size()) return m_LodMeshes[i - 1];
+		return nullptr;
+	}
+
+	float Mesh::GetLodThreshold(unsigned int i) const
+	{
+		if (i == 0) return 1.0f;
+		if (i <= m_LodThresholds.size()) return m_LodThresholds[i - 1];
+		return 0.0f;
+	}
+
+	void Mesh::SetLodMeshes(const std::vector<std::shared_ptr<Mesh>> &meshes,
+							 const std::vector<float> &thresholds)
+	{
+		if (meshes.size() != thresholds.size())
+		{
+			FURYE << "Mesh::SetLodMeshes: mesh count (" << meshes.size()
+				  << ") != threshold count (" << thresholds.size() << ")";
+			return;
+		}
+		for (size_t i = 1; i < thresholds.size(); ++i)
+		{
+			if (thresholds[i] > thresholds[i - 1])
+			{
+				FURYE << "Mesh::SetLodMeshes: thresholds out of order at index "
+					  << i << " (" << thresholds[i - 1] << " > " << thresholds[i] << ")";
+				return;
+			}
+		}
+		m_LodMeshes = meshes;
+		m_LodThresholds = thresholds;
+	}
+
+	void Mesh::ClearLodChain()
+	{
+		m_LodMeshes.clear();
+		m_LodThresholds.clear();
+	}
+
+	// LodGroup class
+
+	LodGroup::LodGroup(const std::vector<std::shared_ptr<Mesh>> &meshes,
+					   const std::vector<float> &thresholds)
+	{
+		Set(meshes, thresholds);
+	}
+
+	unsigned int LodGroup::GetLodCount() const
+	{
+		return static_cast<unsigned int>(m_Meshes.size());
+	}
+
+	std::shared_ptr<Mesh> LodGroup::GetMesh(unsigned int i) const
+	{
+		if (i < m_Meshes.size()) return m_Meshes[i];
+		return nullptr;
+	}
+
+	float LodGroup::GetThreshold(unsigned int i) const
+	{
+		if (i < m_Thresholds.size()) return m_Thresholds[i];
+		return 0.0f;
+	}
+
+	bool LodGroup::IsEmpty() const
+	{
+		return m_Meshes.empty();
+	}
+
+	void LodGroup::Set(const std::vector<std::shared_ptr<Mesh>> &meshes,
+					   const std::vector<float> &thresholds)
+	{
+		if (meshes.size() != thresholds.size())
+		{
+			FURYE << "LodGroup::Set: mesh count (" << meshes.size()
+				  << ") != threshold count (" << thresholds.size() << ")";
+			return;
+		}
+		for (size_t i = 1; i < thresholds.size(); ++i)
+		{
+			if (thresholds[i] > thresholds[i - 1])
+			{
+				FURYE << "LodGroup::Set: thresholds out of order at index "
+					  << i << " (" << thresholds[i - 1] << " > " << thresholds[i]
+					  << "); keeping previous state";
+				return;
+			}
+		}
+		m_Meshes = meshes;
+		m_Thresholds = thresholds;
+	}
+
+	void LodGroup::Save(void* wrapper, bool object)
+	{
+		// Serializable stub — the MeshRender Save path calls
+		// SaveMeshData (non-virtual) directly to write the
+		// sub-object. This virtual exists only to make LodGroup
+		// concrete; it should not be invoked in production paths.
+		(void)wrapper; (void)object;
+	}
+
+	bool LodGroup::Load(const void* wrapper, bool object)
+	{
+		// Same as Save — exists only to satisfy the Serializable
+		// abstract. Use LoadFromManager from MeshRender::Load.
+		(void)wrapper; (void)object;
+		FURYE << "LodGroup::Load called without a manager; use LoadFromManager";
+		return false;
+	}
+
+	void LodGroup::SaveMeshData(void* wrapper, bool object) const
+	{
+		if (object) StartObject(wrapper);
+		SaveKey(wrapper, "thresholds");
+		// Serializable::SaveArray takes a non-const vector ref; copy
+		// out of the const member for the call.
+		std::vector<float> thresholds = m_Thresholds;
+		Serializable::SaveArray(wrapper, thresholds);
+		SaveKey(wrapper, "meshes");
+		StartArray(wrapper);
+		for (const auto &m : m_Meshes)
+		{
+			if (m) SaveValue(wrapper, m->GetName());
+			else SaveValue(wrapper, std::string{});
+		}
+		EndArray(wrapper);
+		if (object) EndObject(wrapper);
+	}
+
+	bool LodGroup::LoadFromManager(const void* wrapper, const std::shared_ptr<EntityManager> &manager, bool object)
+	{
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "LodGroup::LoadFromManager: node is not an object";
+			return false;
+		}
+
+		std::vector<float> thresholds;
+		std::vector<std::string> names;
+
+		if (!LoadArray(wrapper, "thresholds", thresholds))
+		{
+			FURYE << "LodGroup::LoadFromManager: thresholds not found";
+			return false;
+		}
+		if (!LoadArray(wrapper, "meshes", names))
+		{
+			FURYE << "LodGroup::LoadFromManager: meshes not found";
+			return false;
+		}
+		if (thresholds.size() != names.size())
+		{
+			FURYE << "LodGroup::LoadFromManager: mesh count (" << names.size()
+				  << ") != threshold count (" << thresholds.size() << ")";
+			return false;
+		}
+
+		std::vector<std::shared_ptr<Mesh>> meshes;
+		meshes.reserve(names.size());
+		for (const auto &n : names)
+		{
+			auto m = manager->Get<Mesh>(n);
+			if (!m)
+			{
+				FURYE << "LodGroup::LoadFromManager: mesh '" << n << "' not found";
+				return false;
+			}
+			meshes.push_back(m);
+		}
+
+		m_Meshes = std::move(meshes);
+		m_Thresholds = std::move(thresholds);
+		return true;
 	}
 }

@@ -811,6 +811,7 @@ void WalkNode(
 			if (per_sub_mat[s] >= 0 && per_sub_mat[s] < static_cast<int>(materials.size()))
 				render->SetMaterial(materials[per_sub_mat[s]], static_cast<unsigned int>(s));
 		}
+
 		sn->AddComponent(render);
 	}
 
@@ -1167,6 +1168,86 @@ std::shared_ptr<Scene> GltfImporter::Import(
 		  << meshes.size() << " mesh(es), "
 		  << model.scenes.size() << " glTF scene(s) -> SceneNode tree, "
 		  << model.animations.size() << " animation(s)";
+
+	// Name-suffix LOD fallback. Group meshes whose names match
+	// `<base>_LOD<n>` into
+	// a LodGroup ordered by `n` ascending. Thresholds are synthesized
+	// as a 1.0 -> 0.0 linear ramp. A LodGroup is built only when a
+	// `<base>` has at least 2 entries; lone _LOD<n> meshes are kept
+	// as plain Meshes and logged as a debug note.
+	{
+		struct GroupEntry {
+			std::vector<std::shared_ptr<Mesh>> meshes;
+			std::vector<int> indices;
+		};
+		std::unordered_map<std::string, GroupEntry> by_base;
+		for (size_t mi = 0; mi < meshes.size(); ++mi) {
+			const auto& name = meshes[mi]->GetName();
+			auto pos = name.rfind("_LOD");
+			if (pos == std::string::npos || pos + 4 >= name.size()) continue;
+			bool all_digits = true;
+			for (size_t i = pos + 4; i < name.size(); ++i) {
+				if (name[i] < '0' || name[i] > '9') { all_digits = false; break; }
+			}
+			if (!all_digits) continue;
+			int n = 0;
+			for (size_t i = pos + 4; i < name.size(); ++i) {
+				n = n * 10 + (name[i] - '0');
+			}
+			std::string base = name.substr(0, pos);
+			by_base[base].meshes.push_back(meshes[mi]);
+			by_base[base].indices.push_back(n);
+		}
+		for (auto& kv : by_base) {
+			if (kv.second.meshes.size() < 2) {
+				for (size_t i = 0; i < kv.second.meshes.size(); ++i) {
+					FURYD << "gltf-importer: lone _LOD<N> mesh '" << kv.second.meshes[i]->GetName() << "' (no matching siblings; keeping as plain mesh)";
+				}
+				continue;
+			}
+			std::vector<size_t> order(kv.second.meshes.size());
+			for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+			std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+				return kv.second.indices[a] < kv.second.indices[b];
+			});
+			bool contiguous = true;
+			for (size_t i = 0; i < order.size(); ++i) {
+				if (kv.second.indices[order[i]] != static_cast<int>(i)) {
+					contiguous = false;
+					break;
+				}
+			}
+			if (!contiguous) {
+				FURYW << "gltf-importer: name-suffix LOD group for base '" << kv.first << "' has non-contiguous indices; using 1.0 -> 0.0 linear ramp anyway";
+			}
+
+			std::vector<std::shared_ptr<Mesh>> sorted_meshes;
+			std::vector<float> thresholds;
+			sorted_meshes.reserve(order.size());
+			thresholds.reserve(order.size());
+			const int last = static_cast<int>(order.size()) - 1;
+			for (size_t i = 0; i < order.size(); ++i) {
+				sorted_meshes.push_back(kv.second.meshes[order[i]]);
+				thresholds.push_back(last > 0 ? (1.0f - static_cast<float>(i) / static_cast<float>(last)) : 0.0f);
+			}
+						// Attach the chain to the highest-detail mesh (LOD 0).
+			// The chain lives on the Mesh itself — any MeshRender
+			// referencing this mesh automatically sees the new LODs
+			// without further wiring. Skip if this mesh is already
+			// part of a chain.
+			auto lod0 = sorted_meshes.front();
+			if (lod0->GetLodCount() <= 1 && sorted_meshes.size() > 1) {
+				std::vector<std::shared_ptr<Mesh>> extra_meshes(
+					sorted_meshes.begin() + 1, sorted_meshes.end());
+				std::vector<float> extra_thresholds(
+					thresholds.begin() + 1, thresholds.end());
+				lod0->SetLodMeshes(extra_meshes, extra_thresholds);
+			}
+			FURYI << "gltf-importer: name-suffix LOD group '" << kv.first
+				  << "' has " << sorted_meshes.size() << " entries; attached to mesh '"
+				  << lod0->GetName() << "'";
+		}
+	}
 
 	return scene;
 }

@@ -68,6 +68,9 @@ endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include/sol/sol.hpp")
 	message(FATAL_ERROR "sol2 submodule missing — run: git submodule update --init --recursive")
 endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src/meshoptimizer.h")
+	message(FATAL_ERROR "meshoptimizer missing — vendor src/meshoptimizer.h and the split .cpp files under engine/ThirdParty/meshoptimizer/")
+endif()
 
 # SFML 3.1: build only the modules we actually need
 set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
@@ -93,6 +96,16 @@ set_property(TARGET lua PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # sol2 is header-only.
 include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include)
+
+# meshoptimizer: vendored split-source layout (mirrors the upstream
+# "src/" dir; .cpp files are split per algorithm). MIT licensed.
+# Built as a static library so the C API gets a proper CMake target
+# and the wrapper in engine/Fury/MeshSimplifier.cpp links via
+# target_link_libraries.
+file(GLOB MESHO_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src/*.cpp)
+add_library(meshoptimizer STATIC ${MESHO_SRC})
+target_include_directories(meshoptimizer PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src)
+set_property(TARGET meshoptimizer PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 include_directories(${PROJECT_SOURCE_DIR})
 
@@ -148,9 +161,9 @@ if(BUILD_SHARED_LIBS)
 	# Embedder path: produce a shared libfury (no main).
 	add_library(fury SHARED ${FURY_SRC})
 	if(OS_WINDOWS)
-		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32 lua)
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System opengl32 lua meshoptimizer)
 	elseif(OS_MACOSX)
-		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua)
+		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
 		set_target_properties(fury PROPERTIES BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 	endif()
 	install(TARGETS fury DESTINATION lib)
@@ -162,9 +175,9 @@ else()
 	endif()
 	add_executable(fury ${FURY_SRC} ${FURY_LAUNCHER_SRC})
 	if(OS_WINDOWS)
-		target_link_libraries(fury PRIVATE SFML::Window SFML::System opengl32 lua)
+		target_link_libraries(fury PRIVATE SFML::Window SFML::System opengl32 lua meshoptimizer)
 	elseif(OS_MACOSX)
-		target_link_libraries(fury PRIVATE SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua)
+		target_link_libraries(fury PRIVATE SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
 	endif()
 	install(TARGETS fury DESTINATION bin)
 endif()

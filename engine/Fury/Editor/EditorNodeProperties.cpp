@@ -299,6 +299,19 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 		ImGui::TextDisabled("(no mesh)");
 	}
 
+	// LOD readout. The chain lives on the bound Mesh (LOD 0 is
+	// the source itself; LODs 1..N are the additional levels).
+	// Edit the thresholds from the mesh editor; here we only show
+	// the current chain + the runtime's active-LOD selection.
+	{
+		const unsigned int lod_count = mesh ? mesh->GetLodCount() : 1;
+		if (lod_count <= 1) {
+			ImGui::TextDisabled("LOD: (single mesh)");
+		} else {
+			ImGui::Text("LOD chain: %u level(s); active = %u", lod_count, mr->GetActiveLod());
+		}
+	}
+
 	// Mesh picker modal (Change button above opens it).
 	RenderAssetPickerModal("MeshPicker", "Pick Mesh", typeid(Mesh),
 						   [mr](std::shared_ptr<void> p) {

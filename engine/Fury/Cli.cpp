@@ -57,9 +57,9 @@ namespace fury
 			"  fury <subcommand> [args...]     run a CLI subcommand\n"
 			"\n"
 			"SUBCOMMANDS\n"
-			"  convert    convert assets between formats (glTF/FBX -> engine scene.json/.bin)\n"
-			"  info       print a CPU-side summary of a scene or asset file\n"
-			"  help       show this help; `help <subcommand>` for detail\n"
+			"  convert        convert assets between formats (glTF/FBX -> engine scene.json/.bin)\n"
+			"  info           print a CPU-side summary of a scene or asset file\n"
+			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
 			"\n"
 			"EXIT CODES\n"
@@ -191,6 +191,7 @@ namespace fury
 			std::cout << kVersionString;
 			return 0;
 		}
+
 
 		// Save a `Scene` to disk via the right FileUtil entry point based on
 		// the output extension. Returns the matching CLI exit code.

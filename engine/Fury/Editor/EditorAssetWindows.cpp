@@ -8,13 +8,16 @@
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
-#include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
+#include "Fury/MeshRender.h"
+#include "Fury/MeshSimplifier.h"
 #include "Fury/Scene.h"
+#include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
 #include "Fury/Vector4.h"
+#include "Fury/Editor/Editor.h"
 #include "ImGui/imgui.h"
 #include "ImGuizmo.h"
 
@@ -344,17 +347,189 @@ void RenderMaterialEditorBody(const std::shared_ptr<Material>& mat) {
 }
 
 // ---- Mesh editor body: metadata (task 6.4) ----
-void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh) {
+//
+// `popup_id` ties per-window state (LOD selection) to a particular
+// mesh editor instance. The LOD dropdown is shown only when at
+// least one MeshRender referencing `mesh` has a LodGroup — the
+// first such group is shown (we don't merge multiple groups). The
+// per-window selection lives in a static keyed by popup_id so
+// closing and re-opening the window resets to LOD 0.
+void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
+						const std::string& popup_id) {
 	if (!mesh) return;
 
 	ImGui::TextDisabled("Name: %s", mesh->GetName().c_str());
 
+	// Find the first MeshRender in the active scene that references
+	// this mesh and has a non-empty LodGroup.
+	// The LOD chain lives on the mesh itself (single-asset
+	// model). Use the mesh's chain directly for the preview /
+	// dropdown / stats.
+	const unsigned int lod_count = mesh->GetLodCount();
+
+	// Per-window LOD selection (resets on close).
+	static std::unordered_map<std::string, int> g_LodSelection;
+	int& selected_lod = g_LodSelection[popup_id];
+	if (selected_lod < 0) selected_lod = 0;
+	if (static_cast<unsigned int>(selected_lod) >= lod_count)
+		selected_lod = 0;
+
+	if (lod_count > 1)
+	{
+		ImGui::Text("LOD:");
+		ImGui::SameLine();
+		ImGui::PushItemWidth(120.0f);
+		std::string label = "LOD " + std::to_string(selected_lod);
+		if (ImGui::BeginCombo("##lod_dropdown", label.c_str()))
+		{
+			for (unsigned int i = 0; i < lod_count; ++i)
+			{
+				bool selected = (static_cast<int>(i) == selected_lod);
+				char entry[32];
+				std::snprintf(entry, sizeof(entry), "LOD %u", i);
+				if (ImGui::Selectable(entry, selected))
+					selected_lod = static_cast<int>(i);
+				if (selected) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+	}
+	else
+	{
+		ImGui::TextDisabled("LOD: (no LOD chain)");
+		ImGui::SameLine();
+	}
+
+	// Editable LOD thresholds. The dropdown above selects which
+	// LOD's stats the metadata block shows; the threshold sliders
+	// below let the user retune when each level becomes active.
+	// LOD 0's threshold is always 1.0 (highest detail, on-screen);
+	// LOD N's threshold is always 0.0 (deepest, off-screen). Only
+	// the interior thresholds (LOD 1..N-1) are editable.
+	if (lod_count > 1)
+	{
+		if (ImGui::TreeNode("LOD Thresholds"))
+		{
+			// Local helpers to read/write thresholds on the mesh.
+			// Note: m_LodThresholds stores LOD 1..N (size N-1).
+			auto get_th = [&](unsigned int i) -> float {
+				return mesh->GetLodThreshold(i);
+			};
+			auto set_th = [&](unsigned int i, float v) {
+				auto cur = mesh->GetLodMeshes();
+				std::vector<float> new_th;
+				new_th.reserve(cur.size());
+				for (size_t k = 0; k < cur.size(); ++k)
+					new_th.push_back(mesh->GetLodThreshold(static_cast<unsigned int>(k) + 1));
+				new_th[i - 1] = v;
+				mesh->SetLodMeshes(cur, new_th);
+			};
+			for (unsigned int i = 1; i < lod_count; ++i)
+			{
+				ImGui::PushID(static_cast<int>(i));
+				float t = get_th(i);
+				const bool is_last = (i + 1 == lod_count);
+				ImGui::Text("LOD %u", i);
+				ImGui::SameLine();
+				ImGui::PushItemWidth(180.0f);
+				if (is_last)
+				{
+					ImGui::TextDisabled("%.3f (locked)", t);
+				}
+				else
+				{
+					if (ImGui::SliderFloat("##th", &t, 0.0f, 1.0f, "%.3f"))
+						set_th(i, t);
+				}
+				ImGui::PopItemWidth();
+				ImGui::PopID();
+			}
+			ImGui::TreePop();
+		}
+	}
+
+	// "Generate LODs..." button — opens a modal that drives the
+	// meshopt_simplify wrapper. Available whether or not a chain
+	// already exists (lets the user re-generate).
+	if (ImGui::Button("Generate LODs..."))
+	{
+		ImGui::OpenPopup("GenerateLODsModal");
+	}
+
+	// Modal body. Per-window option state keyed by popup_id so
+	// the dialog remembers values between opens.
+	{
+		struct LODOpts { int total_levels = 3; float ratio = 0.5f; float error = 0.5f; };
+		static std::unordered_map<std::string, LODOpts> g_LODOpts;
+		LODOpts &opts = g_LODOpts[popup_id];
+
+		ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Always);
+		if (ImGui::BeginPopupModal("GenerateLODsModal", nullptr,
+								   ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("Source mesh: %s", mesh->GetName().c_str());
+			ImGui::Separator();
+			// Total levels = LOD0 (source) + N-1 generated. Min 2
+			// (LOD0 + LOD1), max 5 (LOD0..LOD4).
+			ImGui::DragInt("Total levels", &opts.total_levels, 1.0f, 2, 5);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Total LOD levels including the source.\nLOD0 = this mesh (highest detail).\nLOD1..LOD(N-1) are generated.");
+			ImGui::DragFloat("Reduction ratio", &opts.ratio, 0.05f, 0.05f, 0.95f, "%.2f");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Per-level reduction factor.\ne.g. 0.5 = each level halves the triangle count of the previous.\nLower = more aggressive (fewer triangles per LOD).");
+			ImGui::DragFloat("Target error", &opts.error, 0.001f, 0.0f, 1.0f, "%.3f");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("meshopt_simplifySloppy error tolerance (in mesh units).\nLarger = more aggressive reduction with more geometric drift.\nDefault 0.5 = coarse-grid LODs (typical production).\n0.001 = nearly lossless.");
+			ImGui::Separator();
+
+			if (ImGui::Button("Generate"))
+			{
+				MeshSimplifyOptions simp;
+				simp.lod_count = std::max(0, opts.total_levels - 1);
+				simp.reduction_ratio = opts.ratio;
+				simp.target_error = opts.error;
+				auto result = SimplifyMesh(mesh, simp);
+
+				if (!result.lod_meshes.empty())
+				{
+					// Attach the generated LODs to the source
+					// mesh's own chain. The mesh is the single
+					// asset; any MeshRender referencing it
+					// automatically sees the new LODs.
+					mesh->SetLodMeshes(result.lod_meshes, result.thresholds);
+					FURYI << "Generate LODs: attached " << result.lod_meshes.size()
+						  << " LOD mesh(es) to '" << mesh->GetName()
+						  << "' (a single loded mesh asset)";
+					Editor::MarkSceneDirty();
+				}
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+	}
+
+	// Per-LOD or single-mesh stats. When the mesh has a chain and
+	// an LOD is picked, show stats for the selected LOD's mesh.
+	std::shared_ptr<Mesh> stats_mesh = mesh;
+	if (static_cast<unsigned int>(selected_lod) < lod_count)
+	{
+		auto picked = mesh->GetLodMesh(static_cast<unsigned int>(selected_lod));
+		if (picked) stats_mesh = picked;
+	}
+
 	unsigned int totalVerts =
-		static_cast<unsigned int>(mesh->Positions.Data.size() / 3);
+		static_cast<unsigned int>(stats_mesh->Positions.Data.size() / 3);
 	unsigned int totalIndices = 0;
 	unsigned int totalTris = 0;
-	for (unsigned int i = 0; i < mesh->GetSubMeshCount(); ++i) {
-		auto sm = mesh->GetSubMeshAt(i);
+	for (unsigned int i = 0; i < stats_mesh->GetSubMeshCount(); ++i) {
+		auto sm = stats_mesh->GetSubMeshAt(i);
 		if (sm) {
 			totalIndices += static_cast<unsigned int>(sm->Indices.Data.size());
 			totalTris += static_cast<unsigned int>(sm->Indices.Data.size()) / 3;
@@ -363,11 +538,11 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh) {
 	ImGui::Text("Vertices: %u", totalVerts);
 	ImGui::Text("Indices: %u", totalIndices);
 	ImGui::Text("Triangles: %u", totalTris);
-	ImGui::Text("Submeshes: %u", mesh->GetSubMeshCount());
+	ImGui::Text("Submeshes: %u", stats_mesh->GetSubMeshCount());
 
 	if (ImGui::TreeNode("Submeshes")) {
-		for (unsigned int i = 0; i < mesh->GetSubMeshCount(); ++i) {
-			auto sm = mesh->GetSubMeshAt(i);
+		for (unsigned int i = 0; i < stats_mesh->GetSubMeshCount(); ++i) {
+			auto sm = stats_mesh->GetSubMeshAt(i);
 			ImGui::PushID(static_cast<int>(i));
 			if (ImGui::TreeNode("Submesh", "Submesh %u", i)) {
 				if (sm) {
@@ -424,9 +599,15 @@ std::unordered_map<std::string, PreviewRT> g_PreviewRTs;
 // PLACEHOLDER: The offscreen mesh render is not yet implemented.
 // Shows a gray rect with a "(3D preview — render pending)" label.
 // This will be finished in a follow-up proposal.
+//
+// `display_mesh` is the LOD-selected mesh the preview should
+// render. When null (e.g. the mesh is empty), the placeholder is
+// shown. The popup_id is unused but kept in the signature for
+// parity with future per-window preview state.
 void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
-					   const std::string& popup_id, const ImVec2& size) {
-	(void)popup_id;
+					   const std::string& popup_id, const ImVec2& size,
+					   const std::shared_ptr<Mesh>& display_mesh) {
+	(void)mesh; (void)popup_id; (void)display_mesh;
 	ImGui::BeginChild("preview", size, true,
 					  ImGuiWindowFlags_NoScrollbar);
 	ImGui::GetWindowDrawList()->AddRectFilled(
@@ -460,14 +641,33 @@ void RenderMeshEditorWindow(const std::shared_ptr<Mesh>& mesh, bool* p_open) {
 	ImGui::TextDisabled("Mesh: %s", mesh->GetName().c_str());
 	ImGui::Separator();
 
-	// Metadata block (task 6.4).
-	RenderMeshMetadata(mesh);
-	ImGui::Separator();
-
 	// 3D preview pane (tasks 6.5, 6.6, 6.7).
 	std::string popup_id = "MeshEditor:" + mesh->GetName();
 	ImVec2 avail = ImGui::GetContentRegionAvail();
-	RenderMeshPreview(mesh, popup_id, ImVec2(avail.x, std::max(avail.y - 20.0f, 100.0f)));
+
+	// Metadata block (task 6.4). Plumbed through the popup_id so the
+	// LOD dropdown's per-window selection is keyed to this window.
+	RenderMeshMetadata(mesh, popup_id);
+	ImGui::Separator();
+
+	// Resolve the LOD-selected mesh for the preview. The LOD
+	// chain lives on the mesh itself; read from there.
+	std::shared_ptr<Mesh> display_mesh = mesh;
+	{
+		const unsigned int lod_count = mesh->GetLodCount();
+		if (lod_count > 1)
+		{
+			// Lookup the per-window selection; static so the
+			// dropdown and preview stay in sync.
+			static std::unordered_map<std::string, int> g_LodSelection;
+			int sel = g_LodSelection[popup_id];
+			if (sel < 0) sel = 0;
+			if (static_cast<unsigned int>(sel) >= lod_count) sel = 0;
+			auto picked = mesh->GetLodMesh(static_cast<unsigned int>(sel));
+			if (picked) display_mesh = picked;
+		}
+	}
+	RenderMeshPreview(mesh, popup_id, ImVec2(avail.x, std::max(avail.y - 20.0f, 100.0f)), display_mesh);
 
 	ImGui::End();
 }

@@ -9,6 +9,8 @@ namespace fury
 
 	class Mesh;
 
+	class SceneNode;
+
 	class FURY_API MeshRender : public Component
 	{
 	public:
@@ -25,6 +27,13 @@ namespace fury
 		bool m_CastShadows = true;
 
 		std::weak_ptr<Mesh> m_Mesh;
+
+		// Cached active LOD index, updated by UpdateActiveLod() from
+		// the camera's screen-coverage of the model's AABB. The LOD
+		// chain itself lives on the bound Mesh (see Mesh::GetLodCount,
+		// GetLodMesh, etc.) — MeshRender only stores the per-instance
+		// runtime selection.
+		unsigned int m_ActiveLod = 0;
 
 	public:
 
@@ -61,6 +70,22 @@ namespace fury
 		bool GetCastShadows() const;
 
 		void SetCastShadows(bool state);
+
+		// Index of the mesh that should be drawn this frame. Updated
+		// by UpdateActiveLod() at the top of the per-instance draw
+		// path; defaults to 0 when the bound mesh has no LOD chain.
+		unsigned int GetActiveLod() const;
+
+		// Mesh::Ptr that should be drawn this frame. When the bound
+		// mesh has a LOD chain (LodGroup), this returns the active
+		// LOD; otherwise it returns the single bound mesh (or nullptr).
+		std::shared_ptr<Mesh> GetActiveMesh() const;
+
+		// Compute the active LOD from the camera's screen-coverage of
+		// the bound mesh's AABB. Pick the highest i with
+		// threshold[i] >= coverage. Call once per visible MeshRender
+		// per frame; safe to call when no chain is bound (no-op).
+		void UpdateActiveLod(const std::shared_ptr<SceneNode> &cameraNode);
 
 	protected:
 

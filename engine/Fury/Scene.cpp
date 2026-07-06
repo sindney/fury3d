@@ -153,7 +153,11 @@ void Scene::Save(void* wrapper, bool object) {
 	});
 	EndArray(wrapper);
 
-	// save meshes
+	// save meshes — the top-level array holds only LOD-0 (source)
+	// meshes. The LOD chain lives inline on each source mesh's
+	// `lod_meshes` sub-object and is emitted by Mesh::Save itself.
+	// LOD meshes are never added to the EntityManager, so this loop
+	// never sees them and no dedup is required.
 	SaveKey(wrapper, "meshes");
 	StartArray(wrapper);
 	m_EntityManager->ForEach<Mesh>([&](const Mesh::Ptr& ptr) -> bool {
