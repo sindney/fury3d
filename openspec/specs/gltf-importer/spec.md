@@ -198,7 +198,7 @@ For each `tinygltf::Animation`, the importer SHALL emit one engine `AnimationCli
 
 ### Requirement: The importer SHALL reject glTF features that cannot be expressed in the engine's runtime format
 
-The importer SHALL reject with a clear error message any glTF input that uses morph targets, sparse accessors, or buffer views with a non-default `byteStride`. The importer SHALL also reject glTF inputs that reference unsupported extensions (any `extensionsRequired` entry not on a documented allow-list — empty in v1). Rejections SHALL exit with code 1 and a single stderr message identifying the offending feature and the source asset name.
+The importer SHALL reject with a clear error message any glTF input that uses morph targets, sparse accessors, or buffer views with a non-default `byteStride`. The importer SHALL also reject any glTF input that declares a non-empty `extensionsRequired` (no glTF extensions are supported in v1; LODs are produced in-engine rather than via the `MSFT_lod` extension). Rejections SHALL exit with code 1 and a single stderr message identifying the offending feature and the source asset name.
 
 #### Scenario: Morph targets rejected
 - **WHEN** a glTF mesh primitive has a non-empty `targets` array
@@ -261,3 +261,27 @@ When `tinygltf::Model::lights` is empty AND no lights are emitted, the importer 
 - **AND** the source FBX carries a point light at the campfire location
 - **THEN** the imported scene contains a `SceneNode` with a `Light` component of `LightType::POINT` at the campfire location
 - **AND** the viewport renders the surrounding geometry illuminated by that point light (not black)
+
+### Requirement: The importer SHALL build an LOD chain on the source mesh from glTF meshes that share a name suffix of the form `_LOD<N>`
+
+When the importer's mesh pass produces a set of engine `Mesh` records whose names match the pattern `<base>_LOD<N>` (e.g. `Tree_LOD0`, `Tree_LOD1`, `Tree_LOD2`), the importer SHALL group them into an LOD chain ordered by `N` ascending. The chain is stored on the source mesh (the `LOD0` entry) via `Mesh::SetLodMeshes`; the thresholds default to a `1.0 → 0.0` linear ramp. A group is only formed when at least 2 matching `<base>` names exist; a single `Foo_LOD0` mesh is kept as a plain `Mesh` and the importer logs `FURYD` noting the lone `_LOD<n>` mesh. The group is skipped (with a `FURYI` log) if the source mesh is already part of an existing chain.
+
+#### Scenario: Group by name suffix
+
+- **WHEN** a glTF model declares meshes named `Tree_LOD0`, `Tree_LOD1`, `Tree_LOD2`
+- **THEN** the importer emits a 3-entry LOD chain with thresholds `{1.0, 0.5, 0.0}` and meshes `[Tree_LOD0, Tree_LOD1, Tree_LOD2]`
+- **AND** the chain is attached to the `Tree_LOD0` mesh (the source / LOD 0)
+- **AND** a `FURYI` log line names the group and its base mesh name
+
+#### Scenario: Single `_LOD<N>` mesh is not grouped
+
+- **WHEN** a glTF model declares only `Foo_LOD0` (no `Foo_LOD1`)
+- **THEN** no LOD chain is formed
+- **AND** `Foo_LOD0` is a plain `Mesh` registered in the `EntityManager` as today
+- **AND** a `FURYD` log notes the lone `_LOD<n>` mesh
+
+#### Scenario: Non-contiguous LOD indices are accepted
+
+- **WHEN** a glTF model declares `Tree_LOD0` and `Tree_LOD2` (no `Tree_LOD1`)
+- **THEN** the importer emits a 2-entry LOD chain with thresholds `{1.0, 0.0}` and meshes `[Tree_LOD0, Tree_LOD2]`
+- **AND** a `FURYW` warns about the gap

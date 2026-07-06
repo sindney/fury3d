@@ -138,3 +138,54 @@ The Mesh editor SHALL render a metadata block with the mesh's serializable prope
 
 - **WHEN** the user opens the editor for a skinned mesh with 33 joints rooted at "RootJoint"
 - **THEN** the metadata block displays "Root Joint: RootJoint" and "Joints: 33"
+
+### Requirement: The mesh editor SHALL expose an LOD dropdown that lets the user preview each level of the bound mesh
+
+The mesh editor window's metadata block SHALL include a dropdown listing every `LOD <index>` of the mesh's LOD chain (e.g. `LOD 0`, `LOD 1`, `LOD 2`). When the user selects a dropdown entry, the 3D preview pane SHALL render the corresponding `Mesh::Ptr` from the chain instead of the highest-detail mesh. The dropdown is preview-only; the selection is held on the per-window state and is NOT written back to the `Mesh`. When the mesh has no LOD chain (its `Mesh::GetLodCount() <= 1`), the dropdown is hidden.
+
+#### Scenario: Dropdown lists every LOD
+
+- **WHEN** the user opens the mesh editor for a mesh whose LOD chain has 3 entries
+- **THEN** the dropdown lists `LOD 0`, `LOD 1`, `LOD 2`
+- **AND** the default selection is `LOD 0`
+
+#### Scenario: Selecting an LOD updates the preview
+
+- **WHEN** the user picks `LOD 1` in the dropdown
+- **THEN** the 3D preview pane renders the LOD chain's entry 1 mesh
+- **AND** the metadata block's per-LOD stats (vertex/index counts) update to reflect the picked LOD
+
+#### Scenario: No dropdown for single-LOD assets
+
+- **WHEN** the user opens the mesh editor for a mesh with no LOD chain
+- **THEN** no LOD dropdown is rendered
+- **AND** the preview pane renders the single `Mesh` as today
+
+#### Scenario: Preview selection is window-local
+
+- **WHEN** the user picks `LOD 2` in the mesh window, then closes and re-opens the window
+- **THEN** the dropdown is reset to `LOD 0`
+- **AND** the `Mesh`'s LOD chain is unchanged
+
+### Requirement: The mesh editor SHALL expose a "Generate LODs…" action that simplifies the bound mesh and stores the result as an inline LOD chain
+
+The mesh editor window SHALL include a `Generate LODs…` button. Clicking it SHALL open a modal dialog that lets the user configure the LOD count, the per-level reduction ratio, and the simplification target error. On confirm, the editor SHALL call `SimplifyMesh` on the bound mesh and assign the returned LOD meshes to the source mesh's LOD chain via `Mesh::SetLodMeshes`. The source mesh's `MeshRender` automatically sees the new chain without any further wiring. Each generated LOD mesh SHALL be owned by the source mesh and saved inline as a `lod_meshes` sub-object on the source's JSON; the LODs SHALL NOT be registered as separate entities in the scene's `EntityManager`.
+
+#### Scenario: Generate LODs creates a chain on the source
+
+- **WHEN** the user opens the mesh editor for a mesh with no LOD chain
+- **AND** clicks `Generate LODs…` with default settings (3 levels, ratio 0.5, target error 0.5)
+- **AND** confirms
+- **THEN** the mesh's LOD chain has 3 additional entries
+- **AND** any `MeshRender` referencing this mesh now picks the active LOD each frame from its camera's screen-coverage
+
+### Requirement: The mesh editor SHALL let the user edit each LOD chain's screen-coverage threshold
+
+The mesh editor window SHALL render a `LOD Thresholds` collapsing header listing one slider per LOD entry (LOD 1..N-1). LOD 0's threshold is locked at `1.0` (highest detail, on-screen) and LOD N's threshold is locked at `0.0` (deepest, off-screen). Editing a slider SHALL write the updated value into the mesh's LOD chain via `Mesh::SetLodMeshes`. The mesh's save path SHALL persist the new threshold.
+
+#### Scenario: Threshold slider updates the chain
+
+- **WHEN** the user opens `LOD Thresholds` in the mesh editor for a mesh with a 4-entry chain
+- **AND** drags the LOD 2 slider from `0.500` to `0.250`
+- **THEN** the mesh's `GetLodThreshold(2)` returns `0.250`
+- **AND** the change persists to disk when the scene is saved
