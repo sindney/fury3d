@@ -211,21 +211,21 @@ namespace fury
 
 	void Engine::Shutdown()
 	{
-		// Clear Scene::Active / Pipeline::Active / MeshUtil's primitive
-		// caches NOW, while the GL context is still alive. These are
-		// static shared_ptrs; sol2's state destructor doesn't release
-		// them (the Lua bindings assign to them by value, transferring
-		// ownership out of Lua's hands). Without this, they survive
-		// until the C runtime's static-cleanup phase, which runs AFTER
-		// `sf::Window`'s destructor has already torn down the GL
-		// context. The Scene's destructor then walks the entity map
-		// and each Mesh's destructor calls glDeleteVertexArrays on a
-		// dead context — UB, typically a segfault, plus spurious
-		// "Tangent/Normal data dirty" warnings from a render that runs
-		// after the meshes are already destroyed.
+		// Release GL resources NOW, while the GL context is still alive.
+		// Anything held by a static shared_ptr (Scene::Active,
+		// Pipeline::Active, MeshUtil's primitive caches) or a singleton
+		// (RenderUtil) would otherwise survive until the C runtime's
+		// static-cleanup phase, which runs AFTER `sf::Window`'s
+		// destructor has torn down the GL context. Their destructors
+		// (Mesh::~Mesh, Shader::~Shader, RenderUtil::~RenderUtil's
+		// glDeleteVertexArrays / glDeleteBuffers, etc.) would then call
+		// GL delete functions on a dead context — UB, typically a
+		// segfault, plus spurious "Tangent/Normal data dirty" warnings
+		// from a render that runs after the meshes are already destroyed.
 		Scene::Active.reset();
 		Pipeline::Active.reset();
 		MeshUtil::Reset();
+		RenderUtil::Instance().reset();
 
 		Editor::Shutdown();
 		Gui::Shutdown();
