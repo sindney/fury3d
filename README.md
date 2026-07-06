@@ -47,7 +47,9 @@ Vendored dependencies (git submodules under `engine/ThirdParty/`):
 * rapidjson 1.1.0 — JSON serialisation.
 * Lua 5.4.7 + sol2 v3.5.0 — scripting bridge.
 * tinygltf v2.9.7 — glTF 2.0 loader (importer is the next change).
-* LZ4, STB image, ImGui — bundled in-tree.
+* meshoptimizer — mesh optimization / simplification.
+* nativefiledialog-extended (nfd) — platform-native file dialogs (editor-only).
+* LZ4, STB image, ImGui, ImGuizmo, ImReflect — bundled in-tree.
 
 No FBX SDK requirement.
 
@@ -57,15 +59,85 @@ No FBX SDK requirement.
 
 ![PolyScene](screenshots/2.jpg)
 
+## Building
+
+Fury3d uses CMake (≥ 3.22) and vendors every third-party dependency as a git submodule under `engine/ThirdParty/`. After cloning, initialise the submodules once:
+
+```sh
+git clone https://github.com/sindney/fury3d
+cd fury3d
+git submodule update --init --recursive
+```
+
+`--recursive` is required because some submodules have their own submodules (nfd vendors `wayland-protocols` for its Linux path, which is inert on macOS/Windows). For an existing clone, the same command updates submodules to the pinned commits.
+
+Then configure and build:
+
+```sh
+cmake -S engine -B build-engine
+cmake --build build-engine -j
+```
+
+The `fury` executable is emitted directly into `examples/` (next to `Editor.lua` and `Resource/`), so launching is just:
+
+```sh
+cd examples && ./fury Editor.lua
+```
+
+### Build options
+
+| Option            | Default | Effect                                                                 |
+| ----------------- | ------- | ---------------------------------------------------------------------- |
+| `WITH_EDITOR`     | `ON`    | Builds the C++ editor shell (Scene Inspector, Content Browser, gizmo, native file dialogs). Requires `GUI_IMP=ON`. |
+| `GUI_IMP`         | `ON`    | Compiles the ImGui overlay (HUD, debug widgets). Required by `WITH_EDITOR`. |
+| `BUILD_SHARED_LIBS` | `OFF` | Builds `fury` as an executable (default). `ON` produces `libfury.{dylib,so,dll}` for embedding — the Lua launcher `main` is then excluded. |
+| `EXPORT_DLL` (Windows) | `ON` | Defines `FURY_API_EXPORT` so the shared lib exports symbols. Ignored for static builds. |
+
+A non-editor build (smaller binary, no ImGui editor windows, no nfd dependency):
+
+```sh
+cmake -S engine -B build-engine-noeditor -DWITH_EDITOR=OFF
+cmake --build build-engine-noeditor -j
+```
+
+### How submodules are wired into CMake
+
+Each submodule is brought in with the same two-step pattern:
+
+1. **Configure-time presence check** — `engine/CMakeLists.txt` fails early with a clear message if a submodule wasn't initialised, so a missing dependency is reported at configure time rather than as an obscure compile error:
+
+   ```cmake
+   if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/nfd/CMakeLists.txt")
+       message(FATAL_ERROR "nfd submodule missing — run: git submodule update --init --recursive")
+   endif()
+   ```
+
+2. **`add_subdirectory()` + alias target** — for libraries that ship their own CMake build (SFML, nfd), the submodule is added via `add_subdirectory()` and linked through the upstream alias target. This lets the vendored CMake handle per-platform source selection (e.g. nfd picks `nfd_cocoa.m` on macOS, `nfd_win.cpp` on Windows) without us duplicating that logic. Editor-only deps are gated on `WITH_EDITOR`:
+
+   ```cmake
+   if(WITH_EDITOR)
+       set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+       set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
+       add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/nfd)
+   endif()
+   # ...
+   if(WITH_EDITOR)
+       target_link_libraries(fury PRIVATE nfd::nfd)
+   endif()
+   ```
+
+3. **Flat-source libraries** (lua, meshoptimizer) are compiled directly into a static library in `engine/CMakeLists.txt` via `file(GLOB)` + `add_library(... STATIC ...)`, because their upstream doesn't ship a CMake build we can call into.
+
+Adding a new vendored dependency follows the same shape: add the submodule under `engine/ThirdParty/<name>/`, add a presence check, decide between `add_subdirectory()` (if upstream has CMake) or `file(GLOB)` (if not), and link the alias target into `fury` (gating on `WITH_EDITOR` if it's editor-only).
+
+### macOS note
+
+nfd's macOS backend compiles `nfd_cocoa.m` (Objective-C), so `engine/CMakeLists.txt` declares `project(FURY3D LANGUAGES C CXX OBJC)` on Apple. CMake needs the OBJC language enabled for the `.m` source to be picked up by the static-library rule. On Windows/Linux the language is omitted — no `.m` sources exist there.
+
 ## Run the demo
 
 ```sh
-git clone --recursive https://github.com/sindney/fury3d
-cd fury3d
-cmake -S engine -B build-engine
-cmake --build build-engine --target fury -j
-cp build-engine/fury examples/bin/fury        # one-time install
-cd examples/bin && ./fury Demo.lua
+cd examples && ./fury Editor.lua
 ```
 
 Controls:
@@ -75,7 +147,12 @@ Controls:
 * **Hold left mouse button + drag** — yaw and pitch.
 * **Mouse wheel** — adjust move speed.
 * **LShift** — 5× speed multiplier.
-* **Menu bar** — `File → Quit`, `View → Profiler / GBuffer / Shadow Buffers`, `Camera → Settings`.
+* **Double-click a node** in the Scene Inspector — expand/collapse the row and frame the camera on the node.
+* **F2** or right-click → **Rename** — rename a node (double-click no longer renames).
+* **File → Open...** / **Ctrl+O** — native single-select open dialog (any engine-loadable format: .json, .bin, .gltf, .glb, .fbx).
+* **File → Save As...** / **Ctrl+Shift+S** — native OS save dialog.
+* **File → Import...** / **Ctrl+Shift+I** — native multi-select open dialog (any engine-loadable format; merges into the active scene instead of replacing it).
+* **Menu bar** — `File`, `Edit`, `Window`, plus the project-emitted `Camera` menu.
 
 ## Examples
 

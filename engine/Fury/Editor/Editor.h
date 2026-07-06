@@ -128,7 +128,6 @@ namespace fury
 		// ----- Lua extension hooks ----------------------------------------
 		struct SceneIO
 		{
-			std::function<std::vector<std::string>()> list_files;
 			std::function<void()> on_new;
 			std::function<void(const std::string&)> on_open;
 			std::function<void(const std::string&)> on_import;
@@ -184,6 +183,21 @@ namespace fury
 		void FURY_API SetCommandHandler(CommandHandler h);
 		void FURY_API ClearCommandHandler();
 
+		// ----- frame selection -------------------------------------------
+		// Registers a single handler invoked by FrameSelection below.
+		// Passing a new handler replaces any prior; passing nullptr
+		// clears it. The handler runs on the editor's tick thread. It
+		// is the handler's responsibility to update whatever state the
+		// active camera system reads each frame (e.g. the Lua-owned
+		// cam_pos/yaw/pitch upvalues in Editor.lua); the C++ layer
+		// SHALL NOT also write to the camera transform.
+		void FURY_API SetFrameSelectionHandler(std::function<void(SceneNode*)> handler);
+
+		// Invokes the registered frame-selection handler with `node`.
+		// No-op if `node` is null or no handler is registered. Used by
+		// the Scene Inspector's leaf-double-click path.
+		void FURY_API FrameSelection(SceneNode* node);
+
 		struct CameraControl
 		{
 			std::string label;
@@ -233,6 +247,8 @@ namespace fury
 		inline void MarkSceneDirty() {}
 		inline bool IsSceneDirty() { return false; }
 		inline void ClearSceneDirty() {}
+		inline void SetFrameSelectionHandler(std::function<void(SceneNode*)>) {}
+		inline void FrameSelection(SceneNode*) {}
 #endif
 	}
 }

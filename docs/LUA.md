@@ -474,7 +474,7 @@ When the engine is built with `WITH_EDITOR=OFF`, every `Editor.*` function is a 
 ```lua
 -- File menu / Content Browser policy.
 Editor.SetSceneIO({
-    list_files = function() return {"a.json", "b.gltf"} end,    -- powers Open / Import submenus
+    list_files = function() return {"a.json", "b.gltf"} end,    -- RETIRED: submenus removed; Editor.OpenDialog drives file picking now
     on_new     = function() Scene.GetActive():Clear() end,
     on_open    = function(filename) ... end,                    -- relative path
     on_import  = function(filename) ... end,

@@ -22,9 +22,10 @@ namespace fury
 
 			// Pending-request queue. RequestConfirmDialog pushes onto
 			// this; RenderConfirmDialog pops from it when no dialog is
-			// currently open. Mirrors the g_SaveAsModalOpen flag-then-
-			// OpenPopup pattern but generalized to a queue so multiple
-			// in-flight confirms serialize.
+			// currently open. Uses the same flag-then-OpenPopup pattern
+			// as the Open / Import modals (g_OpenModalOpen etc.) but
+			// generalized to a queue so multiple in-flight confirms
+			// serialize.
 			std::queue<ConfirmRequest> g_PendingConfirms;
 
 			// The currently-open confirm dialog (if any). Cleared when

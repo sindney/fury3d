@@ -65,6 +65,15 @@ namespace fury
 		// TODO: test
 		// you should calculate normal first, then calculate tangent.
 		static void CalculateTangent(const std::shared_ptr<Mesh> &mesh);
+
+		// Release the cached primitive meshes. The GL context is still
+		// alive when this is called from Engine::Shutdown, so Mesh
+		// destructors can still call glDeleteVertexArrays safely.
+		// Without this, the primitives are destroyed at program exit —
+		// after the SFML window destructor has torn down the GL context.
+		// Friend access is used because the static members are private;
+		// only Engine::Shutdown should be calling this.
+		static void Reset();
 	};
 }
 

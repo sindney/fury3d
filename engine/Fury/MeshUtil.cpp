@@ -21,6 +21,16 @@ namespace fury
 	std::shared_ptr<Mesh> MeshUtil::m_UnitCylinder = nullptr;
 	std::shared_ptr<Mesh> MeshUtil::m_UnitCone = nullptr;
 
+	void MeshUtil::Reset()
+	{
+		m_UnitCube.reset();
+		m_UnitQuad.reset();
+		m_UnitIcoSphere.reset();
+		m_UnitSphere.reset();
+		m_UnitCylinder.reset();
+		m_UnitCone.reset();
+	}
+
 	std::shared_ptr<Mesh> MeshUtil::GetUnitCube() 
 	{
 		return m_UnitCube;

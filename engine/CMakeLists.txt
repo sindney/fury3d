@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(FURY3D)
+# Enable OBJC for nfd's nfd_cocoa.m on macOS (gated behind add_subdirectory
+# under WITH_EDITOR; the language is harmless on platforms that don't use it
+# since CMake no-ops the toolchain when no .m sources are present).
+if(APPLE)
+	project(FURY3D LANGUAGES C CXX OBJC)
+else()
+	project(FURY3D LANGUAGES C CXX)
+endif()
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 	set(OS_WINDOWS 1)
@@ -70,6 +77,14 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include/sol/sol.hpp")
 endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src/meshoptimizer.h")
 	message(FATAL_ERROR "meshoptimizer missing — vendor src/meshoptimizer.h and the split .cpp files under engine/ThirdParty/meshoptimizer/")
+endif()
+
+# nfd (nativefiledialog-extended) is editor-only: it backs the
+# Editor.OpenDialog / Editor.SaveDialog Lua bindings. Non-editor builds
+# don't reference the binding symbols, so the submodule isn't required
+# there either.
+if(WITH_EDITOR AND NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/nfd/CMakeLists.txt")
+	message(FATAL_ERROR "nfd submodule missing — run: git submodule update --init --recursive")
 endif()
 
 # SFML 3.1: build only the modules we actually need
@@ -150,6 +165,19 @@ if(WITH_EDITOR)
 	file(GLOB FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/Fury/Editor/*.cpp)
 	list(APPEND FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImGuizmo.cpp)
 	list(APPEND FURY_SRC ${FURY_EDITOR_SRC})
+
+	# nfd (nativefiledialog-extended) is integrated as a static library
+	# via add_subdirectory() — the SFML precedent. We force nfd's test /
+	# install options OFF so an editor build doesn't generate spurious
+	# targets or install rules. nfd's own CMake handles per-platform
+	# source selection (nfd_cocoa.m on macOS, nfd_win.cpp on Windows).
+	# Linux paths (GTK/portal/wayland) are inert here because fury3d
+	# doesn't build on Linux.
+	set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(NFD_BUILD_SDL2_TESTS OFF CACHE BOOL "" FORCE)
+	set(NFD_BUILD_GLFW3_TESTS OFF CACHE BOOL "" FORCE)
+	set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
+	add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/nfd)
 endif()
 list(APPEND FURY_SRC ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 
@@ -166,6 +194,9 @@ if(BUILD_SHARED_LIBS)
 		target_link_libraries(fury PUBLIC SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
 		set_target_properties(fury PROPERTIES BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 	endif()
+	if(WITH_EDITOR)
+		target_link_libraries(fury PUBLIC nfd::nfd)
+	endif()
 	install(TARGETS fury DESTINATION lib)
 else()
 	# Common path: the engine IS the executable. The launcher source lives in
@@ -178,6 +209,9 @@ else()
 		target_link_libraries(fury PRIVATE SFML::Window SFML::System opengl32 lua meshoptimizer)
 	elseif(OS_MACOSX)
 		target_link_libraries(fury PRIVATE SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
+	endif()
+	if(WITH_EDITOR)
+		target_link_libraries(fury PRIVATE nfd::nfd)
 	endif()
 	install(TARGETS fury DESTINATION bin)
 endif()

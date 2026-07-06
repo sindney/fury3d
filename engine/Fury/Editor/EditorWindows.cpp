@@ -612,7 +612,11 @@ void HandleRowInteractions(SceneNode* node, int depth, bool isOpen) {
 // are skipped when node is null).
 void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, bool* outOpen) {
 	const bool isRoot = (depth == 0);
-	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+	// OpenOnArrow (click the triangle) is handled by ImGui. We don't
+	// pass OpenOnDoubleClick because the double-click branch below
+	// flips the storage directly — a reliable, version-agnostic path
+	// that avoids depending on the ImGui flag firing in this context.
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
 	if (isRoot) flags |= ImGuiTreeNodeFlags_DefaultOpen;
 	if (node && g_SelectedSceneNode == node)
 		flags |= ImGuiTreeNodeFlags_Selected;
@@ -666,9 +670,22 @@ void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, b
 		if (node) SetSelectedSceneNode(node);
 	}
 
-	// Double-click on the label (not the arrow) starts rename.
+	// Double-click on any non-root row: request a camera frame AND
+	// toggle expand/collapse. We flip the storage directly instead of
+	// using ImGuiTreeNodeFlags_OpenOnDoubleClick — the flag is unreliable
+	// in this layout (its press detection races with our own click
+	// check, and in some ImGui builds the toggle never fires on the
+	// label area). The next frame's TreeNodeEx picks up the flipped
+	// state and the children appear. Leaves can't expand (zero
+	// children), so the frame is the only visible effect for them.
+	// Rename is no longer reachable via double-click — use F2 or the
+	// context menu's "Rename" entry instead.
 	if (node && !isRoot && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-		DoRenameActivate(node);
+		Editor::FrameSelection(node);
+		ImGuiID id = ImGui::GetID((void*)node);
+		ImGuiStorage* storage = ImGui::GetStateStorage();
+		int current = storage->GetInt(id, 0);
+		storage->SetInt(id, current == 0 ? 1 : 0);
 	}
 
 	// Only the C++ scene-graph path exposes mutations: synthetic

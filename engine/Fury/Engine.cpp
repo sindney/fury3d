@@ -13,7 +13,9 @@
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
 #include "Fury/MeshUtil.h"
+#include "Fury/Pipeline.h"
 #include "Fury/RenderUtil.h"
+#include "Fury/Scene.h"
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
 
@@ -209,7 +211,22 @@ namespace fury
 
 	void Engine::Shutdown()
 	{
-		// TODO: reset singleton's pointer.
+		// Clear Scene::Active / Pipeline::Active / MeshUtil's primitive
+		// caches NOW, while the GL context is still alive. These are
+		// static shared_ptrs; sol2's state destructor doesn't release
+		// them (the Lua bindings assign to them by value, transferring
+		// ownership out of Lua's hands). Without this, they survive
+		// until the C runtime's static-cleanup phase, which runs AFTER
+		// `sf::Window`'s destructor has already torn down the GL
+		// context. The Scene's destructor then walks the entity map
+		// and each Mesh's destructor calls glDeleteVertexArrays on a
+		// dead context — UB, typically a segfault, plus spurious
+		// "Tangent/Normal data dirty" warnings from a render that runs
+		// after the meshes are already destroyed.
+		Scene::Active.reset();
+		Pipeline::Active.reset();
+		MeshUtil::Reset();
+
 		Editor::Shutdown();
 		Gui::Shutdown();
 	}

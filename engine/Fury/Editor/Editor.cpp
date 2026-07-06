@@ -17,6 +17,7 @@
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
 #include "ImGuizmo.h"
+#include "nfd.h"
 
 #include <cstdio>
 #include <cstring>
@@ -72,9 +73,6 @@ extern ImVec2 g_ViewportContentMin;
 extern ImVec2 g_ViewportContentSize;
 extern bool g_ViewportHovered;
 extern bool g_ViewportVisible;
-extern bool g_SaveAsModalOpen;
-extern bool g_OpenModalOpen;
-extern bool g_ImportModalOpen;
 extern std::string g_CurrentScenePath;
 extern bool g_CurrentSceneIsNative;
 
@@ -89,6 +87,12 @@ SceneIO g_SceneIO;
 SceneTreeProvider g_TreeProvider;
 CommandHandler g_CommandHandler;
 std::vector<CameraControl> g_CameraControls;
+// Frame-selection handler registered from Lua (Editor.lua sets this so
+// the Scene Inspector's leaf-double-click can drive the Lua-owned
+// editor camera). Stored as a file-static so the public
+// SetFrameSelectionHandler / FrameSelection entry points can read it
+// without exposing it on the Editor namespace.
+std::function<void(SceneNode*)> g_FrameSelectionHandler;
 std::unordered_map<std::string, bool> g_ImportFlags;
 SceneNode* g_SelectedSceneNode = nullptr;
 bool g_ShowSettings = false;
@@ -106,9 +110,6 @@ ImVec2 g_ViewportContentMin(0, 0);
 ImVec2 g_ViewportContentSize(0, 0);
 bool g_ViewportHovered = false;
 bool g_ViewportVisible = false;
-bool g_SaveAsModalOpen = false;
-bool g_OpenModalOpen = false;
-bool g_ImportModalOpen = false;
 bool g_SceneDirty = false; // set on inspector mutation, cleared on save
 std::string g_CurrentScenePath;
 bool g_CurrentSceneIsNative = false;
@@ -276,6 +277,10 @@ void TriggerNew() {
 	SetSelectedSceneNode(nullptr);
 }
 
+// Forward declaration — TriggerSave falls through to TriggerSaveAs when
+// the current scene has no native path (defined below).
+void TriggerSaveAs();
+
 void TriggerSave() {
 	if (Scene::Active == nullptr) return;
 	// In-place save is only available when we have a tracked
@@ -290,127 +295,57 @@ void TriggerSave() {
 			g_SceneIO.on_save(g_CurrentScenePath);
 		} catch (...) {}
 	} else {
-		g_SaveAsModalOpen = true;
+		TriggerSaveAs();
+	}
+}
+
+// File → Save As / Ctrl+Shift+S entry point. Defers entirely to the
+// Lua-registered on_save_as callback, which now drives a native
+// Editor.SaveDialog (replacing the retired ImGui "Save Scene As"
+// modal). The empty path argument is unused by Lua — it's preserved
+// only for the std::function<void(const std::string&)> signature.
+void TriggerSaveAs() {
+	if (Scene::Active == nullptr) return;
+	if (g_SceneIO.on_save_as) {
+		try {
+			g_SceneIO.on_save_as({});
+		} catch (...) {}
+	}
+}
+
+// File → Import... / Ctrl+Shift+I entry point. Passes an empty string
+// to on_import as the signal for "drive the native multi-select
+// Editor.OpenDialog" — the File → Import ▸ <file> submenu still
+// passes a bare filename, which on_import routes to the existing
+// Resource/Scene/ load path. Replaces the retired ImGui "Import Scene"
+// modal.
+void TriggerImport() {
+	if (g_SceneIO.on_import) {
+		try {
+			g_SceneIO.on_import({});
+		} catch (...) {}
+	}
+}
+
+// File → Open... / Ctrl+O entry point. Mirrors TriggerImport/TriggerSaveAs:
+// the empty-string signal to on_open drives a native single-select
+// Editor.OpenDialog (replacing the retired ImGui "Open Scene" modal).
+// The File → Open ▸ <file> submenu still passes a bare filename.
+void TriggerOpen() {
+	if (g_SceneIO.on_open) {
+		try {
+			g_SceneIO.on_open({});
+		} catch (...) {}
 	}
 }
 
 // Filename portion of the tracked scene path, or empty when no
-// scene is tracked. Used by the menu-bar status and by the Save
-// As modal's default filename seed.
+// scene is tracked. Used by the menu-bar status and by the Lua-side
+// save_as callback's default-name seed.
 std::string CurrentSceneBasename() {
 	if (g_CurrentScenePath.empty()) return {};
 	std::error_code ec;
 	return std::filesystem::path(g_CurrentScenePath).filename().string();
-}
-
-void RenderSaveAsModal() {
-	static char filename[256] = "scene_saved.json";
-
-	if (g_SaveAsModalOpen) {
-		// Seed with the current scene's basename when it's already
-		// native; otherwise propose <stem>.json so an imported FBX
-		// like "tank.fbx" suggests "tank.json".
-		std::string base = CurrentSceneBasename();
-		if (!base.empty()) {
-			std::filesystem::path p(base);
-			if (g_CurrentSceneIsNative) {
-				std::snprintf(filename, sizeof(filename), "%s", base.c_str());
-			} else {
-				std::snprintf(filename, sizeof(filename), "%s.json",
-							  p.stem().string().c_str());
-			}
-		}
-		ImGui::OpenPopup("Save Scene As");
-		g_SaveAsModalOpen = false;
-	}
-
-	if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-		if (!g_CurrentScenePath.empty()) {
-			ImGui::TextDisabled("Current: %s", g_CurrentScenePath.c_str());
-		}
-		ImGui::Text("Filename (under %s):", GetSceneDir().c_str());
-		ImGui::InputText("##save_as_name", filename, IM_ARRAYSIZE(filename));
-		ImGui::Separator();
-
-		if (ImGui::Button("Save", ImVec2(120, 0))) {
-			if (g_SceneIO.on_save_as) {
-				try {
-					g_SceneIO.on_save_as(filename);
-				} catch (...) {}
-			}
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
-	}
-}
-
-// Shared body for the Open / Import modals. Reuses g_SceneIO.list_files
-// so the listing matches the corresponding submenu.
-void RenderOpenImportModal(
-	const char* popup_id,
-	const char* confirm_label,
-	bool* open_request,
-	const std::function<void(const std::string&)>& on_pick) {
-	static int s_SelectedIndex = -1;
-
-	if (*open_request) {
-		ImGui::OpenPopup(popup_id);
-		*open_request = false;
-		s_SelectedIndex = -1;
-	}
-
-	if (ImGui::BeginPopupModal(popup_id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-		std::vector<std::string> files;
-		if (g_SceneIO.list_files) {
-			try {
-				files = g_SceneIO.list_files();
-			} catch (...) {}
-		}
-
-		ImGui::TextDisabled("%s", GetSceneDir().c_str());
-		ImGui::Separator();
-
-		ImGui::BeginChild("##files", ImVec2(360, 240), true);
-		for (int i = 0; i < (int)files.size(); ++i) {
-			bool selected = (s_SelectedIndex == i);
-			if (ImGui::Selectable(files[i].c_str(), selected,
-								  ImGuiSelectableFlags_AllowDoubleClick)) {
-				s_SelectedIndex = i;
-				if (ImGui::IsMouseDoubleClicked(0)) {
-					if (on_pick) try {
-							on_pick(files[i]);
-						} catch (...) {}
-					ImGui::CloseCurrentPopup();
-				}
-			}
-		}
-		ImGui::EndChild();
-
-		ImGui::Separator();
-		const bool can_confirm = (s_SelectedIndex >= 0 && s_SelectedIndex < (int)files.size());
-
-		if (!can_confirm) ImGui::BeginDisabled();
-		if (ImGui::Button(confirm_label, ImVec2(120, 0))) {
-			if (can_confirm && on_pick) {
-				try {
-					on_pick(files[s_SelectedIndex]);
-				} catch (...) {}
-			}
-			ImGui::CloseCurrentPopup();
-		}
-		if (!can_confirm) ImGui::EndDisabled();
-
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-			ImGui::CloseCurrentPopup();
-		}
-
-		ImGui::EndPopup();
-	}
 }
 
 void RenderMenuBar() {
@@ -423,42 +358,12 @@ void RenderMenuBar() {
 			TriggerNew();
 		}
 
-		std::vector<std::string> files;
-		if (g_SceneIO.list_files) {
-			try {
-				files = g_SceneIO.list_files();
-			} catch (...) {}
-		}
-
-		if (ImGui::BeginMenu("Open", !files.empty())) {
-			for (const auto& f : files) {
-				if (ImGui::MenuItem(f.c_str())) {
-					if (g_SceneIO.on_open) try {
-							g_SceneIO.on_open(f);
-						} catch (...) {}
-					SetSelectedSceneNode(nullptr);
-				}
-			}
-			ImGui::EndMenu();
-		}
-
 		if (ImGui::MenuItem("Open...", PlatformShortcut("Cmd+O", "Ctrl+O"))) {
-			g_OpenModalOpen = true;
-		}
-
-		if (ImGui::BeginMenu("Import", !files.empty())) {
-			for (const auto& f : files) {
-				if (ImGui::MenuItem(f.c_str())) {
-					if (g_SceneIO.on_import) try {
-							g_SceneIO.on_import(f);
-						} catch (...) {}
-				}
-			}
-			ImGui::EndMenu();
+			TriggerOpen();
 		}
 
 		if (ImGui::MenuItem("Import...", PlatformShortcut("Cmd+Shift+I", "Ctrl+Shift+I"))) {
-			g_ImportModalOpen = true;
+			TriggerImport();
 		}
 
 		if (ImGui::MenuItem("Save", PlatformShortcut("Cmd+S", "Ctrl+S"), false, has_scene)) {
@@ -466,7 +371,7 @@ void RenderMenuBar() {
 		}
 
 		if (ImGui::MenuItem("Save As...", PlatformShortcut("Cmd+Shift+S", "Ctrl+Shift+S"), false, has_scene)) {
-			g_SaveAsModalOpen = true;
+			TriggerSaveAs();
 		}
 
 		ImGui::Separator();
@@ -584,13 +489,13 @@ void HandleShortcuts() {
 		TriggerNew();
 	}
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, route)) {
-		g_OpenModalOpen = true;
+		TriggerOpen();
 	}
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_I, route)) {
-		g_ImportModalOpen = true;
+		TriggerImport();
 	}
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, route)) {
-		if (Scene::Active != nullptr) g_SaveAsModalOpen = true;
+		if (Scene::Active != nullptr) TriggerSaveAs();
 	} else if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, route)) {
 		TriggerSave();
 	}
@@ -610,6 +515,17 @@ void Initialize() {
 	RegisterSettingsHandler();
 	ApplyPersistedTheme();
 	HookEngineLog();
+
+	// Initialize nativefiledialog-extended. NFD_Init sets up the
+	// platform backend (AppKit on macOS, Win32 on Windows); the
+	// Editor.OpenDialog / Editor.SaveDialog Lua bindings call into
+	// nfd on demand. NFD_Quit is paired in Shutdown. Failure here is
+	// non-fatal — the dialog bindings will log "NFD_* error" and
+	// return nil if a backend isn't available.
+	if (NFD_Init() != NFD_OKAY) {
+		FURYE << "NFD_Init failed: "
+			  << (NFD_GetError() ? NFD_GetError() : "(unknown)");
+	}
 }
 
 void Tick() {
@@ -629,20 +545,11 @@ void Tick() {
 	}
 	s_FirstFrame = false;
 
-	RenderSaveAsModal();
-	RenderOpenImportModal("Open Scene", "Open", &g_OpenModalOpen,
-						  [](const std::string& f) {
-							  if (g_SceneIO.on_open) try {
-									  g_SceneIO.on_open(f);
-								  } catch (...) {}
-							  SetSelectedSceneNode(nullptr);
-						  });
-	RenderOpenImportModal("Import Scene", "Import", &g_ImportModalOpen,
-						  [](const std::string& f) {
-							  if (g_SceneIO.on_import) try {
-									  g_SceneIO.on_import(f);
-								  } catch (...) {}
-						  });
+	// The "Open Scene" ImGui modal was retired in favor of the native
+	// single-select Editor.OpenDialog flow driven by TriggerOpen →
+	// SceneIO.on_open("") (see Editor.lua on_open).
+	// (The "Import Scene" modal was likewise retired in favor of
+	// TriggerImport → SceneIO.on_import("").)
 
 	if (g_ShowSettings) RenderSettingsWindow(&g_ShowSettings);
 	if (g_ShowProfiler) RenderProfilerWindow(&g_ShowProfiler);
@@ -742,8 +649,10 @@ void Shutdown() {
 	ClearSceneTreeProvider();
 	ClearCommandHandler();
 	ClearCameraControls();
+	SetFrameSelectionHandler(nullptr);
 	ClearCurrentScene();
 	SetSelectedSceneNode(nullptr);
+	NFD_Quit();
 }
 
 SceneNode* GetSelectedSceneNode() {
@@ -912,6 +821,21 @@ void SetCommandHandler(CommandHandler h) {
 }
 void ClearCommandHandler() {
 	g_CommandHandler = {};
+}
+
+void SetFrameSelectionHandler(std::function<void(SceneNode*)> handler) {
+	g_FrameSelectionHandler = std::move(handler);
+}
+
+void FrameSelection(SceneNode* node) {
+	if (!node || !g_FrameSelectionHandler) return;
+	try {
+		g_FrameSelectionHandler(node);
+	} catch (...) {
+		// Handler errors must not propagate into the editor's tick —
+		// the Lua binding layer already traps protected_function errors
+		// and logs via FURYE, but defense in depth.
+	}
 }
 
 void SetCameraControls(std::vector<CameraControl> controls) {

@@ -64,43 +64,46 @@ local function replace_active_scene(new_scene)
     ensure_default_sun(active)
 end
 
--- Enumerate Resource/Scene/ for the editor's File → Open / Import submenus.
--- Re-read every frame; Save As writes show up on the next frame's Open submenu.
-local function list_scene_files()
-    return FileUtil.ListDirectory(
-        FileUtil.GetAbsPath("Resource/Scene/"),
-        {".json", ".bin", ".gltf", ".glb", ".fbx"})
-end
-
 -- True for formats the engine can save back to (.json / .bin). Any other
--- extension routes File → Save through the Save As modal so imported
+-- extension routes File → Save through the Save As dialog so imported
 -- assets aren't silently overwritten.
 local function is_native_format(filename)
     local ext = filename:lower():match("%.[^.]+$")
     return ext == ".json" or ext == ".bin"
 end
 
-local function open_scene(filename)
-    local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
-    local imported = Importer.LoadScene(full)
+-- All formats the engine's Importer.LoadScene can read. Used as the
+-- default filter for both Editor.OpenDialog (Open) and the import
+-- flow. nfd's filter spec is a comma-separated list of extensions
+-- without leading dots.
+local SCENE_FILE_FILTER = "json,bin,gltf,glb,fbx"
+
+-- `path` is an absolute path on disk (returned by Editor.OpenDialog
+-- single-select). File → Open... / Ctrl+O route through the native
+-- dialog and then call this directly with the absolute path.
+local function open_scene_at_path(path)
+    local imported = Importer.LoadScene(path)
     if imported then
         replace_active_scene(imported)
-        Editor.SetCurrentScene(full, is_native_format(filename))
-        set_status("opened " .. filename)
+        -- The dialog's chosen path is the source of truth: native
+        -- formats (.json / .bin) we can save back to in-place, others
+        -- we cannot.
+        local basename = path:match("[^/\\]+$") or path
+        Editor.SetCurrentScene(path, is_native_format(basename))
+        set_status("opened " .. path)
     else
-        set_status("failed to open " .. filename)
+        set_status("failed to open " .. path)
     end
 end
 
-local function import_scene(filename)
-    local full = FileUtil.GetAbsPath("Resource/Scene/" .. filename)
+local function import_scene_at_path(full)
     local imported = Importer.LoadScene(full)
     if imported then
         local n = Importer.MergeInto(Scene.GetActive(), imported)
         ensure_default_sun(Scene.GetActive())
-        set_status("imported " .. n .. " node(s) from " .. filename)
+        set_status("imported " .. n .. " node(s) from " .. full)
     else
-        set_status("failed to import " .. filename)
+        set_status("failed to import " .. full)
     end
 end
 
@@ -127,9 +130,35 @@ local function write_scene_to_path(full)
     return ok
 end
 
-local function save_active_scene(filename)
-    -- Save As path. Output goes into Resource/Scene/.
-    if write_scene_to_path(FileUtil.GetAbsPath("Resource/Scene/" .. filename)) then
+local function save_active_scene(_unused_filename)
+    -- File → Save As entry point. Driven by a native Editor.SaveDialog
+    -- (the previous ImGui "Save Scene As" modal was retired in tandem
+    -- with the nfd integration). The `_unused_filename` argument comes
+    -- from the legacy SceneIO.on_save_as(string) signature and is
+    -- ignored — the destination path comes from the dialog.
+    --
+    -- On cancel (Editor.SaveDialog returns nil) we do nothing and leave
+    -- the dirty flag unchanged, per the spec.
+    local current = Editor.GetCurrentScenePath() or ""
+    local default_name = "untitled.json"
+    if current ~= "" then
+        local basename = current:match("[^/\\]+$") or current
+        local stem = basename:match("^(.*)%.[^.]+$") or basename
+        local lower = basename:lower()
+        if lower:sub(-5) == ".json" or lower:sub(-4) == ".bin" then
+            default_name = basename
+        else
+            default_name = stem .. ".json"
+        end
+    end
+
+    local path = Editor.SaveDialog({
+        filter = "json,bin",
+        default_path = FileUtil.GetAbsPath("Resource/Scene/"),
+        default_name = default_name,
+    })
+    if not path then return end
+    if write_scene_to_path(path) then
         Editor.ClearSceneDirty()
     end
 end
@@ -209,6 +238,87 @@ end
 
 -- ---------------------------------------------------------------------------
 
+-- Frame-selection handler: invoked by the C++ Scene Inspector's
+-- leaf-double-click path via Editor::FrameSelection. Repositions the
+-- editor-camera upvalues (cam_pos/yaw/pitch) so the next on_update
+-- writes the new view into cam_node — the C++ layer never touches the
+-- camera transform directly (it's Lua-owned; a direct C++ write would
+-- be clobbered one frame later by on_update's per-frame push).
+--
+-- Math:
+--   * Renderable (MeshRender + valid WorldAABB): frame the AABB from a
+--     3/4-view diagonal `(1, 0.6, 1)` normalized, at distance
+--     `radius / tan(fovy*0.5) * 1.25` so the AABB fits the vertical FOV
+--     with a 1.25x margin (fovy=0.7854 rad, matching the camera created
+--     in on_init).
+--   * Non-renderable / invalid AABB: look at GetWorldPosition() from a
+--     fixed `distance = 10.0`.
+--
+-- yaw/pitch are derived from (eye - center) so the Lua upvalues stay in
+-- sync with the new cam_pos — subsequent WASD/mouse-drag continues from
+-- the new view instead of snapping back. The yaw/pitch convention
+-- matches `camera_basis` (fwd = -cp*sy, sp, -cp*cy), which inverts to:
+--   yaw   = atan2(eye.x - center.x, eye.z - center.z)
+--   pitch = atan2(center.y - eye.y, horizontal_distance)
+local function frame_selection(node)
+    if not node then return end
+
+    local center = node:GetWorldPosition()
+    local radius = 0.0
+
+    local mr = node:GetMeshRender()
+    if mr then
+        local aabb = node:GetWorldAABB()
+        if aabb and aabb:Valid() and not aabb:GetInfinite() then
+            center = aabb:GetCenter()
+            local mn = aabb:GetMin()
+            local mx = aabb:GetMax()
+            radius = (mx - mn):Length() * 0.5
+        end
+    end
+
+    local distance
+    if radius > 1e-4 then
+        -- Fit AABB into vertical FOV (0.7854 rad ≈ 45°) with 1.25x margin.
+        distance = radius / math.tan(0.7854 * 0.5) * 1.25
+    else
+        -- Non-renderable / zero-size leaf: pick a sensible "close look"
+        -- distance so the user sees context around the node.
+        distance = 10.0
+    end
+
+    -- Normalized diagonal direction (1, 0.6, 1) — a recognizable 3/4
+    -- view that avoids the degenerate cardinal-axis cases.
+    local dir_len = math.sqrt(1.0 + 0.36 + 1.0) -- sqrt(2.36)
+    local dirx = 1.0 / dir_len
+    local diry = 0.6 / dir_len
+    local dirz = 1.0 / dir_len
+
+    local eye = Vector4(
+        center.x + dirx * distance,
+        center.y + diry * distance,
+        center.z + dirz * distance,
+        1.0)
+
+    local dx = eye.x - center.x
+    local dy = eye.y - center.y
+    local dz = eye.z - center.z
+    local horiz = math.sqrt(dx * dx + dz * dz)
+
+    -- Lua 5.4 removed `math.atan2` (gated behind LUA_COMPAT_MATHLIB in
+    -- lmathlib.c; fury3d doesn't enable that). `math.atan(y, x)` has
+    -- the same semantics as atan2(y, x).
+    yaw   = math.atan(dx, dz)
+    pitch = math.atan(-dy, horiz) -- eye above center → look down → negative pitch
+    local limit = math.rad(89.0)
+    if pitch >  limit then pitch =  limit end
+    if pitch < -limit then pitch = -limit end
+
+    cam_pos = eye
+end
+
+-- ---------------------------------------------------------------------------
+
 local function on_init()
     octree = OcTree.Create()
 
@@ -259,16 +369,43 @@ local function on_init()
         Pipeline.GetActive(),
         FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
 
-    -- Wire the editor's File menu / Content Browser callbacks.
+    -- Wire the editor's File menu callbacks. The C++ side dispatches
+    -- File → Open... (Ctrl+O), File → Import... (Ctrl+Shift+I), and
+    -- File → Save As... (Ctrl+Shift+S) by invoking these callbacks
+    -- — the native dialogs run inside the callbacks, the C++ side
+    -- only routes the menu / shortcut events.
     Editor.SetSceneIO({
-        list_files = list_scene_files,
         on_new     = function()
             Scene.GetActive():Clear()
             Editor.ClearCurrentScene()
             set_status("scene cleared")
         end,
-        on_open    = open_scene,
-        on_import  = import_scene,
+        on_open    = function()
+            -- File → Open... / Ctrl+O: native single-select dialog,
+            -- then replace the active scene. Accepts any engine
+            -- loadable format (.json / .bin / .gltf / .glb / .fbx).
+            local path = Editor.OpenDialog({
+                filter = SCENE_FILE_FILTER,
+                default_path = FileUtil.GetAbsPath("Resource/Scene/"),
+            })
+            if not path then return end -- user cancelled
+            open_scene_at_path(path)
+        end,
+        on_import  = function()
+            -- File → Import... / Ctrl+Shift+I: native multi-select
+            -- dialog, then merge each chosen scene into the active
+            -- one. Accepts any engine loadable format.
+            local paths = Editor.OpenDialog({
+                filter = SCENE_FILE_FILTER,
+                default_path = FileUtil.GetAbsPath("Resource/Scene/"),
+                multi = true,
+            })
+            if not paths then return end -- user cancelled
+            if type(paths) == "string" then paths = { paths } end
+            for _, path in ipairs(paths) do
+                import_scene_at_path(path)
+            end
+        end,
         on_save    = save_scene_in_place,
         on_save_as = save_active_scene,
         scene_dir  = function() return FileUtil.GetAbsPath("Resource/Scene/") end,
@@ -277,6 +414,13 @@ local function on_init()
     -- Initial sync of the Auto-Add Default Sun flag — the Settings → Import
     -- checkbox reads/writes this; ensure_default_sun_impl reads it back.
     Editor.SetImportFlag("auto_default_sun", true)
+
+    -- Wire the Scene Inspector's leaf-double-click → camera-frame path.
+    -- The C++ inspector calls Editor::FrameSelection(node), which invokes
+    -- this handler; the handler writes the Lua-owned cam_pos/yaw/pitch
+    -- upvalues so the next on_update pushes them to cam_node. See
+    -- frame_selection above for the framing math.
+    Editor.SetFrameSelectionHandler(frame_selection)
 
     -- Camera tuning lives inside Settings → Camera now.
     Editor.SetCameraSettings({

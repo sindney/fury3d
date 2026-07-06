@@ -13,3 +13,6 @@
 [submodule "engine/ThirdParty/sol2"]
 	path = engine/ThirdParty/sol2
 	url = https://github.com/ThePhD/sol2
+[submodule "engine/ThirdParty/nfd"]
+	path = engine/ThirdParty/nfd
+	url = https://github.com/btzy/nativefiledialog-extended.git

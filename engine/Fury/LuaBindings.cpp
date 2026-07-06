@@ -35,6 +35,13 @@
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
 
+#ifdef WITH_EDITOR
+// nativefiledialog-extended backs the Editor.OpenDialog / Editor.SaveDialog
+// Lua bindings. Lives under engine/ThirdParty/nfd as a git submodule; its
+// CMake target nfd::nfd is linked into `fury` only on WITH_EDITOR=ON.
+#include "nfd.h"
+#endif
+
 #include <algorithm>
 #include <filesystem>
 #include <vector>
@@ -278,6 +285,21 @@ namespace fury
 				"SetMaterial",     &MeshRender::SetMaterial,
 				"GetRenderable",   &MeshRender::GetRenderable);
 
+			// --- BoxBounds -----------------------------------------------------
+			// Minimal binding so the Editor.lua frame-selection handler can
+			// read a SceneNode's world-space AABB (center / min / max /
+			// validity) without re-implementing the math in C++. Returned
+			// by value from SceneNode:GetWorldAABB.
+			lua.new_usertype<BoxBounds>("BoxBounds",
+				sol::no_constructor,
+				"GetCenter",   &BoxBounds::GetCenter,
+				"GetMin",      &BoxBounds::GetMin,
+				"GetMax",      &BoxBounds::GetMax,
+				"GetExtents",  &BoxBounds::GetExtents,
+				"GetSize",     &BoxBounds::GetSize,
+				"Valid",       &BoxBounds::Valid,
+				"GetInfinite", &BoxBounds::GetInfinite);
+
 			// --- SceneNode -----------------------------------------------------
 			// AddComponent is overloaded per-derived-type so sol2 doesn't
 			// have to upcast the lua userdata into `shared_ptr<Component>`
@@ -294,6 +316,7 @@ namespace fury
 				"GetName", &SceneNode::GetName,
 				"SetName", &SceneNode::SetName,
 				"GetWorldPosition", &SceneNode::GetWorldPosition,
+				"GetWorldAABB", &SceneNode::GetWorldAABB,
 				"GetLocalPosition", &SceneNode::GetLocalPosition,
 				"SetLocalPosition", sol::overload(
 					static_cast<void(SceneNode::*)(Vector4)>(&SceneNode::SetLocalPosition),
@@ -661,22 +684,6 @@ namespace fury
 #ifdef WITH_EDITOR
 			editor_tbl["SetSceneIO"] = [](sol::table tbl) {
 				Editor::SceneIO io;
-				if (auto v = tbl["list_files"]; v.valid() && v.get_type() == sol::type::function)
-				{
-					sol::protected_function pf = v;
-					io.list_files = [pf]() -> std::vector<std::string> {
-						std::vector<std::string> out;
-						sol::protected_function_result r = pf();
-						if (!r.valid()) { sol::error e = r; FURYE << "Editor list_files error: " << e.what(); return out; }
-						sol::object obj = r;
-						if (obj.is<sol::table>())
-						{
-							sol::table t = obj;
-							for (size_t i = 1; i <= t.size(); ++i) out.push_back(t.get<std::string>(i));
-						}
-						return out;
-					};
-				}
 				if (auto v = tbl["on_new"]; v.valid() && v.get_type() == sol::type::function)
 				{
 					sol::protected_function pf = v;
@@ -779,6 +786,118 @@ namespace fury
 					sol::protected_function_result r = pf(line);
 					if (!r.valid()) { sol::error e = r; FURYE << "Editor command handler error: " << e.what(); }
 				});
+			};
+
+			editor_tbl["SetFrameSelectionHandler"] = [](sol::object obj) {
+				if (!obj.valid() || obj.get_type() != sol::type::function)
+				{
+					Editor::SetFrameSelectionHandler(nullptr);
+					return;
+				}
+				sol::protected_function pf = obj.as<sol::protected_function>();
+				Editor::SetFrameSelectionHandler([pf](SceneNode* node) {
+					sol::protected_function_result r = pf(node);
+					if (!r.valid()) { sol::error e = r; FURYE << "Editor frame handler error: " << e.what(); }
+				});
+			};
+
+			// Editor.OpenDialog({filter=..., default_path=..., multi=...})
+			//   -> string | table<string> | nil
+			// Editor.SaveDialog({filter=..., default_path=..., default_name=...})
+			//   -> string | nil
+			//
+			// `filter` is a single nfd filter spec string ("png,jpg,jpeg"
+			// comma-separated extensions without leading dots, or "All"
+			// for no filter). It is forwarded as one filter item whose
+			// display name is "Files". On cancel or nfd error, returns
+			// nil; nfd errors are logged via FURYE (no throw).
+			editor_tbl["OpenDialog"] = [](sol::table opts) -> sol::object {
+				sol::state_view lua = opts.lua_state();
+				const std::string filter      = opts.get_or<std::string>("filter", "All");
+				const std::string default_path = opts.get_or<std::string>("default_path", "");
+				// `get_or<bool>` is ambiguous against sol2's two overloads
+				// (T=bool/D=bool); do the lookup manually like the
+				// SetCameraSettings binding.
+				sol::object multi_obj = opts["multi"];
+				const bool multi = (multi_obj.valid() && multi_obj.is<bool>())
+								   ? multi_obj.as<bool>() : false;
+
+				const std::string filter_name = "Files";
+				nfdu8filteritem_t filter_item;
+				filter_item.name = filter_name.c_str();
+				filter_item.spec = filter.c_str();
+				const nfdu8char_t* default_path_c = default_path.empty() ? nullptr : default_path.c_str();
+
+				if (multi)
+				{
+					const nfdpathset_t* path_set = nullptr;
+					nfdresult_t r = NFD_OpenDialogMultipleU8(&path_set, &filter_item, 1, default_path_c);
+					if (r == NFD_CANCEL) return sol::nil;
+					if (r != NFD_OKAY)
+					{
+						FURYE << "NFD_OpenDialogMultipleU8 error: "
+							  << (NFD_GetError() ? NFD_GetError() : "(unknown)");
+						return sol::nil;
+					}
+					sol::table out = lua.create_table();
+					nfdpathsetsize_t count = 0;
+					if (NFD_PathSet_GetCount(path_set, &count) == NFD_OKAY)
+					{
+						for (nfdpathsetsize_t i = 0; i < count; ++i)
+						{
+							nfdu8char_t* path = nullptr;
+							if (NFD_PathSet_GetPathU8(path_set, i, &path) == NFD_OKAY && path)
+							{
+								out[i + 1] = std::string(path); // 1-indexed
+								NFD_PathSet_FreePathU8(path);
+							}
+						}
+					}
+					NFD_PathSet_Free(path_set);
+					return out;
+				}
+				else
+				{
+					nfdu8char_t* out_path = nullptr;
+					nfdresult_t r = NFD_OpenDialogU8(&out_path, &filter_item, 1, default_path_c);
+					if (r == NFD_CANCEL) return sol::nil;
+					if (r != NFD_OKAY)
+					{
+						FURYE << "NFD_OpenDialogU8 error: "
+							  << (NFD_GetError() ? NFD_GetError() : "(unknown)");
+						return sol::nil;
+					}
+					std::string path(out_path);
+					NFD_FreePathU8(out_path);
+					return sol::make_object(lua, path);
+				}
+			};
+
+			editor_tbl["SaveDialog"] = [](sol::table opts) -> sol::object {
+				sol::state_view lua = opts.lua_state();
+				const std::string filter        = opts.get_or<std::string>("filter", "All");
+				const std::string default_path = opts.get_or<std::string>("default_path", "");
+				const std::string default_name = opts.get_or<std::string>("default_name", "");
+
+				const std::string filter_name = "Files";
+				nfdu8filteritem_t filter_item;
+				filter_item.name = filter_name.c_str();
+				filter_item.spec = filter.c_str();
+				const nfdu8char_t* default_path_c = default_path.empty() ? nullptr : default_path.c_str();
+				const nfdu8char_t* default_name_c = default_name.empty() ? nullptr : default_name.c_str();
+
+				nfdu8char_t* out_path = nullptr;
+				nfdresult_t r = NFD_SaveDialogU8(&out_path, &filter_item, 1, default_path_c, default_name_c);
+				if (r == NFD_CANCEL) return sol::nil;
+				if (r != NFD_OKAY)
+				{
+					FURYE << "NFD_SaveDialogU8 error: "
+						  << (NFD_GetError() ? NFD_GetError() : "(unknown)");
+					return sol::nil;
+				}
+				std::string path(out_path);
+				NFD_FreePathU8(out_path);
+				return sol::make_object(lua, path);
 			};
 
 			editor_tbl["SetCameraSettings"] = [](sol::table tbl) {
@@ -885,6 +1004,9 @@ namespace fury
 			editor_tbl["SetSceneIO"]            = [](sol::object) {};
 			editor_tbl["SetSceneTreeProvider"]  = [](sol::object) {};
 			editor_tbl["SetCommandHandler"]     = [](sol::object) {};
+			editor_tbl["SetFrameSelectionHandler"] = [](sol::object) {};
+			editor_tbl["OpenDialog"]            = [](sol::object) -> sol::object { return sol::nil; };
+			editor_tbl["SaveDialog"]            = [](sol::object) -> sol::object { return sol::nil; };
 			editor_tbl["SetCameraSettings"]     = [](sol::object) {};
 			editor_tbl["Log"]                   = [](sol::object, sol::object) {};
 		editor_tbl["GetSelectedSceneNode"]  = []() -> sol::object { return sol::nil; };
