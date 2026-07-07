@@ -56,7 +56,7 @@
 
 - [x] 7.1 Remove the temporary `DemoLodDebug.lua` (or revert `Editor.lua` change) — the toggle lives in the editor's Profiler window; the test harness is not committed. — Not applicable: no temporary Lua harness was added during this implementation; the LOD_DEBUG_COLORS toggle is wired directly into the existing FPS tab.
 - [x] 7.2 Verify `engine/CMakeLists.txt` and `engine/Fury/Editor/CMakeLists.txt` (if separate) include `EditorDebug.cpp` in the editor build and exclude it from the headless build. — `engine/CMakeLists.txt:165` uses `file(GLOB FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/Fury/Editor/*.cpp)` inside the `if(WITH_EDITOR)` block, so EditorDebug.cpp is auto-included for editor builds and excluded for headless builds. Both `build-engine` (editor on) and `build-engine-noeditor` (editor off) link cleanly.
-- [ ] 7.3 Commit with a message referencing `add-debug-lod-and-shadow-viewer`. Co-author line per the project convention.
+- [x] 7.3 Commit with a message referencing `add-debug-lod-and-shadow-viewer`. Co-author line per the project convention.
 - [ ] 7.4 Do NOT push without user confirmation.
 
 ## 8. Archive preparation

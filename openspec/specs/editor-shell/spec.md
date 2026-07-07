@@ -226,9 +226,9 @@ The selected theme SHALL be persisted via an ImGui custom settings handler (`ImG
 
 The standalone `Profiler`, `GBuffer`, and `Shadow Buffers` windows previously emitted by `Gui::ShowDefault` SHALL be consolidated into one editor-owned **Profiler** window with three tabs (`ImGui::BeginTabBar` + `BeginTabItem`):
 
-- **FPS** — the existing `PlotVar`-based FPS graph plus CPU/GPU memory readouts plus drawcall / triangle / mesh / light counts plus the existing checkbox toggles (`Draw Light Bounds`, `Draw Mesh Bounds`, `Draw Custom Bounds`, `Use Cascaded Shadow Map`).
+- **FPS** — the existing `PlotVar`-based FPS graph plus CPU/GPU memory readouts plus drawcall / triangle / mesh / light counts plus a **Debug Overlays** multi-select combo (`Draw Light Bounds`, `Draw Mesh Bounds`, `Draw Custom Bounds`, `Draw OcTree Bounds`, `LOD Debug Colors`) and the **LOD Debug** section (added by the `mesh-lod-debug-view` capability: `LOD Debug Colors` toggle + live histogram of `MeshRender::GetActiveLod()` counts).
 - **GBuffer** — the depth/normal/diffuse/light texture previews currently in `Gui.cpp`.
-- **Shadows** — the 2D shadow map + cube map + 2D-array shadow-map previews currently in `Gui.cpp`.
+- **Shadows** — the **Use Cascaded Shadow Maps** checkbox plus one preview section **per shadow-casting light** in the active scene, populated by iterating every `Light` with `GetCastShadows() == true` and pulling the per-frame shadow texture via `Pipeline::GetLastShadowTexture(*lightNode)`. When more than one shadow-casting light exists, a `BeginCombo` dropdown at the top of the tab lets the user focus on one light (the first shadow-casting light is selected by default; there is no "All lights" entry). See the `shadow-debug-per-light` capability for full behavior.
 
 The window SHALL be hidden by default and toggled from `Window → Profiler`.
 
@@ -244,11 +244,30 @@ The window SHALL be hidden by default and toggled from `Window → Profiler`.
 - **THEN** the depth, normal, diffuse, and light buffers render as ImGui images
 - **AND** the textures match what `View → GBuffer` showed in the prior implementation
 
-#### Scenario: Shadows tab renders the existing previews
+#### Scenario: Shadows tab iterates every shadow-casting light
 
 - **WHEN** the Profiler window is visible and the user clicks the `Shadows` tab
-- **THEN** the 2D shadow map, cube shadow map (six faces), and 2D-array shadow map previews are visible
-- **AND** the previews match what `View → Shadow Buffers` showed in the prior implementation
+- **AND** the active scene contains two shadow-casting lights (one directional `Sun`, one point `Lamp`)
+- **THEN** the tab renders two sections — `Shadow — DIRECTIONAL Sun` and `Shadow — POINT Lamp`
+- **AND** each section renders the live shadow texture returned by `Pipeline::Active->GetLastShadowTexture(*lightNode)`
+
+#### Scenario: Shadows tab dropdown filters to one light
+
+- **WHEN** the Shadows tab is visible and the user picks `POINT — Lamp` from the dropdown
+- **THEN** only the `Lamp` section renders
+- **AND** the `Sun` section does not render
+
+#### Scenario: Shadows tab handles no shadow-casting lights
+
+- **WHEN** the Profiler window is visible, the user opens the Shadows tab, and the active scene has no shadow-casting lights
+- **THEN** the tab renders the placeholder `"(no shadow-casting lights)"`
+
+#### Scenario: FPS tab shows the LOD Debug section
+
+- **WHEN** the Profiler window is visible and the user clicks the `FPS` tab
+- **THEN** the LOD Debug section renders after the Spatial section
+- **AND** the section contains a `LOD Debug Colors` checkbox and a per-LOD histogram
+- **AND** toggling the checkbox calls `Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, ...)`
 
 ### Requirement: The editor SHALL ship a Scene Inspector window rendering the active scene as a tree
 
