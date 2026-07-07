@@ -59,6 +59,8 @@ local ensure_default_sun
 -- Replace the active scene's content with `new_scene`. Camera + pipeline survive.
 local function replace_active_scene(new_scene)
     local active = Scene.GetActive()
+    -- Clear the C++ selection before active:Clear() orphans the node.
+    Editor.SetSelectedSceneNode(nil)
     active:Clear()
     Importer.MergeInto(active, new_scene)
     ensure_default_sun(active)
@@ -111,16 +113,7 @@ end
 -- Both pass an absolute path under Resource/Scene/ and expect a .json or .bin
 -- extension. Returns true on success.
 local function write_scene_to_path(full)
-    local ext  = full:lower():match("%.[^.]+$") or ""
-    local ok
-    if ext == ".json" then
-        ok = FileUtil.SaveFile(Scene.GetActive(), full)
-    elseif ext == ".bin" then
-        ok = FileUtil.SaveCompressedFile(Scene.GetActive(), full)
-    else
-        set_status("Save: unsupported extension '" .. ext .. "' (use .json or .bin)")
-        return false
-    end
+    local ok = FileUtil.SaveByExtension(Scene.GetActive(), full)
     if ok then
         Editor.SetCurrentScene(full, true)
         set_status("wrote " .. full)
@@ -238,30 +231,10 @@ end
 
 -- ---------------------------------------------------------------------------
 
--- Frame-selection handler: invoked by the C++ Scene Inspector's
--- leaf-double-click path via Editor::FrameSelection. Repositions the
--- editor-camera upvalues (cam_pos/yaw/pitch) so the next on_update
--- writes the new view into cam_node — the C++ layer never touches the
--- camera transform directly (it's Lua-owned; a direct C++ write would
--- be clobbered one frame later by on_update's per-frame push).
---
--- Math:
---   * Renderable (MeshRender + valid WorldAABB): frame the AABB from a
---     3/4-view diagonal `(1, 0.6, 1)` normalized, at distance
---     `radius / tan(fovy*0.5) * 1.25` so the AABB fits the vertical FOV
---     with a 1.25x margin (fovy=0.7854 rad, matching the camera created
---     in on_init).
---   * Non-renderable / invalid AABB: look at GetWorldPosition() from a
---     fixed `distance = 10.0`.
---
--- yaw/pitch are derived from (eye - center) so the Lua upvalues stay in
--- sync with the new cam_pos — subsequent WASD/mouse-drag continues from
--- the new view instead of snapping back. The yaw/pitch convention
--- matches `camera_basis` (fwd = -cp*sy, sp, -cp*cy), which inverts to:
---   yaw   = atan2(eye.x - center.x, eye.z - center.z)
---   pitch = atan2(center.y - eye.y, horizontal_distance)
+-- Frame the camera on a SceneNode. Invoked by the C++ Scene
+-- Inspector's leaf-double-click via Editor::FrameSelection.
 local function frame_selection(node)
-    if not node then return end
+    if not node or not node:GetParent() then return end
 
     local center = node:GetWorldPosition()
     local radius = 0.0
@@ -277,19 +250,16 @@ local function frame_selection(node)
         end
     end
 
-    local distance
-    if radius > 1e-4 then
-        -- Fit AABB into vertical FOV (0.7854 rad ≈ 45°) with 1.25x margin.
-        distance = radius / math.tan(0.7854 * 0.5) * 1.25
-    else
-        -- Non-renderable / zero-size leaf: pick a sensible "close look"
-        -- distance so the user sees context around the node.
-        distance = 10.0
-    end
+    local distance = (radius > 1e-4)
+        and (radius / math.tan(0.7854 * 0.5) * 1.25)  -- fit AABB into 45° FOV
+        or 10.0  -- non-renderable / zero-size leaf
 
-    -- Normalized diagonal direction (1, 0.6, 1) — a recognizable 3/4
-    -- view that avoids the degenerate cardinal-axis cases.
-    local dir_len = math.sqrt(1.0 + 0.36 + 1.0) -- sqrt(2.36)
+    if distance < 1.0    then distance = 1.0    end
+    if distance > 5000.0 then distance = 5000.0 end
+
+    if center.x ~= center.x or center.y ~= center.y or center.z ~= center.z then return end
+
+    local dir_len = math.sqrt(1.0 + 0.36 + 1.0)  -- normalized (1, 0.6, 1)
     local dirx = 1.0 / dir_len
     local diry = 0.6 / dir_len
     local dirz = 1.0 / dir_len
@@ -305,11 +275,9 @@ local function frame_selection(node)
     local dz = eye.z - center.z
     local horiz = math.sqrt(dx * dx + dz * dz)
 
-    -- Lua 5.4 removed `math.atan2` (gated behind LUA_COMPAT_MATHLIB in
-    -- lmathlib.c; fury3d doesn't enable that). `math.atan(y, x)` has
-    -- the same semantics as atan2(y, x).
-    yaw   = math.atan(dx, dz)
-    pitch = math.atan(-dy, horiz) -- eye above center → look down → negative pitch
+    -- Lua 5.4 removed math.atan2; math.atan(y, x) is the equivalent.
+    if horiz < 1e-6 then yaw = 0.0 else yaw = math.atan(dx, dz) end
+    pitch = math.atan(-dy, horiz)
     local limit = math.rad(89.0)
     if pitch >  limit then pitch =  limit end
     if pitch < -limit then pitch = -limit end
@@ -324,7 +292,6 @@ local function on_init()
 
     Scene.SetActive(Scene.Create("main", FileUtil.GetAbsPath(), octree))
 
-    -- Startup scene: honor arg[1] when set; otherwise load the bundled scene.bin.
     local startup = arg and arg[1]
     if startup and startup ~= "" then
         local resolved = resolve_startup_scene(startup)

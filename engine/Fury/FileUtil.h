@@ -51,6 +51,10 @@ namespace fury
 
 		static bool SaveCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
 
+		// Pick the underlying serializer by lowercased extension: .json
+		// → SaveFile, .bin → SaveCompressedFile. Returns false otherwise.
+		static bool SaveByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
+
 		// In-memory serialization. Used by CloneTree to round-trip a
 		// node subtree through the engine's existing Save/Load — the
 		// single source of truth for "what's in a SceneNode". This

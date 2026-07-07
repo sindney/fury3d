@@ -31,6 +31,7 @@
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Serializable.h"
+#include "Fury/Texture.h"
 #include "Fury/Transform.h"
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
@@ -441,6 +442,12 @@ namespace fury
 			fu_tbl["SaveCompressedFile"] = [](const std::shared_ptr<Scene> &s, const std::string &p) {
 				return FileUtil::SaveCompressedFile(s, p);
 			};
+			// Pick the underlying serializer by lowercased path
+			// extension (.json → SaveFile, .bin → SaveCompressedFile).
+			// The single dispatch point used by the editor and the CLI.
+			fu_tbl["SaveByExtension"] = [](const std::shared_ptr<Scene> &s, const std::string &p) {
+				return FileUtil::SaveByExtension(s, p);
+			};
 			// Enumerate a directory, with an optional case-insensitive extension
 			// filter (a Lua array of strings like {".gltf", ".fbx"}). Hidden
 			// files (leading '.') and subdirectories are excluded. Returns
@@ -615,8 +622,16 @@ namespace fury
 				}
 				// Transfer entities. EntityManager::Add dedupes by hash; we
 				// just trust that and forward.
+				// Textures must be transferred explicitly: Materials only
+				// hold shared_ptrs to their Textures, so without this
+				// transfer the imported textures are invisible to the
+				// active scene's EM, and the save path's memory-backed
+				// texture extraction (which iterates the EM) skips them.
 				auto target_em = target->GetEntityManager();
 				auto source_em = source->GetEntityManager();
+				source_em->ForEach<Texture>([&](const std::shared_ptr<Texture> &t) -> bool {
+					target_em->Add(t); return true;
+				});
 				source_em->ForEach<Material>([&](const std::shared_ptr<Material> &m) -> bool {
 					target_em->Add(m); return true;
 				});
@@ -970,7 +985,14 @@ namespace fury
 				Editor::Log(level.c_str(), text.c_str());
 			};
 		editor_tbl["GetSelectedSceneNode"] = []() -> SceneNode* { return Editor::GetSelectedSceneNode(); };
-		editor_tbl["SetWindowVisible"]    = [](const std::string& name, bool v) { Editor::SetWindowVisible(name.c_str(), v); };
+		editor_tbl["SetSelectedSceneNode"] = [](sol::object node_obj) {
+			if (!node_obj.valid() || node_obj.get_type() == sol::type::nil
+				|| node_obj.get_type() == sol::type::lua_nil)
+				Editor::SetSelectedSceneNode(nullptr);
+			else
+				Editor::SetSelectedSceneNode(node_obj.as<SceneNode*>());
+		};
+		editor_tbl["SetWindowVisible"]    = [](const std::string &name, bool v) { Editor::SetWindowVisible(name.c_str(), v); };
 		editor_tbl["GetWindowVisible"]    = [](const std::string& name) -> bool { return Editor::GetWindowVisible(name.c_str()); };
 		editor_tbl["IsPickInFlight"]      = []() -> bool { return Editor::IsPickInFlight(); };
 		editor_tbl["IsViewportHovered"]   = []() -> bool { return Editor::IsViewportHovered(); };
@@ -1010,6 +1032,7 @@ namespace fury
 			editor_tbl["SetCameraSettings"]     = [](sol::object) {};
 			editor_tbl["Log"]                   = [](sol::object, sol::object) {};
 		editor_tbl["GetSelectedSceneNode"]  = []() -> sol::object { return sol::nil; };
+		editor_tbl["SetSelectedSceneNode"]  = [](sol::object) {};
 		editor_tbl["SetWindowVisible"]      = [](sol::object, sol::object) {};
 		editor_tbl["GetWindowVisible"]      = [](sol::object) -> bool { return false; };
 		editor_tbl["IsPickInFlight"]        = []() -> bool { return false; };

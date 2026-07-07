@@ -442,6 +442,24 @@ std::string FileUtil::SerializeToString(const std::shared_ptr<Serializable>& sou
 	return std::string(sb.GetString(), sb.GetSize());
 }
 
+bool FileUtil::SaveByExtension(const std::shared_ptr<Serializable>& source, const std::string& filePath, int maxDecimalPlaces) {
+	// Lowercase the extension inline. Keep it self-contained so the
+	// editor / CLI callers don't have to share a helper.
+	std::filesystem::path p(filePath);
+	std::string ext = p.extension().string();
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+				   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (ext == ".json") {
+		return SaveFile(source, filePath, maxDecimalPlaces);
+	} else if (ext == ".bin") {
+		return SaveCompressedFile(source, filePath, maxDecimalPlaces);
+	} else {
+		FURYE << "FileUtil::SaveByExtension: unsupported extension '" << ext
+			  << "' (expected .json or .bin) for path " << filePath;
+		return false;
+	}
+}
+
 bool FileUtil::DeserializeFromString(const std::shared_ptr<Serializable>& target, const std::string& json) {
 	using namespace rapidjson;
 	Document dom;

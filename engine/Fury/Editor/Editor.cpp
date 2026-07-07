@@ -96,7 +96,9 @@ std::function<void(SceneNode*)> g_FrameSelectionHandler;
 std::unordered_map<std::string, bool> g_ImportFlags;
 SceneNode* g_SelectedSceneNode = nullptr;
 bool g_ShowSettings = false;
-bool g_ShowProfiler = false;
+// Default to true so ImGui Begin()-s the window on startup and
+// persists its state (dock, visibility) to imgui.ini.
+bool g_ShowProfiler = true;		  // visible by default — docked right
 bool g_ShowSceneInspector = true; // visible by default — docked left
 bool g_ShowNodeProperties = true; // visible by default — docked right
 bool g_ShowConsole = true;		  // visible by default — bottom dock
@@ -130,7 +132,7 @@ bool s_HadIniOnStartup = false;
 // version triggers a one-time BuildDefaultLayout so the new
 // window snaps into place without disturbing future custom
 // layouts.
-const int kCurrentLayoutVersion = 2;
+const int kCurrentLayoutVersion = 3;
 int s_LoadedLayoutVersion = 0;
 
 // Click-vs-drag state machine for viewport picking. A pick
@@ -255,6 +257,7 @@ void BuildDefaultLayout(ImGuiID dockspace_id) {
 
 	ImGui::DockBuilderDockWindow("Scene Inspector", left);
 	ImGui::DockBuilderDockWindow("Node Properties", right);
+	ImGui::DockBuilderDockWindow("Profiler", right);
 	ImGui::DockBuilderDockWindow("Console", bottom);
 	ImGui::DockBuilderDockWindow("Content Browser", bottom);
 	ImGui::DockBuilderDockWindow("Viewport", center);
@@ -829,6 +832,9 @@ void SetFrameSelectionHandler(std::function<void(SceneNode*)> handler) {
 
 void FrameSelection(SceneNode* node) {
 	if (!node || !g_FrameSelectionHandler) return;
+	// Reject orphans: after a scene reload the previous selection
+	// is detached and its world-space values are stale.
+	if (!node->GetParent()) return;
 	try {
 		g_FrameSelectionHandler(node);
 	} catch (...) {

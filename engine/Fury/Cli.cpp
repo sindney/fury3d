@@ -26,6 +26,8 @@
 #include "Fury/OcTree.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/Texture.h"
+#include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
 
 // tinygltf — same #define dance as GltfImporter.cpp (see comment there).
@@ -39,6 +41,7 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -58,6 +61,7 @@ namespace fury
 			"\n"
 			"SUBCOMMANDS\n"
 			"  convert        convert assets between formats (glTF/FBX -> engine scene.json/.bin)\n"
+			"                 plus scene -> scene (.json <-> .bin)\n"
 			"  info           print a CPU-side summary of a scene or asset file\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
@@ -73,8 +77,9 @@ namespace fury
 			"fury convert — convert an asset to the engine's runtime scene format\n"
 			"\n"
 			"USAGE\n"
-			"  fury convert gltf <input.gltf|.glb> <output.json|.bin>\n"
-			"  fury convert fbx  <input.fbx>      <output.gltf|.glb|.json|.bin>\n"
+			"  fury convert gltf  <input.gltf|.glb>  <output.json|.bin>\n"
+			"  fury convert fbx   <input.fbx>        <output.gltf|.glb|.json|.bin>\n"
+			"  fury convert scene <input.json|.bin>  <output.json|.bin>\n"
 			"\n"
 			"KINDS\n"
 			"  gltf   load a glTF 2.0 file via tinygltf, translate to engine types,\n"
@@ -86,6 +91,7 @@ namespace fury
 			"         engine runtime form. Intermediate glb files in tempdir are\n"
 			"         cleaned up on success and preserved (path named in error)\n"
 			"         on failure of the importer step.\n"
+			"  scene  engine scene -> engine scene (`.bin` <-> `.json`).\n"
 			"\n"
 			"LOSSY MAPPINGS (v1)\n"
 			"  PBR -> Lambert: baseColorFactor -> diffuse_color (rgb) +\n"
@@ -136,6 +142,73 @@ namespace fury
 			"  fury version\n";
 
 		constexpr const char *kVersionString = "fury 0.2.1\n";
+
+		struct SceneCounts
+		{
+			int nodes = 0;
+			int meshes_static = 0;
+			int meshes_skinned = 0;
+			int submeshes = 0;
+			long long vertices = 0;
+			long long triangles = 0;
+			int materials = 0;
+			int textures = 0;
+			int animations = 0;
+			int joints = 0;
+			int meshes_total() const { return meshes_static + meshes_skinned; }
+		};
+
+		void CountScene(const std::shared_ptr<Scene> &scene,
+			SceneCounts &out,
+			Vector4 &aabb_min, Vector4 &aabb_max)
+		{
+			if (!scene) return;
+			auto root = scene->GetRootNode();
+
+			std::function<void(const std::shared_ptr<SceneNode>&)> walk =
+				[&](const std::shared_ptr<SceneNode> &node) {
+				if (!node) return;
+				++out.nodes;
+				auto comp_render = node->GetComponent<MeshRender>();
+				if (comp_render)
+				{
+					auto mesh = comp_render->GetMesh();
+					if (mesh)
+					{
+						for (unsigned int s = 0; s < mesh->GetSubMeshCount(); ++s)
+						{
+							++out.submeshes;
+							auto sub = mesh->GetSubMeshAt(s);
+							if (sub) out.triangles += sub->Indices.Data.size() / 3;
+						}
+						out.vertices += mesh->Positions.Data.size() / 3;
+						auto bounds = mesh->GetAABB();
+						Vector4 wmin = node->GetWorldMatrix().Multiply(bounds.GetMin());
+						Vector4 wmax = node->GetWorldMatrix().Multiply(bounds.GetMax());
+						aabb_min.x = std::min(aabb_min.x, std::min(wmin.x, wmax.x));
+						aabb_min.y = std::min(aabb_min.y, std::min(wmin.y, wmax.y));
+						aabb_min.z = std::min(aabb_min.z, std::min(wmin.z, wmax.z));
+						aabb_max.x = std::max(aabb_max.x, std::max(wmin.x, wmax.x));
+						aabb_max.y = std::max(aabb_max.y, std::max(wmin.y, wmax.y));
+						aabb_max.z = std::max(aabb_max.z, std::max(wmin.z, wmax.z));
+					}
+				}
+				for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+					walk(node->GetChildAt(i));
+			};
+			walk(root);
+
+			auto em = scene->GetEntityManager();
+			em->ForEach<Mesh>([&](const Mesh::Ptr &m) -> bool {
+				if (m->IsSkinnedMesh()) ++out.meshes_skinned;
+				else                    ++out.meshes_static;
+				out.joints += m->GetJointCount();
+				return true;
+			});
+			em->ForEach<Material>([&](const Material::Ptr &) -> bool { ++out.materials; return true; });
+			em->ForEach<Texture>([&](const Texture::Ptr &) -> bool { ++out.textures; return true; });
+			em->ForEach<AnimationClip>([&](const AnimationClip::Ptr &) -> bool { ++out.animations; return true; });
+		}
 
 		// ----- helpers --------------------------------------------------------
 
@@ -198,21 +271,7 @@ namespace fury
 		int WriteSceneByExt(const std::shared_ptr<Scene> &scene,
 			const std::string &out_path)
 		{
-			const std::string ext = ToLowerExt(out_path);
-			if (ext == ".json")
-			{
-				if (!FileUtil::SaveFile(scene, out_path)) return 1;
-			}
-			else if (ext == ".bin")
-			{
-				if (!FileUtil::SaveCompressedFile(scene, out_path)) return 1;
-			}
-			else
-			{
-				std::cerr << "fury convert: unsupported output extension '" << ext
-					<< "' (expected .json or .bin)\n";
-				return 1;
-			}
+			if (!FileUtil::SaveByExtension(scene, out_path)) return 1;
 			std::cout << "wrote " << out_path << "\n";
 			return 0;
 		}
@@ -226,10 +285,10 @@ namespace fury
 			}
 			const std::string kind = argv[2];
 
-			if (kind != "gltf" && kind != "fbx")
+			if (kind != "gltf" && kind != "fbx" && kind != "scene")
 			{
 				std::cerr << "fury convert: unknown kind '" << kind
-					<< "' (supported: gltf, fbx)\n";
+					<< "' (supported: gltf, fbx, scene)\n";
 				return 1;
 			}
 			if (argc < 5)
@@ -247,6 +306,38 @@ namespace fury
 			// Set the active scene so any Save paths that use Scene::Path
 			// resolve relative resources correctly. Cleared at function exit.
 			Scene::Active = nullptr;
+
+			if (kind == "scene")
+			{
+				if (in_ext != ".json" && in_ext != ".bin")
+				{
+					std::cerr << "fury convert scene: input must end in .json or .bin\n";
+					return 1;
+				}
+				if (out_ext != ".json" && out_ext != ".bin")
+				{
+					std::cerr << "fury convert scene: output must end in .json or .bin\n";
+					return 1;
+				}
+
+				std::string working_dir = DirOf(input);
+				if (!working_dir.empty()) working_dir += "/";
+				auto tree = OcTree::Create();
+				auto scene = Scene::Create("convert_scene", working_dir, tree);
+				Scene::Active = scene;
+				bool loaded = (in_ext == ".json")
+					? FileUtil::LoadFile(scene, input)
+					: FileUtil::LoadCompressedFile(scene, input);
+				if (!loaded)
+				{
+					Scene::Active = nullptr;
+					std::cerr << "fury convert scene: failed to load '" << input << "'\n";
+					return 1;
+				}
+				int rc = WriteSceneByExt(scene, output);
+				Scene::Active = nullptr;
+				return rc;
+			}
 
 			if (kind == "gltf")
 			{
@@ -373,48 +464,6 @@ namespace fury
 			return rc;
 		}
 
-		// Walk the engine Scene's node tree, counting nodes / submeshes /
-		// vertices / triangles, and unioning per-mesh AABBs at the world
-		// transform of the referencing nodes.
-		void WalkEngineScene(const std::shared_ptr<SceneNode> &node,
-			int &nodes, int &submeshes, long long &vertices, long long &triangles,
-			Vector4 &aabb_min, Vector4 &aabb_max)
-		{
-			if (!node) return;
-			++nodes;
-			// MeshRender contribution.
-			auto comp_render = node->GetComponent<MeshRender>();
-			if (comp_render)
-			{
-				auto mesh = comp_render->GetMesh();
-				if (mesh)
-				{
-					for (unsigned int s = 0; s < mesh->GetSubMeshCount(); ++s)
-					{
-						++submeshes;
-						auto sub = mesh->GetSubMeshAt(s);
-						if (sub) triangles += sub->Indices.Data.size() / 3;
-					}
-					vertices += mesh->Positions.Data.size() / 3;
-					// Compose mesh AABB into world space — coarse: just
-					// transform the mesh's min/max corner. (A tighter bound
-					// would walk all 8 corners. For info, coarse is fine.)
-					auto bounds = mesh->GetAABB();
-					Vector4 wmin = node->GetWorldMatrix().Multiply(bounds.GetMin());
-					Vector4 wmax = node->GetWorldMatrix().Multiply(bounds.GetMax());
-					aabb_min.x = std::min(aabb_min.x, std::min(wmin.x, wmax.x));
-					aabb_min.y = std::min(aabb_min.y, std::min(wmin.y, wmax.y));
-					aabb_min.z = std::min(aabb_min.z, std::min(wmin.z, wmax.z));
-					aabb_max.x = std::max(aabb_max.x, std::max(wmin.x, wmax.x));
-					aabb_max.y = std::max(aabb_max.y, std::max(wmin.y, wmax.y));
-					aabb_max.z = std::max(aabb_max.z, std::max(wmin.z, wmax.z));
-				}
-			}
-			for (unsigned int i = 0; i < node->GetChildCount(); ++i)
-				WalkEngineScene(node->GetChildAt(i), nodes, submeshes, vertices, triangles,
-					aabb_min, aabb_max);
-		}
-
 		int InfoEngineScene(const std::string &path, const std::string &ext)
 		{
 			std::error_code ec;
@@ -433,38 +482,26 @@ namespace fury
 				return 1;
 			}
 
-			int nodes = 0, submeshes = 0;
-			long long vertices = 0, triangles = 0;
+			SceneCounts c;
 			Vector4 amin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
 				std::numeric_limits<float>::max(), 1.0f);
 			Vector4 amax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
 				-std::numeric_limits<float>::max(), 1.0f);
-			WalkEngineScene(scene->GetRootNode(), nodes, submeshes, vertices, triangles, amin, amax);
-
-			// Mesh static/skinned + material/animation/joint counts via EntityManager.
-			int meshes_static = 0, meshes_skinned = 0, materials = 0, anims = 0, joints = 0;
-			auto em = scene->GetEntityManager();
-			em->ForEach<Mesh>([&](const Mesh::Ptr &m) -> bool {
-				if (m->IsSkinnedMesh()) ++meshes_skinned;
-				else                    ++meshes_static;
-				joints += m->GetJointCount();
-				return true;
-			});
-			em->ForEach<Material>([&](const Material::Ptr &) -> bool { ++materials; return true; });
-			em->ForEach<AnimationClip>([&](const AnimationClip::Ptr &) -> bool { ++anims; return true; });
+			CountScene(scene, c, amin, amax);
 
 			std::printf("path:           %s\n", path.c_str());
 			std::printf("format:         %s\n", ext == ".json" ? "scene-json" : "scene-bin");
-			std::printf("nodes:          %d\n", nodes);
+			std::printf("nodes:          %d\n", c.nodes);
 			std::printf("meshes:         %d  (static: %d, skinned: %d)\n",
-				meshes_static + meshes_skinned, meshes_static, meshes_skinned);
-			std::printf("submeshes:      %d\n", submeshes);
-			std::printf("vertices:       %lld\n", vertices);
-			std::printf("triangles:      %lld\n", triangles);
-			std::printf("materials:      %d\n", materials);
-			std::printf("animations:     %d\n", anims);
-			std::printf("joints:         %d\n", joints);
-			if (nodes > 0)
+				c.meshes_total(), c.meshes_static, c.meshes_skinned);
+			std::printf("submeshes:      %d\n", c.submeshes);
+			std::printf("vertices:       %lld\n", c.vertices);
+			std::printf("triangles:      %lld\n", c.triangles);
+			std::printf("materials:      %d\n", c.materials);
+			std::printf("textures:       %d\n", c.textures);
+			std::printf("animations:     %d\n", c.animations);
+			std::printf("joints:         %d\n", c.joints);
+			if (c.nodes > 0)
 				std::printf("aabb:           min=(%g, %g, %g) max=(%g, %g, %g)\n",
 					amin.x, amin.y, amin.z, amax.x, amax.y, amax.z);
 			else
@@ -597,6 +634,12 @@ namespace fury
 		// macros assume Log<0> is up. Bring it up here at WARN level
 		// (console-only, no file) so importer warnings appear on stderr but
 		// debug chatter doesn't drown the user.
+		// ThreadUtil must be up before Log<0> — Formatter::Simple calls
+		// ThreadUtil::Instance()->IsMainThread() while emitting each log
+		// record, so any log after Initialize would crash on the missing
+		// singleton. Pass 0 workers; the CLI doesn't enqueue tasks.
+		ThreadUtil::Initialize(0);
+		ThreadUtil::Instance()->SetMainThread();
 		Log<0>::Initialize(LogLevel::WARN, nullptr, /*console=*/true,
 			Formatter::Simple, /*append=*/false);
 		// Texture::Create calls BufferManager::Instance()->Add even on the

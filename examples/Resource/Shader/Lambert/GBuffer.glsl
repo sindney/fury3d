@@ -59,10 +59,8 @@ uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 
 #ifdef WITH_EDITOR
-// Editor LOD-debug tint. Alpha > 0 means "tint by lod_debug_color.rgb".
-// Engine resets this to vec4(0) each frame the toggle is off (see
-// PrelightPipeline::DrawUnit) so the program object's prior value
-// doesn't leak through.
+// LOD-debug tint. Reset to vec4(0) each frame the toggle is off
+// (PrelightPipeline::DrawUnit) so prior state doesn't leak.
 uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
 #endif
 

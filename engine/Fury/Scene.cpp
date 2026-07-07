@@ -64,7 +64,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 
 	// load textures (top-level array, if present — new format)
 	if (auto texWrapper = FindMember(wrapper, "textures")) {
-		LoadArray(texWrapper, "textures", [&](const void* node) -> bool {
+		LoadArray(texWrapper, [&](const void* node) -> bool {
 			auto texture = Texture::Create("temp");
 			if (!texture->Load(node))
 				return false;
