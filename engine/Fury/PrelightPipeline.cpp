@@ -25,6 +25,10 @@
 #include "Fury/SphereBounds.h"
 #include "Fury/Texture.h"
 
+#ifdef WITH_EDITOR
+#include "Fury/Editor/EditorDebug.h"
+#endif
+
 namespace fury
 {
 	PrelightPipeline::Ptr PrelightPipeline::Create(const std::string &name)
@@ -82,6 +86,14 @@ namespace fury
 		m_CurrentMateral = nullptr;
 		m_CurrentMesh = nullptr;
 		SortPassByIndex();
+
+		// Drop last-frame's per-light shadow map cache. The map is
+		// populated by Draw{Dir,Point,Spot,Cascaded}LightShadowMap
+		// during the per-pass draw loop below and read by the editor's
+		// Profiler -> Shadows tab after Execute returns. Clearing here
+		// ensures light pointers from the previous frame cannot leak
+		// into the new frame.
+		m_LastShadowTextures.clear();
 
 		// find visible nodes
 		RenderQuery::Ptr query = RenderQuery::Create();
@@ -253,6 +265,26 @@ namespace fury
 
 		if (meshChanged)
 			shader->BindMesh(mesh);
+
+		// Per-instance LOD debug tint. When the LOD_DEBUG_COLORS switch is
+		// on, push the active LOD's deterministic color onto the shader so
+		// the fragment can replace/tint its output. When the switch is off,
+		// we still bind the uniform — but to vec4(0) — because OpenGL
+		// program objects retain their last-set uniform values indefinitely,
+		// so a "do nothing" here would leave the previous frame's green
+		// baked in. The shader's `lod_debug_color.a > 0.0` gate treats
+		// alpha = 0 as "no override" and passes the diffuse through.
+#ifdef WITH_EDITOR
+		if (m_Switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
+		{
+			Color lodColor = GetLodDebugColor(render->GetActiveLod());
+			shader->BindFloat("lod_debug_color", lodColor.r, lodColor.g, lodColor.b, lodColor.a);
+		}
+		else
+		{
+			shader->BindFloat("lod_debug_color", 0.0f, 0.0f, 0.0f, 0.0f);
+		}
+#endif
 
 		if (mesh->GetSubMeshCount() > 0)
 		{

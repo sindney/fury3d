@@ -58,6 +58,14 @@ uniform sampler2D diffuse_texture;
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 
+#ifdef WITH_EDITOR
+// Editor LOD-debug tint. Alpha > 0 means "tint by lod_debug_color.rgb".
+// Engine resets this to vec4(0) each frame the toggle is off (see
+// PrelightPipeline::DrawUnit) so the program object's prior value
+// doesn't leak through.
+uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
+#endif
+
 // normal.xyz, shininess
 layout (location = 0) out vec4 rt0;
 // diffuse rgb, specular intensity
@@ -68,7 +76,12 @@ void main()
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
 	rt0.a = 1.0;
 
-	rt1.rgb = texture(diffuse_texture, out_uv).rgb * diffuse_factor + ambient_color * ambient_factor;
+	vec3 finalDiffuse = texture(diffuse_texture, out_uv).rgb * diffuse_factor + ambient_color * ambient_factor;
+#ifdef WITH_EDITOR
+	if (lod_debug_color.a > 0.0)
+		finalDiffuse *= lod_debug_color.rgb;
+#endif
+	rt1.rgb = finalDiffuse;
 	rt1.a = 1.0;
 
 	gl_FragDepth = out_depth / camera_far;

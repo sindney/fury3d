@@ -53,6 +53,11 @@ uniform vec3 diffuse_color;
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 
+#ifdef WITH_EDITOR
+// Editor LOD-debug tint. See GBuffer.glsl.
+uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
+#endif
+
 // normal.xyz, shininess
 layout (location = 0) out vec4 rt0;
 // diffuse rgb
@@ -63,9 +68,14 @@ void main()
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
 	rt0.a = 1.0;
 
-	rt1.rgb = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;
+	vec3 finalDiffuse = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;
+#ifdef WITH_EDITOR
+	if (lod_debug_color.a > 0.0)
+		finalDiffuse *= lod_debug_color.rgb;
+#endif
+	rt1.rgb = finalDiffuse;
 	rt1.a = 1.0;
-	
+
 	gl_FragDepth = out_depth / camera_far;
 }
 

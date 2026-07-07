@@ -254,6 +254,14 @@ namespace fury
 		return m_EntityManager->Get<Shader>(name);
 	}
 
+	std::shared_ptr<Texture> Pipeline::GetLastShadowTexture(const SceneNode &lightNode) const
+	{
+		auto it = m_LastShadowTextures.find(const_cast<SceneNode*>(&lightNode));
+		if (it == m_LastShadowTextures.end())
+			return nullptr;
+		return it->second;
+	}
+
 	std::shared_ptr<SceneNode> Pipeline::GetCurrentCamera() const
 	{
 		return m_CurrentCamera;
@@ -460,6 +468,7 @@ namespace fury
 		for (int i = 0; i < numSplit; i++)
 			matrices.push_back(m_OffsetMatrix * projMatrices[i] * lightMatrix * m_CurrentCamera->GetWorldMatrix());
 
+		m_LastShadowTextures[node.get()] = depth_buffer;
 		return std::make_pair(depth_buffer, matrices);
 	}
 
@@ -535,6 +544,7 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
+		m_LastShadowTextures[node.get()] = depth_buffer;
 		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
 	}
 
@@ -624,6 +634,7 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
+		m_LastShadowTextures[node.get()] = depth_buffer;
 		return std::make_pair(depth_buffer, m_CurrentCamera->GetWorldMatrix());
 	}
 
@@ -700,6 +711,7 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
+		m_LastShadowTextures[node.get()] = depth_buffer;
 		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
 	}
 

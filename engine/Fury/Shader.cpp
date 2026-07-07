@@ -191,6 +191,14 @@ namespace fury
 		m_UseGeomShader = gsData.size() > 0;
 
 		std::stringstream defineStream;
+		// Mirror the C++ build flag as a GLSL preprocessor define so
+		// editor-only shader code (#ifdef WITH_EDITOR) is compiled in
+		// only for editor builds. Headless builds skip the branches,
+		// which keeps the runtime shader the same as the production
+		// one — no dead uniform lookups, no driver divergence.
+#ifdef WITH_EDITOR
+		defineStream << "#define WITH_EDITOR\n";
+#endif
 		for (auto define : m_Defines)
 			defineStream << "#define " << define << "\n";
 

@@ -46,6 +46,7 @@ namespace fury
 		LIGHT_BOUNDS,
 		CUSTOM_BOUNDS,
 		OCTREE_BOUNDS,
+		LOD_DEBUG_COLORS,
 		LENGTH
 	};
 
@@ -96,6 +97,15 @@ namespace fury
 
 		std::vector<Frustum> m_DebugFrustum;
 
+		// Per-frame, per-light shadow texture cache for editor debug views.
+		// Keyed by the light's SceneNode* raw pointer (lifetime = scene
+		// lifetime; cleared at the top of each Execute). Value is the
+		// shadow texture returned by Draw{Dir,Point,Spot,Cascaded}LightShadowMap.
+		// Only populated when a shadow map was actually drawn this frame;
+		// the editor's Profiler -> Shadows tab reads this to render one
+		// section per shadow-casting light.
+		std::unordered_map<SceneNode*, std::shared_ptr<Texture>> m_LastShadowTextures;
+
 		// end debug
 
 	public:
@@ -130,6 +140,13 @@ namespace fury
 		std::shared_ptr<Texture> GetTextureByName(const std::string &name);
 
 		std::shared_ptr<Shader> GetShaderByName(const std::string &name);
+
+		// Returns the shadow texture most recently drawn for the given light
+		// during this frame, or nullptr if no shadow map was rendered for it
+		// (e.g. CastShadows is false, or the light was culled). Cleared at the
+		// top of each Execute(); consumers in the editor must read this
+		// AFTER Pipeline::Execute and before the next Execute.
+		std::shared_ptr<Texture> GetLastShadowTexture(const SceneNode &lightNode) const;
 
 		std::shared_ptr<SceneNode> GetCurrentCamera() const;
 

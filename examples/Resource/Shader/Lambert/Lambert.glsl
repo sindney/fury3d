@@ -24,12 +24,15 @@ out vec4 fragment_output;
 uniform sampler2D gbuffer_diffuse;
 uniform sampler2D gbuffer_light;
 
-// Set to 1 when the final composite renders into the editor's offscreen
-// viewport render target (a non-sRGB RGBA8 FBO). The default framebuffer
-// path leaves this 0 and relies on GL_FRAMEBUFFER_SRGB to gamma-encode;
-// that GL path is a no-op for non-sRGB FBOs, so the shader must encode
-// itself to keep the viewport from rendering too dark.
+// 1 = shader-side sRGB encode (non-sRGB FBO, e.g. editor viewport).
+// 0 = GL_FRAMEBUFFER_SRGB encodes (default framebuffer).
 uniform int u_gamma_correct;
+
+#ifdef WITH_EDITOR
+// Editor LOD-debug tint. The GBuffer pass bakes it into diffuse, so
+// the composite re-multiplies the same color here. See GBuffer.glsl.
+uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
+#endif
 
 void main()
 {
@@ -37,12 +40,14 @@ void main()
 	vec4 lighting = texture(gbuffer_light, out_uv);
 
 	vec3 col = lighting.rgb * diffuse.rgb;
+#ifdef WITH_EDITOR
+	if (lod_debug_color.a > 0.0)
+		col *= lod_debug_color.rgb;
+#endif
 	if (u_gamma_correct != 0)
 	{
-		// Exact sRGB encoding curve (matches GL_FRAMEBUFFER_SRGB, which
-		// is a no-op for the non-sRGB viewport RT). Using the precise
-		// piecewise curve instead of pow(x, 1/2.2) keeps the viewport's
-		// dark values matching the default-framebuffer render.
+		// Piecewise sRGB encode — matches GL_FRAMEBUFFER_SRGB so the
+		// editor viewport's dark values agree with the default FB.
 		col.r = (col.r <= 0.0031308) ? 12.92 * col.r : 1.055 * pow(col.r, 1.0 / 2.4) - 0.055;
 		col.g = (col.g <= 0.0031308) ? 12.92 * col.g : 1.055 * pow(col.g, 1.0 / 2.4) - 0.055;
 		col.b = (col.b <= 0.0031308) ? 12.92 * col.b : 1.055 * pow(col.b, 1.0 / 2.4) - 0.055;

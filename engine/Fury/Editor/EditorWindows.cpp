@@ -1,14 +1,15 @@
 #ifdef WITH_EDITOR
 
-#include "Fury/BoxBounds.h"
 #include "Fury/BufferManager.h"
 #include "Fury/Camera.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
+#include "Fury/Editor/EditorDebug.h"
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/EntityManager.h"
+#include "Fury/Light.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Log.h"
@@ -16,8 +17,8 @@
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
-#include "Fury/OcTree.h"
 #include "Fury/Pipeline.h"
+#include "Fury/SceneManager.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -123,6 +124,35 @@ void RenderSettingsWindow(bool* open) {
 // Profiler window (FPS / GBuffer / Shadows tabs)
 // ----------------------------------------------------------------
 namespace {
+// Shadows tab light-selector state. Index into the sorted
+// shadow-casting light list (always >= 0; clamped to range at the
+// top of each Shadows tab render). Session-local; matches the
+// existing pattern (e.g. draw_light_bounds) of keeping editor
+// toggles in static state rather than imgui.ini.
+int g_SelectedShadowLightIndex = 0;
+
+// Recursive helper: collect every SceneNode whose Light casts shadows.
+void CollectShadowCasters(const std::shared_ptr<SceneNode> &node,
+	std::vector<std::shared_ptr<SceneNode>> &out)
+{
+	if (!node) return;
+	if (auto light = node->GetComponent<Light>()) {
+		if (light->GetCastShadows())
+			out.push_back(node);
+	}
+	for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+		CollectShadowCasters(node->GetChildAt(i), out);
+}
+
+// Stable sort: directional first, then point, then spot.
+static int LightTypeRank(LightType type) {
+	switch (type) {
+	case LightType::DIRECTIONAL: return 0;
+	case LightType::POINT: return 1;
+	case LightType::SPOT: return 2;
+	}
+	return 3;
+}
 void RenderProfilerFpsTab() {
 	static float upper_bound = 100.0f;
 	const float curFps = ImGui::GetIO().Framerate;
@@ -153,54 +183,67 @@ void RenderProfilerFpsTab() {
 	ImGui::Text("Light: %u", RenderUtil::Instance()->GetLightCount());
 
 	ImGui::Separator();
+	ImGui::Text("Debug Overlays:");
 
+	// Multi-select combo: scene-debug toggles are independent and
+	// toggled together often, so ImGuiSelectableFlags_DontClosePopups
+	// lets the user flip several in one open. The preview shows the
+	// single-selected name, or a count when more are active.
 	static bool draw_light_bounds = false;
 	static bool draw_mesh_bounds = false;
 	static bool draw_custom_bounds = false;
-	static bool use_csm = true;
-	ImGui::Checkbox("Draw Light Bounds", &draw_light_bounds);
-	ImGui::Checkbox("Draw Mesh Bounds", &draw_mesh_bounds);
-	ImGui::Checkbox("Draw Custom Bounds", &draw_custom_bounds);
-	ImGui::Checkbox("Use Cascaded Shadow Map", &use_csm);
+	static bool draw_octree_bounds = false;
+	static bool lod_debug_on = false;
+
+	const char* overlayItems[] = {
+		"Draw Light Bounds",
+		"Draw Mesh Bounds",
+		"Draw Custom Bounds",
+		"Draw OcTree Bounds",
+		"LOD Debug Colors"
+	};
+	bool overlayState[] = {
+		draw_light_bounds,
+		draw_mesh_bounds,
+		draw_custom_bounds,
+		draw_octree_bounds,
+		lod_debug_on
+	};
+	int selectedCount = 0;
+	int firstSelected = -1;
+	for (int i = 0; i < 5; ++i) {
+		if (overlayState[i]) {
+			++selectedCount;
+			if (firstSelected < 0) firstSelected = i;
+		}
+	}
+	std::string overlayPreview;
+	if (selectedCount == 0)       overlayPreview = "(none)";
+	else if (selectedCount == 1)  overlayPreview = overlayItems[firstSelected];
+	else                          overlayPreview = std::to_string(selectedCount) + " overlays selected";
+
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	if (ImGui::BeginCombo("##debug_overlays", overlayPreview.c_str())) {
+		for (int i = 0; i < 5; ++i) {
+			if (ImGui::Selectable(overlayItems[i], overlayState[i],
+								  ImGuiSelectableFlags_DontClosePopups)) {
+				overlayState[i] = !overlayState[i];
+			}
+		}
+		ImGui::EndCombo();
+	}
+	draw_light_bounds   = overlayState[0];
+	draw_mesh_bounds    = overlayState[1];
+	draw_custom_bounds  = overlayState[2];
+	draw_octree_bounds  = overlayState[3];
+	lod_debug_on        = overlayState[4];
+
 	if (Pipeline::Active) {
 		Pipeline::Active->SetSwitch(PipelineSwitch::LIGHT_BOUNDS, draw_light_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::MESH_BOUNDS, draw_mesh_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
-		Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm);
-	}
-
-	ImGui::Separator();
-	ImGui::Text("OcTree:");
-
-	auto sm = Scene::Active ? Scene::Active->GetSceneManager() : nullptr;
-	if (!sm) {
-		ImGui::TextDisabled("(no active scene)");
-	} else if (auto tree = std::dynamic_pointer_cast<OcTree>(sm)) {
-		if (!tree->IsRooted()) {
-			ImGui::Text("Root: (unrooted)");
-			ImGui::Text("Scene Nodes: 0  Tree Nodes: 0  Max Depth: 0");
-		} else {
-			BoxBounds aabb = tree->GetRootAABB();
-			Vector4 mn = aabb.GetMin();
-			Vector4 mx = aabb.GetMax();
-			ImGui::Text("Root Min: (%.1f, %.1f, %.1f)", mn.x, mn.y, mn.z);
-			ImGui::Text("Root Max: (%.1f, %.1f, %.1f)", mx.x, mx.y, mx.z);
-			ImGui::Text("Scene Nodes: %u  Tree Nodes: %u  Max Depth: %u",
-						tree->GetTotalSceneNodeCount(),
-						tree->GetOccupiedNodeCount(),
-						tree->GetMaxOccupiedDepth());
-		}
-
-		static bool draw_octree_bounds = false;
-		if (ImGui::Checkbox("Draw OcTree Bounds", &draw_octree_bounds)) {
-			if (Pipeline::Active)
-				Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
-		} else if (Pipeline::Active) {
-			// Keep pipeline state in sync if something else flipped it.
-			Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
-		}
-	} else {
-		ImGui::TextDisabled("(non-octree scene manager)");
+		Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
+		Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on);
 	}
 }
 
@@ -242,123 +285,230 @@ void RenderProfilerShadowsTab() {
 		ImGui::TextDisabled("(no active pipeline)");
 		return;
 	}
+	if (!Scene::Active) {
+		ImGui::TextDisabled("(no active scene)");
+		return;
+	}
 
+	// Cascaded shadow maps is a shadow-rendering decision, so its
+	// toggle lives here rather than on the FPS tab. Default on to
+	// match the PrelightPipeline ctor's CASCADED_SHADOW_MAP=true.
+	static bool use_csm = true;
+	ImGui::Checkbox("Use Cascaded Shadow Maps", &use_csm);
+	Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm);
+
+	ImGui::Separator();
+
+	// 1. Walk the active scene to collect every Shadow-casting Light.
+	//    We walk SceneNode directly (instead of RenderQuery::lightNodes)
+	//    because RenderQuery is frustum-culled; off-screen lights that
+	//    are still candidates should appear in the dropdown.
+	std::vector<std::shared_ptr<SceneNode>> shadowLightNodes;
+	CollectShadowCasters(Scene::Active->GetRootNode(), shadowLightNodes);
+
+	std::sort(shadowLightNodes.begin(), shadowLightNodes.end(),
+		[](const std::shared_ptr<SceneNode> &a, const std::shared_ptr<SceneNode> &b) {
+			auto la = a->GetComponent<Light>();
+			auto lb = b->GetComponent<Light>();
+			int ra = la ? LightTypeRank(la->GetType()) : 99;
+			int rb = lb ? LightTypeRank(lb->GetType()) : 99;
+			if (ra != rb) return ra < rb;
+			return a->GetName() < b->GetName();
+		});
+
+	if (shadowLightNodes.empty()) {
+		ImGui::TextDisabled("(no shadow-casting lights)");
+		return;
+	}
+
+	// Clamp selection into the current list (scene reload may shrink it).
+	if (g_SelectedShadowLightIndex < 0 ||
+		g_SelectedShadowLightIndex >= (int)shadowLightNodes.size()) {
+		g_SelectedShadowLightIndex = 0;
+	}
+
+	// 2. Light-selector combo. Hidden when only one light (no point
+	//    showing a picker). The dropdown lists individual lights only;
+	//    there is no "All lights" entry — each shadow map is large
+	//    enough that stacking them is not useful.
+	if (shadowLightNodes.size() > 1) {
+		auto selNode = shadowLightNodes[g_SelectedShadowLightIndex];
+		auto selLight = selNode->GetComponent<Light>();
+		static thread_local std::string previewBuf;
+		previewBuf = EnumUtil::LightTypeToString(selLight->GetType());
+		previewBuf += " - ";
+		previewBuf += selNode->GetName();
+
+		ImGui::Text("Light:");
+		ImGui::SameLine();
+		if (ImGui::BeginCombo("##shadow_light_picker", previewBuf.c_str())) {
+			for (int i = 0; i < (int)shadowLightNodes.size(); ++i) {
+				auto n = shadowLightNodes[i];
+				auto l = n->GetComponent<Light>();
+				std::string entry = EnumUtil::LightTypeToString(l->GetType());
+				entry += " - ";
+				entry += n->GetName();
+				bool sel = (g_SelectedShadowLightIndex == i);
+				if (ImGui::Selectable(entry.c_str(), sel))
+					g_SelectedShadowLightIndex = i;
+				if (sel) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+	}
+
+	// 3. Render the selected light's shadow section.
 	const float scale = 1.0f;
 
-	if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*0*depth24*2d")) {
-		ImGui::Text("2D Shadow Map: ");
-		ImGui::Image((ImTextureID)(intptr_t)ptr->GetID(),
-					 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
-	}
+	auto renderOneSection = [&](const std::shared_ptr<SceneNode> &lightNode) {
+		auto light = lightNode->GetComponent<Light>();
+		if (!light) return;
 
-	// Cube shadow map: blit each face into a temporary 2D texture
-	// using a one-time-compiled blitter, then preview the six 2Ds.
-	if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("512*512*0*depth24*cube")) {
-		static auto img0 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img1 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img2 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img3 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img4 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img5 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto blitShader = Shader::Create("EditorBlitCubeShader", ShaderType::OTHER);
+		const std::string typeName = EnumUtil::LightTypeToString(light->GetType());
+		std::string header = "Shadow - ";
+		header += typeName;
+		header += " ";
+		header += lightNode->GetName();
+		ImGui::Text("%s", header.c_str());
 
-		if (blitShader->GetDirty()) {
-			const char* blit_vs =
-				"in vec3 vertex_position;"
-				"out vec2 out_uv;"
-				"void main()"
-				"{"
-				"	out_uv = vertex_position.xy * 0.5 + 0.5;"
-				"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
-				"}";
-			const char* blit_fs =
-				"uniform samplerCube src;"
-				"uniform mat4 matrix;"
-				"in vec2 out_uv;"
-				"out vec4 fragment_output;"
-				"void main()"
-				"{"
-				"   vec4 dir = matrix * vec4(out_uv.x, 1.0 - out_uv.y, 1.0, 1.0);"
-				"	fragment_output = texture(src, dir.xyz);"
-				"}";
-			blitShader->Compile(blit_vs, blit_fs, "");
+		auto shadowTex = Pipeline::Active->GetLastShadowTexture(*lightNode);
+		if (!shadowTex) {
+			ImGui::TextDisabled("(no shadow map this frame)");
+			ImGui::Separator();
+			return;
 		}
 
-		std::array<Matrix4, 6> dirMatrices;
-		Vector4 lightPos(0, 0, 0, 1);
-		dirMatrices[0].LookAt(lightPos, lightPos + Vector4(1.0f, 0.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f));
-		dirMatrices[1].LookAt(lightPos, lightPos + Vector4(-1.0f, 0.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f));
-		dirMatrices[2].LookAt(lightPos, lightPos + Vector4(0.0f, 1.0f, 0.0f), Vector4(0.0f, 0.0f, 1.0f));
-		dirMatrices[3].LookAt(lightPos, lightPos + Vector4(0.0f, -1.0f, 0.0f), Vector4(0.0f, 0.0f, -1.0f));
-		dirMatrices[4].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, 1.0f), Vector4(0.0f, -1.0f, 0.0f));
-		dirMatrices[5].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, -1.0f), Vector4(0.0f, -1.0f, 0.0f));
+		switch (light->GetType()) {
+		case LightType::DIRECTIONAL:
+			if (Pipeline::Active->IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP)) {
+				static auto img0 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+				static auto img1 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+				static auto img2 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+				static auto img3 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+				static auto blitShader = Shader::Create("EditorBlitArrayShader", ShaderType::OTHER);
 
-		auto render = RenderUtil::Instance();
-		std::shared_ptr<Texture> faces[6] = {img0, img1, img2, img3, img4, img5};
-		for (int i = 0; i < 6; ++i) {
-			blitShader->Bind();
-			blitShader->BindMatrix("matrix", dirMatrices[i]);
-			render->Blit(ptr, faces[i], blitShader);
+				if (blitShader->GetDirty()) {
+					const char* blit_vs =
+						"in vec3 vertex_position;"
+						"out vec2 out_uv;"
+						"void main()"
+						"{"
+						"	out_uv = vertex_position.xy * 0.5 + 0.5;"
+						"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
+						"}";
+					const char* blit_fs =
+						"uniform sampler2DArray src;"
+						"uniform float index;"
+						"in vec2 out_uv;"
+						"out vec4 fragment_output;"
+						"void main()"
+						"{"
+						"	fragment_output = texture(src, vec3(out_uv, index));"
+						"}";
+					blitShader->Compile(blit_vs, blit_fs, "");
+				}
+
+				auto render = RenderUtil::Instance();
+				std::shared_ptr<Texture> slices[4] = {img0, img1, img2, img3};
+				for (int i = 0; i < 4; ++i) {
+					blitShader->Bind();
+					blitShader->BindFloat("index", (float)i);
+					render->Blit(shadowTex, slices[i], blitShader);
+				}
+
+				ImGui::BeginGroup();
+				for (int row = 0; row < 2; ++row) {
+					ImGui::Image((ImTextureID)(intptr_t)slices[row * 2]->GetID(),
+								 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::SameLine(140);
+					ImGui::Image((ImTextureID)(intptr_t)slices[row * 2 + 1]->GetID(),
+								 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+				}
+				ImGui::EndGroup();
+			} else {
+				ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
+							 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
+			}
+			break;
+
+		case LightType::SPOT:
+			ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
+						 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
+			break;
+
+		case LightType::POINT: {
+			static auto img0 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			static auto img1 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			static auto img2 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			static auto img3 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			static auto img4 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			static auto img5 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			static auto blitShader = Shader::Create("EditorBlitCubeShader", ShaderType::OTHER);
+
+			if (blitShader->GetDirty()) {
+				const char* blit_vs =
+					"in vec3 vertex_position;"
+					"out vec2 out_uv;"
+					"void main()"
+					"{"
+					"	out_uv = vertex_position.xy * 0.5 + 0.5;"
+					"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
+					"}";
+				const char* blit_fs =
+					"uniform samplerCube src;"
+					"uniform mat4 matrix;"
+					"in vec2 out_uv;"
+					"out vec4 fragment_output;"
+					"void main()"
+					"{"
+					"   vec4 dir = matrix * vec4(out_uv.x, 1.0 - out_uv.y, 1.0, 1.0);"
+					"	fragment_output = texture(src, dir.xyz);"
+					"}";
+				blitShader->Compile(blit_vs, blit_fs, "");
+			}
+
+			// Use the light's actual world position so the cube faces
+			// are oriented around the light, not around the origin.
+			Vector4 lightPos(
+				lightNode->GetWorldPosition().x,
+				lightNode->GetWorldPosition().y,
+				lightNode->GetWorldPosition().z,
+				1.0f);
+			std::array<Matrix4, 6> dirMatrices;
+			dirMatrices[0].LookAt(lightPos, lightPos + Vector4(1.0f, 0.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f));
+			dirMatrices[1].LookAt(lightPos, lightPos + Vector4(-1.0f, 0.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f));
+			dirMatrices[2].LookAt(lightPos, lightPos + Vector4(0.0f, 1.0f, 0.0f), Vector4(0.0f, 0.0f, 1.0f));
+			dirMatrices[3].LookAt(lightPos, lightPos + Vector4(0.0f, -1.0f, 0.0f), Vector4(0.0f, 0.0f, -1.0f));
+			dirMatrices[4].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, 1.0f), Vector4(0.0f, -1.0f, 0.0f));
+			dirMatrices[5].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, -1.0f), Vector4(0.0f, -1.0f, 0.0f));
+
+			auto render = RenderUtil::Instance();
+			std::shared_ptr<Texture> faces[6] = {img0, img1, img2, img3, img4, img5};
+			for (int i = 0; i < 6; ++i) {
+				blitShader->Bind();
+				blitShader->BindMatrix("matrix", dirMatrices[i]);
+				render->Blit(shadowTex, faces[i], blitShader);
+			}
+
+			ImGui::BeginGroup();
+			for (int row = 0; row < 3; ++row) {
+				ImGui::Image((ImTextureID)(intptr_t)faces[row * 2]->GetID(),
+							 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+				ImGui::SameLine(140);
+				ImGui::Image((ImTextureID)(intptr_t)faces[row * 2 + 1]->GetID(),
+							 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+			}
+			ImGui::EndGroup();
+			break;
+		}
 		}
 
-		ImGui::Text("Cube Shadow Map: ");
-		ImGui::BeginGroup();
-		for (int row = 0; row < 3; ++row) {
-			ImGui::Image((ImTextureID)(intptr_t)faces[row * 2]->GetID(),
-						 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-			ImGui::SameLine(140);
-			ImGui::Image((ImTextureID)(intptr_t)faces[row * 2 + 1]->GetID(),
-						 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-		}
-		ImGui::EndGroup();
-	}
+		ImGui::Separator();
+	};
 
-	if (auto ptr = Pipeline::Active->GetEntityManager()->Get<Texture>("1024*1024*4*depth24*2d_array")) {
-		static auto img0 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img1 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img2 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto img3 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		static auto blitShader = Shader::Create("EditorBlitArrayShader", ShaderType::OTHER);
-
-		if (blitShader->GetDirty()) {
-			const char* blit_vs =
-				"in vec3 vertex_position;"
-				"out vec2 out_uv;"
-				"void main()"
-				"{"
-				"	out_uv = vertex_position.xy * 0.5 + 0.5;"
-				"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
-				"}";
-			const char* blit_fs =
-				"uniform sampler2DArray src;"
-				"uniform float index;"
-				"in vec2 out_uv;"
-				"out vec4 fragment_output;"
-				"void main()"
-				"{"
-				"	fragment_output = texture(src, vec3(out_uv, index));"
-				"}";
-			blitShader->Compile(blit_vs, blit_fs, "");
-		}
-
-		auto render = RenderUtil::Instance();
-		std::shared_ptr<Texture> slices[4] = {img0, img1, img2, img3};
-		for (int i = 0; i < 4; ++i) {
-			blitShader->Bind();
-			blitShader->BindFloat("index", (float)i);
-			render->Blit(ptr, slices[i], blitShader);
-		}
-
-		ImGui::Text("Cascaded Shadow Map: ");
-		ImGui::BeginGroup();
-		for (int row = 0; row < 2; ++row) {
-			ImGui::Image((ImTextureID)(intptr_t)slices[row * 2]->GetID(),
-						 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-			ImGui::SameLine(140);
-			ImGui::Image((ImTextureID)(intptr_t)slices[row * 2 + 1]->GetID(),
-						 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
-		}
-		ImGui::EndGroup();
+	if (g_SelectedShadowLightIndex >= 0 &&
+		g_SelectedShadowLightIndex < (int)shadowLightNodes.size()) {
+		renderOneSection(shadowLightNodes[g_SelectedShadowLightIndex]);
 	}
 }
 } // namespace
