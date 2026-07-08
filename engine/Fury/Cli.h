@@ -26,7 +26,7 @@ namespace fury
 		// router in examples/main.cpp uses this to decide whether to take
 		// the CLI path or fall through to the Lua launcher path.
 		//
-		// Recognized tokens: convert, info, help, --help, -h, version, --version.
+		// Recognized tokens: convert, info, exec, help, --help, -h, version, --version.
 		static bool LooksLikeSubcommand(const char *arg0);
 
 		// Dispatch the CLI on argv. Returns a process exit code (see above).

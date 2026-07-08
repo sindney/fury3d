@@ -19,6 +19,7 @@
 #include "Fury/FileUtil.h"
 #include "Fury/GltfImporter.h"
 #include "Fury/Log.h"
+#include "Fury/LuaBindings.h"
 #include "Fury/Material.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
@@ -29,6 +30,8 @@
 #include "Fury/Texture.h"
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
+
+#include <sol/sol.hpp>
 
 // tinygltf — same #define dance as GltfImporter.cpp (see comment there).
 #define TINYGLTF_NO_STB_IMAGE
@@ -63,6 +66,7 @@ namespace fury
 			"  convert        convert assets between formats (glTF/FBX -> engine scene.json/.bin)\n"
 			"                 plus scene -> scene (.json <-> .bin)\n"
 			"  info           print a CPU-side summary of a scene or asset file\n"
+			"  exec           load a scene and run a Lua script against it (headless)\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
 			"\n"
@@ -140,6 +144,54 @@ namespace fury
 			"\n"
 			"USAGE\n"
 			"  fury version\n";
+
+		constexpr const char *kExecHelp =
+			"fury exec — load a scene and run a Lua script against it (headless)\n"
+			"\n"
+			"USAGE\n"
+			"  fury exec <scene> <script.lua> [args...]\n"
+			"\n"
+			"SUPPORTED SCENE EXTENSIONS\n"
+			"  .json   engine scene format (Serializable JSON)\n"
+			"  .bin    engine scene format (LZ4-compressed Serializable JSON)\n"
+			"  .gltf   glTF 2.0 ASCII\n"
+			"  .glb    glTF 2.0 binary\n"
+			"  .fbx    chained via FBX2glTF subprocess into a temp glb, then read\n"
+			"\n"
+			"INVARIANTS\n"
+			"  No SFML window is opened. No Engine::Initialize is called. No\n"
+			"  OpenGL context is created. The script runs to completion and the\n"
+			"  process exits — this is a one-shot batch path, not a frame loop.\n"
+			"\n"
+			"SCRIPT ARGS\n"
+			"  arg[0]    = <script.lua> path\n"
+			"  arg[1..N] = trailing args (forwarded verbatim, no flag parsing)\n"
+			"\n"
+			"  Scripts that want rendering, GUI, or screenshots should use the\n"
+			"  Lua launcher path with --screenshot instead.\n"
+			"\n"
+			"AVAILABLE LUA API\n"
+			"  See docs/LUA_API.md (auto-generated from engine/Fury/LuaBindings.cpp,\n"
+			"  the source of truth).\n"
+			"\n"
+			"EXIT CODES: 0 success, 1 user error (bad args / file / Lua error),\n"
+			"2 internal error (uncaught C++ exception).\n";
+
+		// Tiny RAII helper: swap Scene::Active to the provided scene on
+		// construction, restore the previous value on destruction. Used by
+		// DoExec so all exit paths (success, Lua error, C++ exception)
+		// reliably reset the static. Matches the convention established by
+		// Importer.LoadScene (engine/Fury/LuaBindings.cpp) and the convert/info
+		// paths in this file.
+		struct ActiveSceneGuard
+		{
+			std::shared_ptr<Scene> prev;
+			explicit ActiveSceneGuard(const std::shared_ptr<Scene> &s) : prev(Scene::Active)
+			{
+				Scene::Active = s;
+			}
+			~ActiveSceneGuard() { Scene::Active = prev; }
+		};
 
 		constexpr const char *kVersionString = "fury 0.2.1\n";
 
@@ -253,6 +305,7 @@ namespace fury
 			const std::string topic = argv[2];
 			if (topic == "convert") { std::cout << kConvertHelp; return 0; }
 			if (topic == "info")    { std::cout << kInfoHelp;    return 0; }
+			if (topic == "exec")    { std::cout << kExecHelp;    return 0; }
 			if (topic == "version") { std::cout << kVersionHelp; return 0; }
 			std::cerr << "fury help: unknown topic '" << topic << "'\n\n" << kTopHelp;
 			return 1;
@@ -263,6 +316,188 @@ namespace fury
 			(void)argc; (void)argv;
 			std::cout << kVersionString;
 			return 0;
+		}
+
+		// Load a scene from `<path>` based on its extension. Returns the loaded
+		// Scene::Ptr or nullptr on failure (error already logged). Mirrors the
+		// dispatch shape used by DoConvert / DoInfo. The engine scene loaders
+		// (FileUtil::LoadFile / LoadCompressedFile) require Scene::Active to
+		// be the loading target, so we set / restore it locally — same
+		// pattern as Importer.LoadScene in LuaBindings.cpp.
+		std::shared_ptr<Scene> LoadSceneForExec(const std::string &path)
+		{
+			const std::string ext = ToLowerExt(path);
+			std::string working_dir = DirOf(path);
+			if (!working_dir.empty()) working_dir += "/";
+
+			if (ext == ".json" || ext == ".bin")
+			{
+				auto tree = OcTree::Create();
+				auto scene = Scene::Create("exec", working_dir, tree);
+				auto prev_active = Scene::Active;
+				Scene::Active = scene;
+				bool ok = (ext == ".json")
+					? FileUtil::LoadFile(scene, path)
+					: FileUtil::LoadCompressedFile(scene, path);
+				Scene::Active = prev_active;
+				return ok ? scene : nullptr;
+			}
+			if (ext == ".gltf" || ext == ".glb")
+			{
+				GltfImporter::Options opts;
+				return GltfImporter::Import(path, StemNoExt(path),
+					DirOf(path).empty() ? std::string{} : DirOf(path) + "/", opts);
+			}
+			if (ext == ".fbx")
+			{
+				// Mirror DoConvert's FBX path: invoke FBX2glTF to write a temp
+				// .glb, feed it through GltfImporter, clean up on success.
+				std::string tmpdir;
+				try { tmpdir = (std::filesystem::temp_directory_path()
+					/ ("fury_exec_" + StemNoExt(path))).string(); }
+				catch (...) { tmpdir = "/tmp/fury_exec_" + StemNoExt(path); }
+				std::error_code ec;
+				std::filesystem::create_directories(tmpdir, ec);
+
+				auto fbx_res = FbxConverter::Convert(path, tmpdir);
+				if (!fbx_res.ok())
+				{
+					if (!fbx_res.stderr_capture.empty())
+						std::cerr << fbx_res.stderr_capture << "\n";
+					std::cerr << "fury exec: FBX2glTF failed (exit "
+						<< fbx_res.exit_code << ")\n";
+					return nullptr;
+				}
+				GltfImporter::Options opts;
+				auto scene = GltfImporter::Import(fbx_res.output_path,
+					StemNoExt(path), working_dir, opts);
+				std::filesystem::remove(fbx_res.output_path, ec);
+				std::filesystem::remove(tmpdir, ec);
+				return scene;
+			}
+			return nullptr;
+		}
+
+		// `fury exec` — load a scene, run a Lua script against it, exit. Headless:
+		// no SFML window, no Engine::Initialize, no OpenGL context, no MeshUtil
+		// static primitive teardown (none of those are touched on this path).
+		// `Scene::Active` is swapped for the script's lifetime and reset on
+		// every exit path (success / Lua error / C++ exception) via an RAII
+		// guard.
+		//
+		// Args: argv[2] = scene path, argv[3] = script path, argv[4..] = script
+		// args (forwarded verbatim). `--help` / `-h` at argv[2] prints help
+		// without touching a scene or sol::state.
+		int DoExec(int argc, char **argv)
+		{
+			if (argc >= 3 && WantsHelp(argv[2]))
+			{
+				std::cout << kExecHelp;
+				return 0;
+			}
+			if (argc < 4)
+			{
+				std::cerr << "fury exec: expected <scene> <script.lua> arguments\n";
+				return 1;
+			}
+
+			const std::string scene_path = argv[2];
+			const std::string script_path = argv[3];
+
+			// Validate scene extension up-front so unsupported input produces
+			// a clear error before we open the Lua VM.
+			const std::string scene_ext = ToLowerExt(scene_path);
+			if (scene_ext != ".json" && scene_ext != ".bin"
+				&& scene_ext != ".gltf" && scene_ext != ".glb"
+				&& scene_ext != ".fbx")
+			{
+				std::cerr << "fury exec: unsupported scene extension '" << scene_ext
+					<< "' (expected .json, .bin, .gltf, .glb, .fbx)\n";
+				return 1;
+			}
+
+			// Verify the script file exists before we load the scene — a
+			// typo'd script is the more common user mistake and we'd rather
+			// not load + throw away a scene for it.
+			if (!FileUtil::FileExist(script_path))
+			{
+				std::cerr << "fury exec: script file not found: '" << script_path << "'\n";
+				return 1;
+			}
+
+			try
+			{
+				auto scene = LoadSceneForExec(scene_path);
+				if (!scene)
+				{
+					std::cerr << "fury exec: failed to load scene '" << scene_path << "'\n";
+					return 1;
+				}
+
+				// ActiveSceneGuard sets Scene::Active = scene on construction
+				// and restores the previous value on destruction, covering
+				// every exit path (return / exception) without duplication.
+				ActiveSceneGuard active_guard(scene);
+
+				sol::state lua;
+				lua.open_libraries(
+					sol::lib::base,
+					sol::lib::string,
+					sol::lib::math,
+					sol::lib::table,
+					sol::lib::io,
+					sol::lib::os,
+					sol::lib::package);
+
+				fury::LuaBindings::Register(lua);
+
+				// Build the standard Lua `arg` table. `arg[0]` is the script
+				// path; `arg[1..N]` are the trailing args after the script.
+				sol::table arg_tbl = lua.create_named_table("arg");
+				arg_tbl[0] = script_path;
+				for (int i = 4; i < argc; ++i)
+					arg_tbl[i - 3] = std::string(argv[i]);
+
+				// Run the script under sol::protected_function with an error
+				// handler so a Lua-side error is captured cleanly (stderr +
+				// exit 1) instead of escaping as a C++ exception.
+				auto load_result = lua["loadfile"](script_path);
+				if (!load_result.valid())
+				{
+					sol::error err = load_result;
+					std::cerr << "fury exec: failed to load '" << script_path
+						<< "': " << err.what() << "\n";
+					return 1;
+				}
+				sol::protected_function script = load_result;
+				if (!script.valid())
+				{
+					std::cerr << "fury exec: loadfile returned no function for '"
+						<< script_path << "'\n";
+					return 1;
+				}
+
+				auto result = script();
+				if (!result.valid())
+				{
+					sol::error err = result;
+					std::cerr << "fury exec: '" << script_path
+						<< "': " << err.what() << "\n";
+					return 1;
+				}
+
+				return 0;
+			}
+			catch (const std::exception &e)
+			{
+				std::cerr << "fury exec: " << e.what() << "\n";
+				return 2;
+			}
+			catch (...)
+			{
+				std::cerr << "fury exec: unknown exception\n";
+				return 2;
+			}
 		}
 
 
@@ -621,7 +856,7 @@ namespace fury
 	{
 		if (!arg0) return false;
 		const char *tokens[] = {
-			"convert", "info", "help", "--help", "-h", "version", "--version", nullptr,
+			"convert", "info", "exec", "help", "--help", "-h", "version", "--version", nullptr,
 		};
 		for (const char **t = tokens; *t; ++t)
 			if (std::strcmp(arg0, *t) == 0) return true;
@@ -656,6 +891,7 @@ namespace fury
 			if (sub == "version" || sub == "--version")            return DoVersion(argc, argv);
 			if (sub == "convert")                                  return DoConvert(argc, argv);
 			if (sub == "info")                                     return DoInfo(argc, argv);
+			if (sub == "exec")                                     return DoExec(argc, argv);
 			std::cerr << "fury: unknown subcommand '" << sub << "'\n\n" << kTopHelp;
 			return 1;
 		}

@@ -1,6 +1,6 @@
 # Fury3D — CLI
 
-> Status (2026-06-22): `fury` is a single binary that hosts both the Lua
+> Status (2026-07-07): `fury` is a single binary that hosts both the Lua
 > launcher (runtime path) and an offline asset CLI. AI agents and authoring
 > tools can drive asset workflows through the CLI without ever touching the
 > Lua runtime.
@@ -10,10 +10,14 @@
 The `fury` binary's `main()` inspects `argv[1]` before any window or engine
 initialization:
 
-- If `argv[1]` is a known CLI subcommand token (`convert`, `info`, `help`,
-  `--help`, `-h`, `version`, `--version`), `main()` dispatches to
+- If `argv[1]` is a known CLI subcommand token (`convert`, `info`, `exec`,
+  `help`, `--help`, `-h`, `version`, `--version`), `main()` dispatches to
   `fury::Cli::Run`. The CLI path is **pure C++ asset workflows**: no SFML
-  window opens, `Engine::Initialize` is never called, no Lua VM is created.
+  window opens, `Engine::Initialize` is never called, no Lua VM is created
+  on the `convert` / `info` paths. The `exec` path is a special case — it
+  creates a short-lived `sol::state` and runs a Lua script against a loaded
+  scene, but it still does NOT open a window, NOT call `Engine::Initialize`,
+  and NOT create an OpenGL context. See the `fury exec` section below.
 - Otherwise, `argv[1]` is treated as a Lua script path (current behavior;
   defaults to `Editor.lua` if no arg). See `docs/LUA.md` for that surface.
   Any remaining `argv[2..]` is forwarded to the script as a standard Lua
@@ -214,13 +218,97 @@ round-trip-verification use case.)
 verify that a glTF input and its converted engine output have matching
 counts (modulo expected differences from PBR-discarded fields).
 
+### `fury exec` — load a scene and run a Lua script against it (headless)
+
+```
+fury exec <scene> <script.lua> [args...]
+```
+
+Loads a scene, sets it as `Scene::Active`, opens a short-lived `sol::state`,
+registers engine Lua bindings, and runs the user's script to completion —
+then exits. Designed for batch scene surgery from AI agents or build scripts
+without ever touching the GUI.
+
+**Accepted scene extensions** (same dispatch as `info`):
+
+- `.json` — engine scene (`FileUtil::LoadFile`)
+- `.bin` — engine scene (`FileUtil::LoadCompressedFile`)
+- `.gltf` — glTF 2.0 ASCII (`GltfImporter::Import`)
+- `.glb` — glTF 2.0 binary (`GltfImporter::Import`)
+- `.fbx` — chained via `FBX2glTF` subprocess into a temp `.glb`, then
+  `GltfImporter::Import`. Temp `.glb` is cleaned up on success.
+
+**Invariants.** The `exec` path is **headless**:
+
+- No SFML window is opened.
+- `Engine::Initialize` is not called.
+- No OpenGL context is created.
+- `MeshUtil::Reset()` is not called — no GL-backed primitives are touched
+  on this path (all mesh operations are CPU-side; see design decision D2).
+
+**Argument forwarding (`arg` table).** Trailing args after the script path
+are forwarded to the script via the standard Lua `arg` table:
+
+```
+arg[0]    = <script.lua> path
+arg[1..N] = trailing args (forwarded verbatim — no flag parsing)
+```
+
+`exec` does NOT parse `--screenshot` / `--screenshot-frame` (those are
+launcher-path-only). Unknown trailing flags pass through to the script
+unchanged; the script decides whether to error.
+
+**Import chain for non-engine formats.** When the input is `.fbx` /
+`.gltf` / `.glb`, the import runs **before** the script — the script
+never sees the temp `.glb`, only the in-memory `Scene` produced by
+`GltfImporter::Import`.
+
+**Lua API surface.** See **[`docs/LUA_API.md`](LUA_API.md)** for the
+canonical per-binding reference (auto-generated from
+`engine/Fury/LuaBindings.cpp` at build time). For the C++ side, read
+`engine/Fury/LuaBindings.cpp` directly — that's the source of truth.
+
+**Limitations.** `RenderUtil`, `Gui`, `Window`, and `Editor.*` are
+inaccessible from `exec` (the underlying singletons aren't initialized —
+calling them is a clean error / no-op). Scripts that want rendering,
+screenshots, or GUI should use the Lua launcher path with `--screenshot`
+(see "Screenshot mode" above).
+
+**Exit codes:**
+
+- `0` — script ran to completion without raising.
+- `1` — user error (missing scene file, missing script file, unsupported
+  extension, Lua runtime error caught via `sol::protected_function`'s
+  error handler). `Scene::Active` is reset to `nullptr` even on this path.
+- `2` — internal C++ exception escaped `DoExec`. Also resets
+  `Scene::Active` on exit.
+
+**Examples:**
+
+```bash
+# Iterate scene contents from Lua (read-only).
+./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_iterate.lua
+
+# Round-trip a scene to .bin via the Lua save binding.
+./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_save.lua /tmp/out.bin
+
+# Generate LODs and save to a new scene file.
+./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua --all /tmp/out.json
+
+# Run on an FBX (FBX2glTF chain runs first).
+./fury exec model.fbx tests/lua/smoke_iterate.lua
+
+# Help (no scene loaded, no sol::state created).
+./fury exec --help
+./fury help exec
+```
+
 ### `fury help` — print help
 
 ```
 fury help                    # same as fury --help / fury -h: top-level help
 fury help <subcommand>       # detailed help for one subcommand
-fury convert --help          # equivalent to "fury help convert"
-fury info --help             # equivalent to "fury help info"
+fury <subcommand> --help     # same as `fury help <subcommand>`
 ```
 
 The same help strings printed here are mirrored in this document. If the two

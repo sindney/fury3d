@@ -197,8 +197,8 @@ endif()
 set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BINARY}")
 
 # Helper: configure a fury* target with the standard post-build steps
-# (output into examples/, copy FBX2glTF). Avoids repeating the output /
-# FBX2glTF copy stanza for each variant.
+# (output into examples/, copy FBX2glTF, regenerate docs/LUA_API.md).
+# Avoids repeating the output / FBX2glTF copy stanza for each variant.
 function(fury_add_target NAME)
 	add_executable(${NAME} ${ARGN} ${FURY_LAUNCHER_SRC})
 	target_link_libraries(${NAME} PRIVATE ${FURY_PLATFORM_LIBS})
@@ -217,6 +217,18 @@ function(fury_add_target NAME)
 				VERBATIM)
 		endif()
 	endif()
+	# Regenerate docs/LUA_API.md whenever LuaBindings.cpp changes. The
+	# docgen is a hand-rolled Python scanner (engine/Tools/lua_api_docgen.py)
+	# — deterministic output, so re-running on the same input produces
+	# byte-identical docs/LUA_API.md. The script intentionally never blocks
+	# the build on parse errors; unparseable bindings emit a marker.
+	add_custom_command(TARGET ${NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E env
+			python3 "${PROJECT_SOURCE_DIR}/Tools/lua_api_docgen.py"
+				--src "${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp"
+				--out "${PROJECT_SOURCE_DIR}/../docs/LUA_API.md"
+		COMMENT "Regenerating docs/LUA_API.md from LuaBindings.cpp"
+		VERBATIM)
 endfunction()
 
 # Output the fury / furye binaries directly into examples/ so launching is

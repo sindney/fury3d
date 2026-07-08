@@ -22,6 +22,8 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/MeshSimplifier.h"
+#include "Fury/MeshUtil.h"
 #include "Fury/OcTree.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PrelightPipeline.h"
@@ -32,6 +34,7 @@
 #include "Fury/SceneNode.h"
 #include "Fury/Serializable.h"
 #include "Fury/Texture.h"
+#include "Fury/Uniform.h"
 #include "Fury/Transform.h"
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
@@ -216,6 +219,113 @@ namespace fury
 			// Scene::Active static property — same convention as Pipeline.Active.
 			lua["Scene"]["GetActive"] = []() -> Scene::Ptr { return Scene::Active; };
 			lua["Scene"]["SetActive"] = [](Scene::Ptr p) { Scene::Active = p; };
+			// Convenience alias: matches the existing
+			// `Scene.SetActive(scene)` style and the FileUtil SaveByExtension
+			// Lua entry point that callers use right after mutation.
+			lua["Scene"]["SaveActive"] = [](const std::string &path) -> bool {
+				return Scene::Active && FileUtil::SaveByExtension(Scene::Active, path);
+			};
+
+			// Iteration helpers — wrap the existing EntityManager::ForEach<T>
+			// and add a recursive node walk. A non-nil return from the Lua
+			// callback short-circuits (matches EntityManager::ForEach's
+			// convention). `Scene.ForEachNode` walks pre-order from the root
+			// so a parent's name always appears before its children's.
+			//
+			// Return semantics: the C++ EntityManager::ForEach takes a
+			// `std::function<bool(...)>` — return `false` from the closure
+			// to break out of the loop. We map the Lua side as follows:
+			//   nil / no return value   -> continue iterating
+			//   anything else (true, a  -> short-circuit (stop iterating)
+			//     table, etc.)
+			// This matches the spec ("A non-nil return from fn SHALL
+			// short-circuit the iteration") and the EntityManager convention.
+			lua["Scene"]["ForEachMesh"] = sol::overload(
+				[](Scene &s, sol::function fn) {
+					auto em = s.GetEntityManager();
+					if (!em) return;
+					em->ForEach<Mesh>([&fn](const Mesh::Ptr &m) -> bool {
+						sol::protected_function pf = fn;
+						sol::protected_function_result r = pf(m);
+						if (!r.valid()) return true;
+						// No return value (return_count == 0) or a nil
+						// return -> keep iterating. Any other return ->
+						// short-circuit (matches the spec's
+						// "non-nil return short-circuits" rule).
+						if (r.return_count() == 0) return true;
+						sol::object obj = r;
+						return obj.get_type() == sol::type::lua_nil;
+					});
+				},
+				[](Scene &s, sol::protected_function fn) {
+					auto em = s.GetEntityManager();
+					if (!em) return;
+					em->ForEach<Mesh>([&fn](const Mesh::Ptr &m) -> bool {
+						sol::protected_function_result r = fn(m);
+						if (!r.valid()) return true;
+						if (r.return_count() == 0) return true;
+						sol::object obj = r;
+						return obj.get_type() == sol::type::lua_nil;
+					});
+				});
+			lua["Scene"]["ForEachMaterial"] = sol::overload(
+				[](Scene &s, sol::function fn) {
+					auto em = s.GetEntityManager();
+					if (!em) return;
+					em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
+						sol::protected_function pf = fn;
+						sol::protected_function_result r = pf(m);
+						if (!r.valid()) return true;
+						if (r.return_count() == 0) return true;
+						sol::object obj = r;
+						return obj.get_type() == sol::type::lua_nil;
+					});
+				},
+				[](Scene &s, sol::protected_function fn) {
+					auto em = s.GetEntityManager();
+					if (!em) return;
+					em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
+						sol::protected_function_result r = fn(m);
+						if (!r.valid()) return true;
+						if (r.return_count() == 0) return true;
+						sol::object obj = r;
+						return obj.get_type() == sol::type::lua_nil;
+					});
+				});
+			lua["Scene"]["ForEachNode"] = sol::overload(
+				[](Scene &s, sol::function fn) {
+					std::function<void(const std::shared_ptr<SceneNode>&)> walk =
+						[&](const std::shared_ptr<SceneNode> &node) {
+							if (!node) return;
+							sol::protected_function pf = fn;
+							sol::protected_function_result r = pf(node);
+							if (r.valid() && r.return_count() > 0) {
+								sol::object obj = r;
+								// Non-nil return -> short-circuit this subtree.
+								if (obj.get_type() != sol::type::lua_nil)
+									return;
+							}
+							for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+								walk(node->GetChildAt(i));
+						};
+					walk(s.GetRootNode());
+				},
+				[](Scene &s, sol::protected_function fn) {
+					std::function<void(const std::shared_ptr<SceneNode>&)> walk =
+						[&](const std::shared_ptr<SceneNode> &node) {
+							if (!node) return;
+							sol::protected_function_result r = fn(node);
+							if (r.valid() && r.return_count() > 0) {
+								sol::object obj = r;
+								// Non-nil return -> short-circuit this subtree.
+								if (obj.get_type() != sol::type::lua_nil)
+									return;
+							}
+							for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+								walk(node->GetChildAt(i));
+						};
+					walk(s.GetRootNode());
+				});
 
 			// --- Component (base) ---------------------------------------------
 			lua.new_usertype<Component>("Component",
@@ -1215,6 +1325,345 @@ namespace fury
 				Editor::ClearCommandHandler();
 				Editor::ClearCameraControls();
 #endif
+			};
+
+			// --- Mesh --------------------------------------------------------
+			// Buffer accessors round-trip through flat Lua tables
+			// (`{x0,y0,z0,x1,y1,z1,...}`) per design decision D6. The
+			// `sol::as_container` route was considered but it complicates the
+			// agent-facing API with ownership / lifetime semantics that an
+			// LLM is unlikely to write correctly on the first try. Plain
+			// tables round-trip cleanly and are easy to reason about.
+			lua.new_usertype<Mesh>("Mesh",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"GetName", &Mesh::GetName,
+				"SetName", &Mesh::SetName,
+				"GetAABB", &Mesh::GetAABB,
+				"IsSkinnedMesh", &Mesh::IsSkinnedMesh,
+				"GetCastShadows", &Mesh::GetCastShadows,
+				"SetCastShadows", &Mesh::SetCastShadows,
+				// Submesh accessors.
+				"GetSubmeshCount", &Mesh::GetSubMeshCount,
+				// LOD chain accessors — direct mirror of Mesh.h:227-236.
+				"GetLodCount", &Mesh::GetLodCount,
+				"GetLodMesh",  &Mesh::GetLodMesh,
+				"ClearLodChain", &Mesh::ClearLodChain);
+
+			// Flat-table round-trip helpers. Done outside the usertype literal
+			// because the getters need access to the `lua` state_view to build
+			// the result table. The setters accept the same flat shape.
+			lua["Mesh"]["GetPositions"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.Positions.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetPositions"] = [](Mesh &m, sol::table t) {
+				m.Positions.Data.clear();
+				m.Positions.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.Positions.Data.push_back(t.get<float>(i));
+			};
+			lua["Mesh"]["GetNormals"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.Normals.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetNormals"] = [](Mesh &m, sol::table t) {
+				m.Normals.Data.clear();
+				m.Normals.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.Normals.Data.push_back(t.get<float>(i));
+			};
+			lua["Mesh"]["GetUVs"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.UVs.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetUVs"] = [](Mesh &m, sol::table t) {
+				m.UVs.Data.clear();
+				m.UVs.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.UVs.Data.push_back(t.get<float>(i));
+			};
+			lua["Mesh"]["GetTangents"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.Tangents.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetTangents"] = [](Mesh &m, sol::table t) {
+				m.Tangents.Data.clear();
+				m.Tangents.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.Tangents.Data.push_back(t.get<float>(i));
+			};
+			lua["Mesh"]["GetBoneIds"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.IDs.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetBoneIds"] = [](Mesh &m, sol::table t) {
+				m.IDs.Data.clear();
+				m.IDs.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.IDs.Data.push_back(t.get<unsigned int>(i));
+			};
+			lua["Mesh"]["GetBoneWeights"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.Weights.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetBoneWeights"] = [](Mesh &m, sol::table t) {
+				m.Weights.Data.clear();
+				m.Weights.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.Weights.Data.push_back(t.get<float>(i));
+			};
+			lua["Mesh"]["GetIndices"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.Indices.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["SetIndices"] = [](Mesh &m, sol::table t) {
+				m.Indices.Data.clear();
+				m.Indices.Data.reserve(t.size());
+				for (size_t i = 1; i <= t.size(); ++i)
+					m.Indices.Data.push_back(t.get<unsigned int>(i));
+			};
+			lua["Mesh"]["GetSubmeshIndices"] = [](Mesh &m, unsigned int i, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				auto sub = m.GetSubMeshAt(i);
+				if (!sub) return t;
+				const auto &data = sub->Indices.Data;
+				for (size_t k = 0; k < data.size(); ++k)
+					t[k + 1] = data[k];
+				return t;
+			};
+			// LOD chain setter: accepts parallel arrays (meshes, thresholds).
+			// Mirrors Mesh::SetLodMeshes' validation: sizes must match and
+			// thresholds must be non-increasing — the C++ side enforces and
+			// logs FURYE on mismatch, so we forward and trust.
+			lua["Mesh"]["SetLodMeshes"] = [](Mesh &m, sol::table meshes_tbl, sol::table thresholds_tbl) {
+				std::vector<std::shared_ptr<Mesh>> meshes;
+				std::vector<float> thresholds;
+				meshes.reserve(meshes_tbl.size());
+				for (size_t i = 1; i <= meshes_tbl.size(); ++i)
+					meshes.push_back(meshes_tbl.get<std::shared_ptr<Mesh>>(i));
+				thresholds.reserve(thresholds_tbl.size());
+				for (size_t i = 1; i <= thresholds_tbl.size(); ++i)
+					thresholds.push_back(thresholds_tbl.get<float>(i));
+				m.SetLodMeshes(meshes, thresholds);
+			};
+
+			// --- Material ----------------------------------------------------
+			// GetUniform returns number/table/nil based on the underlying
+			// uniform type. SetUniform infers the type from the Lua value's
+			// shape: number -> Uniform1f, integer-valued number -> Uniform1ui,
+			// 3-element table -> Uniform3f, 4-element table -> Uniform4f.
+			lua.new_usertype<Material>("Material",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"GetName", &Material::GetName,
+				"SetName", &Material::SetName,
+				"IsOpaque", &Material::GetOpaque,
+				"SetOpaque", &Material::SetOpaque,
+				"GetTextureCount", &Material::GetTextureCount,
+				"GetTexture", [](const Material &mat, const std::string &key, sol::this_state s) -> sol::object {
+					auto tex = mat.GetTexture(key);
+					if (!tex) return sol::nil;
+					return sol::make_object(sol::state_view(s), tex->GetFilePath());
+				},
+				"SetTexture", [](Material &mat, const std::string &key, const std::string &path) {
+					auto tex = Texture::Create(key);
+					tex->SetFilePathAndSRGB(path, true);
+					mat.SetTexture(key, tex);
+				},
+				"GetUniform", [](Material &mat, const std::string &key, sol::this_state s) -> sol::object {
+					auto u = mat.GetUniform(key);
+					if (!u) return sol::nil;
+					sol::state_view lua(s);
+					// Uniform<int,1> -> integer; Uniform<unsigned int,1> -> uint;
+					// Uniform<float,N> -> number for N==1, table for N>1.
+					if (auto p = std::dynamic_pointer_cast<Uniform<int, 1>>(u))
+						return sol::make_object(lua, p->GetDataAt(0));
+					if (auto p = std::dynamic_pointer_cast<Uniform<unsigned int, 1>>(u))
+						return sol::make_object(lua, p->GetDataAt(0));
+					if (auto p = std::dynamic_pointer_cast<Uniform<float, 1>>(u))
+						return sol::make_object(lua, p->GetDataAt(0));
+					if (auto p = std::dynamic_pointer_cast<Uniform<float, 2>>(u)) {
+						sol::table t = lua.create_table();
+						t[1] = p->GetDataAt(0);
+						t[2] = p->GetDataAt(1);
+						return sol::object(t);
+					}
+					if (auto p = std::dynamic_pointer_cast<Uniform<float, 3>>(u)) {
+						sol::table t = lua.create_table();
+						t[1] = p->GetDataAt(0);
+						t[2] = p->GetDataAt(1);
+						t[3] = p->GetDataAt(2);
+						return sol::object(t);
+					}
+					if (auto p = std::dynamic_pointer_cast<Uniform<float, 4>>(u)) {
+						sol::table t = lua.create_table();
+						t[1] = p->GetDataAt(0);
+						t[2] = p->GetDataAt(1);
+						t[3] = p->GetDataAt(2);
+						t[4] = p->GetDataAt(3);
+						return sol::object(t);
+					}
+					return sol::nil;
+				},
+				"SetUniform", [](Material &mat, const std::string &key, sol::object value) {
+					if (value.is<float>() || value.is<double>())
+					{
+						auto u = Uniform<float, 1>::Create({ static_cast<float>(value.as<double>()) });
+						mat.SetUniform(key, u);
+						return;
+					}
+					if (value.is<int>() || value.is<unsigned int>())
+					{
+						auto u = Uniform<unsigned int, 1>::Create({ static_cast<unsigned int>(value.as<int>()) });
+						mat.SetUniform(key, u);
+						return;
+					}
+					if (value.is<sol::table>())
+					{
+						sol::table t = value;
+						size_t n = t.size();
+						if (n == 3)
+						{
+							auto u = Uniform<float, 3>::Create({
+								t.get<float>(1), t.get<float>(2), t.get<float>(3) });
+							mat.SetUniform(key, u);
+						}
+						else if (n == 4)
+						{
+							auto u = Uniform<float, 4>::Create({
+								t.get<float>(1), t.get<float>(2),
+								t.get<float>(3), t.get<float>(4) });
+							mat.SetUniform(key, u);
+						}
+						else if (n == 2)
+						{
+							auto u = Uniform<float, 2>::Create({
+								t.get<float>(1), t.get<float>(2) });
+							mat.SetUniform(key, u);
+						}
+					}
+				});
+
+			// --- MeshUtil namespace table ------------------------------------
+			// Primitive factories + mesh-processing utilities. Mirrors
+			// MeshUtil.h:46-67. The "CreateCube / CreateQuad" calls below
+			// produce unit primitives (centered at origin, +/-0.5 extents)
+			// via the named-variants CreateCube(name, min, max). The
+			// variants with min/max are exposed as CreateBox / CreateQuadBox
+			// so the unit-vs-named split is unambiguous to Lua callers.
+			sol::table mesh_util_tbl = lua.create_named_table("MeshUtil");
+			mesh_util_tbl["CreateCube"] = [](sol::this_state s) -> std::shared_ptr<Mesh> {
+				(void)s;
+				return MeshUtil::CreateCube("cube",
+					Vector4(-0.5f, -0.5f, -0.5f, 1.0f),
+					Vector4( 0.5f,  0.5f,  0.5f, 1.0f));
+			};
+			mesh_util_tbl["CreateQuad"] = [](sol::this_state s) -> std::shared_ptr<Mesh> {
+				(void)s;
+				return MeshUtil::CreateQuad("quad",
+					Vector4(-0.5f, -0.5f, 0.0f, 1.0f),
+					Vector4( 0.5f,  0.5f, 0.0f, 1.0f));
+			};
+			mesh_util_tbl["CreateSphere"] = [](int segments) -> std::shared_ptr<Mesh> {
+				int seg = segments > 2 ? segments : 16;
+				return MeshUtil::CreateSphere("sphere", 0.5f, seg, seg);
+			};
+			mesh_util_tbl["CreateIcoSphere"] = [](int subdivisions) -> std::shared_ptr<Mesh> {
+				int sub = subdivisions >= 0 ? subdivisions : 1;
+				return MeshUtil::CreateIcoSphere("icosphere", 0.5f, sub);
+			};
+			mesh_util_tbl["CreateCylinder"] = [](int segments) -> std::shared_ptr<Mesh> {
+				int seg = segments > 2 ? segments : 16;
+				return MeshUtil::CreateCylinder("cylinder", 0.5f, 0.5f, 1.0f, seg, 1);
+			};
+			// Matrix is a flat 16-element Lua table, row-major (matches the
+			// engine's Matrix4 layout: m00..m33).
+			mesh_util_tbl["TransformMesh"] = [](const std::shared_ptr<Mesh> &mesh, sol::table m) {
+				Matrix4 mat;
+				for (size_t i = 0; i < 16; ++i)
+					mat.Raw[i] = m.get<float>(i + 1);
+				MeshUtil::TransformMesh(mesh, mat);
+			};
+			mesh_util_tbl["OptimizeMesh"] = [](const std::shared_ptr<Mesh> &mesh) {
+				MeshUtil::OptimizeMesh(mesh);
+			};
+			mesh_util_tbl["CalculateNormal"] = [](const std::shared_ptr<Mesh> &mesh) {
+				MeshUtil::CalculateNormal(mesh);
+			};
+			mesh_util_tbl["CalculateTangent"] = [](const std::shared_ptr<Mesh> &mesh) {
+				MeshUtil::CalculateTangent(mesh);
+			};
+
+			// --- MeshSimplifier namespace table ------------------------------
+			// Single entry point: SimplifyMesh(mesh, opts). `opts` is a
+			// plain Lua table with optional lod_count / reduction_ratio /
+			// target_error / lock_borders; nil/omitted means use defaults.
+			// Returns { lod_meshes = {...}, thresholds = {...} } so the
+			// caller can attach via mesh:SetLodMeshes(r.lod_meshes,
+			// r.thresholds).
+			sol::table mesh_simplifier_tbl = lua.create_named_table("MeshSimplifier");
+			mesh_simplifier_tbl["SimplifyMesh"] = [](sol::this_state s,
+				const std::shared_ptr<Mesh> &mesh, sol::object opts_obj) -> sol::table
+			{
+				sol::state_view lua(s);
+				sol::table out = lua.create_table();
+				if (!mesh) return out;
+
+				MeshSimplifyOptions opts;
+				if (opts_obj.valid() && opts_obj.is<sol::table>())
+				{
+					sol::table t = opts_obj;
+					sol::object lc = t["lod_count"];
+					if (lc.valid() && lc.is<int>())       opts.lod_count       = lc.as<int>();
+					sol::object rr = t["reduction_ratio"];
+					if (rr.valid() && rr.is<float>())     opts.reduction_ratio = rr.as<float>();
+					sol::object te = t["target_error"];
+					if (te.valid() && te.is<float>())     opts.target_error    = te.as<float>();
+					sol::object lb = t["lock_borders"];
+					if (lb.valid() && lb.is<bool>())      opts.lock_borders    = lb.as<bool>();
+				}
+
+				MeshSimplifyResult res = SimplifyMesh(mesh, opts);
+
+				sol::table lods_tbl = lua.create_table();
+				for (size_t i = 0; i < res.lod_meshes.size(); ++i)
+					lods_tbl[i + 1] = res.lod_meshes[i];
+				sol::table thr_tbl = lua.create_table();
+				for (size_t i = 0; i < res.thresholds.size(); ++i)
+					thr_tbl[i + 1] = res.thresholds[i];
+				out["lod_meshes"] = lods_tbl;
+				out["thresholds"] = thr_tbl;
+				return out;
 			};
 		}
 	}
