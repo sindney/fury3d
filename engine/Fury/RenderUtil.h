@@ -135,6 +135,15 @@ namespace fury
 
 		unsigned int GetLightCount();
 	};
+
+	// Cached simple-Lambert shader shared by the mesh thumbnail, mesh editor
+	// preview, and `fury render-mesh` CLI.
+	std::shared_ptr<Shader> GetSimpleLambertShader();
+
+	// Renders `mesh` into the currently-bound FBO (caller owns FBO + viewport
+	// + clear) with the simple-Lambert shader, using a fixed orbit camera
+	// framed on the mesh's local AABB. Returns the bounding-sphere radius.
+	float RenderMeshLambert(const std::shared_ptr<Mesh> &mesh, int w, int h);
 }
 
 #endif // _FURY_RENDER_UTIL_H_

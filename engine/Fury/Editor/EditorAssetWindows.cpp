@@ -3,6 +3,7 @@
 #include "Fury/BoxBounds.h"
 #include "Fury/EntityManager.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Joint.h"
 #include "Fury/Log.h"
@@ -11,20 +12,24 @@
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/MeshSimplifier.h"
+#include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
+#include "Fury/ThreadUtil.h"
 #include "Fury/Uniform.h"
 #include "Fury/Vector4.h"
 #include "Fury/Editor/Editor.h"
 #include "ImGui/imgui.h"
 #include "ImGuizmo.h"
+#include "stb_image_write.h"
 
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -51,13 +56,14 @@ namespace {
 std::unordered_set<std::string> g_OpenMeshEditors;
 std::unordered_set<std::string> g_OpenMaterialEditors;
 
-// Per-editor orbit camera state. Keyed by popup ID so each
-// open mesh editor has its own azimuth / elevation / distance.
+// Per-editor camera state. Keyed by popup ID so each open
+// mesh editor has its own camera.
 struct OrbitState {
-	float azimuth = 30.0f * 0.0174532925f;	 // 30° in rad
-	float elevation = 20.0f * 0.0174532925f; // 20° in rad
-	float distance = 0.0f;					 // computed on open
-	float initialDistance = 0.0f;
+	Vector4 target{0, 0, 0, 1};	// orbit center (mesh AABB center)
+	float distance = 0.0f;			// current orbit radius
+	float initialDistance = 0.0f;	// initial radius (zoom clamp)
+	float yaw = 30.0f * 0.0174532925f;	 // initial orbit azimuth (rad)
+	float pitch = 20.0f * 0.0174532925f; // initial orbit elevation (rad)
 	bool initialized = false;
 };
 std::unordered_map<std::string, OrbitState> g_OrbitState;
@@ -69,139 +75,197 @@ OrbitState& OrbitFor(const std::string& popup_id) {
 	return it->second;
 }
 
-// Compute the initial camera distance so the mesh's bounding
-// sphere fills ~60% of the preview's shorter axis.
-// For PerspectiveFov(fov, aspect), `fov` is the vertical FOV
-// and the horizontal FOV is 2*atan(tan(fov/2)*aspect). The
-// mesh fits in the view iff it fits in BOTH axes, so we take
-// the larger distance:
-//   dist_v = radius / tan(fov/2)
-//   dist_h = radius / (tan(fov/2) * aspect)
-//   dist   = max(dist_v, dist_h) = radius / tan(fov/2) / min(1, aspect)
-float ComputeInitialDistance(const BoxBounds& aabb,
-							 float fov, float aspect) {
-	auto mn = aabb.GetMin();
-	auto mx = aabb.GetMax();
-	Vector4 size(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, 0);
-	// Bounding sphere radius (half the diagonal of the AABB).
-	float radius = 0.5f * std::sqrt(size.x * size.x +
-									size.y * size.y + size.z * size.z);
-	if (radius < 1e-6f) radius = 1.0f;
-	// 0.6 fill factor + perspective formula (tan, not sin).
-	float dist = (radius * 0.6f) / std::tan(fov * 0.5f);
-	// Account for aspect: the mesh must fit in the shorter
-	// axis, which means a larger distance for tall windows.
-	dist /= std::min(1.0f, aspect);
-	return dist;
-}
-
-// ---- Mesh thumbnail cache (tasks 7.1, 7.2, 7.3) ----
-// Per-mesh FBO keyed on BufferId. The mesh is rendered once
-// offscreen into a 128×128 color RT + depth attachment with
-// a flat-shaded directional-light shader, then the color RT
-// is reused on subsequent frames until the mesh's BufferId
-// changes (i.e. the mesh was re-uploaded to the GPU).
+// ---- Mesh thumbnail cache ----
+// Per-mesh FBO keyed on BufferId. `contentHash` invalidates the FBO when the
+// mesh's vertex data changes; `diskLoaded` tracks whether the FBO has been
+// populated from the disk cache this session.
 struct ThumbnailCacheEntry {
 	GLuint fbo = 0;
 	std::shared_ptr<Texture> colorRT;
 	std::shared_ptr<Texture> depthRT;
-	size_t bufferId = 0; // the BufferId the RT was rendered with
+	size_t bufferId = 0;			// the BufferId the RT was rendered with
+	unsigned int contentHash = 0;	// 0 = not yet hashed
+	bool hashInFlight = false;		// an async hash is in flight
+	bool wasDirtyLastFrame = false; // for dirty-transition detection
+	bool diskLoaded = false;		// FBO has been populated from disk this session
 };
 std::unordered_map<size_t /*BufferId*/, ThumbnailCacheEntry> g_MeshThumbnails;
 
-// One-time-compiled flat-shaded thumbnail shader (D4 / 6.5).
-std::shared_ptr<Shader> GetThumbnailShader() {
-	static auto shader = Shader::Create("EditorThumbnailShader", ShaderType::OTHER);
-	if (shader->GetDirty()) {
-		const char* vs =
-			"in vec3 vertex_position;"
-			"in vec3 vertex_normal;"
-			"uniform mat4 _ViewMatrix;"
-			"uniform mat4 _ProjectionMatrix;"
-			"out vec3 v_normal;"
-			"void main()"
-			"{"
-			"	v_normal = normalize(vertex_normal);"
-			"	gl_Position = _ProjectionMatrix * _ViewMatrix * vec4(vertex_position, 1.0);"
-			"}";
-		const char* fs =
-			"in vec3 v_normal;"
-			"out vec4 fragment_output;"
-			"void main()"
-			"{"
-			"	vec3 lightDir = normalize(vec3(0.4, 0.8, 0.3));"
-			"	float ndotl = max(dot(normalize(v_normal), lightDir), 0.2);"
-			"	fragment_output = vec4(vec3(0.7) * ndotl, 1.0);"
-			"}";
-		shader->Compile(vs, fs, "");
-	}
-	return shader;
-}
+// ---- Thumbnail disk cache (mesh-thumbnail-disk-cache) ----
+// Persistent PNG cache under Resource/.thumbcache/. Keyed by a
+// 64-bit content hash (see MeshContentHash). The in-memory
+// `g_DiskCacheIndex` lets IsCached answer in O(1) without a
+// filesystem syscall per mesh per frame; the index is
+// populated lazily by WarmDiskCacheIndex at editor startup and
+// appended to on every successful write.
+//
+// Files are named `furye_<hex>.png` where `<hex>` is the 16-
+// character lowercase hex form of the content hash.
+namespace
+{
+	std::unordered_set<std::string> g_DiskCacheIndex;
+	std::string g_CacheDirAbs;		// resolved once on first use
 
-// Render `mesh` offscreen into the 128×128 `entry.colorRT`
-// using `shader`. Camera is a fixed orbit at (azimuth=30°,
-// elev=20°), distance computed from the mesh's AABB.
+	// Resolve (and lazily create) the on-disk cache directory; cached on first call.
+	std::string GetCacheDir()
+	{
+		if (!g_CacheDirAbs.empty()) return g_CacheDirAbs;
+		std::error_code ec;
+		std::string dir = FileUtil::GetAbsPath("Resource/.thumbcache/");
+		std::filesystem::create_directories(dir, ec);
+		// create_directories sets ec on failure but the path
+		// itself is still resolvable; the editor's IsCached
+		// returns false for anything in that case and writes
+		// silently fail (we just don't add to the index).
+		g_CacheDirAbs = dir;
+		return g_CacheDirAbs;
+	}
+
+	// Build the absolute path for a given content hash.
+	std::string GetCachePath(unsigned int hash)
+	{
+		return GetCacheDir() + "furye_" + FormatHashHex(hash) + ".png";
+	}
+
+	// O(1) cache-hit check against the in-memory index.
+	bool IsCached(unsigned int hash)
+	{
+		if (hash == 0) return false;
+		const std::string filename = "furye_" + FormatHashHex(hash) + ".png";
+		return g_DiskCacheIndex.count(filename) > 0;
+	}
+
+	// Insert a filename into the index after a successful write.
+	// Idempotent; called from the PNG-encode worker callback
+	// (which always runs on the main thread via
+	// ThreadUtil::Update).
+	void IndexCacheFile(const std::string& filename)
+	{
+		g_DiskCacheIndex.insert(filename);
+	}
+
+	// Walk the cache directory once and add every furye_*.png
+	// filename to the in-memory index. Wrapped in try/catch so
+	// a missing directory is not an error — it just means the
+	// index starts empty and warms as the user opens scenes.
+	void WarmDiskCacheIndexImpl()
+	{
+		const std::string dir = GetCacheDir();
+		std::error_code ec;
+		if (!std::filesystem::exists(dir, ec)) return;
+		try
+		{
+			for (auto it = std::filesystem::directory_iterator(dir, ec);
+				 !ec && it != std::filesystem::end(it);
+				 it.increment(ec))
+			{
+				const auto& p = it->path();
+				if (!p.has_filename()) continue;
+				const std::string fname = p.filename().string();
+				// Only count files that look like our cache so a
+				// user dropping a manual file in the folder
+				// doesn't pollute the index.
+				if (fname.rfind("furye_", 0) == 0 &&
+					fname.size() > 9 &&
+					fname.substr(fname.size() - 4) == ".png")
+				{
+					g_DiskCacheIndex.insert(fname);
+				}
+			}
+		}
+		catch (...)
+		{
+			// Defensive: an inaccessible directory must not
+			// crash the editor. The index just stays empty.
+		}
+	}
+
+	// Encode + write a PNG off the main thread. We capture the
+	// pixel buffer by value (move) so the main thread can drop
+	// its copy the moment the worker is enqueued. Returns
+	// nothing on success; on failure, the worker emits a
+	// rate-limited FURYW and the in-memory FBO is left as the
+	// source of truth for the thumbnail.
+	void WritePngAsync(const std::string& path,
+					   std::vector<unsigned char> pixels,
+					   int w, int h, std::string mesh_name)
+	{
+		if (pixels.empty() || w <= 0 || h <= 0) return;
+		ThreadUtil::Instance()->Enqueue<void>(
+			[path, pixels = std::move(pixels), w, h, mesh_name](int&) -> std::shared_ptr<void>
+			{
+				const int row_stride = w * 4;
+				const int rc = stbi_write_png(path.c_str(), w, h, 4,
+											  pixels.data(), row_stride);
+				if (rc == 0)
+				{
+					// Single rate-limited log; the index isn't
+					// updated, so subsequent sessions will
+					// re-attempt the write.
+					static std::unordered_set<std::string> g_Logged;
+					if (g_Logged.insert(mesh_name + "|" + path).second)
+					{
+						FURYW << "Mesh thumbnail: failed to write "
+							  << path << " for mesh '" << mesh_name << "'";
+					}
+				}
+				return nullptr;
+			},
+			[path](std::shared_ptr<void>)
+			{
+				// On success, add the filename to the in-memory
+				// index so the next IsCached query hits. Even on
+				// failure this is safe — the index lookup is
+				// advisory (we re-stat the directory at startup
+				// for the authoritative answer).
+				if (!path.empty())
+				{
+					auto p = std::filesystem::path(path);
+					if (p.has_filename())
+						IndexCacheFile(p.filename().string());
+				}
+			});
+	}
+} // namespace ThumbnailDiskCache helpers
+
+// Render `mesh` into the 128×128 thumbnail FBO. Allocates the FBO + RTs on
+// first call; reuses them after. Camera + shader live in RenderMeshLambert
+// (shared with the `fury render-mesh` CLI).
 void RenderMeshToThumbnail(const std::shared_ptr<Mesh>& mesh,
-						   const std::shared_ptr<Shader>& shader,
 						   ThumbnailCacheEntry& entry) {
-	// Ensure the mesh's GL buffers are uploaded before
-	// binding. BindMesh calls UpdateBuffer too, but its
-	// early-return when dirty prevents the bind from
-	// running on the first frame.
-	if (mesh->GetDirty())
-		mesh->UpdateBuffer();
+	if (!mesh) return;
+
+	if (entry.fbo == 0)
+	{
+		glGenFramebuffers(1, &entry.fbo);
+		entry.colorRT = Texture::GetTemporary(128, 128, 1,
+			TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+		entry.depthRT = Texture::GetTemporary(128, 128, 1,
+			TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		glBindFramebuffer(GL_FRAMEBUFFER, entry.fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			GL_TEXTURE_2D, entry.colorRT->GetID(), 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_2D, entry.depthRT->GetID(), 0);
+		const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			FURYW << "RenderMeshToThumbnail: FBO incomplete (0x"
+				  << std::hex << status << std::dec << ") for mesh '"
+				  << mesh->GetName() << "'";
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			return;
+		}
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, entry.fbo);
 	glViewport(0, 0, 128, 128);
-	glClearColor(0.24f, 0.24f, 0.27f, 1.0f);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glEnable(GL_DEPTH_TEST);
 
-	shader->Bind();
-
-	// Orbit camera at (30°, 20°), distance from AABB.
-	auto aabb = mesh->GetAABB();
-	auto mn = aabb.GetMin();
-	auto mx = aabb.GetMax();
-	Vector4 center((mn.x + mx.x) * 0.5f,
-				   (mn.y + mx.y) * 0.5f,
-				   (mn.z + mx.z) * 0.5f, 1.0f);
-	float aspect = 1.0f;
-	float dist = ComputeInitialDistance(aabb,
-										45.0f * 0.0174532925f, aspect);
-	float az = 30.0f * 0.0174532925f;
-	float el = 20.0f * 0.0174532925f;
-	float cx = std::cos(el) * std::cos(az);
-	float cy = std::sin(el);
-	float cz = std::cos(el) * std::sin(az);
-	Vector4 eye(center.x + cx * dist,
-				center.y + cy * dist,
-				center.z + cz * dist, 1.0f);
-	Matrix4 view, proj;
-	view.LookAt(eye, center, Vector4(0, 1, 0, 0));
-	proj.PerspectiveFov(45.0f * 0.0174532925f, aspect, 0.1f, 1000.0f);
-	shader->BindMatrix("_ViewMatrix", view);
-	shader->BindMatrix("_ProjectionMatrix", proj);
-
-	// Draw. For multi-submesh meshes, iterate submeshes.
-	// Skinned meshes: joint matrices are not applied here
-	// (the thumbnail shows the bind pose).
-	auto submeshCount = mesh->GetSubMeshCount();
-	if (submeshCount == 0) {
-		shader->BindMesh(mesh);
-		glDrawElements(GL_TRIANGLES,
-					   static_cast<GLsizei>(mesh->Indices.Data.size()),
-					   GL_UNSIGNED_INT, 0);
-	} else {
-		for (unsigned int i = 0; i < submeshCount; ++i) {
-			auto sm = mesh->GetSubMeshAt(i);
-			if (!sm) continue;
-			shader->BindSubMesh(mesh, i);
-			glDrawElements(GL_TRIANGLES,
-						   static_cast<GLsizei>(sm->Indices.Data.size()),
-						   GL_UNSIGNED_INT, 0);
-		}
-	}
+	RenderMeshLambert(mesh, 128, 128);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDisable(GL_DEPTH_TEST);
@@ -220,8 +284,7 @@ void RenderMaterialEditorBody(const std::shared_ptr<Material>& mat) {
 	ImGui::Text("Texture Flags: 0x%08X", mat->GetTextureFlags());
 	ImGui::Separator();
 
-	// Textures: displayed inline (no scrolllist). One row per
-	// entry in GetTextures(), rendered by RenderMaterialTextureRow.
+	// Textures.
 	ImGui::TextDisabled("Textures:");
 	std::vector<std::string> keys;
 	auto add = [&](const std::string& k) {
@@ -241,9 +304,7 @@ void RenderMaterialEditorBody(const std::shared_ptr<Material>& mat) {
 
 	ImGui::Separator();
 
-	// Uniforms table: one row per entry in GetUniforms().
-	// Dispatch by runtime uniform type. All slider widgets use
-	// a fixed width (via PushItemWidth) so the UI looks tidy.
+	// Uniforms.
 	ImGui::TextDisabled("Uniforms:");
 	static const std::unordered_set<std::string> kColorUniforms = {
 		Material::AMBIENT_COLOR, Material::DIFFUSE_COLOR,
@@ -394,26 +455,17 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 			ImGui::EndCombo();
 		}
 		ImGui::PopItemWidth();
-		ImGui::SameLine();
 	}
 	else
 	{
 		ImGui::TextDisabled("LOD: (no LOD chain)");
-		ImGui::SameLine();
 	}
 
-	// Editable LOD thresholds. The dropdown above selects which
-	// LOD's stats the metadata block shows; the threshold sliders
-	// below let the user retune when each level becomes active.
-	// LOD 0's threshold is always 1.0 (highest detail, on-screen);
-	// LOD N's threshold is always 0.0 (deepest, off-screen). Only
-	// the interior thresholds (LOD 1..N-1) are editable.
+	// Editable interior LOD thresholds (LOD 0 = 1.0, LOD N = 0.0, locked).
 	if (lod_count > 1)
 	{
 		if (ImGui::TreeNode("LOD Thresholds"))
 		{
-			// Local helpers to read/write thresholds on the mesh.
-			// Note: m_LodThresholds stores LOD 1..N (size N-1).
 			auto get_th = [&](unsigned int i) -> float {
 				return mesh->GetLodThreshold(i);
 			};
@@ -580,13 +632,7 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 	}
 }
 
-// ---- Mesh editor body: 3D preview (tasks 6.5, 6.6, 6.7) ----
-// Offscreen render into a Texture::GetTemporary color RT +
-// raw GL FBO + depth attachment. The mesh is drawn in
-// wireframe mode (glPolygonMode GL_LINE) with the thumbnail
-// shader's view/projection matrices — simpler than the
-// flat-shaded directional-light render, and gives a clean
-// "preview" look without needing lighting.
+// ---- Mesh editor body: 3D preview ----
 struct PreviewRT {
 	GLuint fbo = 0;
 	std::shared_ptr<Texture> colorRT;
@@ -596,39 +642,324 @@ struct PreviewRT {
 };
 std::unordered_map<std::string, PreviewRT> g_PreviewRTs;
 
-// PLACEHOLDER: The offscreen mesh render is not yet implemented.
-// Shows a gray rect with a "(3D preview — render pending)" label.
-// This will be finished in a follow-up proposal.
-//
-// `display_mesh` is the LOD-selected mesh the preview should
-// render. When null (e.g. the mesh is empty), the placeholder is
-// shown. The popup_id is unused but kept in the signature for
-// parity with future per-window preview state.
+// 3D preview of the mesh. Renders into a per-popup PreviewRT and presents via
+// ImGui::Image. The mesh is placed at world origin; the orbit camera frames on
+// the mesh's local AABB so any mesh renders at any scale. LMB = orbit,
+// wheel = zoom, RMB = pan.
 void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 					   const std::string& popup_id, const ImVec2& size,
 					   const std::shared_ptr<Mesh>& display_mesh) {
-	(void)mesh; (void)popup_id; (void)display_mesh;
-	ImGui::BeginChild("preview", size, true,
+	const std::shared_ptr<Mesh>& render_mesh =
+		(display_mesh && display_mesh->GetSubMeshCount() >= 0) ? display_mesh : mesh;
+	if (!render_mesh) {
+		ImGui::BeginChild("preview", size, true,
+						  ImGuiWindowFlags_NoScrollbar);
+		ImGui::GetWindowDrawList()->AddRectFilled(
+			ImGui::GetCursorScreenPos(),
+			ImVec2(ImGui::GetCursorScreenPos().x + size.x,
+				   ImGui::GetCursorScreenPos().y + size.y),
+			ImGui::GetColorU32(ImVec4(0.2f, 0.2f, 0.22f, 1.0f)));
+		ImGui::TextDisabled("(3D preview - no mesh)");
+		ImGui::EndChild();
+		return;
+	}
+
+	const ImVec2 pad(8.0f, 8.0f);
+	const int w = std::max(32,
+		static_cast<int>(size.x - 2.0f * pad.x + 0.5f));
+	const int h = std::max(32,
+		static_cast<int>(size.y - 2.0f * pad.y + 0.5f));
+	const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
+
+	// (Re)allocate the PreviewRT on resize.
+	PreviewRT& rt = g_PreviewRTs[popup_id];
+	const bool rt_size_changed = (rt.fbo != 0 &&
+		(rt.width != w || rt.height != h));
+	if (rt.fbo == 0 || rt.width != w || rt.height != h) {
+		if (rt.fbo) {
+			glDeleteFramebuffers(1, &rt.fbo);
+			rt.fbo = 0;
+		}
+		glGenFramebuffers(1, &rt.fbo);
+		rt.colorRT = Texture::GetTemporary(w, h, 1,
+			TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+		rt.depthRT = Texture::GetTemporary(w, h, 1,
+			TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
+		glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			GL_TEXTURE_2D, rt.colorRT->GetID(), 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_2D, rt.depthRT->GetID(), 0);
+		const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			FURYW << "RenderMeshPreview: FBO incomplete for popup_id "
+				  << popup_id << " (0x" << std::hex << status << std::dec << ")";
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			rt.fbo = 0;
+			return;
+		}
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		rt.width = w;
+		rt.height = h;
+	}
+
+	// Frame on the mesh's local AABB (mesh placed at world origin).
+	auto aabb = render_mesh->GetAABB();
+	auto mn = aabb.GetMin();
+	auto mx = aabb.GetMax();
+	Vector4 aabb_center((mn.x + mx.x) * 0.5f,
+						(mn.y + mx.y) * 0.5f,
+						(mn.z + mx.z) * 0.5f, 1.0f);
+	Vector4 aabb_size(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, 0);
+	float radius = 0.5f * std::sqrt(
+		aabb_size.x * aabb_size.x + aabb_size.y * aabb_size.y + aabb_size.z * aabb_size.z);
+	// Degenerate AABB fallback; tiny-but-valid meshes keep their real radius.
+	if (radius < 1e-6f) radius = 0.5f;
+
+	OrbitState& os = OrbitFor(popup_id);
+	// Re-frame on first appearance or on FBO resize (aspect changes).
+	if (!os.initialized || rt_size_changed) {
+		const float fov0 = 45.0f * 0.0174532925f;
+		const float adjusted_dist = (radius * 0.6f) /
+			(std::tan(fov0 * 0.5f) * std::min(1.0f, aspect));
+		// Preserve the user's manual zoom fraction across resizes.
+		const float zoom_factor = os.initialized
+			? (os.distance / std::max(1e-6f, os.initialDistance))
+			: 1.0f;
+		os.initialDistance = adjusted_dist;
+		os.distance = adjusted_dist * zoom_factor;
+		os.target = aabb_center;
+		os.initialized = true;
+	}
+
+	const float fov = 45.0f * 0.0174532925f;
+	Matrix4 proj;
+	// Near/far sized to the bounding sphere so any scale renders without clipping.
+	proj.PerspectiveFov(fov, aspect,
+		std::max(radius * 0.05f, 1e-5f), os.distance + radius * 5.0f);
+
+	const float cx = std::cos(os.pitch) * std::cos(os.yaw);
+	const float cy = std::sin(os.pitch);
+	const float cz = std::cos(os.pitch) * std::sin(os.yaw);
+	const Vector4 eye(os.target.x + cx * os.distance,
+		os.target.y + cy * os.distance,
+		os.target.z + cz * os.distance, 1.0f);
+	Matrix4 view;
+	view.LookAt(eye, os.target, Vector4(0, 1, 0, 0));
+
+	if (render_mesh->GetDirty())
+		render_mesh->UpdateBuffer();
+
+	glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+	glViewport(0, 0, w, h);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glEnable(GL_DEPTH_TEST);
+
+	auto shader = GetSimpleLambertShader();
+	shader->Bind();
+	Matrix4 world;
+	world.Identity();
+	shader->BindMatrix("_WorldMatrix", world);
+	shader->BindMatrix("_ViewMatrix", view);
+	shader->BindMatrix("_ProjectionMatrix", proj);
+
+	auto submeshCount = render_mesh->GetSubMeshCount();
+	if (submeshCount == 0) {
+		shader->BindMesh(render_mesh);
+		glDrawElements(GL_TRIANGLES,
+					   static_cast<GLsizei>(render_mesh->Indices.Data.size()),
+					   GL_UNSIGNED_INT, 0);
+	} else {
+		shader->BindMesh(render_mesh);
+		for (unsigned int i = 0; i < submeshCount; ++i) {
+			auto sm = render_mesh->GetSubMeshAt(i);
+			if (!sm) continue;
+			shader->BindSubMesh(render_mesh, i);
+			glDrawElements(GL_TRIANGLES,
+						   static_cast<GLsizei>(sm->Indices.Data.size()),
+						   GL_UNSIGNED_INT, 0);
+		}
+	}
+
+	// Ground grid + AABB wireframe.
+	{
+		static std::shared_ptr<Shader> line_shader;
+		if (!line_shader) {
+			line_shader = Shader::Create("EditorLineShader",
+				ShaderType::OTHER);
+			const char* vs =
+				"in vec3 vertex_position;"
+				"uniform mat4 _ViewMatrix;"
+				"uniform mat4 _ProjectionMatrix;"
+				"uniform mat4 _OffsetMat;"
+				"void main()"
+				"{"
+				"	gl_Position = _ProjectionMatrix * _ViewMatrix *"
+				"		_OffsetMat * vec4(vertex_position, 1.0);"
+				"}";
+			const char* fs =
+				"uniform vec4 _Color;"
+				"out vec4 fragment_output;"
+				"void main() { fragment_output = _Color; }";
+			line_shader->Compile(vs, fs, "");
+		}
+		// Grid scales with the mesh's bounding radius (no fixed floor).
+		const float grid_extent = radius * 2.0f;
+		const float grid_step = grid_extent / 5.0f;
+		const int grid_lines_per_axis =
+			static_cast<int>((2.0f * grid_extent) / grid_step) + 1;
+		const int grid_vertex_count = grid_lines_per_axis * 4;
+		static std::vector<float> grid_vbo_data;
+		static GLuint grid_vbo = 0, grid_vao = 0;
+		static float cached_extent = -1.0f;
+		if (grid_vbo == 0 || cached_extent != grid_extent) {
+			grid_vbo_data.clear();
+			grid_vbo_data.reserve(grid_vertex_count * 3);
+			for (float x = -grid_extent; x <= grid_extent + 1e-4f; x += grid_step) {
+				grid_vbo_data.push_back(x); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(-grid_extent);
+				grid_vbo_data.push_back(x); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back( grid_extent);
+			}
+			for (float z = -grid_extent; z <= grid_extent + 1e-4f; z += grid_step) {
+				grid_vbo_data.push_back(-grid_extent); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(z);
+				grid_vbo_data.push_back( grid_extent); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(z);
+			}
+			if (grid_vbo == 0) {
+				glGenBuffers(1, &grid_vbo);
+				glGenVertexArrays(1, &grid_vao);
+				glBindVertexArray(grid_vao);
+				glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
+				glEnableVertexAttribArray(0);
+				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+				glBindVertexArray(0);
+			}
+			glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
+			glBufferData(GL_ARRAY_BUFFER, grid_vbo_data.size() * sizeof(float),
+						 grid_vbo_data.data(), GL_DYNAMIC_DRAW);
+			cached_extent = grid_extent;
+		}
+		// AABB wireframe (8 corners, 12 edges), rebuilt per frame.
+		const float aabbVerts[24 * 3] = {
+			mn.x, mn.y, mn.z,  mx.x, mn.y, mn.z,
+			mx.x, mn.y, mn.z,  mx.x, mn.y, mx.z,
+			mx.x, mn.y, mx.z,  mn.x, mn.y, mx.z,
+			mn.x, mn.y, mx.z,  mn.x, mn.y, mn.z,
+			mn.x, mx.y, mn.z,  mx.x, mx.y, mn.z,
+			mx.x, mx.y, mn.z,  mx.x, mx.y, mx.z,
+			mx.x, mx.y, mx.z,  mn.x, mx.y, mx.z,
+			mn.x, mx.y, mx.z,  mn.x, mx.y, mn.z,
+			mn.x, mn.y, mn.z,  mn.x, mx.y, mn.z,
+			mx.x, mn.y, mn.z,  mx.x, mx.y, mn.z,
+			mx.x, mn.y, mx.z,  mx.x, mx.y, mx.z,
+			mn.x, mn.y, mx.z,  mn.x, mx.y, mx.z,
+		};
+		static GLuint aabb_vbo = 0, aabb_vao = 0;
+		if (aabb_vbo == 0) {
+			glGenBuffers(1, &aabb_vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(aabbVerts),
+						 aabbVerts, GL_DYNAMIC_DRAW);
+			glGenVertexArrays(1, &aabb_vao);
+			glBindVertexArray(aabb_vao);
+			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+			glBindVertexArray(0);
+		} else {
+			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(aabbVerts), aabbVerts);
+		}
+
+		line_shader->Bind();
+		line_shader->BindMatrix("_ViewMatrix", view);
+		line_shader->BindMatrix("_ProjectionMatrix", proj);
+
+		// Grid offset: AABB center XZ, AABB bottom Y.
+		Matrix4 gridOffMat;
+		gridOffMat.Identity();
+		gridOffMat.Raw[12] = aabb_center.x;
+		gridOffMat.Raw[13] = mn.y;
+		gridOffMat.Raw[14] = aabb_center.z;
+		line_shader->BindMatrix("_OffsetMat", gridOffMat);
+		glBindVertexArray(grid_vao);
+		glLineWidth(1.0f);
+		glDrawArrays(GL_LINES, 0, grid_vertex_count);
+		glBindVertexArray(0);
+
+		// AABB wireframe (offset = identity; vertices already in world space).
+		Matrix4 aabbOffMat;
+		aabbOffMat.Identity();
+		line_shader->BindMatrix("_OffsetMat", aabbOffMat);
+		glBindVertexArray(aabb_vao);
+		glLineWidth(1.5f);
+		glDrawArrays(GL_LINES, 0, 24);
+		glBindVertexArray(0);
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glDisable(GL_DEPTH_TEST);
+
+	ImGui::BeginChild("preview", size, false,
 					  ImGuiWindowFlags_NoScrollbar);
-	ImGui::GetWindowDrawList()->AddRectFilled(
-		ImGui::GetCursorScreenPos(),
-		ImVec2(ImGui::GetCursorScreenPos().x + size.x,
-			   ImGui::GetCursorScreenPos().y + size.y),
-		ImGui::GetColorU32(ImVec4(0.2f, 0.2f, 0.22f, 1.0f)));
-	ImGui::TextDisabled("(3D preview — render pending)");
+	ImGui::SetCursorPos(pad);
+	const ImVec2 img_size(size.x - 2.0f * pad.x,
+						   size.y - 2.0f * pad.y);
+	ImGui::Image((ImTextureID)(intptr_t)rt.colorRT->GetID(),
+				 img_size, ImVec2(0, 1), ImVec2(1, 0));
+
+	// Camera input: orbit (LMB), zoom (wheel), pan (RMB). Speeds scale with
+	// the mesh's bounding radius so any scale handles the same.
+	const bool hovered = ImGui::IsItemHovered() || ImGui::IsWindowHovered();
+	if (hovered) {
+		const ImGuiIO& io = ImGui::GetIO();
+		if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+			os.yaw   += io.MouseDelta.x * 0.01f;
+			os.pitch += io.MouseDelta.y * 0.01f;
+			const float lim = static_cast<float>(M_PI_2) - 0.01f;
+			if (os.pitch >  lim) os.pitch =  lim;
+			if (os.pitch < -lim) os.pitch = -lim;
+		}
+		if (io.MouseWheel != 0.0f && os.initialDistance > 0.0f) {
+			os.distance *= (1.0f - io.MouseWheel * 0.1f);
+			os.distance = std::max(0.1f * os.initialDistance,
+				std::min(10.0f * os.initialDistance, os.distance));
+		}
+		// Pan: translate the orbit target along the camera's right/up vectors.
+		if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+			Vector4 forward = eye - os.target;
+			float flen = std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
+			if (flen > 1e-6f) {
+				forward.x /= flen; forward.y /= flen; forward.z /= flen;
+				Vector4 right(
+					forward.y * 0.0f - forward.z * 1.0f,
+					forward.z * 0.0f - forward.x * 0.0f,
+					forward.x * 1.0f - forward.y * 0.0f, 0.0f);
+				float rlen = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+				if (rlen > 1e-6f) { right.x /= rlen; right.y /= rlen; right.z /= rlen; }
+				Vector4 up(
+					right.y * forward.z - right.z * forward.y,
+					right.z * forward.x - right.x * forward.z,
+					right.x * forward.y - right.y * forward.x, 0.0f);
+				const float pan_scale = radius * 0.002f;
+				os.target.x -= right.x * io.MouseDelta.x * pan_scale;
+				os.target.y -= right.y * io.MouseDelta.x * pan_scale;
+				os.target.z -= right.z * io.MouseDelta.x * pan_scale;
+				os.target.x += up.x * io.MouseDelta.y * pan_scale;
+				os.target.y += up.y * io.MouseDelta.y * pan_scale;
+				os.target.z += up.z * io.MouseDelta.y * pan_scale;
+			}
+		}
+	}
+
 	ImGui::EndChild();
 }
 } // namespace
 
-// ---- Mesh editor window (tasks 6.1, 6.2, 6.4-6.7) ----
-// Regular dockable ImGui window (NOT a modal popup). Matches
-// the Content Browser / Scene Inspector pattern so the editor
-// docks into the editor shell like every other window.
+// ---- Mesh editor window ----
 void RenderMeshEditorWindow(const std::shared_ptr<Mesh>& mesh, bool* p_open) {
 	if (!mesh) return;
 
 	ImGui::SetNextWindowSize(ImVec2(640, 480), ImGuiCond_FirstUseEver);
-	// Center on first appearance.
 	ImGuiViewport* vp = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(ImVec2(vp->GetCenter().x, vp->GetCenter().y),
 							ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
@@ -641,24 +972,19 @@ void RenderMeshEditorWindow(const std::shared_ptr<Mesh>& mesh, bool* p_open) {
 	ImGui::TextDisabled("Mesh: %s", mesh->GetName().c_str());
 	ImGui::Separator();
 
-	// 3D preview pane (tasks 6.5, 6.6, 6.7).
 	std::string popup_id = "MeshEditor:" + mesh->GetName();
+
+	// Two-pane layout: viewer left (~70%), metadata right (~30%).
 	ImVec2 avail = ImGui::GetContentRegionAvail();
+	const float sidebar_width = std::max(240.0f, avail.x * 0.30f);
+	const float viewer_width = std::max(120.0f, avail.x - sidebar_width - 8.0f);
 
-	// Metadata block (task 6.4). Plumbed through the popup_id so the
-	// LOD dropdown's per-window selection is keyed to this window.
-	RenderMeshMetadata(mesh, popup_id);
-	ImGui::Separator();
-
-	// Resolve the LOD-selected mesh for the preview. The LOD
-	// chain lives on the mesh itself; read from there.
+	// LOD-selected mesh for the preview (keyed by popup_id).
 	std::shared_ptr<Mesh> display_mesh = mesh;
 	{
 		const unsigned int lod_count = mesh->GetLodCount();
 		if (lod_count > 1)
 		{
-			// Lookup the per-window selection; static so the
-			// dropdown and preview stay in sync.
 			static std::unordered_map<std::string, int> g_LodSelection;
 			int sel = g_LodSelection[popup_id];
 			if (sel < 0) sel = 0;
@@ -667,12 +993,17 @@ void RenderMeshEditorWindow(const std::shared_ptr<Mesh>& mesh, bool* p_open) {
 			if (picked) display_mesh = picked;
 		}
 	}
-	RenderMeshPreview(mesh, popup_id, ImVec2(avail.x, std::max(avail.y - 20.0f, 100.0f)), display_mesh);
+
+	RenderMeshPreview(mesh, popup_id, ImVec2(viewer_width, avail.y), display_mesh);
+
+	ImGui::SameLine();
+	ImGui::BeginChild("metadata", ImVec2(sidebar_width, avail.y), true);
+	RenderMeshMetadata(mesh, popup_id);
+	ImGui::EndChild();
 
 	ImGui::End();
 }
 
-// ---- Material editor window (tasks 6.1, 6.2, 6.3) ----
 void RenderMaterialEditorWindow(const std::shared_ptr<Material>& mat, bool* p_open) {
 	if (!mat) return;
 
@@ -707,18 +1038,131 @@ void OpenMaterialEditor(const std::shared_ptr<Material>& mat) {
 	g_OpenMaterialEditors.insert(popup);
 }
 
-// Lookup or allocate a 128×128 thumbnail for `mesh`. Returns the
-// color RT's GL texture ID (cast to ImTextureID by the caller).
-// Defined outside the file-local anonymous namespace so the
-// Content Browser (EditorWindows.cpp) can call it. Delegates to
-// the anonymous-namespace helpers (g_MeshThumbnails cache,
-// GetThumbnailShader, RenderMeshToThumbnail).
-//
-// PLACEHOLDER: The offscreen mesh render is not yet implemented.
-// Returns 0 so callers render the gray fallback rect. This will be
-// finished in a follow-up proposal.
+// Lookup or allocate a 128×128 thumbnail for `mesh`; returns the color RT's GL
+// texture ID (0 until populated). Enqueues an async content hash on dirty
+// transitions and warms from the disk cache on a hit.
 unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
-	(void)mesh;
+	if (!mesh) return 0;
+	const size_t bufferId = mesh->GetBufferId();
+	auto& entry = g_MeshThumbnails[bufferId];
+	entry.bufferId = bufferId;
+
+	// Slow path A: dirty-transition. The mesh was just re-uploaded
+	// to the GPU (true→false), so the content may have changed. Enqueue
+	// a hash worker; mark in-flight so we don't enqueue duplicates.
+	const bool isDirty = mesh->GetDirty();
+	if (entry.wasDirtyLastFrame && !isDirty && !entry.hashInFlight) {
+		entry.hashInFlight = true;
+		// Hash reads only Data vectors, safe off-thread; re-check BufferId
+		// in the callback (the mesh may have been replaced under the same id).
+		std::weak_ptr<Mesh> weak = mesh;
+		ThreadUtil::Instance()->Enqueue<unsigned int>(
+			[weak](int&) -> std::shared_ptr<unsigned int>
+			{
+				auto p = weak.lock();
+				if (!p) return std::make_shared<unsigned int>(0);
+				return std::make_shared<unsigned int>(MeshContentHash(p.get()));
+			},
+			[weak, bufferId](std::shared_ptr<unsigned int> result)
+			{
+				auto p = weak.lock();
+				if (!p) return; // mesh was destroyed in flight
+				auto it = g_MeshThumbnails.find(bufferId);
+				if (it == g_MeshThumbnails.end()) return;
+				auto& e = it->second;
+				e.hashInFlight = false;
+				if (!result) return;
+			if (*result != e.contentHash)
+			{
+				// Content changed: invalidate the FBO so it re-populates.
+				FURYD << "Mesh thumbnail: content changed for BufferId "
+					  << bufferId << " (" << e.contentHash
+					  << " -> " << *result << ")";
+				e.contentHash = *result;
+				e.diskLoaded = false;
+				if (e.fbo) {
+					glDeleteFramebuffers(1, &e.fbo);
+					e.fbo = 0;
+				}
+				e.colorRT.reset();
+				e.depthRT.reset();
+			}
+			});
+	}
+
+	// Slow path B: first time seeing this mesh — kick off the initial hash.
+	if (entry.contentHash == 0 && !entry.hashInFlight) {
+		entry.hashInFlight = true;
+		std::weak_ptr<Mesh> weak = mesh;
+		ThreadUtil::Instance()->Enqueue<unsigned int>(
+			[weak](int&) -> std::shared_ptr<unsigned int>
+			{
+				auto p = weak.lock();
+				if (!p) return std::make_shared<unsigned int>(0);
+				return std::make_shared<unsigned int>(MeshContentHash(p.get()));
+			},
+			[weak, bufferId](std::shared_ptr<unsigned int> result)
+			{
+				auto p = weak.lock();
+				if (!p) return;
+				auto it = g_MeshThumbnails.find(bufferId);
+				if (it == g_MeshThumbnails.end()) return;
+				auto& e = it->second;
+				e.hashInFlight = false;
+				if (!result) return;
+			e.contentHash = *result;
+			e.diskLoaded = false;
+		});
+		// No hash yet — return 0 (gray fallback) until the worker completes.
+		entry.wasDirtyLastFrame = isDirty;
+		return 0;
+	}
+
+	// Slow path C: hash is in flight — wait one more frame.
+	if (entry.hashInFlight) {
+		entry.wasDirtyLastFrame = isDirty;
+		return 0;
+	}
+
+	// Slow path D: have a hash but haven't populated the FBO this session.
+	// On a disk-cache hit, re-render (cheap). On a miss, render + queue a
+	// PNG encode.
+	if (!entry.diskLoaded && entry.contentHash != 0) {
+		if (IsCached(entry.contentHash))
+		{
+			RenderMeshToThumbnail(mesh, entry);
+			FURYD << "Mesh thumbnail: cache hit for BufferId "
+				  << bufferId << " (hash "
+				  << FormatHashHex(entry.contentHash) << ")";
+			entry.diskLoaded = true;
+		}
+		else
+		{
+			RenderMeshToThumbnail(mesh, entry);
+			std::vector<unsigned char> pixels(128 * 128 * 4);
+			glBindFramebuffer(GL_FRAMEBUFFER, entry.fbo);
+			glReadPixels(0, 0, 128, 128, GL_RGBA, GL_UNSIGNED_BYTE,
+						 pixels.data());
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			// Flip rows: GL origin is bottom-left, PNG is top-left.
+			std::vector<unsigned char> flipped(pixels.size());
+			const size_t row_bytes = 128 * 4;
+			for (int y = 0; y < 128; ++y) {
+				std::memcpy(&flipped[y * row_bytes],
+							&pixels[(127 - y) * row_bytes],
+							row_bytes);
+			}
+			const std::string path = GetCachePath(entry.contentHash);
+			const std::string name = mesh->GetName();
+			WritePngAsync(path, std::move(flipped), 128, 128, name);
+			entry.diskLoaded = true;
+		}
+	}
+
+	// Fast path: return the cached color RT id.
+	entry.wasDirtyLastFrame = isDirty;
+	if (entry.colorRT && entry.colorRT->GetID() != 0)
+		return entry.colorRT->GetID();
 	return 0;
 }
 
@@ -727,6 +1171,8 @@ void EvictStaleMeshThumbnails(const std::unordered_set<size_t>& liveIds) {
 		if (liveIds.count(it->first) == 0) {
 			if (it->second.fbo)
 				glDeleteFramebuffers(1, &it->second.fbo);
+			it->second.colorRT.reset();
+			it->second.depthRT.reset();
 			it = g_MeshThumbnails.erase(it);
 		} else {
 			++it;
@@ -734,8 +1180,43 @@ void EvictStaleMeshThumbnails(const std::unordered_set<size_t>& liveIds) {
 	}
 }
 
+// Periodic refresh poll. Re-runs GetMeshThumbnail for every mesh in the active
+// scene (rate-limited by the caller). Scans the EntityManager directly so the
+// poll needs no UI state.
+void RefreshMeshThumbnailCache() {
+	if (!Scene::Active) return;
+	auto em = Scene::Active->GetEntityManager();
+	if (!em) return;
+	std::function<bool(const std::shared_ptr<Mesh>&)> fn =
+		[](const std::shared_ptr<Mesh>& mesh) {
+			if (!mesh) return true;
+			GetMeshThumbnail(mesh);
+			return true;
+		};
+	em->ForEach<Mesh>(fn);
+}
+
+// Force a re-hash + re-render of `mesh`'s thumbnail on the next poll.
+void RefreshMeshThumbnailNow(const std::shared_ptr<Mesh>& mesh) {
+	if (!mesh) return;
+	auto it = g_MeshThumbnails.find(mesh->GetBufferId());
+	if (it == g_MeshThumbnails.end()) return;
+	it->second.contentHash = 0;
+	it->second.diskLoaded = false;
+	it->second.hashInFlight = false;
+	if (it->second.fbo) {
+		glDeleteFramebuffers(1, &it->second.fbo);
+		it->second.fbo = 0;
+	}
+	it->second.colorRT.reset();
+	it->second.depthRT.reset();
+}
+
+void WarmDiskCacheIndex() {
+	WarmDiskCacheIndexImpl();
+}
+
 void RenderAllOpenAssetEditors() {
-	// Render mesh editors as regular dockable windows.
 	std::vector<std::string> closedMesh;
 	for (const auto& popup : g_OpenMeshEditors) {
 		bool open = true;
@@ -755,7 +1236,6 @@ void RenderAllOpenAssetEditors() {
 	for (const auto& popup : closedMesh)
 		g_OpenMeshEditors.erase(popup);
 
-	// Render material editors as regular dockable windows.
 	std::vector<std::string> closedMat;
 	for (const auto& popup : g_OpenMaterialEditors) {
 		bool open = true;

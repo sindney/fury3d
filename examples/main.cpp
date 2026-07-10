@@ -1,13 +1,19 @@
 // fury — engine launcher AND CLI.
 //
 // Routing in main():
-//   - If argv[1] is a known CLI subcommand token (`convert`, `info`, `help`,
-//     `--help`, `-h`, `version`, `--version`), dispatch to fury::Cli::Run.
-//     The CLI path skips SFML window creation, engine initialization, and the
-//     Lua VM — it's pure C++ asset workflows.
-//   - Otherwise, treat argv[1] (or "Editor.lua" if no arg) as a Lua script
-//     path. Open a window, initialize the engine, hand control to the
-//     script's Engine.run() call, then shut down cleanly.
+//   - If argv[1] is `render-mesh`, run the headless mesh-render CLI
+//     (loads a scene, renders one mesh to a PNG, exits). Needs a
+//     GL context so it goes through the launcher's window path.
+//     The implementation lives in Cli::RenderMesh; main() just sets
+//     up the GL context + engine and delegates.
+//   - If argv[1] is a known headless CLI subcommand token (`convert`,
+//     `info`, `help`, `--help`, `-h`, `version`, `--version`,
+//     `exec`), dispatch to fury::Cli::Run. The headless CLI skips
+//     SFML window creation, engine initialization, and the Lua VM
+//     for non-exec subcommands — it's pure C++ asset workflows.
+//   - Otherwise, treat argv[1] (or "Editor.lua" if no arg) as a Lua
+//     script path. Open a window, initialize the engine, hand control
+//     to the script's Engine.run() call, then shut down cleanly.
 //
 // Runtime flags (not subcommands) that the launcher path recognizes:
 //   --screenshot <path>         capture a PNG of the rendered scene
@@ -29,6 +35,7 @@
 
 #include <Fury/Cli.h>
 #include <Fury/Editor/Editor.h>
+#include <Fury/FileUtil.h>
 #include <Fury/Fury.h>
 #include <Fury/Gui.h>
 #include <Fury/LuaBindings.h>
@@ -101,6 +108,34 @@ namespace
 
 int main(int argc, char *argv[])
 {
+	// `fury render-mesh` needs a GL context, so set up the window + engine here
+	// and delegate to Cli::RenderMesh.
+	if (argc >= 2 && std::strcmp(argv[1], "render-mesh") == 0) {
+		sf::ContextSettings settings;
+		settings.depthBits = 24;
+		settings.stencilBits = 8;
+		settings.antiAliasingLevel = 0;
+		settings.majorVersion = 3;
+		settings.minorVersion = 3;
+		sf::Window window(
+			sf::VideoMode({256, 256}),
+			"Fury3d-render-mesh",
+			sf::Style::None,
+			sf::State::Windowed,
+			settings);
+		window.setVerticalSyncEnabled(false);
+		(void)window.setActive();
+		int rc = 1;
+		if (fury::Engine::Initialize(window, 2, fury::LogLevel::DBUG,
+				fury::FileUtil::GetAbsPath("Log.txt").c_str())) {
+			rc = fury::Cli::RenderMesh(argc, argv);
+			fury::Engine::Shutdown();
+		} else {
+			std::cerr << "fury render-mesh: Engine::Initialize failed\n";
+		}
+		return rc;
+	}
+
 	// Fast-path: if argv[1] looks like a CLI subcommand, take the offline
 	// path. No window, no engine, no Lua. Exit code from Cli::Run propagates.
 	if (argc >= 2 && fury::Cli::LooksLikeSubcommand(argv[1]))

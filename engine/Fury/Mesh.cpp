@@ -1,4 +1,5 @@
 #include <stack>
+#include <cstdio>
 
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
@@ -698,5 +699,64 @@ namespace fury
 		m_Meshes = std::move(meshes);
 		m_Thresholds = std::move(thresholds);
 		return true;
+	}
+
+	// MeshContentHash — FNV-1a 64-bit over positions + top-level indices
+	// + each submesh's indices. See header for rationale. Returns 0 on
+	// a null mesh so callers can short-circuit without dereferencing.
+	// We iterate the underlying std::vector<byte> rather than the typed
+	// ArrayBuffer wrappers to avoid any chance of touching GPU state
+	// (this is safe to call on a worker thread).
+	namespace
+	{
+		// FNV-1a 64-bit constants. The offset basis is the official
+		// FNV-1a 64-bit starting value; the prime is the official
+		// 64-bit prime.
+		const unsigned int kFnv1aOffset = 0xcbf29ce484222325ULL;
+		const unsigned int kFnv1aPrime  = 0x100000001b3ULL;
+
+		inline void Fnv1aAbsorbBytes(unsigned int &state, const void *data, size_t n)
+		{
+			const unsigned char *bytes = static_cast<const unsigned char*>(data);
+			for (size_t i = 0; i < n; ++i)
+			{
+				state ^= static_cast<unsigned int>(bytes[i]);
+				state *= kFnv1aPrime;
+			}
+		}
+	}
+
+	unsigned int MeshContentHash(const Mesh* mesh)
+	{
+		if (!mesh) return 0;
+		unsigned int h = kFnv1aOffset;
+		// Positions: float3 stride, so size() * sizeof(float) bytes.
+		Fnv1aAbsorbBytes(h, mesh->Positions.Data.data(),
+						 mesh->Positions.Data.size() * sizeof(float));
+		// Top-level indices (one shared index buffer for non-submeshes).
+		Fnv1aAbsorbBytes(h, mesh->Indices.Data.data(),
+						 mesh->Indices.Data.size() * sizeof(unsigned int));
+		// Per-submesh indices, in submesh order, so re-ordering
+		// submeshes changes the hash (matches "content fingerprint"
+		// intent).
+		const unsigned int n = mesh->GetSubMeshCount();
+		for (unsigned int i = 0; i < n; ++i)
+		{
+			auto sm = mesh->GetSubMeshAt(i);
+			if (!sm) continue;
+			Fnv1aAbsorbBytes(h, sm->Indices.Data.data(),
+							 sm->Indices.Data.size() * sizeof(unsigned int));
+		}
+		return h;
+	}
+
+	std::string FormatHashHex(unsigned int hash)
+	{
+		// 16 lowercase hex chars, no leading 0x. Use snprintf rather
+		// than std::format to keep header-light and to match the rest
+		// of the engine's C-style string conventions.
+		char buf[17];
+		std::snprintf(buf, sizeof(buf), "%016x", static_cast<unsigned long long>(hash));
+		return std::string(buf);
 	}
 }

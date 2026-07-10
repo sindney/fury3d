@@ -13,10 +13,12 @@
 #include "Fury/Cli.h"
 
 #include "Fury/AnimationClip.h"
+#include "Fury/BoxBounds.h"
 #include "Fury/BufferManager.h"
 #include "Fury/EntityManager.h"
 #include "Fury/FbxConverter.h"
 #include "Fury/FileUtil.h"
+#include "Fury/GLLoader.h"
 #include "Fury/GltfImporter.h"
 #include "Fury/Log.h"
 #include "Fury/LuaBindings.h"
@@ -25,8 +27,10 @@
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/OcTree.h"
+#include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
@@ -37,6 +41,10 @@
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #include <tiny_gltf.h>
+
+// stb_image_write — implementation lives in Engine.cpp; we just
+// need the prototype for `fury render-mesh` PNG output.
+#include <stb_image_write.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -67,6 +75,7 @@ namespace fury
 			"                 plus scene -> scene (.json <-> .bin)\n"
 			"  info           print a CPU-side summary of a scene or asset file\n"
 			"  exec           load a scene and run a Lua script against it (headless)\n"
+			"  render-mesh    render a specific mesh from a scene to a PNG (needs GL)\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
 			"\n"
@@ -323,8 +332,11 @@ namespace fury
 		// dispatch shape used by DoConvert / DoInfo. The engine scene loaders
 		// (FileUtil::LoadFile / LoadCompressedFile) require Scene::Active to
 		// be the loading target, so we set / restore it locally — same
-		// pattern as Importer.LoadScene in LuaBindings.cpp.
-		std::shared_ptr<Scene> LoadSceneForExec(const std::string &path)
+		// pattern as Importer.LoadScene in LuaBindings.cpp. Renamed to
+		// `LoadSceneForExecImpl` so the public Cli::LoadSceneForExec
+		// (defined outside the anonymous namespace) can delegate here
+		// without colliding on the unqualified name.
+		std::shared_ptr<Scene> LoadSceneForExecImpl(const std::string &path)
 		{
 			const std::string ext = ToLowerExt(path);
 			std::string working_dir = DirOf(path);
@@ -427,7 +439,7 @@ namespace fury
 
 			try
 			{
-				auto scene = LoadSceneForExec(scene_path);
+				auto scene = LoadSceneForExecImpl(scene_path);
 				if (!scene)
 				{
 					std::cerr << "fury exec: failed to load scene '" << scene_path << "'\n";
@@ -861,6 +873,125 @@ namespace fury
 		for (const char **t = tokens; *t; ++t)
 			if (std::strcmp(arg0, *t) == 0) return true;
 		return false;
+	}
+
+	// Public wrapper around the file-local helper. Lets
+	// launcher-side tools (e.g. `fury render-mesh`) reuse the
+	// same scene-loading dispatch as `fury exec`. Body is a
+	// thin delegation; the real logic lives in the anonymous
+	// namespace above so DoExec can keep its direct call.
+	std::shared_ptr<Scene> Cli::LoadSceneForExec(const std::string &path)
+	{
+		return LoadSceneForExecImpl(path);
+	}
+
+	// `fury render-mesh <scene> <mesh_name> <output.png>` — render a mesh to a
+	// 256×256 PNG. Shares the camera + shader with the editor's thumbnail via
+	// RenderMeshLambert. The launcher (main.cpp) owns the GL context.
+	int Cli::RenderMesh(int argc, char **argv)
+	{
+		if (argc < 5)
+		{
+			std::cerr << "fury render-mesh: expected <scene> <mesh_name> <output.png>\n"
+					  << "  example: fury render-mesh Resource/Scene/scene.json T90 /tmp/t90.png\n";
+			return 1;
+		}
+		const std::string scene_path = argv[2];
+		const std::string mesh_name = argv[3];
+		const std::string output_path = argv[4];
+
+		int exit_code = 0;
+		try
+		{
+			auto scene = Cli::LoadSceneForExec(scene_path);
+			if (!scene)
+			{
+				std::cerr << "fury render-mesh: failed to load scene '"
+						  << scene_path << "'\n";
+				return 1;
+			}
+			fury::Scene::Active = scene;
+			auto em = scene->GetEntityManager();
+			auto mesh = em ? em->Get<fury::Mesh>(mesh_name) : nullptr;
+			if (!mesh)
+			{
+				std::cerr << "fury render-mesh: mesh '" << mesh_name
+						  << "' not found in scene '" << scene_path << "'\n";
+				return 1;
+			}
+
+			const int W = 256, H = 256;
+			GLuint fbo = 0;
+			glGenFramebuffers(1, &fbo);
+			auto color = fury::Texture::GetTemporary(W, H, 1,
+				fury::TextureFormat::RGBA8, fury::TextureType::TEXTURE_2D);
+			auto depth = fury::Texture::GetTemporary(W, H, 1,
+				fury::TextureFormat::DEPTH24, fury::TextureType::TEXTURE_2D);
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+				GL_TEXTURE_2D, color->GetID(), 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+				GL_TEXTURE_2D, depth->GetID(), 0);
+			const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			if (status != GL_FRAMEBUFFER_COMPLETE)
+			{
+				std::cerr << "fury render-mesh: FBO incomplete (0x"
+						  << std::hex << status << std::dec << ")\n";
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glDeleteFramebuffers(1, &fbo);
+				return 1;
+			}
+
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+			glViewport(0, 0, W, H);
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glEnable(GL_DEPTH_TEST);
+
+			fury::RenderMeshLambert(mesh, W, H);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glDisable(GL_DEPTH_TEST);
+
+			// Read back + flip rows (GL origin is bottom-left, PNG is top-left).
+			std::vector<unsigned char> pixels(W * H * 4);
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+			glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			std::vector<unsigned char> flipped(pixels.size());
+			const size_t row_bytes = W * 4;
+			for (int y = 0; y < H; ++y)
+				std::memcpy(&flipped[y * row_bytes],
+							&pixels[(H - 1 - y) * row_bytes], row_bytes);
+
+			const int rc = stbi_write_png(output_path.c_str(),
+				W, H, 4, flipped.data(), static_cast<int>(row_bytes));
+			if (rc == 0)
+			{
+				std::cerr << "fury render-mesh: stbi_write_png failed for '"
+						  << output_path << "'\n";
+				exit_code = 1;
+			}
+			else
+			{
+				FURYI << "fury render-mesh: wrote " << output_path
+					  << " (mesh='" << mesh_name << "', scene='"
+					  << scene_path << "')";
+			}
+			glDeleteFramebuffers(1, &fbo);
+			fury::Scene::Active.reset();
+		}
+		catch (const std::exception &e)
+		{
+			std::cerr << "fury render-mesh: uncaught exception: " << e.what() << "\n";
+			exit_code = 2;
+		}
+		catch (...)
+		{
+			std::cerr << "fury render-mesh: uncaught unknown exception\n";
+			exit_code = 2;
+		}
+		return exit_code;
 	}
 
 	int Cli::Run(int argc, char **argv)

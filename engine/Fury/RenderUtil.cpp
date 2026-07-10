@@ -1,6 +1,9 @@
 #include <SFML/System/Time.hpp>
 
+#include <cmath>
+
 #include "Fury/RenderUtil.h"
+#include "Fury/BoxBounds.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Vector4.h"
@@ -333,5 +336,120 @@ namespace fury
 	unsigned int RenderUtil::GetLightCount()
 	{
 		return m_LastLightCount;
+	}
+
+	std::shared_ptr<Shader> GetSimpleLambertShader()
+	{
+		static auto shader = Shader::Create("SimpleLambertShader", ShaderType::OTHER);
+		if (shader->GetDirty())
+		{
+			const char *vs =
+				"in vec3 vertex_position;"
+				"in vec3 vertex_normal;"
+				"uniform mat4 _WorldMatrix;"
+				"uniform mat4 _ViewMatrix;"
+				"uniform mat4 _ProjectionMatrix;"
+				"out vec3 v_normal;"
+				"void main()"
+				"{"
+				"	vec4 worldPos = _WorldMatrix * vec4(vertex_position, 1.0);"
+				"	v_normal = mat3(_WorldMatrix) * vertex_normal;"
+				"	gl_Position = _ProjectionMatrix * _ViewMatrix * worldPos;"
+				"}";
+			const char *fs =
+				"in vec3 v_normal;"
+				"out vec4 fragment_output;"
+				"void main()"
+				"{"
+				"	vec3 n = v_normal;"
+				"	float nlen = length(n);"
+				"	if (nlen < 0.0001) n = vec3(0.0, 1.0, 0.0);"
+				"	else n = n / nlen;"
+				"	vec3 lightDir = normalize(vec3(0.4, 0.8, 0.3));"
+				"	float ndotl = max(dot(n, lightDir), 0.2);"
+				"	fragment_output = vec4(vec3(0.7) * ndotl, 1.0);"
+				"}";
+			if (!shader->Compile(vs, fs, ""))
+				FURYE << "SimpleLambertShader: compile failed (see GLSL error above)";
+		}
+		return shader;
+	}
+
+	float RenderMeshLambert(const std::shared_ptr<Mesh> &mesh, int w, int h)
+	{
+		if (!mesh) return 0.0f;
+
+		if (mesh->GetDirty())
+			mesh->UpdateBuffer();
+		for (unsigned int s = 0; s < mesh->GetSubMeshCount(); ++s)
+		{
+			auto sm = mesh->GetSubMeshAt(s);
+			if (sm && sm->GetDirty())
+				sm->UpdateBuffer();
+		}
+
+		auto shader = GetSimpleLambertShader();
+		shader->Bind();
+
+		// Frame on the mesh's local AABB (mesh placed at world origin).
+		auto aabb = mesh->GetAABB();
+		auto mn = aabb.GetMin();
+		auto mx = aabb.GetMax();
+		Vector4 center((mn.x + mx.x) * 0.5f,
+					   (mn.y + mx.y) * 0.5f,
+					   (mn.z + mx.z) * 0.5f, 1.0f);
+		Vector4 size(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, 0);
+		float radius = 0.5f * std::sqrt(
+			size.x * size.x + size.y * size.y + size.z * size.z);
+		// Only fall back for a truly degenerate AABB; tiny-but-valid meshes
+		// (e.g. sub-mm glTF assets) must keep their real radius so the camera
+		// frames tightly instead of sitting 1.5m away from a sub-pixel mesh.
+		if (radius < 1e-6f) radius = 0.5f;
+
+		const float fov = 45.0f * 0.0174532925f;
+		const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
+		const float dist = (radius * 0.6f) /
+			(std::tan(fov * 0.5f) * std::min(1.0f, aspect));
+		const float az = 30.0f * 0.0174532925f;
+		const float el = 20.0f * 0.0174532925f;
+		const float cx = std::cos(el) * std::cos(az);
+		const float cy = std::sin(el);
+		const float cz = std::cos(el) * std::sin(az);
+		Vector4 eye(center.x + cx * dist,
+					center.y + cy * dist,
+					center.z + cz * dist, 1.0f);
+		Matrix4 world, view, proj;
+		world.Identity();
+		view.LookAt(eye, center, Vector4(0, 1, 0, 0));
+		proj.PerspectiveFov(fov, aspect,
+			std::max(radius * 0.05f, 1e-5f), dist + radius * 5.0f);
+		shader->BindMatrix("_WorldMatrix", world);
+		shader->BindMatrix("_ViewMatrix", view);
+		shader->BindMatrix("_ProjectionMatrix", proj);
+
+		auto submeshCount = mesh->GetSubMeshCount();
+		if (submeshCount == 0)
+		{
+			shader->BindMesh(mesh);
+			glDrawElements(GL_TRIANGLES,
+				static_cast<GLsizei>(mesh->Indices.Data.size()),
+				GL_UNSIGNED_INT, 0);
+		}
+		else
+		{
+			// BindMesh binds the mesh's VAO (position/normal/uv attributes);
+			// BindSubMesh only swaps the index buffer.
+			shader->BindMesh(mesh);
+			for (unsigned int i = 0; i < submeshCount; ++i)
+			{
+				auto sm = mesh->GetSubMeshAt(i);
+				if (!sm) continue;
+				shader->BindSubMesh(mesh, i);
+				glDrawElements(GL_TRIANGLES,
+					static_cast<GLsizei>(sm->Indices.Data.size()),
+					GL_UNSIGNED_INT, 0);
+			}
+		}
+		return radius;
 	}
 }

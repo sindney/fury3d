@@ -1513,6 +1513,17 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				Editor::MarkSceneDirty();
 			}
 		}
+		// Refresh (Mesh only) — invalidate the cached thumbnail
+		// so the next periodic poll re-hashes and re-renders.
+		// Wired to the disk-cache spec's "right-click → Refresh"
+		// path. Materials are not thumbnails, so no Refresh item
+		// for them.
+		if (tile.type == typeid(Mesh)) {
+			if (ImGui::MenuItem("Refresh")) {
+				auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
+				Editor::RefreshMeshThumbnailNow(mesh);
+			}
+		}
 		ImGui::Separator();
 		// Display mode switcher.
 		if (ImGui::BeginMenu("Display")) {

@@ -574,6 +574,25 @@ void Tick() {
 	// editor modal on the same frame.
 	RenderAllOpenAssetEditors();
 
+	// Mesh thumbnail refresh poll (mesh-thumbnail-disk-cache).
+	// Re-checks live mesh tiles against the disk cache every
+	// ~30 frames and re-enqueues hash + re-render for any mesh
+	// whose dirty-transition was observed. The first frame also
+	// warms the disk-cache index in case Editor::Initialize ran
+	// before the GL subsystem came up.
+	{
+		static int s_ThumbPollFrame = 0;
+		static bool s_ThumbIndexWarmed = false;
+		if (!s_ThumbIndexWarmed) {
+			Editor::WarmDiskCacheIndex();
+			s_ThumbIndexWarmed = true;
+		}
+		if (++s_ThumbPollFrame >= 30) {
+			s_ThumbPollFrame = 0;
+			Editor::RefreshMeshThumbnailCache();
+		}
+	}
+
 	// If the Viewport window is hidden, the editor has no offscreen
 	// render target — tell the pipeline to render to the default
 	// framebuffer so the 3D scene doesn't silently keep rendering into
@@ -699,13 +718,24 @@ bool IsViewportHovered() {
 }
 
 bool IsViewportContentHovered() {
-	// Same predicate the picking / cursor_in_viewport helper in
-	// Editor::Tick uses: must be visible AND sized AND the mouse
-	// must be inside the content rect (not the title bar / borders).
-	// g_ViewportContentMin/Size are written each frame by
-	// RenderViewportWindow; if the viewport is hidden or collapsed,
-	// size is zero and this short-circuits to false.
+	// True ONLY when:
+	//   (1) the Viewport window is visible and sized (not zero),
+	//   (2) the cursor is inside the Viewport's content rect (NOT
+	//       the title bar / resize borders), AND
+	//   (3) the Viewport is the topmost ImGui window at the cursor
+	//       position (g_ViewportHovered, set by RenderViewportWindow
+	//       via ImGui::IsWindowHovered).
+	//
+	// All three checks are required. Without check (3) the function
+	// would return true whenever a window covering the viewport's
+	// content rect (e.g. the Mesh editor's preview pane, the Node
+	// Properties panel when it's docked over the viewport) is at
+	// the cursor's bounding-rect location - and the camera-input
+	// gate in Editor.lua would let the main scene viewer's camera
+	// respond to drags intended for the covering window.
 	if (!g_ViewportVisible)
+		return false;
+	if (!g_ViewportHovered)
 		return false;
 	if (g_ViewportContentSize.x <= 0.0f || g_ViewportContentSize.y <= 0.0f)
 		return false;
