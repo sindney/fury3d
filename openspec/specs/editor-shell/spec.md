@@ -361,14 +361,14 @@ Each tile SHALL render at a fixed icon size (default 64×64 thumbnail area + lab
 Each tile's thumbnail SHALL be:
 
 - **For a Material**: a 64×64 `ImGui::Image` of the material's diffuse texture (or first non-null texture if no diffuse), or a flat color swatch derived from the material's `DIFFUSE_COLOR` uniform if no textures are bound, or a checkerboard placeholder if neither is available. The texture GL handle SHALL be cast via `(ImTextureID)(intptr_t)tex->GetID()` with UVs `ImVec2(0,1), ImVec2(1,0)` (matching the existing `EditorNodeProperties.cpp:304` pattern).
-- **For a Mesh**: a 64×64 mini-3D render of the mesh, rendered off-screen into a cached FBO per mesh (keyed on the mesh's `BufferId`), drawn with the mesh's first material or a fallback flat shader, with the camera framed by the mesh's AABB. The FBO SHALL be regenerated only when the mesh's `BufferId` changes (i.e. the mesh was re-uploaded to the GPU).
+- **For a Mesh**: a 128×128 mini-3D render of the mesh, rendered off-screen into a cached FBO per mesh (keyed on the mesh's `BufferId`), drawn with the simple Lambert shader defined in the `mesh-thumbnail-disk-cache` capability (flat `vec3(0.7)` albedo, fixed directional light `(0.4, 0.8, 0.3)`, half-lambert floor `0.2`, opaque black background matching the 3D scene viewport). The FBO SHALL be regenerated when the mesh's content hash changes (computed off-thread over vertex positions + indices per the `mesh-thumbnail-disk-cache` capability), NOT merely when `BufferId` changes. The FBO SHALL also be warmed from the disk cache (`Resource/.thumbcache/furye_<hash>.png`) when a cache hit occurs. The camera SHALL be framed by the mesh's AABB. The thumbnail texture GL handle SHALL be cast via `(ImTextureID)(intptr_t)entry.colorRT->GetID()` with UVs `ImVec2(0,1), ImVec2(1,0)`. The shader SHALL be robust against meshes with missing or zero normals (falling back to `vec3(0, 1, 0)`) so glTF meshes without a normal attribute still produce a non-white silhouette.
 
 Each tile's label row SHALL display the asset's name truncated to fit the tile width (ellipsis on overflow). The tile SHALL additionally render a small type badge (`M` for Mesh, `Mat` for Material) in the top-left corner of the thumbnail.
 
 The Content Browser SHALL support the following interactions:
 
 - **Double-click** on a tile SHALL open the per-asset editor window (see `asset-editor-windows` capability). If the editor window for that asset is already open, double-click SHALL focus the existing window.
-- **Right-click** on a tile SHALL open a context menu with the items: `Duplicate`, `Rename`, `Delete`. Right-clicking empty space in the grid SHALL open a context menu with the items: `Refresh` (re-runs `ForEach` next frame).
+- **Right-click** on a tile SHALL open a context menu with the items: `Duplicate`, `Rename`, `Delete`, `Refresh` (the last forces a thumbnail re-render for that mesh by invalidating its in-memory FBO entry and enqueuing a fresh hash + render). Right-clicking empty space in the grid SHALL open a context menu with the items: `Refresh` (re-runs `ForEach` next frame).
 - **F2** on a selected tile SHALL activate inline rename (same as `Rename` menu item).
 
 The window SHALL be hidden by default and toggled from `Window → Content Browser`.
@@ -406,15 +406,28 @@ The legacy file-listing behavior (enumerating `Resource/Scene/` via `FileUtil::L
 - **WHEN** a material has no textures but has a `DIFFUSE_COLOR` uniform of `(0.8, 0.2, 0.2, 1.0)`
 - **THEN** the tile's thumbnail area is filled with a flat `(0.8, 0.2, 0.2)` swatch
 
+#### Scenario: Mesh tile shows a simple Lambert render
+
+- **WHEN** a mesh named "Cube" has a textured PBR material bound to its first submesh
+- **AND** the Content Browser renders a tile for "Cube"
+- **THEN** the tile's thumbnail is a 128×128 render of the Cube mesh with the simple Lambert shader (flat 0.7 grey albedo, fixed directional light, opaque black background)
+- **AND** the mesh's bound material is NOT sampled in the thumbnail
+
 #### Scenario: Double-click opens the asset editor
 
 - **WHEN** the user double-clicks the "Cube" Mesh tile
 - **THEN** a `Mesh: Cube` editor window opens (per the `asset-editor-windows` capability)
 
-#### Scenario: Right-click opens the Duplicate/Rename/Delete context menu
+#### Scenario: Right-click opens the Duplicate/Rename/Delete/Refresh context menu
 
 - **WHEN** the user right-clicks the "Cube" Mesh tile
-- **THEN** a context menu opens with the items `Duplicate`, `Rename`, `Delete` enabled
+- **THEN** a context menu opens with the items `Duplicate`, `Rename`, `Delete`, `Refresh` enabled
+
+#### Scenario: Refresh forces a thumbnail re-render
+
+- **WHEN** the user right-clicks the "Cube" Mesh tile and selects `Refresh`
+- **THEN** the in-memory FBO entry for "Cube" is invalidated
+- **AND** on the next periodic refresh poll, the editor enqueues a fresh hash + render for "Cube"
 
 #### Scenario: Refresh re-runs ForEach next frame
 
@@ -427,12 +440,13 @@ The legacy file-listing behavior (enumerating `Resource/Scene/` via `FileUtil::L
 - **THEN** on the next frame `selected_asset` is `(typeid(Mesh), "Cube")`
 - **AND** the grid scrolls so the "Cube" tile is visible
 
-#### Scenario: Mesh thumbnail FBO is cached on BufferId
+#### Scenario: Mesh thumbnail FBO is cached on content hash and warmed from disk
 
 - **WHEN** the Content Browser first renders a tile for "Cube" with `BufferId == 42`
-- **AND** the "Cube" mesh is not modified between frames
-- **THEN** the FBO is rendered once and reused on subsequent frames
-- **AND** no new FBO is allocated until `Cube->GetBufferId()` changes
+- **AND** the disk cache contains `Resource/.thumbcache/furye_<hash_of_cube>.png`
+- **THEN** the FBO is populated by loading the PNG from disk (no GL render of the mesh is performed)
+- **AND** on subsequent frames, the FBO is reused without re-loading the PNG
+- **AND** no new FBO is allocated until "Cube"'s content hash changes (which may or may not coincide with a `BufferId` change)
 
 ### Requirement: The editor SHALL register a `Gui::Editor` Lua table for project extension
 
