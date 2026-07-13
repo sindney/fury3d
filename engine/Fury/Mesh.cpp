@@ -402,7 +402,15 @@ namespace fury
 		IDs.UpdateBuffer();
 		Indices.UpdateBuffer();
 
-		m_Dirty = Indices.GetDirty() || Positions.GetDirty();
+		// For meshes with submeshes, the parent Indices buffer is
+		// unused — each submesh carries its own index data. Flipping
+		// the mesh dirty just because the (empty) parent Indices is
+		// dirty would make Shader::BindMesh / BindSubMesh early-return
+		// and the LOD preview / submeshed mesh would render nothing.
+		if (m_SubMeshes.empty())
+			m_Dirty = Indices.GetDirty() || Positions.GetDirty();
+		else
+			m_Dirty = Positions.GetDirty();
 
 		if (m_VAO != 0)
 		{
@@ -487,14 +495,45 @@ namespace fury
 				}
 			}
 		}
+		// Walk per-submesh for static meshes (LOD chain puts indices in submeshes,
+		// leaving the parent Indices empty); fall back to the parent buffer
+		// when there are no submeshes.
+		const unsigned int sub_count = GetSubMeshCount();
+		if (sub_count > 0)
+		{
+			for (unsigned int s = 0; s < sub_count; ++s)
+			{
+				auto sm = GetSubMeshAt(s);
+				if (!sm) continue;
+				const auto &idx = sm->Indices.Data;
+				const size_t num_triangles = idx.size() / 3;
+				for (size_t i = 0; i < num_triangles; ++i)
+				{
+					for (unsigned int j = 0; j < 3; ++j)
+					{
+						const unsigned int v = idx[i * 3 + j];
+						const size_t v3 = static_cast<size_t>(v) * 3;
+						if (v3 + 2 >= Positions.Data.size()) continue;
+						m_AABB.Encapsulate(Vector4(Positions.Data[v3],
+							Positions.Data[v3 + 1], Positions.Data[v3 + 2], 1.0f));
+					}
+				}
+			}
+		}
 		else
 		{
-			unsigned int triangleCount = Positions.Data.size() / 3;
-			for (unsigned int i = 0; i < triangleCount; i++)
+			// No submeshes - parent Indices must be populated.
+			const size_t num_triangles = Indices.Data.size() / 3;
+			for (size_t i = 0; i < num_triangles; ++i)
 			{
-				unsigned int index = i * 3;
-				m_AABB.Encapsulate(Vector4(Positions.Data[index], Positions.Data[index + 1], 
-					Positions.Data[index + 2], 1.0f));
+				for (unsigned int j = 0; j < 3; ++j)
+				{
+					const unsigned int v = Indices.Data[i * 3 + j];
+					const size_t v3 = static_cast<size_t>(v) * 3;
+					if (v3 + 2 >= Positions.Data.size()) continue;
+					m_AABB.Encapsulate(Vector4(Positions.Data[v3],
+						Positions.Data[v3 + 1], Positions.Data[v3 + 2], 1.0f));
+				}
 			}
 		}
 	}

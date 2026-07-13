@@ -885,20 +885,38 @@ namespace fury
 		return LoadSceneForExecImpl(path);
 	}
 
-	// `fury render-mesh <scene> <mesh_name> <output.png>` — render a mesh to a
-	// 256×256 PNG. Shares the camera + shader with the editor's thumbnail via
-	// RenderMeshLambert. The launcher (main.cpp) owns the GL context.
+	// `fury render-mesh <scene> <mesh_name> <output.png> [--lod N]` — render a
+	// mesh to a 256×256 PNG. Shares the camera + shader with the editor's
+	// thumbnail via RenderMeshLambert. The launcher (main.cpp) owns the GL
+	// context.
 	int Cli::RenderMesh(int argc, char **argv)
 	{
 		if (argc < 5)
 		{
 			std::cerr << "fury render-mesh: expected <scene> <mesh_name> <output.png>\n"
-					  << "  example: fury render-mesh Resource/Scene/scene.json T90 /tmp/t90.png\n";
+					  << "  example: fury render-mesh Resource/Scene/scene.json T90 /tmp/t90.png\n"
+					  << "           fury render-mesh Resource/Scene/scene.json T90 /tmp/t90.png --lod 1\n";
 			return 1;
 		}
 		const std::string scene_path = argv[2];
 		const std::string mesh_name = argv[3];
 		const std::string output_path = argv[4];
+
+		// Optional --lod N lets us render a specific LOD mesh. Default = 0
+		// (the base mesh itself, which is what the editor's LOD picker
+		// defaults to before any LODs are generated).
+		int lod_index = 0;
+		bool lod_explicit = false;
+		for (int i = 5; i + 1 < argc; ++i)
+		{
+			const std::string flag = argv[i];
+			if (flag == "--lod" || flag == "-l")
+			{
+				lod_index = std::atoi(argv[i + 1]);
+				lod_explicit = true;
+				++i;
+			}
+		}
 
 		int exit_code = 0;
 		try
@@ -918,6 +936,27 @@ namespace fury
 				std::cerr << "fury render-mesh: mesh '" << mesh_name
 						  << "' not found in scene '" << scene_path << "'\n";
 				return 1;
+			}
+
+			if (lod_explicit)
+			{
+				const unsigned int lod_count = mesh->GetLodCount();
+				if (lod_index < 0 || static_cast<unsigned int>(lod_index) >= lod_count)
+				{
+					std::cerr << "fury render-mesh: --lod " << lod_index
+							  << " out of range (mesh has " << lod_count
+							  << " LOD(s), indices 0.." << (lod_count ? lod_count - 1 : 0)
+							  << ")\n";
+					return 1;
+				}
+				auto lod_mesh = mesh->GetLodMesh(static_cast<unsigned int>(lod_index));
+				if (!lod_mesh)
+				{
+					std::cerr << "fury render-mesh: mesh->GetLodMesh(" << lod_index
+							  << ") returned null\n";
+					return 1;
+				}
+				mesh = lod_mesh;
 			}
 
 			const int W = 256, H = 256;

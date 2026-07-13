@@ -64,6 +64,8 @@ struct OrbitState {
 	float initialDistance = 0.0f;	// initial radius (zoom clamp)
 	float yaw = 30.0f * 0.0174532925f;	 // initial orbit azimuth (rad)
 	float pitch = 20.0f * 0.0174532925f; // initial orbit elevation (rad)
+	int preview_lod_override = -1;	// -1 = Auto (runtime-driven); [0, GetLodCount()) = override
+	std::shared_ptr<Mesh> framed_mesh;	// the mesh the orbit is currently framed on
 	bool initialized = false;
 };
 std::unordered_map<std::string, OrbitState> g_OrbitState;
@@ -428,29 +430,39 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 	// dropdown / stats.
 	const unsigned int lod_count = mesh->GetLodCount();
 
-	// Per-window LOD selection (resets on close).
-	static std::unordered_map<std::string, int> g_LodSelection;
-	int& selected_lod = g_LodSelection[popup_id];
-	if (selected_lod < 0) selected_lod = 0;
-	if (static_cast<unsigned int>(selected_lod) >= lod_count)
-		selected_lod = 0;
+	// Per-window LOD preview override (-1 = Auto, [0, lod_count) = specific LOD).
+	OrbitState& os = OrbitFor(popup_id);
+	if (os.preview_lod_override != -1 &&
+		static_cast<unsigned int>(os.preview_lod_override) >= lod_count)
+	{
+		os.preview_lod_override = -1;
+	}
+	int selected_lod = os.preview_lod_override;
 
 	if (lod_count > 1)
 	{
 		ImGui::Text("LOD:");
 		ImGui::SameLine();
 		ImGui::PushItemWidth(120.0f);
-		std::string label = "LOD " + std::to_string(selected_lod);
+		std::string label;
+		if (selected_lod < 0)
+			label = "Auto";
+		else
+			label = "LOD " + std::to_string(selected_lod);
 		if (ImGui::BeginCombo("##lod_dropdown", label.c_str()))
 		{
+			bool auto_selected = (selected_lod < 0);
+			if (ImGui::Selectable("Auto", auto_selected))
+				os.preview_lod_override = -1;
+			if (auto_selected) ImGui::SetItemDefaultFocus();
 			for (unsigned int i = 0; i < lod_count; ++i)
 			{
-				bool selected = (static_cast<int>(i) == selected_lod);
+				bool is_selected = (static_cast<int>(i) == selected_lod);
 				char entry[32];
 				std::snprintf(entry, sizeof(entry), "LOD %u", i);
-				if (ImGui::Selectable(entry, selected))
-					selected_lod = static_cast<int>(i);
-				if (selected) ImGui::SetItemDefaultFocus();
+				if (ImGui::Selectable(entry, is_selected))
+					os.preview_lod_override = static_cast<int>(i);
+				if (is_selected) ImGui::SetItemDefaultFocus();
 			}
 			ImGui::EndCombo();
 		}
@@ -464,41 +476,51 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 	// Editable interior LOD thresholds (LOD 0 = 1.0, LOD N = 0.0, locked).
 	if (lod_count > 1)
 	{
-		if (ImGui::TreeNode("LOD Thresholds"))
+		auto get_th = [&](unsigned int i) -> float {
+			return mesh->GetLodThreshold(i);
+		};
+		auto set_th = [&](unsigned int i, float v) {
+			auto cur = mesh->GetLodMeshes();
+			std::vector<float> new_th;
+			new_th.reserve(cur.size());
+			for (size_t k = 0; k < cur.size(); ++k)
+				new_th.push_back(mesh->GetLodThreshold(static_cast<unsigned int>(k) + 1));
+			// Clamp to [0, 1] so a stray typed value doesn't poison the chain.
+			if (v < 0.0f) v = 0.0f;
+			if (v > 1.0f) v = 1.0f;
+			new_th[i - 1] = v;
+			mesh->SetLodMeshes(cur, new_th);
+		};
+		std::string table_id = "lod_thresholds##" + popup_id;
+		if (ImGui::BeginTable(table_id.c_str(), 2,
+				ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
 		{
-			auto get_th = [&](unsigned int i) -> float {
-				return mesh->GetLodThreshold(i);
-			};
-			auto set_th = [&](unsigned int i, float v) {
-				auto cur = mesh->GetLodMeshes();
-				std::vector<float> new_th;
-				new_th.reserve(cur.size());
-				for (size_t k = 0; k < cur.size(); ++k)
-					new_th.push_back(mesh->GetLodThreshold(static_cast<unsigned int>(k) + 1));
-				new_th[i - 1] = v;
-				mesh->SetLodMeshes(cur, new_th);
-			};
+			ImGui::TableSetupColumn("Index");
+			ImGui::TableSetupColumn("Threshold");
+			ImGui::TableHeadersRow();
 			for (unsigned int i = 1; i < lod_count; ++i)
 			{
+				ImGui::TableNextRow();
 				ImGui::PushID(static_cast<int>(i));
-				float t = get_th(i);
-				const bool is_last = (i + 1 == lod_count);
+				ImGui::TableNextColumn();
 				ImGui::Text("LOD %u", i);
-				ImGui::SameLine();
-				ImGui::PushItemWidth(180.0f);
+				ImGui::TableNextColumn();
+				const bool is_last = (i + 1 == lod_count);
 				if (is_last)
 				{
-					ImGui::TextDisabled("%.3f (locked)", t);
+					ImGui::TextDisabled("0.000");
 				}
 				else
 				{
-					if (ImGui::SliderFloat("##th", &t, 0.0f, 1.0f, "%.3f"))
+					float t = get_th(i);
+					ImGui::PushItemWidth(120.0f);
+					if (ImGui::InputFloat("##th", &t, 0.0f, 0.0f, "%.3f"))
 						set_th(i, t);
+					ImGui::PopItemWidth();
 				}
-				ImGui::PopItemWidth();
 				ImGui::PopID();
 			}
-			ImGui::TreePop();
+			ImGui::EndTable();
 		}
 	}
 
@@ -570,9 +592,11 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 	// Per-LOD or single-mesh stats. When the mesh has a chain and
 	// an LOD is picked, show stats for the selected LOD's mesh.
 	std::shared_ptr<Mesh> stats_mesh = mesh;
-	if (static_cast<unsigned int>(selected_lod) < lod_count)
+	if (os.preview_lod_override >= 0 &&
+		static_cast<unsigned int>(os.preview_lod_override) < lod_count)
 	{
-		auto picked = mesh->GetLodMesh(static_cast<unsigned int>(selected_lod));
+		auto picked = mesh->GetLodMesh(
+			static_cast<unsigned int>(os.preview_lod_override));
 		if (picked) stats_mesh = picked;
 	}
 
@@ -592,22 +616,41 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 	ImGui::Text("Triangles: %u", totalTris);
 	ImGui::Text("Submeshes: %u", stats_mesh->GetSubMeshCount());
 
-	if (ImGui::TreeNode("Submeshes")) {
-		for (unsigned int i = 0; i < stats_mesh->GetSubMeshCount(); ++i) {
-			auto sm = stats_mesh->GetSubMeshAt(i);
-			ImGui::PushID(static_cast<int>(i));
-			if (ImGui::TreeNode("Submesh", "Submesh %u", i)) {
+	if (stats_mesh->GetSubMeshCount() > 0) {
+		std::string table_id = "submeshes##" + popup_id;
+		if (ImGui::BeginTable(table_id.c_str(), 4,
+				ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+		{
+			ImGui::TableSetupColumn("Index");
+			ImGui::TableSetupColumn("Name");
+			ImGui::TableSetupColumn("Indices");
+			ImGui::TableSetupColumn("Triangles");
+			ImGui::TableHeadersRow();
+			for (unsigned int i = 0; i < stats_mesh->GetSubMeshCount(); ++i) {
+				auto sm = stats_mesh->GetSubMeshAt(i);
+				ImGui::PushID(static_cast<int>(i));
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				ImGui::Text("%u", i);
+				ImGui::TableNextColumn();
 				if (sm) {
-					ImGui::Text("Indices: %u",
-								static_cast<unsigned int>(sm->Indices.Data.size()));
-					ImGui::Text("Triangles: %u",
-								static_cast<unsigned int>(sm->Indices.Data.size()) / 3);
+					const std::string name = "Submesh " + std::to_string(i);
+					ImGui::TextUnformatted(name.c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", static_cast<unsigned int>(sm->Indices.Data.size()));
+					ImGui::TableNextColumn();
+					ImGui::Text("%u", static_cast<unsigned int>(sm->Indices.Data.size()) / 3);
+				} else {
+					ImGui::TextUnformatted("<null>");
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted("-");
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted("-");
 				}
-				ImGui::TreePop();
+				ImGui::PopID();
 			}
-			ImGui::PopID();
+			ImGui::EndTable();
 		}
-		ImGui::TreePop();
 	}
 
 	auto aabb = mesh->GetAABB();
@@ -717,18 +760,24 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	if (radius < 1e-6f) radius = 0.5f;
 
 	OrbitState& os = OrbitFor(popup_id);
-	// Re-frame on first appearance or on FBO resize (aspect changes).
-	if (!os.initialized || rt_size_changed) {
+	// Re-frame on first appearance, on FBO resize (aspect changes), or
+	// when the displayed mesh switches (e.g. user picks a different LOD
+	// in the dropdown — each LOD has its own AABB and the previous
+	// orbit's target / distance would frame the wrong geometry).
+	const bool mesh_changed = (os.framed_mesh.get() != render_mesh.get());
+	if (!os.initialized || rt_size_changed || mesh_changed) {
 		const float fov0 = 45.0f * 0.0174532925f;
 		const float adjusted_dist = (radius * 0.6f) /
 			(std::tan(fov0 * 0.5f) * std::min(1.0f, aspect));
-		// Preserve the user's manual zoom fraction across resizes.
-		const float zoom_factor = os.initialized
+		// Preserve the user's manual zoom fraction across resizes / mesh
+		// switches (only meaningful if we'd already framed the same mesh).
+		const float zoom_factor = (os.initialized && !mesh_changed)
 			? (os.distance / std::max(1e-6f, os.initialDistance))
 			: 1.0f;
 		os.initialDistance = adjusted_dist;
 		os.distance = adjusted_dist * zoom_factor;
 		os.target = aabb_center;
+		os.framed_mesh = render_mesh;
 		os.initialized = true;
 	}
 
@@ -979,17 +1028,17 @@ void RenderMeshEditorWindow(const std::shared_ptr<Mesh>& mesh, bool* p_open) {
 	const float sidebar_width = std::max(240.0f, avail.x * 0.30f);
 	const float viewer_width = std::max(120.0f, avail.x - sidebar_width - 8.0f);
 
-	// LOD-selected mesh for the preview (keyed by popup_id).
+	// LOD-selected mesh for the preview (keyed by popup_id). -1 = Auto
+	// (render whatever the runtime would pick); [0, lod_count) = override.
 	std::shared_ptr<Mesh> display_mesh = mesh;
 	{
+		OrbitState& os = OrbitFor(popup_id);
 		const unsigned int lod_count = mesh->GetLodCount();
-		if (lod_count > 1)
+		if (os.preview_lod_override >= 0 &&
+			static_cast<unsigned int>(os.preview_lod_override) < lod_count)
 		{
-			static std::unordered_map<std::string, int> g_LodSelection;
-			int sel = g_LodSelection[popup_id];
-			if (sel < 0) sel = 0;
-			if (static_cast<unsigned int>(sel) >= lod_count) sel = 0;
-			auto picked = mesh->GetLodMesh(static_cast<unsigned int>(sel));
+			auto picked = mesh->GetLodMesh(
+				static_cast<unsigned int>(os.preview_lod_override));
 			if (picked) display_mesh = picked;
 		}
 	}

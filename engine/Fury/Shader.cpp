@@ -607,7 +607,13 @@ namespace fury
 		if (mesh->GetDirty())
 			mesh->UpdateBuffer();
 
-		if (m_Dirty || mesh->GetDirty() || mesh->Indices.GetDirty())
+		// For meshes with submeshes the parent Indices buffer is unused
+		// (each submesh carries its own index list), so an empty parent
+		// Indices shouldn't disqualify the bind. Check it only when
+		// there are no submeshes.
+		const bool parent_indices_relevant = (mesh->GetSubMeshCount() == 0);
+		if (m_Dirty || mesh->GetDirty() ||
+			(parent_indices_relevant && mesh->Indices.GetDirty()))
 			return;
 
 		BindMeshData(mesh);
@@ -627,7 +633,13 @@ namespace fury
 		if (subMesh->GetDirty())
 			subMesh->UpdateBuffer();
 
-		if (m_Dirty || mesh->GetDirty() || subMesh->GetDirty() || subMesh->Indices.GetDirty())
+		// Same parent-Indices gate as BindMesh above: meshes whose
+		// indices live in submeshes have an empty (permanently-dirty)
+		// parent Indices buffer that must not block the bind.
+		const bool parent_indices_relevant = (mesh->GetSubMeshCount() == 0);
+		if (m_Dirty || mesh->GetDirty() || subMesh->GetDirty() ||
+			subMesh->Indices.GetDirty() ||
+			(parent_indices_relevant && mesh->Indices.GetDirty()))
 			return;
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, subMesh->Indices.GetID());
