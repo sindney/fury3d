@@ -69,7 +69,7 @@ namespace fury
 							 size_t target_indices,
 							 float target_error,
 							 unsigned int options,
-							 bool use_sloppy,
+							 MeshSimplifyOptions::Method method,
 							 // outputs
 							 std::vector<unsigned int> &out_indices,
 							 std::vector<float> &out_positions,
@@ -109,7 +109,7 @@ namespace fury
 			// referencing the original vertices.
 			std::vector<unsigned int> simplified_indices(index_count);
 			size_t simplified_count;
-			if (use_sloppy)
+			if (method == MeshSimplifyOptions::Method::Sloppy)
 			{
 				// meshopt_simplifySloppy: grid-based, aggressive. Doesn't
 				// respect border vertices but produces visible
@@ -123,13 +123,20 @@ namespace fury
 			}
 			else
 			{
+				// Quadric / QuadricLegacy share meshopt_simplify but
+				// differ in the options mask: Quadric preserves the
+				// lock_borders flag (typically
+				// meshopt_SimplifyLockBorder), QuadricLegacy forces
+				// it off to match the old default.
+				const unsigned int method_options =
+					(method == MeshSimplifyOptions::Method::Quadric) ? options : 0u;
 				simplified_count = meshopt_simplify(
 					simplified_indices.data(),
 					src_indices.data(), index_count,
 					src_positions.data(), vertex_count, sizeof(float) * 3,
 					target_indices, // actual target (already shared-out)
 					target_error,
-					options, nullptr);
+					method_options, nullptr);
 			}
 			if (simplified_count < 3 || (simplified_count % 3) != 0)
 			{
@@ -235,11 +242,11 @@ namespace fury
 		const float target_error = std::max(0.0f, opts.target_error);
 		const unsigned int options = opts.lock_borders
 										 ? meshopt_SimplifyLockBorder : 0u;
-		// Default to the sloppy simplifier. meshopt_simplify preserves
-		// border vertices which often prevents reduction on FBX/glTF
-		// meshes with UV seams; the sloppy grid-based variant produces
-		// visible reduction at the cost of some geometric drift.
-		const bool use_sloppy = true;
+		// Dispatch on the requested simplification method — see
+		// MeshSimplifyOptions::Method. Quadric is the default;
+		// Sloppy uses the grid-based variant; QuadricLegacy skips
+		// the border-lock flag.
+		const MeshSimplifyOptions::Method method = opts.method;
 
 		// Compute per-level target triangle count. Level 0 is the
 		// source (highest detail). Each subsequent level is ratio of
@@ -303,7 +310,7 @@ namespace fury
 					// "submesh" view that uses source->Indices.
 					std::vector<unsigned int> simplified_indices(source->Indices.Data.size());
 					size_t simplified_count;
-					if (use_sloppy)
+					if (method == MeshSimplifyOptions::Method::Sloppy)
 					{
 						simplified_count = meshopt_simplifySloppy(
 							simplified_indices.data(),
@@ -314,12 +321,14 @@ namespace fury
 					}
 					else
 					{
+						const unsigned int method_options =
+							(method == MeshSimplifyOptions::Method::Quadric) ? options : 0u;
 						simplified_count = meshopt_simplify(
 							simplified_indices.data(),
 							source->Indices.Data.data(), source->Indices.Data.size(),
 							source->Positions.Data.data(), source->Positions.Data.size() / 3,
 							sizeof(float) * 3,
-							target_indices, target_error, options, nullptr);
+							target_indices, target_error, method_options, nullptr);
 					}
 					if (simplified_count < 3 || (simplified_count % 3) != 0)
 					{
@@ -373,7 +382,7 @@ namespace fury
 						? (this_sub_indices * target_indices) / std::max<size_t>(1, total_indices)
 						: target_indices;
 					if (!SimplifySubMesh(source, s, sub_share, target_error, options,
-										 use_sloppy,
+										 method,
 										 new_indices, new_positions, new_normals,
 										 new_tangents, new_uvs, new_vertex_count))
 					{

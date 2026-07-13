@@ -1651,6 +1651,15 @@ namespace fury
 					if (te.valid() && te.is<float>())     opts.target_error    = te.as<float>();
 					sol::object lb = t["lock_borders"];
 					if (lb.valid() && lb.is<bool>())      opts.lock_borders    = lb.as<bool>();
+					// Method: 0 = Quadric (default), 1 = Sloppy, 2 = QuadricLegacy.
+					sol::object m = t["method"];
+					if (m.valid() && m.is<int>())
+					{
+						int mi = m.as<int>();
+						if (mi == 1) opts.method = MeshSimplifyOptions::Method::Sloppy;
+						else if (mi == 2) opts.method = MeshSimplifyOptions::Method::QuadricLegacy;
+						else opts.method = MeshSimplifyOptions::Method::Quadric;
+					}
 				}
 
 				MeshSimplifyResult res = SimplifyMesh(mesh, opts);

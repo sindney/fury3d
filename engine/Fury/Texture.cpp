@@ -223,6 +223,15 @@ namespace fury
 				|| (filePath.size() >= 2 && filePath[1] == ':'));
 		const std::string resolved = isAbsolute ? filePath : Scene::Path(filePath);
 
+		// Record the requested path up-front so the save-side
+		// relocation can find and rewrite it even when the load
+		// fails (the pre-fix behavior cleared m_FilePath on a
+		// failed LoadImage, which meant Texture::Save fell through
+		// to the embedded 0x0 branch and the bad multi-segment
+		// path was lost). Set once at the top, regardless of
+		// whether LoadImage succeeds below.
+		m_FilePath = filePath;
+
 		// CLI / no-GL-context path: set the serialization shape (path,
 		// width/height, format) so `fury info` can report sensible
 		// counts, but skip the GPU upload (which would dereference a
@@ -236,7 +245,6 @@ namespace fury
 					: (channels == 3 ? TextureFormat::RGB8 : TextureFormat::RGBA8);
 				m_Depth = 0;
 				m_Mipmap = mipMap;
-				m_FilePath = filePath;
 				m_Dirty = true;
 			}
 			return;
@@ -266,7 +274,6 @@ namespace fury
 
 			m_Depth = 0;
 			m_Mipmap = mipMap;
-			m_FilePath = filePath;
 			m_Dirty = false;
 
 			glGenTextures(1, &m_ID);

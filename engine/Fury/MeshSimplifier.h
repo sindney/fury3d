@@ -41,6 +41,17 @@ namespace fury
 		// are preserved across simplification. When false, the
 		// simplifier is free to collapse them.
 		bool lock_borders = true;
+
+		// Simplification method. Quadric (default) uses
+		// meshopt_simplify with meshopt_SimplifyLockBorder when
+		// lock_borders is set; Sloppy uses meshopt_simplifySloppy
+		// (the grid-based variant); QuadricLegacy uses
+		// meshopt_simplify without border-locking.
+		enum class Method { Quadric, Sloppy, QuadricLegacy };
+
+		// Default to the border-preserving quadric — it is the
+		// least aggressive of the three and preserves UV seams.
+		Method method = Method::Quadric;
 	};
 
 	struct MeshSimplifyResult

@@ -30,22 +30,31 @@ The `Texture` class SHALL provide getters / friend access sufficient for `FileUt
 - **THEN** `m_EncodedBytes` remains non-empty for the lifetime of the texture
 - **AND** the recorded `m_OriginalFilename` is unchanged
 
-### Requirement: `FileUtil::SaveFile` and `FileUtil::SaveCompressedFile` SHALL extract memory-backed texture bytes to disk before serializing the scene
+### Requirement: `FileUtil::SaveFile` and `FileUtil::SaveCompressedFile` SHALL relocate texture pixel sources to sibling files before serializing the scene
 
-When `FileUtil::SaveFile(scene, output_path)` (or `SaveCompressedFile`) is called on a `Scene` containing memory-backed textures, the function SHALL, before invoking the underlying `Serializable::Save` traversal:
+When `FileUtil::SaveFile(scene, output_path)` (or `SaveCompressedFile`) is called on a `Scene`, the function SHALL, before invoking the underlying `Serializable::Save` traversal, ensure that every texture referenced by the scene is written as a sibling file of the output and referenced by a **bare filename** (no directory segments). This covers two texture states:
+
+**Memory-backed textures** (`m_FilePath.empty() && !m_EncodedBytes.empty()`):
 
 1. Compute the output's directory: `output_dir = dirname(output_path)`.
 2. For each `Material` reachable from the scene (via the scene's `EntityManager`), iterate its texture map.
-3. For each `Texture` that is memory-backed (`m_FilePath.empty() && !m_EncodedBytes.empty()`):
+3. For each memory-backed `Texture`:
    1. Compute a target filename. Prefer `texture->GetOriginalFilename()` when non-empty (e.g. `body.jpg`); else fall back to `<output_stem>_<texture_name>.<ext>` where `<ext>` is derived from sniffing `m_EncodedBytes` (JPEG SOI `FF D8`, PNG magic `89 50 4E 47`, BMP `42 4D`).
-   2. If a file named `<output_dir>/<target_filename>` already exists AND its byte length matches `m_EncodedBytes.size()` AND a SHA-1 (or simpler — byte-for-byte compare) over its contents matches, SHALL skip the write and reuse the existing file. (Avoids redundant rewrites when the same scene is saved repeatedly.)
-   3. Otherwise, write `m_EncodedBytes` verbatim to `<output_dir>/<target_filename>`. On write failure, log via `FURYE` and abort the save (return false from `SaveFile`).
-   4. Set `texture->m_FilePath = <target_filename>` (relative — Texture::Save serializes this as-is, and Texture::CreateFromImage on the load path resolves it against `Scene::Path`).
-4. After all extractions complete, run the normal `Serializable::Save` traversal. The serialized output now references real on-disk files.
+   2. If a file named `<output_dir>/<target_filename>` already exists AND is byte-equal to `m_EncodedBytes`, SHALL skip the write and reuse the existing file.
+   3. Otherwise, write `m_EncodedBytes` verbatim to `<output_dir>/<target_filename>`. On write failure, log via `FURYE` and abort the save (return false).
+   4. Set `texture->m_FilePath = <target_filename>` (relative — resolved against `Scene::Path` on load).
 
-When the user re-saves the same scene to a different output path, the extraction repeats relative to the new `output_dir`. Memory bytes remain on the texture (they are not cleared after extraction); a follow-on save to a different location SHALL therefore work without re-importing.
+**File-backed textures** (`!m_FilePath.empty()`) — this is the relocation that makes saved scenes portable:
 
-When two memory-backed textures hash to the same target filename (e.g. both `image.name = ""` and they get `<stem>_image0.jpg`), the second extraction SHALL append a numeric suffix (`<stem>_image0_2.jpg`) to keep filenames unique. The texture's `m_FilePath` reflects the actual filename used.
+1. Resolve the texture's current `m_FilePath` against the current `Scene::Path` (the source working directory) to find the real source image file on disk. If that resolved path does not exist, fall back to the basename joined against `Scene::Path` (handles stored paths that were project-relative rather than scene-relative).
+2. Compute `target_filename = basename(m_FilePath)` (strip any directory segments — e.g. `Resource/Scene/wheels.jpg` → `wheels.jpg`).
+3. If `<output_dir>/<target_filename>` already exists AND is byte-equal to the resolved source file, SHALL skip the copy and reuse it.
+4. Otherwise, if the resolved source file exists and differs from (or is absent at) the target, copy the source bytes to `<output_dir>/<target_filename>`. If the resolved source file cannot be found via either candidate, the texture SHALL be left unchanged (its stored path is written as-is) and a `FURYW`-level warning SHALL be logged naming the missing source — the save SHALL still succeed.
+5. On a successful copy/reuse, set `texture->m_FilePath = <target_filename>` (bare filename) so the serialized scene references a sibling of the output.
+
+When two textures (memory-backed or file-backed) resolve to the same target filename with different bytes, the second SHALL get a numeric suffix (`<stem>_2.<ext>`) and its `m_FilePath` reflects the actual filename used. After all relocations complete, the normal `Serializable::Save` traversal runs; the serialized output now references bare sibling filenames only. Pixel bytes are never cleared from memory-backed textures, so a follow-on save to a different directory works without re-importing.
+
+Because file-backed paths are rewritten to bare filenames resolved against the output directory, reopening a saved scene via `Importer.LoadScene` (which sets the working directory to the scene file's folder) resolves `<scene_dir>/` correctly and SHALL NOT produce the double-prepended path (`Resource/Scene/Resource/Scene/wheels.jpg`) that previously left the texture at 0×0.
 
 #### Scenario: Save extracts embedded bytes to sibling files
 
@@ -56,11 +65,23 @@ When two memory-backed textures hash to the same target filename (e.g. both `ima
 - **AND** `/tmp/out.json`'s texture entries have `path` values `wheels.jpg`, `body.jpg`, `grass.jpg` (relative, sibling to the output)
 - **AND** loading `/tmp/out.json` via `FileUtil::LoadFile` resolves the textures correctly
 
+#### Scenario: File-backed textures are relocated to sibling files on save
+
+- **WHEN** a scene loaded from `examples/Resource/Scene/scene.bin` (whose diffuse texture path is `Resource/Scene/wheels.jpg`) is saved to `examples/Resource/Scene/scene_lod.bin`
+- **THEN** `examples/Resource/Scene/wheels.jpg` exists (copied/reused as a sibling of the output)
+- **AND** the saved scene's texture entry has `path` value `wheels.jpg` (bare filename, no directory segments)
+
+#### Scenario: Reopening a relocated scene loads the texture at full resolution
+
+- **WHEN** the saved `scene_lod.bin` from the previous scenario is reopened via `Importer.LoadScene` (working directory set to the `.bin`'s folder)
+- **THEN** `Texture::CreateFromImage` resolves `<scene_dir>/wheels.jpg` successfully
+- **AND** the loaded texture's width and height are non-zero (not 0×0)
+- **AND** no double-prepended path such as `Resource/Scene/Resource/Scene/wheels.jpg` is attempted
+
 #### Scenario: Identical bytes already on disk are not rewritten
 
-- **WHEN** the user has previously saved the same scene to `/tmp/out.json` (so `/tmp/body.jpg` already exists with the same bytes)
-- **AND** the user re-saves the (otherwise identical) scene to `/tmp/out.json`
-- **THEN** the extraction step detects the byte-equal pre-existing file and skips the write
+- **WHEN** the user re-saves the same scene to the same output path where the sibling image already exists byte-equal
+- **THEN** the relocation step detects the byte-equal pre-existing file and skips the write
 - **AND** the file's mtime is unchanged
 - **AND** the saved JSON's path entries still resolve correctly
 
@@ -71,11 +92,18 @@ When two memory-backed textures hash to the same target filename (e.g. both `ima
 - **AND** no files are written other than the scene file itself
 - **AND** the existing save behavior is byte-identical to the prior behavior
 
+#### Scenario: Missing source file does not fail the save
+
+- **WHEN** a file-backed texture's resolved source image cannot be found on disk
+- **THEN** a `FURYW`-level warning names the missing source path
+- **AND** the texture's stored path is written unchanged
+- **AND** the save still returns true
+
 #### Scenario: Filename collisions get numeric suffixes
 
-- **WHEN** two memory-backed textures both have `m_OriginalFilename` empty AND fall back to the synthesized `<stem>_image0.jpg` naming
-- **THEN** the first extracted file is `<stem>_image0.jpg`
-- **AND** the second is `<stem>_image0_2.jpg`
+- **WHEN** two textures (memory-backed or file-backed) resolve to the same target filename but have different bytes
+- **THEN** the first written file keeps the base name
+- **AND** the second is written with a `_2` suffix before the extension
 - **AND** both textures' `m_FilePath` reflect their respective actual filenames
 
 ### Requirement: Memory-backed textures SHALL load correctly from saved scenes after a restart

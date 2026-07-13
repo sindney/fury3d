@@ -287,12 +287,11 @@ namespace fury
 
 		// Project the AABB's 8 corners through the camera and take
 		// the max screen-space distance from the projected center.
-		// The AABB is in model space; we approximate by using the
-		// untransformed bounds (the SceneNode's world scale is folded
-		// into a future change — see the design doc "Open
-		// Questions"). Distance-from-camera in view space gives a
-		// conservative screen-coverage value.
-		auto aabb = base->GetAABB();
+		// Coverage is computed from the world-space AABB so that
+		// meshes translated/rotated/scaled away from the origin still
+		// yield correct screen-coverage values.
+		auto owner = m_Owner.lock();
+		BoxBounds aabb = (owner && !owner->GetWorldAABB().GetInfinite()) ? owner->GetWorldAABB() : base->GetAABB();
 		auto mn = aabb.GetMin();
 		auto mx = aabb.GetMax();
 		auto center = (mn + mx) * 0.5f;
@@ -330,7 +329,7 @@ namespace fury
 		unsigned int picked = count - 1;
 		for (unsigned int i = 0; i < count; ++i)
 		{
-			if (base->GetLodThreshold(i) >= coverage)
+			if (coverage >= base->GetLodThreshold(i))
 			{
 				picked = i;
 				break;

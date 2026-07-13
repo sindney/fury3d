@@ -535,7 +535,14 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 	// Modal body. Per-window option state keyed by popup_id so
 	// the dialog remembers values between opens.
 	{
-		struct LODOpts { int total_levels = 3; float ratio = 0.5f; float error = 0.5f; };
+		struct LODOpts {
+			int total_levels = 3;
+			float ratio = 0.5f;
+			float error = 0.5f;
+			// 0 = Quadric (default, border-preserving),
+			// 1 = Sloppy (aggressive), 2 = QuadricLegacy.
+			int method = 0;
+		};
 		static std::unordered_map<std::string, LODOpts> g_LODOpts;
 		LODOpts &opts = g_LODOpts[popup_id];
 
@@ -556,6 +563,19 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 			ImGui::DragFloat("Target error", &opts.error, 0.001f, 0.0f, 1.0f, "%.3f");
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("meshopt_simplifySloppy error tolerance (in mesh units).\nLarger = more aggressive reduction with more geometric drift.\nDefault 0.5 = coarse-grid LODs (typical production).\n0.001 = nearly lossless.");
+			// Simplification method. The labels match the three
+			// MeshSimplifyOptions::Method values; the dropdown is
+			// indexed by position so it round-trips through the
+			// per-popup g_LODOpts map.
+			static const char *method_labels[] = {
+				"Quadric (preserve borders)",
+				"Sloppy (aggressive)",
+				"Quadric (legacy)"
+			};
+			ImGui::Combo("Method", &opts.method, method_labels,
+						 IM_ARRAYSIZE(method_labels));
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Simplification algorithm.\nQuadric (default) — preserves UV seams / borders.\nSloppy — grid-based, ignores borders (most aggressive).\nQuadric (legacy) — quadric without border locking.");
 			ImGui::Separator();
 
 			if (ImGui::Button("Generate"))
@@ -564,6 +584,13 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 				simp.lod_count = std::max(0, opts.total_levels - 1);
 				simp.reduction_ratio = opts.ratio;
 				simp.target_error = opts.error;
+				switch (opts.method)
+				{
+					case 0: simp.method = MeshSimplifyOptions::Method::Quadric; break;
+					case 1: simp.method = MeshSimplifyOptions::Method::Sloppy; break;
+					case 2: simp.method = MeshSimplifyOptions::Method::QuadricLegacy; break;
+					default: simp.method = MeshSimplifyOptions::Method::Quadric; break;
+				}
 				auto result = SimplifyMesh(mesh, simp);
 
 				if (!result.lod_meshes.empty())

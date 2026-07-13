@@ -175,13 +175,17 @@ bool FileBytesEqual(const std::filesystem::path& path,
 	return on_disk == bytes;
 }
 
-// Walk every Material in the scene's EntityManager; for each
+// Walk every Texture in the scene's EntityManager; for each
 // memory-backed texture, write its encoded bytes to a sibling
 // file of the output scene and transition the texture to
 // file-backed (m_FilePath set, encoded bytes preserved on the
 // Texture in case the user saves to a different location later).
-// Returns false on any IO failure (with a FURYE message naming
-// the path); true on success or no-op.
+// For each file-backed texture (no encoded bytes, has a path),
+// copy the source image resolved against the scene's working
+// dir to a sibling of the output and rewrite the stored path
+// to a bare filename so the saved scene is portable across
+// directories. Returns false on any IO failure (with a FURYE
+// message naming the path); true on success or no-op.
 bool ExtractMemoryBackedTextures(
 	const std::shared_ptr<Serializable>& source,
 	const std::filesystem::path& output_dir,
@@ -200,12 +204,99 @@ bool ExtractMemoryBackedTextures(
 	// (ForEach<Material> + mat->GetTextures()).
 	entities->ForEach<Texture>([&](const std::shared_ptr<Texture>& tex) -> bool {
 		if (!tex) return true;
-		// Extract textures that carry encoded bytes (whether
-		// pristine memory-backed or already file-backed from
-		// a previous save in a different output directory).
-		// File-backed textures with no encoded bytes are
-		// passed through untouched.
-		if (tex->GetEncodedBytes().empty()) return true;
+
+		// Decide which branch: memory-backed (has encoded bytes)
+		// or file-backed (no bytes, has a path). File-backed
+		// textures are relocated to a sibling of the output and
+		// rewritten to a bare filename so the saved scene is
+		// portable across directories.
+		if (tex->GetEncodedBytes().empty()) {
+			const std::string &file_path = tex->GetFilePath();
+			if (file_path.empty()) return true;
+
+			// Resolve the source image on disk. Try the stored path first;
+			// if that misses (e.g. the original scene stored a
+			// project-relative path like "Resource/Scene/wheels.jpg"
+			// while the scene's working dir already points at
+			// "Resource/Scene/", producing a double-prepended lookup),
+			// fall back to the basename joined against the scene's
+			// working dir — which is the actual sibling location.
+			std::filesystem::path source_path =
+				std::filesystem::path(scene->GetWorkingDir()) / file_path;
+			std::error_code ec_src;
+			if (!std::filesystem::exists(source_path, ec_src) || ec_src) {
+				const std::string basename =
+					std::filesystem::path(file_path).filename().string();
+				std::filesystem::path fallback =
+					std::filesystem::path(scene->GetWorkingDir()) / basename;
+				std::error_code ec_fb;
+				if (!basename.empty() && std::filesystem::exists(fallback, ec_fb) && !ec_fb) {
+					source_path = fallback;
+				} else {
+					FURYW << "FileUtil::ExtractMemoryBackedTextures: source image '"
+						  << source_path.string()
+						  << "' not found; leaving texture path unchanged";
+					return true;
+				}
+			}
+
+			// Bare basename of the existing path.
+			std::string filename = std::filesystem::path(file_path).filename().string();
+			if (filename.empty()) return true;
+
+			// Collision handling — shared with the memory-backed branch.
+			std::string final_name = filename;
+			if (used_filenames.count(final_name)) {
+				auto dot = filename.find_last_of('.');
+				std::string stem = (dot == std::string::npos)
+									   ? filename
+									   : filename.substr(0, dot);
+				std::string ext = (dot == std::string::npos)
+									  ? std::string{}
+									  : filename.substr(dot);
+				int suffix = 2;
+				do {
+					final_name = stem + "_" + std::to_string(suffix++) + ext;
+				} while (used_filenames.count(final_name));
+			}
+			used_filenames.insert(final_name);
+
+			std::filesystem::path out_file = output_dir.empty()
+												 ? std::filesystem::path(final_name)
+												 : output_dir / final_name;
+
+			// Skip the copy when an identical file already sits next to the output.
+			std::ifstream src_in(source_path, std::ios::binary);
+			std::vector<unsigned char> bytes(
+				(std::istreambuf_iterator<char>(src_in)),
+				std::istreambuf_iterator<char>());
+			if (!FileBytesEqual(out_file, bytes)) {
+				std::error_code ec;
+				if (!output_dir.empty()) {
+					std::filesystem::create_directories(output_dir, ec);
+				}
+				std::ofstream out(out_file, std::ios::binary);
+				if (!out) {
+					FURYE << "FileUtil::ExtractMemoryBackedTextures: failed to open '"
+						  << out_file.string() << "' for write";
+					ok = false;
+					return false;
+				}
+				out.write(reinterpret_cast<const char*>(bytes.data()),
+						  static_cast<std::streamsize>(bytes.size()));
+				if (!out) {
+					FURYE << "FileUtil::ExtractMemoryBackedTextures: write failed for '"
+						  << out_file.string() << "'";
+					ok = false;
+					return false;
+				}
+			}
+
+			// Rewrite to a bare filename so load-time resolution joins
+			// it against the active scene's working_dir.
+			tex->SetFilePathAndSRGB(final_name, tex->IsSRGB());
+			return true;
+		}
 
 		const auto& bytes = tex->GetEncodedBytes();
 		std::string filename = tex->GetOriginalFilename();
