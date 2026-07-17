@@ -13,6 +13,7 @@ namespace fury
 
 		unsigned int tick;
 
+		// Position/scaling = vec3; rotation = Euler radians (importer resamples via QuatToEuler, sampler reconstructs via EulerToQuat).
 		float x, y, z;
 
 		KeyFrame(unsigned int tick = 0, float x = 0.0f, float y = 0.0f, float z = 0.0f) :
@@ -64,6 +65,10 @@ namespace fury
 		AnimationClip(const std::string &name, int ticksPerSecond = 24);
 
 		virtual ~AnimationClip();
+
+		virtual bool Load(const void* wrapper, bool object = true) override;
+
+		virtual void Save(void* wrapper, bool object = true) override;
 
 		void CalculateDuration();
 

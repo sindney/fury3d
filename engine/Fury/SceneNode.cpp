@@ -13,6 +13,7 @@
 #include "Fury/Mesh.h"
 #include "Fury/Material.h"
 #include "Fury/Transform.h"
+#include "Fury/AnimationPlayer.h"
 
 namespace fury
 {
@@ -21,7 +22,8 @@ namespace fury
 		{ "MeshRender", []() -> Component::Ptr { return MeshRender::Create(nullptr, nullptr); } },
 		{ "Light",      []() -> Component::Ptr { return Light::Create(); } },
 		{ "Camera",     []() -> Component::Ptr { return Camera::Create(); } },
-		{ "Transform",  []() -> Component::Ptr { return Transform::Create(); } }
+		{ "Transform",  []() -> Component::Ptr { return Transform::Create(); } },
+		{ "Animator",   []() -> Component::Ptr { return Animator::Create(); } }
 	};
 
 	SceneNode::Ptr SceneNode::Create(const std::string &name)

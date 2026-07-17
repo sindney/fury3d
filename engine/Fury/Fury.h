@@ -3,6 +3,7 @@
 
 #include "Fury/AnimationClip.h"
 #include "Fury/AnimationPlayer.h"
+#include "Fury/AnimationState.h"
 #include "Fury/AnimationUtil.h"
 #include "Fury/ArrayBuffers.h"
 #include "Fury/BoxBounds.h"

@@ -36,6 +36,7 @@ void RenderConsoleWindow(bool* open);
 void RenderContentBrowserWindow(bool* open);
 void RenderNodePropertiesWindow(bool* open);
 void RenderViewportWindow(bool* open);
+void RenderAnimationWindow(bool* open);
 
 // Defined in EditorGizmo.cpp.
 void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size);
@@ -69,6 +70,7 @@ extern bool g_ShowNodeProperties;
 extern bool g_ShowConsole;
 extern bool g_ShowContentBrowser;
 extern bool g_ShowViewport;
+extern bool g_ShowAnimation;
 extern ImVec2 g_ViewportContentMin;
 extern ImVec2 g_ViewportContentSize;
 extern bool g_ViewportHovered;
@@ -104,6 +106,7 @@ bool g_ShowNodeProperties = true; // visible by default — docked right
 bool g_ShowConsole = true;		  // visible by default — bottom dock
 bool g_ShowContentBrowser = true; // visible by default — bottom dock
 bool g_ShowViewport = true;		  // visible by default — docked center
+bool g_ShowAnimation = false;	  // hidden by default — opened on demand
 // Captured each frame by RenderViewportWindow so the gizmo and
 // picking operate in viewport-content-rect space (not full-window
 // space). When the Viewport window is hidden/collapsed, size is
@@ -436,7 +439,9 @@ void RenderMenuBar() {
 		ImGui::MenuItem("Node Properties", nullptr, &g_ShowNodeProperties);
 		ImGui::MenuItem("Console", nullptr, &g_ShowConsole);
 		ImGui::MenuItem("Content Browser", nullptr, &g_ShowContentBrowser);
+		ImGui::MenuItem("Animation", nullptr, &g_ShowAnimation);
 		ImGui::Separator();
+		ImGui::MenuItem("Settings", nullptr, &g_ShowSettings);
 		if (ImGui::MenuItem("Reset Layout")) {
 			s_RequestRebuildLayout = true;
 			g_ShowSettings = false;
@@ -560,6 +565,7 @@ void Tick() {
 	if (g_ShowNodeProperties) RenderNodePropertiesWindow(&g_ShowNodeProperties);
 	if (g_ShowConsole) RenderConsoleWindow(&g_ShowConsole);
 	if (g_ShowContentBrowser) RenderContentBrowserWindow(&g_ShowContentBrowser);
+	if (g_ShowAnimation) RenderAnimationWindow(&g_ShowAnimation);
 	if (g_ShowViewport) RenderViewportWindow(&g_ShowViewport);
 
 	// Confirm dialog runs after the window renders so a pending
@@ -759,6 +765,8 @@ void SetWindowVisible(const char* name, bool visible) {
 		g_ShowConsole = visible;
 	else if (std::strcmp(name, "ContentBrowser") == 0)
 		g_ShowContentBrowser = visible;
+	else if (std::strcmp(name, "Animation") == 0)
+		g_ShowAnimation = visible;
 }
 
 bool GetWindowVisible(const char* name) {
@@ -777,6 +785,8 @@ bool GetWindowVisible(const char* name) {
 		return g_ShowConsole;
 	else if (std::strcmp(name, "ContentBrowser") == 0)
 		return g_ShowContentBrowser;
+	else if (std::strcmp(name, "Animation") == 0)
+		return g_ShowAnimation;
 	return false;
 }
 

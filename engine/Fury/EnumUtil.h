@@ -157,6 +157,24 @@ namespace fury
 		LINE_STRIP
 	};
 
+	// Animation clip wrap mode. Named AnimWrapMode in C++ to avoid
+	// colliding with the texture WrapMode above; exposed to Lua as
+	// `WrapMode` (there is no Lua binding for the texture WrapMode).
+	enum class AnimWrapMode : unsigned int
+	{
+		Default = 0,
+		Once,
+		Loop,
+		ClampForever,
+		PingPong
+	};
+
+	enum class PlayMode : unsigned int
+	{
+		StopSameLayer = 0,
+		StopAll
+	};
+
 	class FURY_API EnumUtil final
 	{
 	private:
@@ -190,6 +208,10 @@ namespace fury
 		static const std::vector<std::pair<ShaderTexture, std::string>> m_ShaderTexture;
 
 		static const std::vector<unsigned int> m_LineMode;
+
+		static const std::vector<std::pair<AnimWrapMode, std::string>> m_AnimWrapMode;
+
+		static const std::vector<std::pair<PlayMode, std::string>> m_PlayMode;
 
 	public:
 
@@ -280,6 +302,14 @@ namespace fury
 
 
 		static unsigned int LineModeToUnit(LineMode mode);
+
+		static std::string AnimWrapModeToString(AnimWrapMode mode);
+
+		static AnimWrapMode AnimWrapModeFromString(const std::string &name);
+
+		static std::string PlayModeToString(PlayMode mode);
+
+		static PlayMode PlayModeFromString(const std::string &name);
 	};
 }
 

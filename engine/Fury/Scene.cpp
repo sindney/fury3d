@@ -1,6 +1,11 @@
 #include "Fury/Scene.h"
 
+#include <functional>
+#include <unordered_map>
+
+#include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
+#include "Fury/Joint.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
@@ -99,6 +104,17 @@ bool Scene::Load(const void* wrapper, bool object) {
 		return false;
 	}
 
+	// load animation clips (top-level array, if present)
+	if (auto clipsWrapper = FindMember(wrapper, "animations")) {
+		LoadArray(clipsWrapper, [&](const void* node) -> bool {
+			auto clip = AnimationClip::Create("temp");
+			if (!clip->Load(node))
+				return false;
+			m_EntityManager->Add(clip);
+			return true;
+		});
+	}
+
 	// load nodes
 	if (auto rootNodeWrapper = FindMember(wrapper, "nodes")) {
 		if (!m_RootNode->Load(rootNodeWrapper))
@@ -107,6 +123,42 @@ bool Scene::Load(const void* wrapper, bool object) {
 		FURYE << "root_node not found!";
 		return false;
 	}
+
+	// Re-link skinned-mesh Joints to SceneNodes after load (Mesh::Load
+	// rebuilds joints without refs). UUID is primary (unambiguous across
+	// instances); name is the fallback for old scenes without the field.
+	std::unordered_map<std::string, std::shared_ptr<SceneNode>> nodesByUUID, nodesByName;
+	std::function<void(const std::shared_ptr<SceneNode>&)> collectNodes =
+		[&](const std::shared_ptr<SceneNode>& n) {
+		if (!n) return;
+		nodesByUUID.emplace(n->GetUUID(), n);
+		nodesByName.emplace(n->GetName(), n);
+		for (unsigned int i = 0; i < n->GetChildCount(); ++i)
+			collectNodes(n->GetChildAt(i));
+	};
+	collectNodes(m_RootNode);
+
+	m_EntityManager->ForEach<Mesh>([&](const Mesh::Ptr& mesh) -> bool {
+		unsigned int jcount = mesh->GetJointCount();
+		for (unsigned int i = 0; i < jcount; ++i) {
+			auto joint = mesh->GetJointAt(i);
+			if (!joint || joint->GetSceneNode()) continue;
+			const auto &uuid = joint->GetSceneNodeUUID();
+			std::shared_ptr<SceneNode> node;
+			if (!uuid.empty()) {
+				auto it = nodesByUUID.find(uuid);
+				if (it != nodesByUUID.end()) node = it->second;
+			}
+			if (!node) {
+				// Fallback for old scenes without persisted UUIDs.
+				auto it = nodesByName.find(joint->GetName());
+				if (it != nodesByName.end()) node = it->second;
+			}
+			if (node)
+				joint->SetSceneNode(node);
+		}
+		return true;
+	});
 
 	// Registration pass: iterate every material's textures and
 	// register them in EntityManager. This handles both old scenes
@@ -161,6 +213,15 @@ void Scene::Save(void* wrapper, bool object) {
 	SaveKey(wrapper, "meshes");
 	StartArray(wrapper);
 	m_EntityManager->ForEach<Mesh>([&](const Mesh::Ptr& ptr) -> bool {
+		ptr->Save(wrapper);
+		return true;
+	});
+	EndArray(wrapper);
+
+	// save animation clips
+	SaveKey(wrapper, "animations");
+	StartArray(wrapper);
+	m_EntityManager->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& ptr) -> bool {
 		ptr->Save(wrapper);
 		return true;
 	});

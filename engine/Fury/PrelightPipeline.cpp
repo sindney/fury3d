@@ -261,7 +261,13 @@ namespace fury
 		if (materialChanged)
 			shader->BindMaterial(material);
 
-		shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+		// glTF-standard skinning: skinned vertices reach world space via
+		// Final = JᵢW * ibm (Joint::GetFinalMatrix), so the mesh node's
+		// own world transform must NOT be applied on top — bind identity.
+		if (mesh->IsSkinnedMesh())
+			shader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
+		else
+			shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
 
 		if (meshChanged)
 			shader->BindMesh(mesh);

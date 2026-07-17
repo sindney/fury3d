@@ -153,10 +153,79 @@ endif()
 # only feeds furye. The Editor/*.cpp files are themselves wrapped in
 # `#ifdef WITH_EDITOR`, so even if they were accidentally compiled into fury
 # they would compile to empty TUs — but splitting them out keeps the build
-# graph honest and the symbol surface of fury small.
-file(GLOB FURY_CORE_SRC ${PROJECT_SOURCE_DIR}/Fury/*.cpp)
-file(GLOB FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/Fury/Editor/*.cpp)
-list(APPEND FURY_EDITOR_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImGuizmo.cpp)
+# graph honest and the symbol surface of fury small. Sources are listed
+# explicitly (not globbed) so adding/removing a file is a deliberate change.
+set(FURY_CORE_SRC
+	${PROJECT_SOURCE_DIR}/Fury/AnimationClip.cpp
+	${PROJECT_SOURCE_DIR}/Fury/AnimationPlayer.cpp
+	${PROJECT_SOURCE_DIR}/Fury/AnimationState.cpp
+	${PROJECT_SOURCE_DIR}/Fury/AnimationUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ArrayBuffers.cpp
+	${PROJECT_SOURCE_DIR}/Fury/BoxBounds.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Buffer.cpp
+	${PROJECT_SOURCE_DIR}/Fury/BufferManager.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Camera.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Cli.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Color.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Component.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Engine.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Entity.cpp
+	${PROJECT_SOURCE_DIR}/Fury/EnumUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/FbxConverter.cpp
+	${PROJECT_SOURCE_DIR}/Fury/FileUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Frustum.cpp
+	${PROJECT_SOURCE_DIR}/Fury/GLLoader.cpp
+	${PROJECT_SOURCE_DIR}/Fury/GltfImporter.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Gui.cpp
+	${PROJECT_SOURCE_DIR}/Fury/InputUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Joint.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Light.cpp
+	${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Material.cpp
+	${PROJECT_SOURCE_DIR}/Fury/MathUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Matrix4.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Mesh.cpp
+	${PROJECT_SOURCE_DIR}/Fury/MeshRender.cpp
+	${PROJECT_SOURCE_DIR}/Fury/MeshSimplifier.cpp
+	${PROJECT_SOURCE_DIR}/Fury/MeshUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/OcTree.cpp
+	${PROJECT_SOURCE_DIR}/Fury/OcTreeNode.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Pass.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Pipeline.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Plane.cpp
+	${PROJECT_SOURCE_DIR}/Fury/PrelightPipeline.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Quaternion.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RenderQuery.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RenderTarget.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RenderUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Scene.cpp
+	${PROJECT_SOURCE_DIR}/Fury/SceneNode.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Serializable.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Shader.cpp
+	${PROJECT_SOURCE_DIR}/Fury/SphereBounds.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Texture.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ThreadUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Transform.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Uniform.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Vector4.cpp)
+
+set(FURY_EDITOR_SRC
+	${PROJECT_SOURCE_DIR}/Fury/Editor/Editor.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAnimationWindow.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetPicker.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetWindows.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorConfirmDialog.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorDebug.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorLog.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorNodeProperties.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPicking.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSelectionViz.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorThemes.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorWindows.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImGuizmo.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImSequencer.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImCurveEdit.cpp)
 
 # nfd (nativefiledialog-extended) is integrated as a static library
 # via add_subdirectory() — the SFML precedent. We force nfd's test /

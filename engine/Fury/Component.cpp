@@ -23,6 +23,11 @@ namespace fury
 		return !m_Owner.expired();
 	}
 
+	std::shared_ptr<SceneNode> Component::GetOwner() const
+	{
+		return m_Owner.lock();
+	}
+
 	void Component::OnAttaching(const std::shared_ptr<SceneNode> &node)
 	{
 		if (m_Owner.expired())

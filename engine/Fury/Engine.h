@@ -67,6 +67,15 @@ namespace fury
 		static void Run(sf::Window &window, const EngineCallbacks &cb, const EngineOptions &opts);
 
 		static std::pair<int, int> GetGLVersion();
+
+		// Fixed-tick alpha for render interpolation: how far we are between
+		// the last OnFixedUpdate and the next, in [0, 1). Set each frame in
+		// Run() before OnUpdate fires.
+		static float GetFixedTickAlpha();
+
+		// Fixed step duration in seconds (1/25). The Animator's physics
+		// path advances clip time by this on each OnFixedUpdate.
+		static float GetFixedDt();
 	};
 }
 

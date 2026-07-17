@@ -12,6 +12,18 @@ namespace fury
 {
 	class SceneNode;
 
+	// Coordinate system & units (engine-wide convention — see
+	// docs/ARCHITECTURE.md §Coordinate System & Units):
+	//   * Handedness: right-handed.
+	//   * Up axis: +Y.
+	//   * Forward: -Z (camera looks down -Z; glTF convention).
+	//   * Unit: 1 world unit = 1 centimeter. glTF is unitless but the
+	//     Khronos sample assets (e.g. Fox) are authored in cm, so the
+	//     engine adopts cm to match. Camera near/far, light radii,
+	//     shadow bounds, and move speeds are all in cm. When importing
+	//     assets authored in metres (1 unit = 1 m), apply a ×100 scale
+	//     at import; FBX2glTF's cm→m models already carry a 100× node
+	//     scale.
 	class FURY_API Camera : public Component, public std::enable_shared_from_this<Camera>
 	{
 	protected:

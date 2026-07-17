@@ -365,6 +365,7 @@ namespace fury
 
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
+		auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
@@ -432,13 +433,22 @@ namespace fury
 			glEnable(GL_POLYGON_OFFSET_FILL);
 			glPolygonOffset(1.0f, 1024.0f);
 
-			depth_shader->Bind();
-			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
+			// Skinned casters use the skin depth shader (bone_matrices +
+			// identity world_matrix, matching the gbuffer skin path) so
+			// their shadows deform with the skeleton. Static casters use
+			// the plain depth shader with the caster's world matrix.
+			Matrix4 identityWorld;
+			Shader* boundShader = nullptr;
+			auto bindDepthShader = [&](const std::shared_ptr<Shader>& s) {
+				if (!s || boundShader == s.get()) return;
+				if (boundShader) boundShader->UnBind();
+				s->Bind();
+				s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
+				boundShader = s.get();
+			};
 
 			for (int i = 0; i < numSplit; i++)
 			{
-				depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrices[i].Raw[0]);
-
 				m_SharedPass->SetArrayTextureLayer(i);
 
 				auto &casters = casterArrays[i];
@@ -446,10 +456,17 @@ namespace fury
 				{
 					auto casterRender = caster->GetComponent<MeshRender>();
 					auto casterMesh = casterRender->GetMesh();
-
-					depth_shader->BindMesh(casterMesh);
-					Matrix4 casterWorld = caster->GetWorldMatrix();
-					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
+					const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
+					auto& shader = skinned ? depth_skin_shader : depth_shader;
+					bindDepthShader(shader);
+					shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrices[i].Raw[0]);
+					shader->BindMesh(casterMesh);
+					if (skinned)
+						shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
+					else {
+						Matrix4 w = caster->GetWorldMatrix();
+						shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+					}
 
 					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
@@ -459,7 +476,7 @@ namespace fury
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
-			depth_shader->UnBind();
+			if (boundShader) boundShader->UnBind();
 
 			m_SharedPass->UnBind();
 		}
@@ -519,18 +536,35 @@ namespace fury
 			glEnable(GL_POLYGON_OFFSET_FILL);
 			glPolygonOffset(1.0f, 1024.0f);
 
-			depth_shader->Bind();
-			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
-			depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+			// Skinned casters use the skin depth shader (bone_matrices +
+			// identity world_matrix) so their shadows deform; static
+			// casters use the plain depth shader + caster world matrix.
+			Matrix4 identityWorld;
+			Shader* boundShader = nullptr;
+			auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
+			auto bindDepthShader = [&](const std::shared_ptr<Shader>& s) {
+				if (!s || boundShader == s.get()) return;
+				if (boundShader) boundShader->UnBind();
+				s->Bind();
+				s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
+				s->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+				boundShader = s.get();
+			};
 
 			for (auto &caster : casters)
 			{
 				auto casterRender = caster->GetComponent<MeshRender>();
 				auto casterMesh = casterRender->GetMesh();
-
-				depth_shader->BindMesh(casterMesh);
-				Matrix4 casterWorld = caster->GetWorldMatrix();
-				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
+				const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
+				auto& shader = skinned ? depth_skin_shader : depth_shader;
+				bindDepthShader(shader);
+				shader->BindMesh(casterMesh);
+				if (skinned)
+					shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
+				else {
+					Matrix4 w = caster->GetWorldMatrix();
+					shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+				}
 
 				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseDrawCall();
@@ -539,7 +573,7 @@ namespace fury
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
-			depth_shader->UnBind();
+			if (boundShader) boundShader->UnBind();
 
 			m_SharedPass->UnBind();
 		}
@@ -551,6 +585,7 @@ namespace fury
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		auto depth_shader = GetShaderByName("cube_depth_shader");
+		auto depth_skin_shader = GetShaderByName("cube_depth_skin_shader");
 		auto depth_buffer = Texture::GetTemporary(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
 		// for debug
@@ -603,6 +638,18 @@ namespace fury
 			depth_shader->BindFloat("light_far", radius);
 			depth_shader->BindFloat("light_pos", lightPos.x, lightPos.y, lightPos.z);
 
+			Matrix4 identityWorld;
+			Shader* boundShader = depth_shader.get();
+			auto bindCubeShader = [&](const std::shared_ptr<Shader>& s) {
+				if (!s || boundShader == s.get()) return;
+				if (boundShader) boundShader->UnBind();
+				s->Bind();
+				s->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+				s->BindFloat("light_far", radius);
+				s->BindFloat("light_pos", lightPos.x, lightPos.y, lightPos.z);
+				boundShader = s.get();
+			};
+
 			for (int i = 0; i < 6; i++)
 			{
 				// TODO: test if it's necessary to clear after attach new cubemap face.
@@ -616,10 +663,17 @@ namespace fury
 
 					auto ivm = dirMatrices[i];
 
-					depth_shader->BindMesh(casterMesh);
-					depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]);
-					Matrix4 casterWorld = caster->GetWorldMatrix();
-					depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
+					const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
+					auto& shader = skinned ? depth_skin_shader : depth_shader;
+					bindCubeShader(shader);
+					shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]);
+					shader->BindMesh(casterMesh);
+					if (skinned)
+						shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
+					else {
+						Matrix4 w = caster->GetWorldMatrix();
+						shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+					}
 
 					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
@@ -686,18 +740,35 @@ namespace fury
 			glEnable(GL_POLYGON_OFFSET_FILL);
 			glPolygonOffset(1.0f, 1024.0f);
 
-			depth_shader->Bind();
-			depth_shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
-			depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+			// Skinned casters use the skin depth shader (bone_matrices +
+			// identity world_matrix) so their shadows deform; static
+			// casters use the plain depth shader + caster world matrix.
+			Matrix4 identityWorld;
+			Shader* boundShader = nullptr;
+			auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
+			auto bindDepthShader = [&](const std::shared_ptr<Shader>& s) {
+				if (!s || boundShader == s.get()) return;
+				if (boundShader) boundShader->UnBind();
+				s->Bind();
+				s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &lightMatrix.Raw[0]);
+				s->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
+				boundShader = s.get();
+			};
 
 			for (auto &caster : casters)
 			{
 				auto casterRender = caster->GetComponent<MeshRender>();
 				auto casterMesh = casterRender->GetMesh();
-
-				depth_shader->BindMesh(casterMesh);
-				Matrix4 casterWorld = caster->GetWorldMatrix();
-				depth_shader->BindMatrix(Matrix4::WORLD_MATRIX, &casterWorld.Raw[0]);
+				const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
+				auto& shader = skinned ? depth_skin_shader : depth_shader;
+				bindDepthShader(shader);
+				shader->BindMesh(casterMesh);
+				if (skinned)
+					shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
+				else {
+					Matrix4 w = caster->GetWorldMatrix();
+					shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+				}
 
 				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseDrawCall();
@@ -706,7 +777,7 @@ namespace fury
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
-			depth_shader->UnBind();
+			if (boundShader) boundShader->UnBind();
 
 			m_SharedPass->UnBind();
 		}

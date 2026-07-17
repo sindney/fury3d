@@ -197,9 +197,24 @@ namespace fury
 
 	const std::vector<unsigned int> EnumUtil::m_LineMode =
 	{
-		GL_LINES, 
-		GL_LINE_LOOP, 
+		GL_LINES,
+		GL_LINE_LOOP,
 		GL_LINE_STRIP
+	};
+
+	const std::vector<std::pair<AnimWrapMode, std::string>> EnumUtil::m_AnimWrapMode =
+	{
+		std::make_pair(AnimWrapMode::Default, "default"),
+		std::make_pair(AnimWrapMode::Once, "once"),
+		std::make_pair(AnimWrapMode::Loop, "loop"),
+		std::make_pair(AnimWrapMode::ClampForever, "clamp_forever"),
+		std::make_pair(AnimWrapMode::PingPong, "ping_pong")
+	};
+
+	const std::vector<std::pair<PlayMode, std::string>> EnumUtil::m_PlayMode =
+	{
+		std::make_pair(PlayMode::StopSameLayer, "stop_same_layer"),
+		std::make_pair(PlayMode::StopAll, "stop_all")
 	};
 
 
@@ -509,5 +524,35 @@ namespace fury
 	unsigned int EnumUtil::LineModeToUnit(LineMode mode)
 	{
 		return m_LineMode[(unsigned int)mode];
+	}
+
+	std::string EnumUtil::AnimWrapModeToString(AnimWrapMode mode)
+	{
+		return m_AnimWrapMode[(unsigned int)mode].second;
+	}
+
+	AnimWrapMode EnumUtil::AnimWrapModeFromString(const std::string &name)
+	{
+		for (const auto &pair : m_AnimWrapMode)
+		{
+			if (pair.second == name)
+				return pair.first;
+		}
+		return AnimWrapMode::Default;
+	}
+
+	std::string EnumUtil::PlayModeToString(PlayMode mode)
+	{
+		return m_PlayMode[(unsigned int)mode].second;
+	}
+
+	PlayMode EnumUtil::PlayModeFromString(const std::string &name)
+	{
+		for (const auto &pair : m_PlayMode)
+		{
+			if (pair.second == name)
+				return pair.first;
+		}
+		return PlayMode::StopSameLayer;
 	}
 }

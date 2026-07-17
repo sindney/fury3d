@@ -8,6 +8,7 @@
 #include "Fury/ArrayBuffers.h"
 #include "Fury/BoxBounds.h"
 #include "Fury/Buffer.h"
+#include "Fury/Matrix4.h"
 
 namespace fury
 {

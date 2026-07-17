@@ -1,53 +1,160 @@
 #ifndef _FURY_ANIMATION_PLAYER_H_
 #define _FURY_ANIMATION_PLAYER_H_
 
-#include "Fury/Entity.h"
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "Fury/Component.h"
+#include "Fury/EnumUtil.h"
 
 namespace fury
 {
 	class AnimationClip;
 
+	class AnimationState;
+
 	class SceneNode;
 
-	class FURY_API AnimationPlayer : public Entity
+	class Transform;
+
+	// Unity-legacy-style animation component. Attaches to a SceneNode and
+	// drives playback of registered AnimationClips. Channels resolve to
+	// the owning Mesh's Joint tree (skinned — each Joint mirrors a
+	// SceneNode, driven via its Transform) first, else to descendant
+	// SceneNodes (node-level).
+	//
+	// Two-phase tick: AdvanceTime writes old/new TRS pairs; Display
+	// interpolates by render alpha into each target's Transform. When
+	// animatePhysics is false (default) both phases run on OnUpdate;
+	// when true, AdvanceTime runs on OnFixedUpdate and Display on
+	// OnUpdate with the engine's fixed-tick alpha.
+	class FURY_API Animator : public Component
 	{
 	public:
+		typedef std::shared_ptr<Animator> Ptr;
 
-		typedef std::shared_ptr<AnimationPlayer> Ptr;
-
-		static Ptr Create(const std::string &name, float speed = 1.0f);
+		static Ptr Create(const std::string &name = "Animator");
 
 	protected:
+		std::string m_Name;
 
-		std::weak_ptr<SceneNode> m_SceneNode;
+		std::vector<std::shared_ptr<AnimationState>> m_States;
 
-		std::weak_ptr<AnimationClip> m_AnimClip;
+		bool m_AnimatePhysics = false;
 
-		float m_Speed = 1.0f;
+		AnimWrapMode m_DefaultWrapMode = AnimWrapMode::Default;
 
-		float m_Time = 0.0f;
+		size_t m_FixedUpdateKey = 0;
+
+		size_t m_UpdateKey = 0;
+
+		bool m_Subscribed = false;
+
+		// Crossfade bookkeeping. Empty target name = no active fade.
+		std::string m_CrossFadeTarget;
+
+		float m_CrossFadeElapsed = 0.0f;
+
+		float m_CrossFadeLength = 0.0f;
+
+		int m_CrossFadeLayer = 0;
+
+		struct AnimTarget
+		{
+			enum Kind { None, TransformT } kind = None;
+			std::shared_ptr<SceneNode> node;
+			std::shared_ptr<Transform> transform;
+		};
+
+		mutable std::unordered_map<AnimationState*, std::vector<AnimTarget>> m_TargetCache;
+
+		std::unordered_set<std::string> m_WarnedChannels;
 
 	public:
+		Animator(const std::string &name = "Animator");
 
-		AnimationPlayer(const std::string &name, float speed = 1.0f);
+		const std::string &GetName() const { return m_Name; }
+		void SetName(const std::string &name) { m_Name = name; }
 
-		void SetSpeed(float speed);
+		virtual bool Load(const void* wrapper, bool object = true) override;
 
-		float GetSpeed() const;
+		virtual void Save(void* wrapper, bool object = true) override;
 
-		void SetTime(float time);
+		Component::Ptr Clone() const override;
 
-		float GetTime() const;
+		// Unity-legacy playback API.
+		bool Play(const std::string &name, PlayMode mode = PlayMode::StopSameLayer);
 
-		// make sure the node has meshRender compnent with a mesh.
-		void AdvanceTime(const std::shared_ptr<SceneNode> &node, const std::shared_ptr<AnimationClip> &clip, float dt);
+		void Stop();
 
-		void AdvanceTime(const std::shared_ptr<AnimationClip> &clip, float dt);
+		void Stop(const std::string &name);
 
+		void Rewind();
+
+		void Rewind(const std::string &name);
+
+		void CrossFade(const std::string &name, float fadeLength, PlayMode mode = PlayMode::StopSameLayer);
+
+		bool IsPlaying(const std::string &name) const;
+
+		// Clip registration. SetClip registers a script-authored clip
+		// without going through EntityManager; RemoveClip drops it.
+		void SetClip(const std::string &name, const std::shared_ptr<AnimationClip> &clip);
+
+		void RemoveClip(const std::string &name);
+
+		std::shared_ptr<AnimationState> GetState(const std::string &name) const;
+
+		unsigned int GetStateCount() const;
+
+		std::shared_ptr<AnimationState> GetStateAt(unsigned int index) const;
+
+		bool GetAnimatePhysics() const;
+		void SetAnimatePhysics(bool value);
+
+		AnimWrapMode GetDefaultWrapMode() const;
+		void SetDefaultWrapMode(AnimWrapMode mode);
+
+		// Currently playing clip (highest-weight enabled state), or nullptr.
+		std::shared_ptr<AnimationClip> GetClip() const;
+
+		// Two-phase tick. AdvanceTime writes old/new TRS pairs for the
+		// current pose; Display interpolates by alpha and rebuilds joints.
 		void AdvanceTime(float dt);
 
-		// 0 - 1, this interpolates the result from advanceTime call.
-		void Display(float dt);
+		void Display(float alpha);
+
+	protected:
+		virtual void OnAttaching(const std::shared_ptr<SceneNode> &node) override;
+
+		virtual void OnDetaching(const std::shared_ptr<SceneNode> &node) override;
+
+		virtual void OnOwnerDestructing(SceneNode &node) override;
+
+	private:
+		void Subscribe();
+
+		void Unsubscribe();
+
+		void InvalidateCache();
+
+		// Signal callbacks. TickFixed runs on OnFixedUpdate (advance only);
+		// TickUpdate runs on OnUpdate (display, plus advance when not
+		// animating physics).
+		void TickFixed();
+
+		void TickUpdate(float dt);
+
+		const std::vector<AnimTarget>& ResolveTargets(const std::shared_ptr<AnimationState>& state);
+
+		void ApplyChannel(const std::shared_ptr<AnimationState>& state,
+			const std::vector<AnimTarget>& targets, bool scrub);
+
+		std::shared_ptr<AnimationClip> ResolveClipFromManager(const std::string &name) const;
 	};
 }
 

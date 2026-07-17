@@ -3,6 +3,9 @@
 #include "Fury/LuaBindings.h"
 
 #include "Fury/AnimationClip.h"
+#include "Fury/AnimationPlayer.h"
+#include "Fury/AnimationState.h"
+#include "Fury/AnimationUtil.h"
 #include "Fury/Camera.h"
 #include "Fury/Color.h"
 #include "Fury/Component.h"
@@ -16,6 +19,7 @@
 #include "Fury/GltfImporter.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
+#include "Fury/Joint.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
@@ -268,30 +272,54 @@ namespace fury
 						return obj.get_type() == sol::type::lua_nil;
 					});
 				});
-			lua["Scene"]["ForEachMaterial"] = sol::overload(
-				[](Scene &s, sol::function fn) {
-					auto em = s.GetEntityManager();
-					if (!em) return;
-					em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
-						sol::protected_function pf = fn;
-						sol::protected_function_result r = pf(m);
-						if (!r.valid()) return true;
-						if (r.return_count() == 0) return true;
-						sol::object obj = r;
-						return obj.get_type() == sol::type::lua_nil;
-					});
-				},
-				[](Scene &s, sol::protected_function fn) {
-					auto em = s.GetEntityManager();
-					if (!em) return;
-					em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
-						sol::protected_function_result r = fn(m);
-						if (!r.valid()) return true;
-						if (r.return_count() == 0) return true;
-						sol::object obj = r;
-						return obj.get_type() == sol::type::lua_nil;
-					});
+		lua["Scene"]["ForEachMaterial"] = sol::overload(
+			[](Scene &s, sol::function fn) {
+				auto em = s.GetEntityManager();
+				if (!em) return;
+				em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
+					sol::protected_function pf = fn;
+					sol::protected_function_result r = pf(m);
+					if (!r.valid()) return true;
+					if (r.return_count() == 0) return true;
+					sol::object obj = r;
+					return obj.get_type() == sol::type::lua_nil;
 				});
+			},
+			[](Scene &s, sol::protected_function fn) {
+				auto em = s.GetEntityManager();
+				if (!em) return;
+				em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
+					sol::protected_function_result r = fn(m);
+					if (!r.valid()) return true;
+					if (r.return_count() == 0) return true;
+					sol::object obj = r;
+					return obj.get_type() == sol::type::lua_nil;
+				});
+			});
+		lua["Scene"]["ForEachAnimationClip"] = sol::overload(
+			[](Scene &s, sol::function fn) {
+				auto em = s.GetEntityManager();
+				if (!em) return;
+				em->ForEach<AnimationClip>([&fn](const std::shared_ptr<AnimationClip> &c) -> bool {
+					sol::protected_function pf = fn;
+					sol::protected_function_result r = pf(c);
+					if (!r.valid()) return true;
+					if (r.return_count() == 0) return true;
+					sol::object obj = r;
+					return obj.get_type() == sol::type::lua_nil;
+				});
+			},
+			[](Scene &s, sol::protected_function fn) {
+				auto em = s.GetEntityManager();
+				if (!em) return;
+				em->ForEach<AnimationClip>([&fn](const std::shared_ptr<AnimationClip> &c) -> bool {
+					sol::protected_function_result r = fn(c);
+					if (!r.valid()) return true;
+					if (r.return_count() == 0) return true;
+					sol::object obj = r;
+					return obj.get_type() == sol::type::lua_nil;
+				});
+			});
 			lua["Scene"]["ForEachNode"] = sol::overload(
 				[](Scene &s, sol::function fn) {
 					std::function<void(const std::shared_ptr<SceneNode>&)> walk =
@@ -411,6 +439,118 @@ namespace fury
 				"Valid",       &BoxBounds::Valid,
 				"GetInfinite", &BoxBounds::GetInfinite);
 
+			// --- Animation enums ----------------------------------------------
+			// Exposed as plain Lua tables so scripts can write
+			// `state.wrapMode = WrapMode.Loop`. C++ name is AnimWrapMode to
+			// avoid colliding with the texture WrapMode; the Lua table is
+			// `WrapMode` since the texture WrapMode is not Lua-exposed.
+			sol::table wrap_mode_tbl = lua.create_named_table("WrapMode");
+			wrap_mode_tbl["Default"]      = static_cast<int>(AnimWrapMode::Default);
+			wrap_mode_tbl["Once"]         = static_cast<int>(AnimWrapMode::Once);
+			wrap_mode_tbl["Loop"]         = static_cast<int>(AnimWrapMode::Loop);
+			wrap_mode_tbl["ClampForever"] = static_cast<int>(AnimWrapMode::ClampForever);
+			wrap_mode_tbl["PingPong"]     = static_cast<int>(AnimWrapMode::PingPong);
+
+			sol::table play_mode_tbl = lua.create_named_table("PlayMode");
+			play_mode_tbl["StopSameLayer"] = static_cast<int>(PlayMode::StopSameLayer);
+			play_mode_tbl["StopAll"]       = static_cast<int>(PlayMode::StopAll);
+
+			// --- AnimationClip ------------------------------------------------
+			lua.new_usertype<AnimationClip>("AnimationClip",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"Create", sol::overload(
+					[](const std::string &n) { return AnimationClip::Create(n); },
+					[](const std::string &n, int tps) { return AnimationClip::Create(n, tps); }),
+				"GetName",           &AnimationClip::GetName,
+				"SetName",           &AnimationClip::SetName,
+				"GetDuration",       &AnimationClip::GetDuration,
+				"GetTicksPerSecond", &AnimationClip::GetTicksPerSecond,
+				"GetSpeed",          &AnimationClip::GetSpeed,
+				"SetSpeed",          &AnimationClip::SetSpeed,
+				"GetLoop",           &AnimationClip::GetLoop,
+				"SetLoop",           &AnimationClip::SetLoop,
+				"GetChannelCount",   &AnimationClip::GetChannelCount,
+				"AddChannel", sol::overload(
+					static_cast<AnimationClip::ChannelPtr(AnimationClip::*)(const std::string&)>(&AnimationClip::AddChannel),
+					static_cast<void(AnimationClip::*)(const AnimationClip::ChannelPtr&)>(&AnimationClip::AddChannel)),
+				"RemoveChannel",     &AnimationClip::RemoveChannel,
+				"GetChannel",        &AnimationClip::GetChannel,
+				"GetChannelAt",      &AnimationClip::GetChannelAt,
+				"CalculateDuration", &AnimationClip::CalculateDuration);
+
+			// --- AnimationState ------------------------------------------------
+			lua.new_usertype<AnimationState>("AnimationState",
+				sol::no_constructor,
+				"GetName",      &AnimationState::GetName,
+				"GetClip",      &AnimationState::GetClip,
+				"GetEnabled",   &AnimationState::IsEnabled,
+				"SetEnabled",   &AnimationState::SetEnabled,
+				"GetWeight",    &AnimationState::GetWeight,
+				"SetWeight",    &AnimationState::SetWeight,
+				"GetSpeed",     &AnimationState::GetSpeed,
+				"SetSpeed",     &AnimationState::SetSpeed,
+				"GetLayer",     &AnimationState::GetLayer,
+				"SetLayer",     &AnimationState::SetLayer,
+				"GetTime",      &AnimationState::GetTime,
+				"SetTime",      &AnimationState::SetTime,
+				"GetNormalizedTime", &AnimationState::GetNormalizedTime,
+				"SetNormalizedTime", &AnimationState::SetNormalizedTime,
+				"GetLength",    &AnimationState::GetLength,
+				"GetWrapMode",  &AnimationState::GetWrapMode,
+				"SetWrapMode",  [](AnimationState &s, int m) { s.SetWrapMode(static_cast<AnimWrapMode>(m)); });
+
+			// --- Joint ---------------------------------------------------------
+			lua.new_usertype<Joint>("Joint",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity>(),
+				"GetName",          &Joint::GetName,
+				"GetParent",        &Joint::GetParent,
+				"GetFirstChild",    &Joint::GetFirstChild,
+				"GetSibling",       &Joint::GetSibling,
+			"GetLocalMatrix",   &Joint::GetLocalMatrix,
+			"GetFinalMatrix",   &Joint::GetFinalMatrix,
+			"GetOffsetMatrix",  &Joint::GetOffsetMatrix);
+
+			// --- Animator ------------------------------------------------------
+			lua.new_usertype<Animator>("Animator",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", sol::overload(
+					[]() { return Animator::Create(); },
+					[](const std::string &n) { return Animator::Create(n); }),
+				"GetName",         &Animator::GetName,
+				"SetName",         &Animator::SetName,
+				"Play", sol::overload(
+					[](Animator &a, const std::string &n) { return a.Play(n); },
+					[](Animator &a, const std::string &n, int m) { return a.Play(n, static_cast<PlayMode>(m)); }),
+				"Stop", sol::overload(
+					[](Animator &a) { a.Stop(); },
+					[](Animator &a, const std::string &n) { a.Stop(n); }),
+				"Rewind", sol::overload(
+					[](Animator &a) { a.Rewind(); },
+					[](Animator &a, const std::string &n) { a.Rewind(n); }),
+				"CrossFade", sol::overload(
+					[](Animator &a, const std::string &n, float f) { a.CrossFade(n, f); },
+					[](Animator &a, const std::string &n, float f, int m) { a.CrossFade(n, f, static_cast<PlayMode>(m)); }),
+				"IsPlaying",       &Animator::IsPlaying,
+				"GetState",        &Animator::GetState,
+				"GetStateCount",   &Animator::GetStateCount,
+				"GetStateAt",      &Animator::GetStateAt,
+				"SetClip",         &Animator::SetClip,
+				"RemoveClip",      &Animator::RemoveClip,
+				"GetAnimatePhysics",  &Animator::GetAnimatePhysics,
+				"SetAnimatePhysics",  &Animator::SetAnimatePhysics,
+				"GetClip",            &Animator::GetClip,
+				"GetDefaultWrapMode", &Animator::GetDefaultWrapMode,
+				"SetDefaultWrapMode", [](Animator &a, int m) { a.SetDefaultWrapMode(static_cast<AnimWrapMode>(m)); });
+
+			// --- AnimationUtil (table namespace) ------------------------------
+			sol::table anim_util_tbl = lua.create_named_table("AnimationUtil");
+			anim_util_tbl["OptimizeAnimClip"] = [](const std::shared_ptr<AnimationClip> &clip, float quality) {
+				AnimationUtil::OptimizeAnimClip(clip, quality);
+			};
+
 			// --- SceneNode -----------------------------------------------------
 			// AddComponent is overloaded per-derived-type so sol2 doesn't
 			// have to upcast the lua userdata into `shared_ptr<Component>`
@@ -452,12 +592,16 @@ namespace fury
 					},
 					[](SceneNode &n, MeshRender::Ptr c) {
 						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, Animator::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
 					}),
 				"RemoveComponent", sol::overload(
 					[](SceneNode &n, Transform::Ptr) { return n.RemoveComponent(typeid(Transform)); },
 					[](SceneNode &n, Camera::Ptr)    { return n.RemoveComponent(typeid(Camera)); },
 					[](SceneNode &n, Light::Ptr)     { return n.RemoveComponent(typeid(Light)); },
-					[](SceneNode &n, MeshRender::Ptr){ return n.RemoveComponent(typeid(MeshRender)); }),
+					[](SceneNode &n, MeshRender::Ptr){ return n.RemoveComponent(typeid(MeshRender)); },
+					[](SceneNode &n, Animator::Ptr)  { return n.RemoveComponent(typeid(Animator)); }),
 				"GetComponent", sol::overload(
 					[](SceneNode &n, sol::type t) -> sol::object {
 						// Forward a Lua-side `GetComponent(SceneNode.Light)`-style
@@ -473,11 +617,13 @@ namespace fury
 					[](SceneNode &n, Transform::Ptr) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
 					[](SceneNode &n, Camera::Ptr)    -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
 					[](SceneNode &n, Light::Ptr)     -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
-					[](SceneNode &n, MeshRender::Ptr)-> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); }),
-								"GetTransform", [](SceneNode &n) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
+					[](SceneNode &n, MeshRender::Ptr)-> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
+					[](SceneNode &n, Animator::Ptr)  -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); }),
+							"GetTransform", [](SceneNode &n) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
 				"GetCamera",    [](SceneNode &n) -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
 				"GetLight",     [](SceneNode &n) -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
 				"GetMeshRender",[](SceneNode &n) -> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
+				"GetAnimator",  [](SceneNode &n) -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); },
 				"AddChild", &SceneNode::AddChild,
 				"RemoveChild", &SceneNode::RemoveChild,
 				"RemoveFromParent", &SceneNode::RemoveFromParent,

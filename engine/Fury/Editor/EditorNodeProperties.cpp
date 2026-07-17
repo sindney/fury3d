@@ -2,7 +2,9 @@
 
 #include "Fury/Camera.h"
 #include "Fury/Component.h"
+#include "Fury/EntityManager.h"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorAssetPicker.h"
 #include "Fury/Editor/EditorReflect.hpp"
 #include "Fury/EnumUtil.h"
@@ -17,6 +19,9 @@
 #include "Fury/Texture.h"
 #include "Fury/Transform.h"
 #include "Fury/Uniform.h"
+#include "Fury/AnimationClip.h"
+#include "Fury/AnimationPlayer.h"
+#include "Fury/AnimationState.h"
 #include "ImGui/imgui.h"
 #include "ImGuizmo.h"
 
@@ -389,12 +394,206 @@ struct ComponentEntry {
 	bool removable; // false for Transform
 	void (*render)(SceneNode*, Component*);
 };
+
+static const char* kAnimWrapModeNames[] = {"Default", "Once", "Loop", "ClampForever", "PingPong"};
+static int kAnimWrapModeCount = 5;
+
+void RenderAnimatorBody(SceneNode* node, Animator* anim) {
+	bool phys = anim->GetAnimatePhysics();
+	if (ImGui::Checkbox("Animate Physics", &phys)) {
+		anim->SetAnimatePhysics(phys);
+		Editor::MarkSceneDirty();
+	}
+
+	int wrapIdx = static_cast<int>(anim->GetDefaultWrapMode());
+	if (ImGui::Combo("Default Wrap", &wrapIdx, kAnimWrapModeNames, kAnimWrapModeCount)) {
+		anim->SetDefaultWrapMode(static_cast<AnimWrapMode>(wrapIdx));
+		Editor::MarkSceneDirty();
+	}
+
+	// Skeleton debug overlay — draws each joint's world position and
+	// parent link on top of the viewport. Helps diagnose mangled
+	// skin deformation by showing the runtime joint TRS vs. the
+	// bind pose the mesh was authored against.
+	bool showJoints = IsJointDebugEnabled();
+	if (ImGui::Checkbox("Show Joints", &showJoints)) {
+		SetJointDebugEnabled(showJoints);
+	}
+
+	ImGui::Separator();
+	ImGui::TextDisabled("States (%u)", anim->GetStateCount());
+
+	for (unsigned int i = 0; i < anim->GetStateCount(); ++i) {
+		auto state = anim->GetStateAt(i);
+		if (!state) continue;
+
+		ImGui::PushID(static_cast<int>(i));
+		if (ImGui::TreeNode(state->GetName().c_str())) {
+			auto clip = state->GetClip();
+			ImGui::Text("Clip: %s", clip ? clip->GetName().c_str() : "(none)");
+			ImGui::Text("Playing: %s", anim->IsPlaying(state->GetName()) ? "yes" : "no");
+
+			bool en = state->IsEnabled();
+			if (ImGui::Checkbox("Enabled", &en)) {
+				state->SetEnabled(en);
+				Editor::MarkSceneDirty();
+			}
+
+			float w = state->GetWeight();
+			if (ImGui::SliderFloat("Weight", &w, 0.0f, 1.0f)) {
+				state->SetWeight(w);
+				Editor::MarkSceneDirty();
+			}
+
+			float spd = state->GetSpeed();
+			if (ImGui::DragFloat("Speed", &spd, 0.05f, -5.0f, 5.0f, "%.2f")) {
+				state->SetSpeed(spd);
+				Editor::MarkSceneDirty();
+			}
+
+			int lyr = state->GetLayer();
+			if (ImGui::DragInt("Layer", &lyr)) {
+				state->SetLayer(lyr);
+				Editor::MarkSceneDirty();
+			}
+
+			int sw = static_cast<int>(state->GetWrapMode());
+			if (ImGui::Combo("Wrap", &sw, kAnimWrapModeNames, kAnimWrapModeCount)) {
+				state->SetWrapMode(static_cast<AnimWrapMode>(sw));
+				Editor::MarkSceneDirty();
+			}
+
+			float t = state->GetTime();
+			float len = state->GetLength();
+			if (len > 0.0f) {
+				if (ImGui::SliderFloat("Scrub", &t, 0.0f, len, "%.3f s")) {
+					// Scrub: set time and re-pose immediately.
+					bool wasEnabled = state->IsEnabled();
+					state->SetEnabled(true);
+					state->SetTime(t);
+					anim->AdvanceTime(0.0f);
+					anim->Display(1.0f);
+					state->SetEnabled(wasEnabled);
+					Editor::MarkSceneDirty();
+				}
+			}
+
+			if (ImGui::Button("Play")) {
+				anim->Play(state->GetName());
+				Editor::MarkSceneDirty();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Stop")) {
+				anim->Stop(state->GetName());
+				Editor::MarkSceneDirty();
+			}
+			ImGui::SameLine();
+		if (ImGui::Button("Rewind")) {
+			anim->Rewind(state->GetName());
+			Editor::MarkSceneDirty();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("× Remove")) {
+			anim->RemoveClip(state->GetName());
+			Editor::MarkSceneDirty();
+			ImGui::TreePop();
+			ImGui::PopID();
+			continue;
+		}
+
+			// CrossFade target row: small float input + button.
+			ImGui::PushItemWidth(80.0f);
+			static thread_local float s_CrossFadeLen = 0.3f;
+			ImGui::DragFloat("##fadeLen", &s_CrossFadeLen, 0.05f, 0.0f, 10.0f, "%.2f s");
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (ImGui::Button("CrossFade")) {
+				anim->CrossFade(state->GetName(), s_CrossFadeLen);
+				Editor::MarkSceneDirty();
+			}
+
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+
+	// Bind a registered AnimationClip as a new state on this Animator.
+	// "Bind" lists every clip in the active scene's EntityManager; "Bind
+	// from Selection" takes the currently selected node's MeshRender's
+	// associated clip (handy for re-binding after the node picks change).
+	ImGui::Separator();
+	if (ImGui::Button("Bind Clip")) {
+		ImGui::OpenPopup("AnimatorBindClipPopup");
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Bind from Selection")) {
+		ImGui::OpenPopup("AnimatorBindFromSelPopup");
+	}
+
+	// "Bind Clip" uses the shared asset-picker modal (same component as
+	// the mesh/material/texture pickers). Re-binding an already-bound
+	// clip name just overwrites — harmless.
+	RenderAssetPickerModal("AnimatorBindClipPopup", "Bind Clip", typeid(AnimationClip),
+		[anim](std::shared_ptr<void> p) {
+			auto c = std::static_pointer_cast<AnimationClip>(p);
+			if (c) {
+				anim->SetClip(c->GetName(), c);
+				Editor::MarkSceneDirty();
+			}
+		});
+
+	if (ImGui::BeginPopup("AnimatorBindFromSelPopup")) {
+		std::shared_ptr<AnimationClip> selClip;
+		// "Bind from Selection" picks the first clip that targets a joint
+		// of the selected node's mesh; if no joint match, fall back to
+		// the first clip registered in the active scene's EntityManager.
+		if (auto sel = Editor::GetSelectedSceneNode()) {
+			if (auto mr = sel->GetComponent<MeshRender>()) {
+				auto mesh = mr->GetMesh();
+				if (mesh && Scene::Active) {
+					if (auto mgr = Scene::Active->GetEntityManager()) {
+						mgr->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip> &c) -> bool {
+							if (selClip) return true;
+							if (!c) return true;
+							int n = c->GetChannelCount();
+							for (int i = 0; i < n; ++i) {
+								auto ch = c->GetChannelAt(i);
+								if (ch && mesh->GetJoint(ch->name)) { selClip = c; break; }
+							}
+							return true;
+						});
+						if (!selClip) {
+							mgr->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip> &c) -> bool {
+								if (!selClip) selClip = c;
+								return !selClip;
+							});
+						}
+					}
+				}
+			}
+		}
+		if (!selClip) {
+			ImGui::TextDisabled("(no clip on selected node)");
+		} else {
+			bool alreadyBound = anim->GetState(selClip->GetName()) != nullptr;
+			if (alreadyBound) ImGui::BeginDisabled();
+			if (ImGui::MenuItem(selClip->GetName().c_str())) {
+				anim->SetClip(selClip->GetName(), selClip);
+				Editor::MarkSceneDirty();
+			}
+			if (alreadyBound) ImGui::EndDisabled();
+		}
+		ImGui::EndPopup();
+	}
+}
+
 static const std::vector<ComponentEntry>& ComponentRenderTable() {
 	static const std::vector<ComponentEntry> table = {
 		{"Transform", typeid(Transform), false, [](SceneNode* n, Component* c) { RenderTransformBody(n, static_cast<Transform*>(c)); }},
 		{"Light", typeid(Light), true, [](SceneNode* n, Component* c) { RenderLightBody(n, static_cast<Light*>(c)); }},
 		{"Camera", typeid(Camera), true, [](SceneNode* n, Component* c) { RenderCameraBody(n, static_cast<Camera*>(c)); }},
 		{"MeshRender", typeid(MeshRender), true, [](SceneNode* n, Component* c) { RenderMeshRenderBody(n, static_cast<MeshRender*>(c)); }},
+		{"Animator", typeid(Animator), true, [](SceneNode* n, Component* c) { RenderAnimatorBody(n, static_cast<Animator*>(c)); }},
 	};
 	return table;
 }
@@ -402,6 +601,10 @@ static const std::vector<ComponentEntry>& ComponentRenderTable() {
 // Render one component as a top-level CollapsingHeader with a
 // full-width delete button at the bottom (skipped for Transform).
 void RenderComponentSection(SceneNode* node, const ComponentEntry& entry) {
+	// The Transform section is redundant with the Node section above
+	// (both show the same TRS) for nodes that carry a MeshRender.
+	if (entry.type == typeid(Transform) && node->GetComponent<MeshRender>())
+		return;
 	auto comp = node->GetComponent(entry.type);
 	if (!comp) return;
 

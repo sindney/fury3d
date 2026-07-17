@@ -8,6 +8,7 @@
 #include "Fury/GLLoader.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
+#include "Fury/Material.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -15,7 +16,11 @@
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
+#include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
+#include "Fury/Shader.h"
+#include "Fury/Texture.h"
+#include "Fury/Transform.h"
 #include "Fury/Vector4.h"
 
 namespace fury

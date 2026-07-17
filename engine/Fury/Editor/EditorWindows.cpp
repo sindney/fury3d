@@ -1,9 +1,11 @@
 #ifdef WITH_EDITOR
 
 #include "Fury/BufferManager.h"
+#include "Fury/AnimationClip.h"
 #include "Fury/Camera.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAssetWindows.h"
+#include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorDebug.h"
 #include "Fury/Editor/EditorLog.h"
@@ -68,8 +70,11 @@ void RenderSettingsWindow(bool* open) {
 		return;
 	}
 
-	// --- Camera ---------------------------------------------------
-	if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+	// --- Editor (camera + theme) ----------------------------------
+	if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Spacing();
+
+		ImGui::TextDisabled("Camera");
 		if (g_CameraControls.empty()) {
 			ImGui::TextDisabled("(no camera settings registered)");
 		} else {
@@ -91,18 +96,9 @@ void RenderSettingsWindow(bool* open) {
 				}
 			}
 		}
-	}
+		ImGui::Spacing();
 
-	// --- Import ---------------------------------------------------
-	if (ImGui::CollapsingHeader("Import", ImGuiTreeNodeFlags_DefaultOpen)) {
-		bool v = GetImportFlag("auto_default_sun", true);
-		if (ImGui::Checkbox("Auto-Add Default Sun", &v)) {
-			SetImportFlag("auto_default_sun", v);
-		}
-	}
-
-	// --- Themes ---------------------------------------------------
-	if (ImGui::CollapsingHeader("Themes", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::TextDisabled("Theme");
 		int current = GetCurrentThemeIndex();
 		if (ImGui::BeginCombo("Theme", kThemes[current].display_name)) {
 			for (std::size_t i = 0; i < kThemesCount; ++i) {
@@ -114,6 +110,33 @@ void RenderSettingsWindow(bool* open) {
 				if (is_selected) ImGui::SetItemDefaultFocus();
 			}
 			ImGui::EndCombo();
+		}
+	}
+
+	// --- Import ---------------------------------------------------
+	if (ImGui::CollapsingHeader("Import", ImGuiTreeNodeFlags_DefaultOpen)) {
+		bool v = GetImportFlag("auto_default_sun", true);
+		if (ImGui::Checkbox("Auto-Add Default Sun", &v)) {
+			SetImportFlag("auto_default_sun", v);
+		}
+	}
+
+	// --- Engine (read-only unit/coord info + CSM toggle) ---------
+	if (ImGui::CollapsingHeader("Engine")) {
+		// Read-only reference info — see Camera.h / docs/ARCHITECTURE.md §5.1.
+		ImGui::TextDisabled("Unit:   1 unit = 1 cm");
+		ImGui::TextDisabled("Coords: right-handed, +Y up, -Z front");
+		ImGui::Spacing();
+
+		// CSM toggle — drives Pipeline::CASCADED_SHADOW_MAP for the
+		// directional light's shadow frustum splitting.
+		if (Pipeline::Active) {
+			bool csm = Pipeline::Active->IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
+			if (ImGui::Checkbox("Cascaded Shadow Map (CSM)", &csm)) {
+				Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, csm);
+			}
+		} else {
+			ImGui::TextDisabled("(no active pipeline)");
 		}
 	}
 
@@ -289,13 +312,6 @@ void RenderProfilerShadowsTab() {
 		ImGui::TextDisabled("(no active scene)");
 		return;
 	}
-
-	// Cascaded shadow maps is a shadow-rendering decision, so its
-	// toggle lives here rather than on the FPS tab. Default on to
-	// match the PrelightPipeline ctor's CASCADED_SHADOW_MAP=true.
-	static bool use_csm = true;
-	ImGui::Checkbox("Use Cascaded Shadow Maps", &use_csm);
-	Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm);
 
 	ImGui::Separator();
 
@@ -1094,6 +1110,11 @@ void CollectTiles(std::vector<TileEntry>& tiles) {
 						 std::static_pointer_cast<void>(t)});
 		return true;
 	});
+	em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& c) {
+		tiles.push_back({typeid(AnimationClip), c->GetName(),
+						 std::static_pointer_cast<void>(c)});
+		return true;
+	});
 }
 
 bool IsTileSelected(const TileEntry& tile) {
@@ -1245,6 +1266,15 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
 					 ImVec2(kTileThumbnail, kTileThumbnail),
 					 ImVec2(0, 1), ImVec2(1, 0));
+	} else if (tile.type == typeid(AnimationClip)) {
+		// AnimationClip tile — no GPU thumbnail; render a flat
+		// placeholder rect. The top-left badge (added below) already
+		// labels the tile type, so the rect itself has no text.
+		ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
+		ImVec2 p0 = ImGui::GetItemRectMin();
+		ImVec2 p1 = ImGui::GetItemRectMax();
+		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
+												  ImGui::GetColorU32(ImVec4(0.20f, 0.30f, 0.22f, 1.0f)));
 	} else // Mesh
 	{
 			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
@@ -1263,10 +1293,11 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			}
 		}
 
-	// Type badge (M / Mat / T) in the top-left corner.
+	// Type badge (M / Mat / T / Anim) in the top-left corner.
 	const char* badge =
 		(tile.type == typeid(Mesh)) ? "M" :
-		(tile.type == typeid(Material)) ? "Mat" : "T";
+		(tile.type == typeid(Material)) ? "Mat" :
+		(tile.type == typeid(AnimationClip)) ? "Anim" : "T";
 		ImGui::GetWindowDrawList()->AddText(thumb_min,
 											ImGui::GetColorU32(ImVec4(1, 1, 0, 0.9f)), badge);
 
@@ -1342,6 +1373,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			if (thumbDblClicked) {
 				if (tile.type == typeid(Mesh))
 					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
+				else if (tile.type == typeid(AnimationClip))
+					Editor::SetWindowVisible("Animation", true);
 				else
 					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 			}
@@ -1725,6 +1758,12 @@ void RenderViewportWindow(bool* open) {
 		// composites over the viewport rather than being hidden
 		// behind the docked window.
 		RenderGizmo(pos, avail);
+
+		// Joint-skeleton debug overlay (toggled from the Animator
+		// inspector). Projects each joint's world position through
+		// the active camera and draws a line/marker on top of the
+		// viewport image so we can see how the skeleton is posed.
+		RenderJointDebugOverlay(pos, avail);
 	} else {
 		g_ViewportVisible = false;
 		if (Pipeline::Active)

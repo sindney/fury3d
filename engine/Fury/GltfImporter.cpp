@@ -39,6 +39,7 @@
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <string>
 #include <tiny_gltf.h>
@@ -69,13 +70,10 @@ bool HasUnsupportedFeatures(const tinygltf::Model& model, const std::string& inp
 	}
 
 	for (size_t bv_i = 0; bv_i < model.bufferViews.size(); ++bv_i) {
-		if (model.bufferViews[bv_i].byteStride != 0) {
-			FURYE << "gltf-importer: rejected — bufferViews[" << bv_i
-				  << "].byteStride=" << model.bufferViews[bv_i].byteStride
-				  << " not supported in v1 (input: " << input_path
-				  << "; see docs/CLI.md §Limitations)";
-			return true;
-		}
+		// byteStride != 0 (interleaved vertex buffers, e.g. the Khronos
+		// Fox sample) IS supported — the accessor readers below use
+		// bv.byteStride as the element pitch when non-zero. No rejection.
+		(void)model.bufferViews[bv_i].byteStride;
 	}
 
 	for (size_t a_i = 0; a_i < model.accessors.size(); ++a_i) {
@@ -145,7 +143,8 @@ Texture::Ptr CreateEngineTexture(
 	const tinygltf::Model& model,
 	int texture_index,
 	bool srgb,
-	const std::string& input_stem) {
+	const std::string& input_stem,
+	const std::string& input_dir) {
 	if (texture_index < 0 || texture_index >= static_cast<int>(model.textures.size()))
 		return nullptr;
 	const auto& gtex = model.textures[texture_index];
@@ -187,10 +186,19 @@ Texture::Ptr CreateEngineTexture(
 	}
 
 	if (!image.uri.empty()) {
-		// External-URI case. Pass the URI through; runtime resolves
-		// it against Scene::Path and uploads via CreateFromImage.
-		tex->SetFilePathAndSRGB(image.uri, srgb);
-		tex->CreateFromImage(image.uri, srgb, mipmap);
+		// External-URI case. Resolve relative URIs against the
+		// .gltf/.glb's directory (the glTF spec requires this; tinygltf
+		// hands us the raw uri). Absolute paths and data: URIs pass
+		// through unchanged.
+		std::string path = image.uri;
+		if (!path.empty() && path[0] != '/' && path.find("data:") != 0
+			&& path.find("://") == std::string::npos
+			&& !(path.size() >= 2 && path[1] == ':') // Windows drive
+			&& !input_dir.empty()) {
+			path = input_dir + path;
+		}
+		tex->SetFilePathAndSRGB(path, srgb);
+		tex->CreateFromImage(path, srgb, mipmap);
 		return tex;
 	}
 
@@ -229,6 +237,7 @@ Material::Ptr TranslateMaterial(
 	const tinygltf::Model& model,
 	int material_index,
 	const std::string& input_stem,
+	const std::string& input_dir,
 	std::set<std::string>& already_warned) {
 	const auto& gm = model.materials[material_index];
 	const std::string name = gm.name.empty()
@@ -253,7 +262,8 @@ Material::Ptr TranslateMaterial(
 		auto tex = CreateEngineTexture(model,
 									   gm.pbrMetallicRoughness.baseColorTexture.index,
 									   /*srgb=*/true, // base color is colorspace data
-									   input_stem);
+									   input_stem,
+									   input_dir);
 		if (tex) material->SetTexture(Material::DIFFUSE_TEXTURE, tex);
 	}
 
@@ -334,8 +344,9 @@ bool ReadFloatAccessor(
 	const auto& buf = model.buffers[bv.buffer];
 	const uint8_t* base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
 	const size_t element_stride = sizeof(float) * actual_components;
+	const size_t stride = (bv.byteStride != 0) ? static_cast<size_t>(bv.byteStride) : element_stride;
 	for (size_t i = 0; i < accessor.count; ++i) {
-		const float* fp = reinterpret_cast<const float*>(base + i * element_stride);
+		const float* fp = reinterpret_cast<const float*>(base + i * stride);
 		const int copy = std::min(num_components_to_copy, actual_components);
 		for (int c = 0; c < copy; ++c) out.push_back(fp[c]);
 	}
@@ -357,18 +368,19 @@ bool ReadIndexAccessor(
 	const auto& bv = model.bufferViews[accessor.bufferView];
 	const auto& buf = model.buffers[bv.buffer];
 	const uint8_t* base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+	const size_t stride = (bv.byteStride != 0) ? static_cast<size_t>(bv.byteStride) : 0;
 	switch (accessor.componentType) {
 	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
 		for (size_t i = 0; i < accessor.count; ++i)
-			out.push_back(offset_to_add + static_cast<unsigned int>(base[i]));
+			out.push_back(offset_to_add + static_cast<unsigned int>(base[stride ? i * stride : i]));
 		return true;
 	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
 		for (size_t i = 0; i < accessor.count; ++i)
-			out.push_back(offset_to_add + static_cast<unsigned int>(reinterpret_cast<const uint16_t*>(base)[i]));
+			out.push_back(offset_to_add + static_cast<unsigned int>(reinterpret_cast<const uint16_t*>(base + (stride ? i * stride : i * sizeof(uint16_t)))[0]));
 		return true;
 	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
 		for (size_t i = 0; i < accessor.count; ++i)
-			out.push_back(offset_to_add + reinterpret_cast<const uint32_t*>(base)[i]);
+			out.push_back(offset_to_add + reinterpret_cast<const uint32_t*>(base + (stride ? i * stride : i * sizeof(uint32_t)))[0]);
 		return true;
 	default:
 		return false;
@@ -387,16 +399,18 @@ bool ReadJointsAccessor(
 	const auto& bv = model.bufferViews[accessor.bufferView];
 	const auto& buf = model.buffers[bv.buffer];
 	const uint8_t* base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+	const size_t tight = sizeof(uint16_t) * 4;
+	const size_t stride = (bv.byteStride != 0) ? static_cast<size_t>(bv.byteStride) : tight;
 	switch (accessor.componentType) {
 	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
 		for (size_t i = 0; i < accessor.count; ++i) {
-			const uint8_t* bp = base + i * 4;
+			const uint8_t* bp = base + i * (bv.byteStride != 0 ? bv.byteStride : 4);
 			for (int c = 0; c < 4; ++c) out.push_back(bp[c]);
 		}
 		return true;
 	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
 		for (size_t i = 0; i < accessor.count; ++i) {
-			const uint16_t* bp = reinterpret_cast<const uint16_t*>(base + i * sizeof(uint16_t) * 4);
+			const uint16_t* bp = reinterpret_cast<const uint16_t*>(base + i * stride);
 			for (int c = 0; c < 4; ++c) out.push_back(bp[c]);
 		}
 		return true;
@@ -419,8 +433,10 @@ bool ReadWeights3Accessor(
 	const auto& bv = model.bufferViews[accessor.bufferView];
 	const auto& buf = model.buffers[bv.buffer];
 	const uint8_t* base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+	const size_t tight = sizeof(float) * 4;
+	const size_t stride = (bv.byteStride != 0) ? static_cast<size_t>(bv.byteStride) : tight;
 	for (size_t i = 0; i < accessor.count; ++i) {
-		const float* fp = reinterpret_cast<const float*>(base + i * sizeof(float) * 4);
+		const float* fp = reinterpret_cast<const float*>(base + i * stride);
 		out.push_back(fp[0]);
 		out.push_back(fp[1]);
 		out.push_back(fp[2]);
@@ -437,15 +453,17 @@ Matrix4 NodeLocalMatrix(const tinygltf::Node& node) {
 		for (int i = 0; i < 16; ++i) raw[i] = static_cast<float>(node.matrix[i]);
 		return Matrix4(raw);
 	}
-	// glTF: T * R * S (column-major). We construct via the engine's
-	// Matrix4 Append* family.
+	// glTF node local = T * R * S (column-major, M*v). The engine's
+	// SceneNode::Recompose / Transform compose in the same order
+	// (AppendTranslation → AppendRotation → AppendScale). Reversed S*R*T
+	// was a latent bug that mangles any joint with both non-trivial
+	// rotation and translation.
 	Matrix4 m;
 	m.Identity();
-	if (node.scale.size() == 3) {
-		m.AppendScale(Vector4(static_cast<float>(node.scale[0]),
-							  static_cast<float>(node.scale[1]),
-							  static_cast<float>(node.scale[2]), 1.0f));
-	}
+	if (node.translation.size() == 3)
+		m.AppendTranslation(Vector4(static_cast<float>(node.translation[0]),
+									static_cast<float>(node.translation[1]),
+									static_cast<float>(node.translation[2]), 1.0f));
 	if (node.rotation.size() == 4) {
 		Quaternion q(
 			static_cast<float>(node.rotation[0]),
@@ -454,17 +472,14 @@ Matrix4 NodeLocalMatrix(const tinygltf::Node& node) {
 			static_cast<float>(node.rotation[3]));
 		m.AppendRotation(q);
 	}
-	if (node.translation.size() == 3) {
-		m.AppendTranslation(Vector4(static_cast<float>(node.translation[0]),
-									static_cast<float>(node.translation[1]),
-									static_cast<float>(node.translation[2]), 1.0f));
+	if (node.scale.size() == 3) {
+		m.AppendScale(Vector4(static_cast<float>(node.scale[0]),
+							  static_cast<float>(node.scale[1]),
+							  static_cast<float>(node.scale[2]), 1.0f));
 	}
 	return m;
 }
 
-// Translate one glTF mesh -> one engine Mesh. Each glTF primitive
-// becomes one engine SubMesh; their vertex streams are concatenated
-// into the engine Mesh's flat ArrayBuffers with index renumbering.
 //
 // The submesh_materials out-parameter is parallel to engine
 // Mesh::m_SubMeshes — each entry is the glTF material index for that
@@ -517,7 +532,8 @@ std::shared_ptr<Mesh> TranslateMesh(
 		}
 
 		auto nrm_it = prim.attributes.find("NORMAL");
-		if (nrm_it != prim.attributes.end())
+		const bool has_normals = (nrm_it != prim.attributes.end());
+		if (has_normals)
 			ReadFloatAccessor(model, nrm_it->second, 3, mesh->Normals.Data);
 
 		auto tan_it = prim.attributes.find("TANGENT");
@@ -555,6 +571,41 @@ std::shared_ptr<Mesh> TranslateMesh(
 		// the full topology. SubMesh::Indices are what the renderer
 		// actually draws against; Mesh::Indices is a back-up.
 		for (auto idx : sub->Indices.Data) mesh->Indices.Data.push_back(idx);
+
+		// glTF spec: a primitive without NORMAL should get normals
+		// generated by the loader. Compute smooth per-vertex normals
+		// (accumulated face normals, normalized) so the deferred
+		// pipeline can shade the mesh — otherwise Normals stays empty,
+		// its buffer stays dirty, and Shader::BindMeshData warns + the
+		// mesh renders unlit. (The Khronos Fox sample omits NORMAL.)
+		if (!has_normals && verts_added > 0) {
+			const size_t vbase_f = pos_before * 3;
+			std::vector<float> nx(verts_added, 0.0f), ny(verts_added, 0.0f), nz(verts_added, 0.0f);
+			const auto& idx = sub->Indices.Data;
+			for (size_t ti = 0; ti + 2 < idx.size(); ti += 3) {
+				const unsigned int l0 = idx[ti] - vertex_base;
+				const unsigned int l1 = idx[ti + 1] - vertex_base;
+				const unsigned int l2 = idx[ti + 2] - vertex_base;
+				const float* p0 = &mesh->Positions.Data[vbase_f + l0 * 3];
+				const float* p1 = &mesh->Positions.Data[vbase_f + l1 * 3];
+				const float* p2 = &mesh->Positions.Data[vbase_f + l2 * 3];
+				const float ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2];
+				const float bx = p2[0] - p0[0], by = p2[1] - p0[1], bz = p2[2] - p0[2];
+				const float cx = ay * bz - az * by;
+				const float cy = az * bx - ax * bz;
+				const float cz = ax * by - ay * bx;
+				nx[l0] += cx; ny[l0] += cy; nz[l0] += cz;
+				nx[l1] += cx; ny[l1] += cy; nz[l1] += cz;
+				nx[l2] += cx; ny[l2] += cy; nz[l2] += cz;
+			}
+			for (size_t v = 0; v < verts_added; ++v) {
+				float len = std::sqrt(nx[v] * nx[v] + ny[v] * ny[v] + nz[v] * nz[v]);
+				if (len > 1e-12f) { nx[v] /= len; ny[v] /= len; nz[v] /= len; }
+				mesh->Normals.Data.push_back(nx[v]);
+				mesh->Normals.Data.push_back(ny[v]);
+				mesh->Normals.Data.push_back(nz[v]);
+			}
+		}
 
 		vertex_base += static_cast<unsigned int>(verts_added);
 	}
@@ -631,6 +682,8 @@ bool TranslateSkin(
 			parent->SetFirstChild(child);
 		}
 	}
+	// (intentionally no per-joint debug log here — joint structure is
+	// verified through the visualization overlay)
 
 	// Determine root: prefer skin.skeleton (a node index) if it's in
 	// the joint set; else use the first joint.
@@ -1000,6 +1053,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	// "<stem>_image<i>.<ext>" original-filename hints when the embedded
 	// glTF image lacks an `image.name` (which FBX2glTF normally fills in).
 	std::string input_stem;
+	std::string input_dir; // directory of the .gltf/.glb, with trailing slash — for resolving relative image URIs.
 	{
 		auto slash = input_path.find_last_of("/\\");
 		std::string base = (slash == std::string::npos)
@@ -1007,6 +1061,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 							   : input_path.substr(slash + 1);
 		auto dot = base.find_last_of('.');
 		input_stem = (dot == std::string::npos) ? base : base.substr(0, dot);
+		input_dir = (slash == std::string::npos) ? std::string() : input_path.substr(0, slash + 1);
 	}
 
 	auto tree = OcTree::Create();
@@ -1020,7 +1075,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	materials.reserve(model.materials.size());
 	for (size_t mi = 0; mi < model.materials.size(); ++mi) {
 		auto mat = TranslateMaterial(model, static_cast<int>(mi),
-									 input_stem, warned_signatures);
+									 input_stem, input_dir, warned_signatures);
 		entities->Add(mat);
 		// Register the material's textures as first-class assets so
 		// the picker can find them via em->ForEach<Texture>. Add
@@ -1091,6 +1146,31 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	if (lights_attached == 0 && model.lights.empty()) {
 		FURYW << "gltf-importer: '" << input_path
 			  << "' has no lights — viewport will render black under deferred Lambert pipeline";
+	}
+
+	// glTF-standard skinning: each Joint mirrors its glTF joint node's
+	// SceneNode (already built by WalkNode into gltf_node_to_scene_node).
+	// The joint's Final = sceneNodeWorld * ibm is computed at render
+	// time from the scene graph (which includes ancestors like James,
+	// the skeleton root's parent), and the skin shader uses an identity
+	// model matrix. The glb inverseBindMatrices (already loaded onto
+	// each Joint as m_OffsetMatrix by TranslateSkin) are used verbatim.
+	// This is the glTF spec formula: v_world = Σ wᵢ·(JᵢW·ibmᵢ)·v.
+	if (!meshes.empty()) {
+		for (size_t mi = 0; mi < meshes.size(); ++mi) {
+			if (mesh_to_skin[mi] < 0) continue;
+			const auto& skin = model.skins[mesh_to_skin[mi]];
+			const auto& mesh = meshes[mi];
+			for (size_t j = 0; j < skin.joints.size(); ++j) {
+				int node_index = skin.joints[j];
+				if (node_index < 0 || node_index >= static_cast<int>(gltf_node_to_scene_node.size()))
+					continue;
+				const auto& sn = gltf_node_to_scene_node[node_index];
+				if (!sn) continue;
+				auto joint = mesh->GetJoint(sn->GetName());
+				if (joint) joint->SetSceneNode(sn);
+			}
+		}
 	}
 
 	// Animations: one engine AnimationClip per glTF animation, resampled

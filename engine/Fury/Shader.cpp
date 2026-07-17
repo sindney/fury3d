@@ -585,8 +585,9 @@ namespace fury
 
 				for (int i = 0; i < jointCount; i++)
 				{
-					auto joint = mesh->GetJointAt(i);
-					auto matrix = joint->GetFinalMatrix();
+				auto joint = mesh->GetJointAt(i);
+				// Picking can run mid-reimport when a joint slot is null — use identity.
+				Matrix4 matrix = joint ? joint->GetFinalMatrix() : Matrix4();
 					int index = i * 16;
 
 					for (int j = 0; j < 16; j++)

@@ -222,7 +222,13 @@ namespace fury
 						auto& shader = mesh->IsSkinnedMesh() ? g_IdShaderSkinned : g_IdShaderStatic;
 						shader->Bind();
 						shader->BindCamera(cameraNode);
-						shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+						// Skinned vertices reach world space via Final = JᵢW * ibm;
+						// identity world_matrix so the mesh node transform isn't
+						// double-applied (matches the gbuffer skin path).
+						if (mesh->IsSkinnedMesh())
+							shader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
+						else
+							shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
 						shader->BindUInt("node_id", id);
 						shader->BindMesh(mesh);
 
@@ -368,10 +374,6 @@ namespace fury
 	// Defined in EditorSelectionViz.cpp.
 	void DrawSelectionOverlay();
 
-		// Public entry point declared in Editor.h. Forwards to the picking
-		// state machine, then draws the selection-visualization overlay so it
-		// composites over the scene in the viewport render target before
-		// Gui::Render samples it for the Viewport window's Image.
 		void TickPostRender()
 		{
 			Picking::TickPostRender();

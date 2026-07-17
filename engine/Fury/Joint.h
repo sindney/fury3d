@@ -3,11 +3,10 @@
 
 #include "Fury/Entity.h"
 #include "Fury/Matrix4.h"
-#include "Fury/Quaternion.h"
-#include "Fury/Vector4.h"
 
 namespace fury {
 class Mesh;
+class SceneNode;
 
 class FURY_API Joint final : public Entity {
 public:
@@ -22,6 +21,17 @@ public:
 protected:
 	std::weak_ptr<Mesh> m_Mesh;
 
+	// glTF-standard skinning: the joint's world matrix comes from the
+	// scene graph (this SceneNode — the glTF joint node — includes
+	// ancestors like the skeleton root's parent). GetFinalMatrix()
+	// returns sceneNodeWorld * m_OffsetMatrix.
+	std::weak_ptr<SceneNode> m_SceneNode;
+
+	// UUID of the linked SceneNode, persisted in Mesh::Save so the
+	// linkage can be re-established unambiguously after Scene::Load
+	// (names can collide across instances; UUIDs can't).
+	std::string m_SceneNodeUUID;
+
 	Joint::Ptr m_FirstChild;
 
 	Joint::Ptr m_Sibling;
@@ -30,53 +40,32 @@ protected:
 
 	Matrix4 m_LocalMatrix;
 
-	Matrix4 m_CombinedMatrix;
-
 	Matrix4 m_OffsetMatrix;
-
-	Matrix4 m_FinalMatrix;
-
-	std::pair<Vector4, Vector4> m_Position;
-
-	std::pair<Quaternion, Quaternion> m_Rotation;
-
-	std::pair<Vector4, Vector4> m_Scaling;
 
 public:
 	Joint(const std::string& name, const std::shared_ptr<Mesh>& mesh);
 
 	~Joint();
 
-	void Update(const Matrix4& matrix);
-
-	// update local matrix by interpolated TRS value pairs.
-	void Update(float dt);
-
-	void SetRotation(Quaternion rot, bool old = false);
-
-	void SetPosition(Vector4 pos, bool old = false);
-
-	void SetScaling(Vector4 scl, bool old = false);
-
-	Quaternion GetRotation(bool old = false);
-
-	Vector4 GetPosition(bool old = false);
-
-	Vector4 GetScaling(bool old = false);
-
 	void SetLocalMatrix(const Matrix4& matrix);
 
 	Matrix4 GetLocalMatrix() const;
-
-	void SetCombinedMatrix(const Matrix4& matrix);
-
-	Matrix4 GetCombinedMatrix() const;
 
 	void SetOffsetMatrix(const Matrix4& matrix);
 
 	Matrix4 GetOffsetMatrix() const;
 
 	Matrix4 GetFinalMatrix();
+
+	// glTF skin: the SceneNode this joint mirrors (its world matrix is
+	// JᵢW in the Final = JᵢW * ibm formula).
+	std::shared_ptr<SceneNode> GetSceneNode() const;
+	void SetSceneNode(const std::shared_ptr<SceneNode>& node);
+
+	// UUID of the linked SceneNode (empty when unlinked). SetSceneNode
+	// keeps this in sync; SetSceneNodeUUID is the deserialization hook.
+	const std::string& GetSceneNodeUUID() const;
+	void SetSceneNodeUUID(const std::string& uuid);
 
 	Joint::Ptr GetFirstChild() const;
 

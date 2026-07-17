@@ -74,8 +74,20 @@
             "path": "Resource/Shader/DrawDepthLeagcy.glsl"
         },
         {
+            "name": "leagcy_depth_skin_shader",
+            "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+            "type": "skinned_mesh",
+            "defines": ["SKINNED_MESH"]
+        },
+        {
             "name": "cube_depth_shader",
             "path": "Resource/Shader/DrawDepthCube.glsl"
+        },
+        {
+            "name": "cube_depth_skin_shader",
+            "path": "Resource/Shader/DrawDepthCube.glsl",
+            "type": "skinned_mesh",
+            "defines": ["SKINNED_MESH"]
         }
     ],
     "textures": [

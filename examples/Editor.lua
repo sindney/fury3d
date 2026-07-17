@@ -36,7 +36,7 @@ local cam_node         = nil
 local cam_pos          = nil           -- Vector4, set in on_init
 local yaw              = 0.0
 local pitch            = -math.rad(30.0)
-local move_speed       = 5.0           -- world units per second
+local move_speed       = 500.0         -- cm/s (engine unit = 1 cm)
 local mouse_sensitivity = 0.004
 
 -- Mouse-drag state.
@@ -315,12 +315,15 @@ local function on_init()
         load_default_scene()
     end
 
+    -- Engine unit = 1 cm (see docs/ARCHITECTURE.md). Camera near/far
+    -- and shadow frustum are in cm.
     local camera = Camera.Create()
-    camera:PerspectiveFov(0.7854, 1.778, 1, 100)
-    camera:SetShadowFar(30)
-    camera:SetShadowBounds(Vector4(-5), Vector4(5))
+    camera:PerspectiveFov(0.7854, 1.778, 1, 5000)
+    camera:SetShadowFar(2000)
+    camera:SetShadowBounds(Vector4(-500), Vector4(500))
 
-    cam_pos  = Vector4(0.0, 10.0, 25.0, 1.0)
+    -- Camera start position in cm (back + above origin).
+    cam_pos  = Vector4(0.0, 170.0, 400.0, 1.0)
 
     cam_node = SceneNode.Create("camNode")
     cam_node:SetLocalPosition(cam_pos)

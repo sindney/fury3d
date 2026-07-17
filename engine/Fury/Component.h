@@ -36,6 +36,8 @@ namespace fury
 
 		bool HasOwner() const;
 
+		std::shared_ptr<SceneNode> GetOwner() const;
+
 	protected:
 
 		std::type_index m_TypeIndex;

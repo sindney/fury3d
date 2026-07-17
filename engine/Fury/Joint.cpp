@@ -3,6 +3,7 @@
 #include "Fury/Log.h"
 #include "Fury/Mesh.h"
 #include "Fury/Joint.h"
+#include "Fury/SceneNode.h"
 
 namespace fury
 {
@@ -54,53 +55,6 @@ namespace fury
 		//FURYD << "Joint " << m_Name << " destoried!";
 	}
 
-	void Joint::Update(const Matrix4 &matrix)
-	{
-		m_CombinedMatrix = matrix * m_LocalMatrix;
-		m_FinalMatrix = m_CombinedMatrix * m_OffsetMatrix;
-		if (m_Sibling != nullptr)
-			m_Sibling->Update(matrix);
-		if (m_FirstChild != nullptr)
-			m_FirstChild->Update(m_CombinedMatrix);
-	}
-
-	void Joint::Update(float dt)
-	{
-		m_LocalMatrix.Translate(m_Position.first + (m_Position.second - m_Position.first) * dt); 
-		m_LocalMatrix.AppendRotation(m_Rotation.first.Slerp(m_Rotation.second, dt));
-		m_LocalMatrix.AppendScale(m_Scaling.first + (m_Scaling.second - m_Scaling.first) * dt);
-	}
-
-	void Joint::SetRotation(Quaternion rot, bool old)
-	{
-		(old ? m_Rotation.first : m_Rotation.second) = rot; 
-	}
-
-	void Joint::SetPosition(Vector4 pos, bool old)
-	{
-		(old ? m_Position.first : m_Position.second) = pos;
-	}
-
-	void Joint::SetScaling(Vector4 scl, bool old)
-	{
-		(old ? m_Scaling.first : m_Scaling.second) = scl;
-	}
-
-	Quaternion Joint::GetRotation(bool old)
-	{
-		return old ? m_Rotation.first : m_Rotation.second;
-	}
-
-	Vector4 Joint::GetPosition(bool old)
-	{
-		return old ? m_Position.first : m_Position.second;
-	}
-
-	Vector4 Joint::GetScaling(bool old)
-	{
-		return old ? m_Scaling.first : m_Scaling.second;
-	}
-
 	void Joint::SetLocalMatrix(const Matrix4 &matrix)
 	{
 		m_LocalMatrix = matrix;
@@ -109,16 +63,6 @@ namespace fury
 	Matrix4 Joint::GetLocalMatrix() const
 	{
 		return m_LocalMatrix;
-	}
-
-	void Joint::SetCombinedMatrix(const Matrix4 &matrix)
-	{
-		m_CombinedMatrix = matrix;
-	}
-
-	Matrix4 Joint::GetCombinedMatrix() const
-	{
-		return m_CombinedMatrix;
 	}
 
 	void Joint::SetOffsetMatrix(const Matrix4 &matrix)
@@ -133,7 +77,37 @@ namespace fury
 
 	Matrix4 Joint::GetFinalMatrix()
 	{
-		return m_FinalMatrix;
+		// glTF-standard skinning: Final = JᵢW * ibm, where JᵢW is the
+		// joint's scene-graph world matrix (computed by Recompose,
+		// including ancestors like the skeleton root's parent) and ibm
+		// is the glb inverseBindMatrix (stored as m_OffsetMatrix). The
+		// skin shader pairs this with an identity model matrix so the
+		// result lands in world space directly.
+		auto node = m_SceneNode.lock();
+		if (node)
+			return node->GetWorldMatrix() * m_OffsetMatrix;
+		return m_OffsetMatrix;
+	}
+
+	std::shared_ptr<SceneNode> Joint::GetSceneNode() const
+	{
+		return m_SceneNode.lock();
+	}
+
+	void Joint::SetSceneNode(const std::shared_ptr<SceneNode> &node)
+	{
+		m_SceneNode = node;
+		m_SceneNodeUUID = node ? node->GetUUID() : std::string();
+	}
+
+	const std::string &Joint::GetSceneNodeUUID() const
+	{
+		return m_SceneNodeUUID;
+	}
+
+	void Joint::SetSceneNodeUUID(const std::string &uuid)
+	{
+		m_SceneNodeUUID = uuid;
 	}
 
 	Joint::Ptr Joint::GetFirstChild() const

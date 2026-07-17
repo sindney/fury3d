@@ -139,6 +139,9 @@ namespace fury
 			auto joint = Joint::Create(joint_name, nullptr);
 			joint->SetLocalMatrix(local);
 			joint->SetOffsetMatrix(offset);
+			std::string scene_node_uuid;
+			if (LoadMemberValue(node, "scene_node_uuid", scene_node_uuid) && !scene_node_uuid.empty())
+				joint->SetSceneNodeUUID(scene_node_uuid);
 			loaded_joints.push_back(joint);
 			m_Joints.push_back(joint);
 			m_JointMap[joint_name] = joint;
@@ -172,7 +175,7 @@ namespace fury
 			auto it = m_JointMap.find(root_joint_name);
 			if (it != m_JointMap.end()) m_RootJoint = it->second;
 		}
-		
+
 		if (!LoadArray(wrapper, "indices", Indices.Data))
 		{
 			FURYE << "indices not found!";
@@ -280,21 +283,28 @@ namespace fury
 				StartObject(wrapper);
 				SaveKey(wrapper, "name");
 				SaveValue(wrapper, joint->GetName());
-				SaveKey(wrapper, "local_matrix");
-				SaveValue(wrapper, joint->GetLocalMatrix());
-				SaveKey(wrapper, "offset_matrix");
-				SaveValue(wrapper, joint->GetOffsetMatrix());
-				int parent_index = -1;
-				auto parent = joint->GetParent();
-				if (parent)
-				{
-					auto it = name_to_index.find(parent->GetName());
-					if (it != name_to_index.end()) parent_index = it->second;
-				}
-				SaveKey(wrapper, "parent");
-				SaveValue(wrapper, parent_index);
-				EndObject(wrapper);
-			});
+			SaveKey(wrapper, "local_matrix");
+			SaveValue(wrapper, joint->GetLocalMatrix());
+			SaveKey(wrapper, "offset_matrix");
+			SaveValue(wrapper, joint->GetOffsetMatrix());
+			// Persist linked SceneNode UUID for unambiguous re-link on load.
+			const auto &uuid = joint->GetSceneNodeUUID();
+			if (!uuid.empty())
+			{
+				SaveKey(wrapper, "scene_node_uuid");
+				SaveValue(wrapper, uuid);
+			}
+			int parent_index = -1;
+			auto parent = joint->GetParent();
+			if (parent)
+			{
+				auto it = name_to_index.find(parent->GetName());
+				if (it != name_to_index.end()) parent_index = it->second;
+			}
+			SaveKey(wrapper, "parent");
+			SaveValue(wrapper, parent_index);
+			EndObject(wrapper);
+		});
 
 			if (m_RootJoint)
 			{

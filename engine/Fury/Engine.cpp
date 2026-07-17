@@ -68,6 +68,8 @@ namespace fury
 
 	Signal<>::Ptr Engine::OnFixedUpdate = Signal<>::Create();
 
+	namespace { float s_FixedTickAlpha = 0.0f; }
+
 	bool Engine::Initialize(sf::Window &window, int numThreads, LogLevel level, const char* logfile,
 		bool console, const LogFormatter &formatter, bool append)
 	{
@@ -128,6 +130,18 @@ namespace fury
 		else if (event.is<sf::Event::FocusLost>())
 		{
 			inputMgr->m_WindowFocused = false;
+			// Drop all held keys / mouse buttons. While the window is
+			// unfocused (e.g. a native file dialog is open) SFML won't
+			// deliver release events, so any key held when focus was
+			// lost would read as "down" forever after — the
+			// "camera slides backwards after File → Open" symptom.
+			// Clearing here is the input-layer fix; per-callers like
+			// frame_selection's parent-check are defense-in-depth.
+			for (unsigned int i = 0; i < sf::Keyboard::KeyCount; ++i)
+				inputMgr->m_KeyDown[i] = false;
+			for (unsigned int i = 0; i < sf::Mouse::ButtonCount; ++i)
+				inputMgr->m_MouseDown[i] = false;
+			inputMgr->m_MouseWheel = 0.0f;
 			inputMgr->OnWindowFocus->Emit(false);
 		}
 		else if (event.is<sf::Event::FocusGained>())
@@ -236,6 +250,16 @@ namespace fury
 		return std::make_pair<int, int>(gl::GetMajorVersion(), gl::GetMinorVersion());
 	}
 
+	float Engine::GetFixedTickAlpha()
+	{
+		return s_FixedTickAlpha;
+	}
+
+	float Engine::GetFixedDt()
+	{
+		return 1.0f / 25.0f;
+	}
+
 	void Engine::Run(sf::Window &window, const EngineCallbacks &cb)
 	{
 		Run(window, cb, EngineOptions{});
@@ -285,6 +309,18 @@ namespace fury
 				FixedUpdate();
 				next_game_tick += SKIP_TICKS;
 				numLoops++;
+			}
+
+		// Render interpolation alpha between the last and next fixed
+		// tick (the FixedUpdate loop above). Clamped to [0,1) so a
+		// long stall doesn't overshoot.
+		{
+				std::int32_t now_ms = clock.getElapsedTime().asMilliseconds();
+				std::int32_t last_tick_ms = next_game_tick - SKIP_TICKS;
+				float a = static_cast<float>(now_ms - last_tick_ms) / static_cast<float>(SKIP_TICKS);
+				if (a < 0.0f) a = 0.0f;
+				else if (a >= 1.0f) a = 0.999999f;
+				s_FixedTickAlpha = a;
 			}
 
 			std::int32_t elapsed = clock.getElapsedTime().asMilliseconds();

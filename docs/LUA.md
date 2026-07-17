@@ -2,7 +2,7 @@
 
 > Status (2026-07-07): minimum viable bridge — exposes the engine API surface
 > that `examples/Editor.lua` actually exercises. Wider bindings (Light,
-> MeshRender, Material, AnimationPlayer, InputUtil signals, etc.) are deferred
+> MeshRender, Material, Animator, InputUtil signals, etc.) are deferred
 > to follow-up changes.
 
 ## API reference

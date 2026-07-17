@@ -275,6 +275,40 @@ planes.
 This whole subset is value-typed, allocation-free, self-contained — perfect
 test target for pytest+pybind11 round-tripping.
 
+### 5.1 Coordinate system & units
+
+The engine uses a single, engine-wide convention. It is not configurable per
+scene — pick assets that match, or scale them at import.
+
+| Property    | Value                                      |
+|-------------|--------------------------------------------|
+| Handedness  | Right-handed                               |
+| Up axis     | +Y                                         |
+| Forward     | -Z (cameras look down -Z; matches glTF)    |
+| Unit        | **1 world unit = 1 centimeter**            |
+
+**Why cm:** glTF 2.0 is unitless, but the Khronos
+[glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) models
+the engine targets (e.g. the Fox, ~155 cm long) are authored in centimetres.
+Adopting cm as the engine unit makes those samples render at correct real-world
+scale without per-model import scaling. The in-repo `james.fbx` is a
+hand-authored model and is **not** a unit reference.
+
+**Consequences for authoring:**
+- Camera `near`/`far` (`Camera::PerspectiveFov`) are in cm. The editor default
+  is `near=1` (1 cm), `far=5000` (50 m) — covers hand-scale to outdoor scenes.
+- Light radii, shadow bounds (`Camera::SetShadowFar`/`SetShadowBounds`), and
+  editor move-speed (`move_speed` in `Editor.lua`) are in cm.
+- Assets authored in **metres** (1 unit = 1 m) need a ×100 scale at import.
+  FBX2glTF-converted FBX models already carry a 100× node scale for the
+  cm→m conversion (see `docs/CLI.md §Limitations` and the `james` mesh node);
+  pure-metre glTF assets need the scale applied manually or via the importer's
+  scale option.
+- `Matrix4` stores translation in `Raw[12,13,14]` (column-major, OpenGL-style);
+  rotation matrices are built from quaternions via `Matrix4::Rotate`. The math
+  layer is unit-agnostic — the cm convention is a scene/asset contract, not
+  enforced by the math code.
+
 ---
 
 ## 6. Scene model
@@ -290,7 +324,7 @@ Three layers, all reference-counted:
 - **`Component`** (extends `Entity` + `TypeComparable`) — owned by a single
   `SceneNode` (held as `weak_ptr m_Owner`). Lifecycle hooks
   `OnAttaching` / `OnDetaching` / `OnOwnerDestructing`. Subclasses include
-  `Transform`, `MeshRender`, `Camera`, `Light`, `AnimationPlayer`.
+  `Transform`, `MeshRender`, `Camera`, `Light`, `Animator`.
   Components are clonable via `Clone()`.
 - **`SceneNode`** (extends `Entity` + `enable_shared_from_this`) — the actual
   hierarchy node. Holds:
@@ -355,20 +389,24 @@ re-register with the octree.
 
 ### 7.1 Skeletons (`Joint`)
 
-Joints are nodes in a parallel tree (not the scene-node tree). Each joint
-stores:
+Joints mirror scene-graph nodes — each `Joint` holds a `weak_ptr<SceneNode>`
+to the glTF joint node it corresponds to. The scene graph (not a parallel
+joint tree) produces the joint's world matrix `JᵢW`. Each joint stores:
 
-- `m_LocalMatrix` — TRS in parent space.
-- `m_CombinedMatrix` — `m_LocalMatrix * parent->m_CombinedMatrix`.
-- `m_OffsetMatrix` — inverse bind, model→bone space (sourced from FBX cluster
-  `transformLinkMatrix.Inverse() * transformMatrix * geomMatrix`).
-- `m_FinalMatrix = m_CombinedMatrix * m_OffsetMatrix` — what the vertex shader
-  consumes.
+- `m_LocalMatrix` — bind TRS in parent space (kept for inspection / re-link).
+- `m_OffsetMatrix` — the glb `inverseBindMatrices` entry (ibm), used verbatim.
+- `GetFinalMatrix()` — returns `sceneNodeWorld * m_OffsetMatrix` (the glTF
+  formula `JᵢW · ibm`). The skin shader pairs this with an identity model
+  matrix so the result lands in world space directly.
 
-Each joint also keeps `(old, new)` TRS pairs for animation blending; `Update(dt)`
-linearly interpolates positions / scales and slerps rotation between them.
-Tree links use first-child / sibling pointers, so traversal is `for (j = root;
-j; j = j->next)` style — cache-friendly, slightly idiosyncratic.
+Tree links (first-child / sibling / parent pointers) are kept for the joint
+visualization overlay and `FindFromRoot` lookups; they are not traversed to
+compute skin matrices. Each joint also stores the UUID of its linked
+SceneNode (`m_SceneNodeUUID`), persisted in `Mesh::Save`. `Scene::Load`
+re-links each joint to its SceneNode by UUID after the node tree loads
+(Mesh::Load rebuilds joints without refs; only GltfImporter wires them at
+import time). UUIDs make the linkage unambiguous across instances — a name
+fallback covers old scenes saved before the uuid field existed.
 
 ### 7.2 Clips (`AnimationClip` / `AnimationChannel` / `KeyFrame`)
 
@@ -398,17 +436,22 @@ class AnimationClip {
 - `AnimationUtil::OptimizeAnimClip` discards keyframes whose adjacent vector
   delta is below a threshold.
 
-### 7.3 Playback (`AnimationPlayer`)
+### 7.3 Playback (`Animator`)
 
-A `Component`. Holds the active clip, current time, blend speed, and the
-bound skeleton root. Each `Update(dt)`:
+A `Component` (defined in `AnimationPlayer.{h,cpp}`). Holds the registered
+`AnimationState`s, current time, blend speed, and wrap mode. Two-phase tick:
 
-1. Advance `m_Time`, wrap or clamp by `m_Loop`.
-2. Compute current tick = `time * ticksPerSecond * speed`.
-3. For each channel, find the bracketing keyframes, interpolate, write into
-   the corresponding `Joint`'s `(old, new)` TRS pair.
-4. Walk the joint tree: each `Joint::Update(dt)` blends old→new and recomputes
-   `Combined` and `Final` matrices.
+1. `AdvanceTime(dt)` — advance each enabled state's time (wrap/clamp by
+   `WrapMode`); pick the highest-weight state as dominant; for each channel,
+   sample the keyframe tracks and write old/new TRS pairs.
+2. `Display(alpha)` — interpolate each target's TRS pairs by render alpha.
+
+Channel targets resolve via `ResolveTargets`: skinned channels resolve to the
+owning Mesh's `Joint`, then to that joint's linked `SceneNode`'s `Transform`
+(the scene graph's `Recompose` produces `JᵢW`, which `Joint::GetFinalMatrix`
+pairs with the ibm). Node-level channels resolve to descendant `SceneNode`s
+by name. No parallel joint tree-walk runs in `Display` — the scene graph is
+the sole source of joint world matrices.
 
 The shader reads `Final` matrices as a uniform array (skin matrices). The
 Mesh's `IDs` and `Weights` buffers (4 indices and 3 explicit + 1 implicit
@@ -1069,7 +1112,7 @@ therefore the natural first target for the pytest+pybind11 unit-test layer:
 Modules that are testable but need light scaffolding:
 
 - `OcTree` / `OcTreeNode` (needs SceneNode stubs)
-- `AnimationClip` / `AnimationPlayer` (needs Joint stubs; pure CPU)
+- `AnimationClip` / `Animator` (needs Joint stubs; pure CPU)
 - `Serializable` round-trip on the math primitives (needs rapidjson in the
   test build)
 
@@ -1327,7 +1370,7 @@ OcTreeNode.{h,cpp}         8-children + AABB + leaf SceneNode list
 Camera.{h,cpp}            view, projection, frustum
 Light.{h,cpp}             type, color, intensity, attenuation, light-volume mesh
 MeshRender.{h,cpp}        component pairing Mesh + Materials
-Joint.{h,cpp}             bone in a skinned skeleton, TRS + matrices
+Joint.{h,cpp}             bone in a skinned skeleton; ibm + scene-node ref
 Mesh.{h,cpp}              vertex streams + skin + submeshes
 MeshUtil.{h,cpp}           primitives + normal/tangent/optimize utilities
 Material.{h,cpp}          textures + uniforms + shader variants
@@ -1352,7 +1395,7 @@ FileUtil.{h,cpp}            path resolution, stb image, rapidjson, LZ4, glTF buf
 Serializable.{h,cpp}        Load/Save virtual interface + primitive helpers
 
 AnimationClip.{h,cpp}       channels + keyframes, 24 fps default
-AnimationPlayer.{h,cpp}     component, advances time, drives Joint TRS pairs
+AnimationPlayer.{h,cpp}     `Animator` component, advances time, drives Transform TRS pairs (joints via their linked SceneNodes)
 AnimationUtil.{h,cpp}       optimization helpers
 
 InputUtil.{h,cpp}           SFML keyboard/mouse mirror + signals

@@ -1,5 +1,6 @@
 #include "Fury/Editor/EditorAssetPicker.h"
 
+#include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
@@ -79,6 +80,19 @@ void CollectTextures(std::vector<PickerEntry>& out) {
 	});
 }
 
+void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
+	for (const auto& c : CollectAnimationClips()) {
+		// Show duration in seconds alongside the name so clips with
+		// cryptic FBX-exported names (e.g. "James|Walk") are easier
+		// to tell apart.
+		char buf[300];
+		std::snprintf(buf, sizeof(buf), "%s    %.2fs",
+					  c->GetName().c_str(),
+					  c->GetDuration() / c->GetTicksPerSecond());
+		out.push_back({buf, std::static_pointer_cast<void>(c)});
+	}
+}
+
 void CollectByType(std::type_index type,
 				   std::vector<PickerEntry>& out) {
 	if (type == typeid(Mesh))
@@ -87,10 +101,24 @@ void CollectByType(std::type_index type,
 		CollectMaterials(out);
 	else if (type == typeid(Texture))
 		CollectTextures(out);
+	else if (type == typeid(AnimationClip))
+		CollectAnimationClipsIntoEntries(out);
 	// Unknown type: leave out empty — the OK button stays
 	// disabled and the user can only Cancel.
 }
 } // namespace
+
+std::vector<std::shared_ptr<AnimationClip>> CollectAnimationClips() {
+	std::vector<std::shared_ptr<AnimationClip>> out;
+	if (!Scene::Active) return out;
+	auto em = Scene::Active->GetEntityManager();
+	if (!em) return out;
+	em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& c) {
+		if (c) out.push_back(c);
+		return true;
+	});
+	return out;
+}
 
 void RenderAssetPickerModal(const char* popup_id, const char* title,
 							std::type_index type,

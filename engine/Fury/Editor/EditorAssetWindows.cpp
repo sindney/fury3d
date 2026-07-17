@@ -1124,81 +1124,42 @@ unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 	entry.bufferId = bufferId;
 
 	// Slow path A: dirty-transition. The mesh was just re-uploaded
-	// to the GPU (true→false), so the content may have changed. Enqueue
-	// a hash worker; mark in-flight so we don't enqueue duplicates.
+	// to the GPU (true→false), so the content may have changed. Re-hash
+	// synchronously on the main thread.
+	//
+	// NOTE: this used to be an off-thread hash via ThreadUtil::Enqueue,
+	// but that raced with active:Clear() tearing down the old scene's
+	// meshes — the worker read Positions.Data / m_SubMeshes while the
+	// main thread freed them, segfaulting in MeshContentHash. The hash
+	// is FNV-1a over vertex/index bytes (sub-ms for typical meshes), so
+	// running it on the main thread is an acceptable editor-tool cost
+	// and eliminates the race at the root.
 	const bool isDirty = mesh->GetDirty();
-	if (entry.wasDirtyLastFrame && !isDirty && !entry.hashInFlight) {
-		entry.hashInFlight = true;
-		// Hash reads only Data vectors, safe off-thread; re-check BufferId
-		// in the callback (the mesh may have been replaced under the same id).
-		std::weak_ptr<Mesh> weak = mesh;
-		ThreadUtil::Instance()->Enqueue<unsigned int>(
-			[weak](int&) -> std::shared_ptr<unsigned int>
-			{
-				auto p = weak.lock();
-				if (!p) return std::make_shared<unsigned int>(0);
-				return std::make_shared<unsigned int>(MeshContentHash(p.get()));
-			},
-			[weak, bufferId](std::shared_ptr<unsigned int> result)
-			{
-				auto p = weak.lock();
-				if (!p) return; // mesh was destroyed in flight
-				auto it = g_MeshThumbnails.find(bufferId);
-				if (it == g_MeshThumbnails.end()) return;
-				auto& e = it->second;
-				e.hashInFlight = false;
-				if (!result) return;
-			if (*result != e.contentHash)
-			{
-				// Content changed: invalidate the FBO so it re-populates.
-				FURYD << "Mesh thumbnail: content changed for BufferId "
-					  << bufferId << " (" << e.contentHash
-					  << " -> " << *result << ")";
-				e.contentHash = *result;
-				e.diskLoaded = false;
-				if (e.fbo) {
-					glDeleteFramebuffers(1, &e.fbo);
-					e.fbo = 0;
-				}
-				e.colorRT.reset();
-				e.depthRT.reset();
+	if (entry.wasDirtyLastFrame && !isDirty) {
+		unsigned int h = MeshContentHash(mesh.get());
+		if (h != entry.contentHash) {
+			FURYD << "Mesh thumbnail: content changed for BufferId "
+				  << bufferId << " (" << entry.contentHash << " -> " << h << ")";
+			entry.contentHash = h;
+			entry.diskLoaded = false;
+			if (entry.fbo) {
+				glDeleteFramebuffers(1, &entry.fbo);
+				entry.fbo = 0;
 			}
-			});
+			entry.colorRT.reset();
+			entry.depthRT.reset();
+		}
 	}
 
-	// Slow path B: first time seeing this mesh — kick off the initial hash.
-	if (entry.contentHash == 0 && !entry.hashInFlight) {
-		entry.hashInFlight = true;
-		std::weak_ptr<Mesh> weak = mesh;
-		ThreadUtil::Instance()->Enqueue<unsigned int>(
-			[weak](int&) -> std::shared_ptr<unsigned int>
-			{
-				auto p = weak.lock();
-				if (!p) return std::make_shared<unsigned int>(0);
-				return std::make_shared<unsigned int>(MeshContentHash(p.get()));
-			},
-			[weak, bufferId](std::shared_ptr<unsigned int> result)
-			{
-				auto p = weak.lock();
-				if (!p) return;
-				auto it = g_MeshThumbnails.find(bufferId);
-				if (it == g_MeshThumbnails.end()) return;
-				auto& e = it->second;
-				e.hashInFlight = false;
-				if (!result) return;
-			e.contentHash = *result;
-			e.diskLoaded = false;
-		});
-		// No hash yet — return 0 (gray fallback) until the worker completes.
+	// Slow path B: first time seeing this mesh — hash synchronously.
+	if (entry.contentHash == 0) {
+		entry.contentHash = MeshContentHash(mesh.get());
+		entry.diskLoaded = false;
 		entry.wasDirtyLastFrame = isDirty;
-		return 0;
+		return 0; // gray fallback this frame; slow path D populates next frame
 	}
 
-	// Slow path C: hash is in flight — wait one more frame.
-	if (entry.hashInFlight) {
-		entry.wasDirtyLastFrame = isDirty;
-		return 0;
-	}
+	entry.wasDirtyLastFrame = isDirty;
 
 	// Slow path D: have a hash but haven't populated the FBO this session.
 	// On a disk-cache hit, re-render (cheap). On a miss, render + queue a
