@@ -67,6 +67,17 @@ bool Scene::Load(const void* wrapper, bool object) {
 	if (!Entity::Load(wrapper, false))
 		return false;
 
+	// Format version gate. Absent = version 1 (pre-versioning files).
+	// A newer file is rejected — silently loading it would drop or
+	// misread fields the author depends on.
+	int version = 1;
+	LoadMemberValue(wrapper, "version", version);
+	if (version > kFormatVersion) {
+		FURYE << "Scene format version " << version << " is newer than supported ("
+			  << kFormatVersion << "); update the engine to load this scene";
+		return false;
+	}
+
 	// load textures (top-level array, if present — new format)
 	if (auto texWrapper = FindMember(wrapper, "textures")) {
 		LoadArray(texWrapper, [&](const void* node) -> bool {
@@ -186,6 +197,11 @@ void Scene::Save(void* wrapper, bool object) {
 		StartObject(wrapper);
 
 	Entity::Save(wrapper, false);
+
+	// Format version marker (kFormatVersion); pre-versioning files
+	// are version 1.
+	SaveKey(wrapper, "version");
+	SaveValue(wrapper, kFormatVersion);
 
 	// save textures (top-level array — deduped by UUID)
 	SaveKey(wrapper, "textures");

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The OcTree's runtime contract for the engine's spatial scene manager: a default-cube root that lets `OcTree::Create()` and `OcTree::Reset()` be called with no arguments, lazy 2x root wrapping when scene nodes are inserted outside the current bounds (preserving every existing tree-node and weak pointer), and an editor-visible debug surface — runtime statistics (`GetTotalSceneNodeCount`, `GetOccupiedNodeCount`, `GetMaxOccupiedDepth`), a `PipelineSwitch::OCTREE_BOUNDS` overlay drawn by `Pipeline::DrawDebug`, and a Spatial readout in the Profiler FPS tab that mirrors the toggle. The capability lets scenes load without precomputing world extents and lets developers see the tree's runtime shape directly from the editor.
+The OcTree's runtime contract for the engine's spatial scene manager: a default-cube root that lets `OcTree::Create()` and `OcTree::Reset()` be called with no arguments, lazy 2x root wrapping when scene nodes are inserted outside the current bounds (preserving every existing tree-node and weak pointer), and an editor-visible debug surface — runtime statistics (`GetTotalSceneNodeCount`, `GetOccupiedNodeCount`, `GetMaxOccupiedDepth`), a `PipelineSwitch::OCTREE_BOUNDS` overlay drawn by `Pipeline::DrawDebug`, and a Spatial readout in the Profiler Perf tab that mirrors the toggle. The capability lets scenes load without precomputing world extents and lets developers see the tree's runtime shape directly from the editor.
 
 ## Requirements
 
@@ -141,9 +141,9 @@ The OcTree-bounds overlay SHALL skip tree-nodes whose `m_TotalSceneNodeCount == 
 - **WHEN** the frame renders
 - **THEN** only nodes with `m_TotalSceneNodeCount > 0` produce a wireframe box
 
-### Requirement: Editor Profiler FPS tab SHALL include a Spatial readout
+### Requirement: Editor Profiler Perf tab SHALL include a Spatial readout
 
-The Profiler window's FPS tab (`engine/Fury/Editor/EditorWindows.cpp::RenderProfilerFpsTab`) SHALL display, after the existing "Use Cascaded Shadow Map" checkbox, a section labeled "OcTree:" that surfaces the active scene's octree state.
+The Profiler window's Perf tab (`engine/Fury/Editor/EditorWindows.cpp::RenderProfilerFpsTab`) SHALL display, after the existing "Use Cascaded Shadow Map" checkbox, a section labeled "OcTree:" that surfaces the active scene's octree state.
 
 When `Scene::Active->GetSceneManager()` is an `OcTree`, the section SHALL display:
 - The current root AABB's `min` and `max`.
@@ -156,9 +156,9 @@ When `Scene::Active->GetSceneManager()` is not an `OcTree`, the section SHALL di
 
 The section MUST NOT crash when `Scene::Active`, `Pipeline::Active`, or the scene manager is `nullptr`; in those cases the section SHALL be omitted (or render `(no active scene)` text).
 
-#### Scenario: Section appears once per frame in the FPS tab
+#### Scenario: Section appears once per frame in the Perf tab
 
-- **GIVEN** the editor is running with the demo scene loaded and the Profiler window is open on the FPS tab
+- **GIVEN** the editor is running with the demo scene loaded and the Profiler window is open on the Perf tab
 - **WHEN** the Profiler renders for a frame
 - **THEN** a Separator and "OcTree:" header appear after the "Use Cascaded Shadow Map" checkbox
 - **AND** numeric readouts of root extents, total scene-node count, occupied tree-node count, and max occupied depth are visible

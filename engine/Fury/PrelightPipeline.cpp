@@ -170,7 +170,8 @@ namespace fury
 
 		// draw debug
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
-			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS }, true))
+			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS,
+			PipelineSwitch::EDITOR_GRID }, true))
 		{
 			// When an offscreen RenderTarget is set, the final composite
 			// pass rendered into it (see Pass::Bind). The last pass's
@@ -348,7 +349,7 @@ namespace fury
 		// change depthTest && face culling state.
 		{
 			float camNear = (camPtr->GetFrustum().GetCurrentCorners()[0] - camPos).Length();
-			if (SphereBounds(node->GetWorldPosition(), light->GetRadius() + camNear).IsInsideFast(camPos))
+			if (SphereBounds(node->GetWorldPosition(), light->GetEffectiveRadius() + camNear).IsInsideFast(camPos))
 			{
 				glDisable(GL_DEPTH_TEST);
 				glCullFace(GL_FRONT);
@@ -520,7 +521,7 @@ namespace fury
 
 			float camNear = (camPtr->GetFrustum().GetCurrentCorners()[0] - camPos).Length();
 			float theta = light->GetOutterAngle() * 0.5f;
-			float height = light->GetRadius();
+			float height = light->GetEffectiveRadius();
 			float extra = camNear / std::sin(theta);
 
 			coneCenter = coneCenter - coneDir * extra;

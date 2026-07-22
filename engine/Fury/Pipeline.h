@@ -47,6 +47,7 @@ namespace fury
 		CUSTOM_BOUNDS,
 		OCTREE_BOUNDS,
 		LOD_DEBUG_COLORS,
+		EDITOR_GRID,
 		LENGTH
 	};
 
@@ -177,9 +178,12 @@ namespace fury
 
 		// end shaodw mapping
 
-	protected: 
+	protected:
 
 		void DrawDebug(const std::shared_ptr<RenderQuery> &query);
+
+		// Screen-space reference grid (EDITOR_GRID switch).
+		void DrawEditorGrid();
 
 		void SortPassByIndex();
 	};

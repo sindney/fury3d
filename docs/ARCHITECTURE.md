@@ -303,7 +303,13 @@ hand-authored model and is **not** a unit reference.
   FBX2glTF-converted FBX models already carry a 100× node scale for the
   cm→m conversion (see `docs/CLI.md §Limitations` and the `james` mesh node);
   pure-metre glTF assets need the scale applied manually or via the importer's
-  scale option.
+  scale option. The editor guards this: after File → Open / File → Import of a
+  `.gltf`/`.glb`/`.fbx`, `examples/Editor.lua` measures the imported scene's
+  world AABB (`Scene:ComputeWorldAABB`) and, when the largest dimension is
+  under 1 m (100 units), offers to auto-scale the imported root node(s) via a
+  Yes/No dialog (`Editor.RequestConfirmDialog`). The factor starts at 100× and
+  escalates by powers of 100 from the measured bounds. Settings → Import →
+  **Auto-Scale Detection** toggles the check (default on).
 - `Matrix4` stores translation in `Raw[12,13,14]` (column-major, OpenGL-style);
   rotation matrices are built from quaternions via `Matrix4::Rotate`. The math
   layer is unit-agnostic — the cm convention is a scene/asset contract, not
@@ -349,6 +355,18 @@ Owns the root `SceneNode`, a `SceneManager` (octree, typically), an
 `EntityManager`, and a working directory used to resolve relative resource
 paths. There is a `Scene::Active` pointer for quick global access — a singleton
 in disguise.
+
+**File format & versioning.** `FileUtil::SaveFile` writes a scene as plain
+JSON; `FileUtil::SaveCompressedFile` writes `[orgSize:u32be][compSize:u32be]`
++ an LZ4 block of the *same* document (one writer, two envelopes —
+`.json`/`.bin` can never diverge). The scene root carries a `"version"` field
+(`Scene::kFormatVersion`, currently 2); files without it are version 1
+(pre-versioning). `Scene::Load` rejects files newer than supported with an
+explicit error rather than mis-loading. On save, memory-backed textures are
+extracted to PNG siblings and file-backed textures copied + rewritten to bare
+filenames (portable-by-default; re-saves skip identical bytes, so only the
+first save copies — saving to a *different* directory copies again, which is
+the intent).
 
 ### 6.3 `EntityManager`
 

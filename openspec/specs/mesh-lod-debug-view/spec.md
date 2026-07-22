@@ -108,9 +108,9 @@ The shaders used for static meshes and skinned meshes (looked up by `pass->GetSh
 - **THEN** the GLSL source has no `lod_debug_color` declaration or override branch (gated by `#ifdef WITH_EDITOR`)
 - **AND** the runtime never queries a uniform location for `lod_debug_color`
 
-### Requirement: The editor SHALL provide a "LOD Debug Colors" toggle in the Profiler FPS tab
+### Requirement: The editor SHALL provide a "LOD Debug Colors" toggle in the Viewport top toolbar
 
-Inside `EditorWindows.cpp::RenderProfilerFpsTab`, the editor SHALL render a **Debug Overlays** multi-select combo (`ImGui::BeginCombo` with `ImGuiSelectableFlags_DontClosePopups`) that includes `LOD Debug Colors` as one of the entries alongside `Draw Light Bounds`, `Draw Mesh Bounds`, `Draw Custom Bounds`, and `Draw OcTree Bounds`. The combo's preview text SHALL show `(none)` when nothing is selected, the single entry name when exactly one is selected, or `N overlays selected` otherwise. The toggle's static state SHALL default to `false`. Toggling the entry calls `Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on)`.
+Inside the Viewport window's top toolbar (right group — see the `editor-viewport-window` capability), the editor SHALL render a **Debug Overlays** multi-select combo (`ImGui::BeginCombo` with `ImGuiSelectableFlags_DontClosePopups`) that includes `LOD Debug Colors` as one of the entries alongside `Draw Light Bounds`, `Draw Mesh Bounds`, `Draw Custom Bounds`, and `Draw OcTree Bounds`. The combo's preview text SHALL show `(none)` when nothing is selected, the single entry name when exactly one is selected, or `N overlays selected` otherwise. The toggle's static state SHALL default to `false`. Toggling the entry calls `Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on)`.
 
 When `WITH_EDITOR` is OFF, neither the combo nor the toggle exist.
 

@@ -10,6 +10,7 @@
 #include "Fury/Color.h"
 #include "Fury/Component.h"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
 #include "Fury/EntityManager.h"
@@ -219,7 +220,37 @@ namespace fury
 				"GetSceneManager", &Scene::GetSceneManager,
 				"GetEntityManager", &Scene::GetEntityManager,
 				"GetWorkingDir", &Scene::GetWorkingDir,
-				"SetWorkingDir", &Scene::SetWorkingDir);
+				"SetWorkingDir", &Scene::SetWorkingDir,
+				// Union of every mesh-bearing node's world AABB — the
+				// editor's import unit-scale detection reads this. Returns
+				// `min, max` (Vector4) or nil when the scene has no finite
+				// mesh bounds (empty / lights-only).
+				"ComputeWorldAABB", [](Scene &self, sol::this_state ts) {
+					sol::state_view lua(ts);
+					auto none = std::make_tuple(sol::make_object(lua, sol::nil),
+												sol::make_object(lua, sol::nil));
+					auto root = self.GetRootNode();
+					if (!root) return none;
+					BoxBounds total(true);
+					bool any = false;
+					std::function<void(const SceneNode::Ptr &)> walk =
+						[&](const SceneNode::Ptr &n) {
+							if (!n) return;
+							if (n->GetComponent<MeshRender>()) {
+								BoxBounds wb = n->GetWorldAABB();
+								if (!wb.GetInfinite()) {
+									total.Encapsulate(wb);
+									any = true;
+								}
+							}
+							for (unsigned int i = 0; i < n->GetChildCount(); ++i)
+								walk(n->GetChildAt(i));
+						};
+					walk(root);
+					if (!any) return none;
+					return std::make_tuple(sol::make_object(lua, total.GetMin()),
+										   sol::make_object(lua, total.GetMax()));
+				});
 			// Scene::Active static property — same convention as Pipeline.Active.
 			lua["Scene"]["GetActive"] = []() -> Scene::Ptr { return Scene::Active; };
 			lua["Scene"]["SetActive"] = [](Scene::Ptr p) { Scene::Active = p; };
@@ -569,6 +600,7 @@ namespace fury
 				"GetWorldPosition", &SceneNode::GetWorldPosition,
 				"GetWorldAABB", &SceneNode::GetWorldAABB,
 				"GetLocalPosition", &SceneNode::GetLocalPosition,
+				"GetLocalScale",    &SceneNode::GetLocalScale,
 				"SetLocalPosition", sol::overload(
 					static_cast<void(SceneNode::*)(Vector4)>(&SceneNode::SetLocalPosition),
 					static_cast<void(SceneNode::*)(float, float, float)>(&SceneNode::SetLocalPosition)),
@@ -648,6 +680,10 @@ namespace fury
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
 				"SetCurrentCamera", &Pipeline::SetCurrentCamera,
+				// Switches take the PipelineSwitch ordinal (int) — e.g.
+				// CASCADED_SHADOW_MAP=0 ... EDITOR_GRID=6.
+				"SetSwitch", [](Pipeline &p, int sw, bool v) { p.SetSwitch(static_cast<PipelineSwitch>(sw), v); },
+				"IsSwitchOn", [](Pipeline &p, int sw) -> bool { return p.IsSwitchOn(static_cast<PipelineSwitch>(sw)); },
 				"Execute", sol::overload(
 					[](Pipeline &p, std::shared_ptr<SceneManager> sm) { p.Execute(sm); },
 					[](Pipeline &p, OcTree::Ptr octree) {
@@ -752,15 +788,31 @@ namespace fury
 
 			// --- Importer (runtime asset import: glTF / FBX / engine scene) -
 			sol::table importer_tbl = lua.create_named_table("Importer");
+			// Maps the optional `normal_mode` arg ("smooth" | "flat",
+			// default smooth) onto GltfImporter::Options.
+			auto make_import_opts = [](const sol::optional<std::string> &normal_mode) {
+				GltfImporter::Options opts;
+				if (normal_mode && *normal_mode == "flat")
+					opts.normal_gen = GltfImporter::Options::NormalGen::Flat;
+				else if (normal_mode && *normal_mode != "smooth")
+					FURYW << "Importer: unknown normal_mode '" << *normal_mode << "' (expected smooth|flat); using smooth";
+				// Mesh weld/dedup: on by default, opt-out via the editor's
+				// "Optimize Mesh" import flag. In the headless/CLI build the
+				// Editor stub returns the default (true), so CLI imports
+				// always optimize.
+				opts.optimize_mesh = Editor::GetImportFlag("optimize_mesh", true);
+				return opts;
+			};
 			// Import a .gltf or .glb into a fresh Scene::Ptr. Returns nil on
 			// error (logged via FURYE before return). The Scene's working_dir
 			// is the input file's directory so relative texture URIs resolve.
-			importer_tbl["LoadGltf"] = [](const std::string &path) -> std::shared_ptr<Scene> {
+			// Optional 2nd arg: normal generation mode "smooth" (default) or "flat".
+			importer_tbl["LoadGltf"] = [make_import_opts](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
 				try
 				{
 					auto slash = path.find_last_of("/\\");
 					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
-					return GltfImporter::Import(path, path, working, {});
+					return GltfImporter::Import(path, path, working, make_import_opts(normal_mode));
 				}
 				catch (const std::exception &e)
 				{
@@ -771,7 +823,8 @@ namespace fury
 			// Import an .fbx through the FBX2glTF subprocess + the glTF importer.
 			// Cleans up the intermediate .glb in tempdir on success. Blocks for
 			// the duration of the FBX2glTF run (no progress reporting in v1).
-			importer_tbl["LoadFbx"] = [](const std::string &path) -> std::shared_ptr<Scene> {
+			// Optional 2nd arg: normal generation mode "smooth" (default) or "flat".
+			importer_tbl["LoadFbx"] = [make_import_opts](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
 				try
 				{
 					// FBX2glTF writes its intermediate .glb to a temp dir; the
@@ -793,7 +846,7 @@ namespace fury
 					}
 					auto slash = path.find_last_of("/\\");
 					std::string working = (slash == std::string::npos) ? std::string{} : path.substr(0, slash + 1);
-					auto scene = GltfImporter::Import(res.output_path, path, working, {});
+					auto scene = GltfImporter::Import(res.output_path, path, working, make_import_opts(normal_mode));
 					std::filesystem::remove(res.output_path, ec);
 					return scene;
 				}
@@ -806,7 +859,9 @@ namespace fury
 			// Convenience: pick the right loader based on file extension.
 			// Recognized: .json (LoadFile), .bin (LoadCompressedFile),
 			// .gltf/.glb (LoadGltf), .fbx (LoadFbx). Anything else -> nil.
-			importer_tbl["LoadScene"] = [&lua](const std::string &path) -> std::shared_ptr<Scene> {
+			// Optional 2nd arg: normal generation mode "smooth" (default) or
+			// "flat" (gltf/fbx only; native scenes ignore it).
+			importer_tbl["LoadScene"] = [&lua, make_import_opts](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
 				auto dot = path.find_last_of('.');
 				std::string ext = (dot == std::string::npos) ? "" : path.substr(dot);
 				std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -848,9 +903,9 @@ namespace fury
 					return ok ? scene : nullptr;
 				}
 				if (ext == ".gltf" || ext == ".glb")
-					return lua["Importer"]["LoadGltf"](path);
+					return lua["Importer"]["LoadGltf"](path, normal_mode);
 				if (ext == ".fbx")
-					return lua["Importer"]["LoadFbx"](path);
+					return lua["Importer"]["LoadFbx"](path, normal_mode);
 				FURYW << "Importer.LoadScene: unsupported extension '" << ext << "'";
 				return nullptr;
 			};
@@ -872,6 +927,11 @@ namespace fury
 				while (source_root->GetChildCount() > 0)
 				{
 					auto child = source_root->GetChildAt(source_root->GetChildCount() - 1);
+					// Drop from the source scene manager FIRST (imported
+					// scenes self-register now): otherwise the discarded
+					// source tree's Clear() would wipe the back-pointer
+					// after the node is re-registered into the target tree.
+					child->RemoveFromOcTree(true);
 					source_root->RemoveChild(child);
 					target_root->AddChild(child);
 					++merged;
@@ -1257,6 +1317,16 @@ namespace fury
 			editor_tbl["GetImportFlag"]       = sol::overload(
 				[](const std::string& name) -> bool { return Editor::GetImportFlag(name.c_str(), false); },
 				[](const std::string& name, bool d) -> bool { return Editor::GetImportFlag(name.c_str(), d); });
+			// Queued Yes/No modal (EditorConfirmDialog.h) — the Lua
+			// callback fires exactly once with true (Yes) / false (No/Esc).
+			editor_tbl["RequestConfirmDialog"] = [](const std::string& title, const std::string& message,
+													sol::protected_function cb) {
+				Editor::RequestConfirmDialog(title, message, [cb](bool yes) mutable {
+					if (!cb.valid()) return;
+					sol::protected_function_result r = cb(yes);
+					if (!r.valid()) { sol::error e = r; FURYE << "confirm dialog callback error: " << e.what(); }
+				});
+			};
 			editor_tbl["SetCurrentScene"]     = [](const std::string& path, bool is_native) {
 				Editor::SetCurrentScene(path, is_native);
 			};
@@ -1298,6 +1368,7 @@ namespace fury
 			editor_tbl["GetImportFlag"]         = sol::overload(
 				[](sol::object) -> bool { return false; },
 				[](sol::object, bool d) -> bool { return d; });
+			editor_tbl["RequestConfirmDialog"]  = [](sol::object, sol::object, sol::object) {};
 			editor_tbl["SetCurrentScene"]       = [](sol::object, sol::object) {};
 			editor_tbl["ClearCurrentScene"]     = []() {};
 			editor_tbl["GetCurrentScenePath"]   = []() -> std::string { return {}; };

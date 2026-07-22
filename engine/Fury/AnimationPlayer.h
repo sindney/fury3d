@@ -154,6 +154,10 @@ namespace fury
 		void ApplyChannel(const std::shared_ptr<AnimationState>& state,
 			const std::vector<AnimTarget>& targets, bool scrub);
 
+		// Refresh skinned-mesh AABBs from the pose applied this frame
+		// (walks the owner subtree; no-op when nothing posed).
+		void UpdateSkinnedBounds();
+
 		std::shared_ptr<AnimationClip> ResolveClipFromManager(const std::string &name) const;
 	};
 }

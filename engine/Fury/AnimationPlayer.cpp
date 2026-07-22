@@ -12,9 +12,12 @@
 #include "Fury/MeshRender.h"
 #include "Fury/Quaternion.h"
 #include "Fury/Scene.h"
+#include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Transform.h"
 #include "Fury/Vector4.h"
+
+#include <functional>
 
 namespace fury
 {
@@ -728,5 +731,40 @@ namespace fury
 			if (t.kind == AnimTarget::TransformT && t.transform)
 				t.transform->SetDeltaTime(alpha);
 		}
+
+		UpdateSkinnedBounds();
+	}
+
+	void Animator::UpdateSkinnedBounds()
+	{
+		auto owner = m_Owner.lock();
+		if (!owner) return;
+
+		// The pose applied this frame can carry a skinned mesh outside
+		// its bind-pose AABB — refresh bounds from the deformed pose so
+		// culling / LOD / shadows see where the mesh actually is. The
+		// skinned branch of Mesh::CalculateAABB blends vertices by
+		// Joint::GetFinalMatrix() (world space), so convert back to the
+		// mesh node's model space before SetModelAABB, then re-insert
+		// into the scene manager (same propagation path Recompose uses).
+		std::function<void(const SceneNode::Ptr &)> walk =
+			[&](const SceneNode::Ptr &n)
+		{
+			if (!n) return;
+			if (auto render = n->GetComponent<MeshRender>())
+			{
+				auto mesh = render->GetMesh();
+				if (mesh && mesh->IsSkinnedMesh())
+				{
+					mesh->CalculateAABB();
+					n->SetModelAABB(n->GetWorldMatrix().Inverse().Multiply(mesh->GetAABB()));
+					if (Scene::Active && Scene::Active->GetSceneManager())
+						Scene::Active->GetSceneManager()->UpdateSceneNode(n);
+				}
+			}
+			for (unsigned int i = 0; i < n->GetChildCount(); ++i)
+				walk(n->GetChildAt(i));
+		};
+		walk(owner);
 	}
 }

@@ -401,7 +401,7 @@ namespace fury
 			BindFloat("light_innerangle", light->GetInnerAngle());
 			BindFloat("light_outterangle", light->GetOutterAngle());
 			BindFloat("light_falloff", light->GetFalloff());
-			BindFloat("light_radius", light->GetRadius());
+			BindFloat("light_radius", light->GetEffectiveRadius());
 		}
 	}
 

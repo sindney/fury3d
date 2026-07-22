@@ -26,6 +26,9 @@ namespace fury
 
 		static Ptr Active;
 
+		// Scene file format version; absent in files = 1.
+		static constexpr int kFormatVersion = 2;
+
 		static std::string Path(const std::string &path);
 
 		static std::shared_ptr<EntityManager> Manager();

@@ -39,17 +39,6 @@ namespace fury {
 namespace Editor {
 extern SceneNode* g_SelectedSceneNode;
 
-// Gizmo state lives in EditorGizmo.cpp; we read/write it directly
-// from the Gizmo CollapsingHeader rendered at the top of this
-// window. Marking imgui.ini dirty on each change persists the
-// new value via the FuryEditor settings handler.
-extern ImGuizmo::OPERATION g_GizmoOp;
-extern ImGuizmo::MODE g_GizmoSpace;
-extern bool g_SnapEnabled;
-extern float g_SnapTranslate;
-extern float g_SnapRotate;
-extern float g_SnapScale;
-
 namespace {
 // Walks Scene::Active->GetRootNode() and returns true iff `target`
 // is reachable. Cheap (the editor's selection invariant).
@@ -60,48 +49,6 @@ bool IsReachable(const std::shared_ptr<SceneNode>& root, SceneNode* target) {
 		if (IsReachable(root->GetChildAt(i), target)) return true;
 	}
 	return false;
-}
-
-// Top-of-window Gizmo controls. Always rendered (independent of
-// selection) so the user can pick a default mode before clicking
-// a node. Each control marks imgui.ini dirty on change so the
-// FuryEditor settings handler persists the new value.
-void RenderGizmoSection() {
-	if (!ImGui::CollapsingHeader("Gizmo", ImGuiTreeNodeFlags_DefaultOpen)) return;
-
-	bool changed = false;
-
-	if (ImGui::RadioButton("Translate", g_GizmoOp == ImGuizmo::TRANSLATE)) {
-		g_GizmoOp = ImGuizmo::TRANSLATE;
-		changed = true;
-	}
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Rotate", g_GizmoOp == ImGuizmo::ROTATE)) {
-		g_GizmoOp = ImGuizmo::ROTATE;
-		changed = true;
-	}
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Scale", g_GizmoOp == ImGuizmo::SCALE)) {
-		g_GizmoOp = ImGuizmo::SCALE;
-		changed = true;
-	}
-
-	if (ImGui::Checkbox("Snap", &g_SnapEnabled)) {
-		changed = true;
-	}
-
-	if (g_SnapEnabled) {
-		if (ImGui::DragFloat("Translate Step", &g_SnapTranslate, 0.1f, 0.001f, 1000.0f, "%.3f")) {
-			changed = true;
-		}
-		if (ImGui::DragFloat("Rotate Step", &g_SnapRotate, 0.5f, 0.1f, 180.0f, "%.1f deg")) {
-			changed = true;
-		}
-		if (ImGui::DragFloat("Scale Step", &g_SnapScale, 0.01f, 0.001f, 100.0f, "%.3f")) {
-			changed = true;
-		}
-	}
-	if (changed) ImGui::MarkIniSettingsDirty();
 }
 
 bool g_NodeShowWorld = false;
@@ -737,8 +684,6 @@ void RenderNodePropertiesWindow(bool* open) {
 		}
 		ImGui::Separator();
 	}
-
-	RenderGizmoSection();
 
 	// Dangling-pointer walk: if the selected node was removed from the
 	// active scene since selection, drop the stale pointer.

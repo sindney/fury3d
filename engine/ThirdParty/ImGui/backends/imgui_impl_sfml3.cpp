@@ -193,6 +193,14 @@ void ImGui_ImplSFML3_ProcessEvent(const sf::Event& event)
     {
         bd->WindowHasFocus = true;
         io.AddFocusEvent(true);
+        // Fury Begin: re-seed MousePos after FocusGained so scroll works
+        // without a mouse move post-NFD-dialog (see opsx editor-ux-batch §6).
+        if (bd->Window)
+        {
+            const sf::Vector2i pos = sf::Mouse::getPosition(*bd->Window);
+            io.AddMousePosEvent((float)pos.x, (float)pos.y);
+        }
+        // Fury End
         return;
     }
     if (event.is<sf::Event::FocusLost>())

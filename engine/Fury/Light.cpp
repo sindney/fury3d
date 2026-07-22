@@ -177,6 +177,15 @@ namespace fury
 		return m_Radius;
 	}
 
+	float Light::GetEffectiveRadius() const
+	{
+		auto owner = m_Owner.lock();
+		if (!owner) return m_Radius;
+		float scale = owner->GetWorldScale().x;
+		if (scale < 1e-6f) scale = 1.0f;
+		return m_Radius * scale;
+	}
+
 	void Light::SetCastShadows(bool cast)
 	{
 		m_CastShadows = cast;

@@ -90,6 +90,12 @@ std::string FileUtil::GetAbsPath(const std::string& source, bool toForwardSlash)
 	if (toForwardSlash)
 		std::replace(clone.begin(), clone.end(), '\\', '/');
 
+	// Absolute paths pass through unchanged (startup scene args, NFD
+	// dialog results); prepending CWD to those breaks the lookup.
+	if (!clone.empty() && (clone[0] == '/' || clone[0] == '~' ||
+		(clone.size() > 2 && clone[1] == ':' && (clone[2] == '/' || clone[2] == '\\'))))
+		return clone;
+
 	return GetAbsPath() + clone;
 }
 
@@ -362,6 +368,18 @@ bool ExtractMemoryBackedTextures(
 	});
 	return ok;
 }
+
+// Binds the loading scene as Scene::Active during Load so relative
+// texture paths resolve against the loading scene's working dir.
+struct ActiveSceneScope {
+	Scene::Ptr prev;
+	explicit ActiveSceneScope(const Serializable::Ptr& loading) {
+		prev = Scene::Active;
+		if (auto scene = std::dynamic_pointer_cast<Scene>(loading))
+			Scene::Active = scene;
+	}
+	~ActiveSceneScope() { Scene::Active = prev; }
+};
 } // namespace
 
 bool FileUtil::LoadFile(const Serializable::Ptr& source, const std::string& filePath) {
@@ -382,6 +400,7 @@ bool FileUtil::LoadFile(const Serializable::Ptr& source, const std::string& file
 			return false;
 		}
 
+		ActiveSceneScope scene_scope(source);
 		if (!source->Load(&dom)) {
 			FURYE << "Serialization failed!";
 			return false;
@@ -461,6 +480,7 @@ bool FileUtil::LoadCompressedFile(const std::shared_ptr<Serializable>& source, c
 			return false;
 		}
 
+		ActiveSceneScope scene_scope(source);
 		if (!source->Load(&dom)) {
 			FURYE << "Deserialization failed!";
 			return false;

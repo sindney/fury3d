@@ -27,6 +27,9 @@ namespace fury
 
 		static std::string m_AbsPath;
 
+		// RapidJSON's default — full float round-trip precision.
+		static constexpr int kMaxDecimalPlaces = 324;
+
 	public:
 
 		static std::string GetAbsPath();
@@ -45,15 +48,15 @@ namespace fury
 
 		static bool LoadFile(const std::shared_ptr<Serializable> &source, const std::string &filePath);
 
-		static bool SaveFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
+		static bool SaveFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		static bool LoadCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath);
 
-		static bool SaveCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
+		static bool SaveCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		// Pick the underlying serializer by lowercased extension: .json
 		// → SaveFile, .bin → SaveCompressedFile. Returns false otherwise.
-		static bool SaveByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = 5);
+		static bool SaveByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		// In-memory serialization. Used by CloneTree to round-trip a
 		// node subtree through the engine's existing Save/Load — the
@@ -61,7 +64,7 @@ namespace fury
 		// avoids per-component Clone() maintenance: every component
 		// already knows how to serialize itself, and Load resolves
 		// weak_ptrs to entities in the active scene's EntityManager.
-		static std::string SerializeToString(const std::shared_ptr<Serializable> &source, int maxDecimalPlaces = 5);
+		static std::string SerializeToString(const std::shared_ptr<Serializable> &source, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		static bool DeserializeFromString(const std::shared_ptr<Serializable> &target, const std::string &json);
 	};

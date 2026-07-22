@@ -92,7 +92,18 @@ void main()
 	float closest = texture(shadow_buffer, dir).x * light_radius;
 	float current = length(dir);
 
-	fragment_output *= float(current - 0.002 < closest);
+	// Slope/distance-scaled bias (world units). A fixed 0.002 bias
+	// only covers the texel footprint at small radii — at large
+	// effective radii a 512px cube texel spans multiple world units
+	// and grazing-surface depth spread dwarfs it (shadow acne).
+	// shadow_matrix is the camera's world matrix (view->world), so
+	// it also brings the gbuffer normal to world space for free.
+	vec3 worldN = normalize((shadow_matrix * vec4(vs_normal, 0.0)).xyz);
+	float ndl = max(dot(worldN, -normalize(dir)), 0.0);
+	float bias = 0.002 * (light_radius / 10.0)
+	           + (light_radius / 256.0) * 4.0 * (1.0 - ndl);
+
+	fragment_output *= float(current - bias < closest);
 #endif
 }
 

@@ -80,12 +80,78 @@ end
 -- without leading dots.
 local SCENE_FILE_FILTER = "json,bin,gltf,glb,fbx"
 
+-- Unit-scale detection runs only for mesh-exchange formats; native
+-- .json/.bin scenes are already engine units (1 unit = 1 cm).
+local function is_gltf_family(path)
+    local ext = path:lower():match("%.[^.]+$")
+    return ext == ".gltf" or ext == ".glb" or ext == ".fbx"
+end
+
+-- Normal generation mode for imports, from the Settings → Import combo.
+local function current_normal_mode()
+    return Editor.GetImportFlag("normals_smooth", true) and "smooth" or "flat"
+end
+
+-- Returns scale, dim when `scene` looks unit-mismatched: largest
+-- bounds dimension under 100 units (1 m). scale is the smallest
+-- power of 100 bringing the bounds to >= 1 m. Returns nil when the
+-- check is disabled or doesn't apply (healthy size / no meshes).
+local function suggest_unit_scale(scene)
+    if not Editor.GetImportFlag("auto_scale_detect", true) then return nil end
+    local bmin, bmax = scene:ComputeWorldAABB()
+    if not bmin then return nil end
+    local size = bmax - bmin
+    local dim = math.max(size.x, size.y, size.z)
+    if dim >= 100.0 then return nil end
+    local scale = 100.0
+    while dim * scale < 100.0 do scale = scale * 100.0 end
+    return scale, dim
+end
+
+-- Multiply the local scale of every top-level node of an imported
+-- scene (MergeInto moves root children, so the root's own transform
+-- never reaches the active scene — scale the children instead).
+local function scale_import_roots(scene, scale)
+    local root = scene:GetRootNode()
+    if not root then return end
+    for i = 0, root:GetChildCount() - 1 do
+        local child = root:GetChildAt(i)
+        child:SetLocalScale(child:GetLocalScale() * scale)
+    end
+end
+
+-- Queue the Yes/No auto-scale dialog; `commit(scale_or_nil)` runs on
+-- either answer (Yes → scaled, No/Esc → unscaled).
+local function prompt_unit_scale(path, dim, scale, commit)
+    local name = path:match("[^/\\]+$") or path
+    Editor.RequestConfirmDialog(
+        "Small Import Detected",
+        string.format(
+            "\"%s\" is only %.2f units across (~%.1f cm) - likely authored in a smaller unit.\n\nScale imported root node(s) by %dx?",
+            name, dim, dim, scale),
+        function(yes)
+            if yes then
+                commit(scale)
+                set_status(string.format("auto-scaled %s by %dx", name, scale))
+            else
+                commit(nil)
+            end
+        end)
+end
+
 -- `path` is an absolute path on disk (returned by Editor.OpenDialog
 -- single-select). File → Open... / Ctrl+O route through the native
 -- dialog and then call this directly with the absolute path.
+-- Returns true when the file loaded (an unanswered auto-scale
+-- dialog still counts — the commit runs when it's answered).
 local function open_scene_at_path(path)
-    local imported = Importer.LoadScene(path)
-    if imported then
+    local imported = Importer.LoadScene(path, current_normal_mode())
+    if not imported then
+        set_status("failed to open " .. path)
+        return false
+    end
+    local function commit(scale)
+        if scale then scale_import_roots(imported, scale) end
         replace_active_scene(imported)
         -- The dialog's chosen path is the source of truth: native
         -- formats (.json / .bin) we can save back to in-place, others
@@ -93,20 +159,38 @@ local function open_scene_at_path(path)
         local basename = path:match("[^/\\]+$") or path
         Editor.SetCurrentScene(path, is_native_format(basename))
         set_status("opened " .. path)
-    else
-        set_status("failed to open " .. path)
     end
+    if is_gltf_family(path) then
+        local scale, dim = suggest_unit_scale(imported)
+        if scale then
+            prompt_unit_scale(path, dim, scale, commit)
+            return true -- commit runs when the dialog is answered
+        end
+    end
+    commit(nil)
+    return true
 end
 
 local function import_scene_at_path(full)
-    local imported = Importer.LoadScene(full)
-    if imported then
+    local imported = Importer.LoadScene(full, current_normal_mode())
+    if not imported then
+        set_status("failed to import " .. full)
+        return
+    end
+    local function commit(scale)
+        if scale then scale_import_roots(imported, scale) end
         local n = Importer.MergeInto(Scene.GetActive(), imported)
         ensure_default_sun(Scene.GetActive())
         set_status("imported " .. n .. " node(s) from " .. full)
-    else
-        set_status("failed to import " .. full)
     end
+    if is_gltf_family(full) then
+        local scale, dim = suggest_unit_scale(imported)
+        if scale then
+            prompt_unit_scale(full, dim, scale, commit)
+            return -- commit runs when the dialog is answered
+        end
+    end
+    commit(nil)
 end
 
 -- Shared core for File → Save (in-place) and File → Save As (named target).
@@ -210,6 +294,9 @@ ensure_default_sun = ensure_default_sun_impl
 
 local function load_default_scene()
     local path = FileUtil.GetAbsPath("Resource/Scene/scene.bin")
+    -- Route through open_scene_at_path so the loading scene's
+    -- working_dir is set correctly for texture path resolution.
+    if open_scene_at_path(path) then return end
     FileUtil.LoadSceneFromCompressedFile(Scene.GetActive(), path)
     Editor.SetCurrentScene(path, true)
 end
@@ -296,12 +383,9 @@ local function on_init()
     if startup and startup ~= "" then
         local resolved = resolve_startup_scene(startup)
         if resolved then
-            local imported = Importer.LoadScene(resolved)
-            if imported then
-                replace_active_scene(imported)
-                Editor.SetCurrentScene(resolved, is_native_format(startup))
-                set_status("opened " .. startup)
-            else
+            -- Route through the shared open path so startup imports
+            -- get the same unit-scale prompt as File → Open.
+            if not open_scene_at_path(resolved) then
                 print("Editor.lua: Importer.LoadScene rejected '" .. startup .. "'; falling back to scene.bin")
                 set_status("failed to open " .. startup .. " — using default scene")
                 load_default_scene()
@@ -381,9 +465,11 @@ local function on_init()
         scene_dir  = function() return FileUtil.GetAbsPath("Resource/Scene/") end,
     })
 
-    -- Initial sync of the Auto-Add Default Sun flag — the Settings → Import
-    -- checkbox reads/writes this; ensure_default_sun_impl reads it back.
-    Editor.SetImportFlag("auto_default_sun", true)
+    -- Import flags: persisted to imgui.ini by the FuryEditor settings
+    -- handler (ImportFlag=<name>=<0|1>). On first launch the g_ImportFlags
+    -- map is empty, so GetImportFlag returns the C++ default (true for all
+    -- four). On subsequent launches the handler restores persisted values
+    -- before this runs — don't overwrite them here.
 
     -- Wire the Scene Inspector's leaf-double-click → camera-frame path.
     -- The C++ inspector calls Editor::FrameSelection(node), which invokes

@@ -15,6 +15,7 @@
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/MeshUtil.h"
 #include "Fury/Pipeline.h"
 #include "Fury/Pass.h"
 #include "Fury/RenderTarget.h"
@@ -594,7 +595,7 @@ namespace fury
 		auto camera = m_CurrentCamera->GetComponent<Camera>();
 
 		auto light = node->GetComponent<Light>();
-		auto radius = light->GetRadius();
+		auto radius = light->GetEffectiveRadius();
 		auto lightSphere = SphereBounds(node->GetWorldPosition(), radius);
 
 		// TODO: filter casters for all six directions.
@@ -705,14 +706,14 @@ namespace fury
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
 		auto light = node->GetComponent<Light>();
-		auto radius = light->GetRadius();
+		auto radius = light->GetEffectiveRadius();
 
 		Matrix4 lightMatrix;
 		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
 		lightMatrix = lightMatrix * node->GetInvertWorldMatrix();
 
 		Frustum frustum;
-		frustum.Setup(light->GetOutterAngle(), 1.0f, 1.0f, light->GetRadius());
+		frustum.Setup(light->GetOutterAngle(), 1.0f, 1.0f, radius);
 		frustum.Transform(lightMatrix.Inverse());
 
 		// gen projection matrix for light.
@@ -792,6 +793,10 @@ namespace fury
 
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
+		// Reference grid first: screen-space pass with no depth
+		// interaction, so the bounds lines below composite over it.
+		DrawEditorGrid();
+
 		glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
 		glCullFace(GL_BACK);
@@ -850,5 +855,107 @@ namespace fury
 		renderUtil->EndDrawMeshes();
 
 		glDisable(GL_DEPTH_TEST);
+	}
+
+	void Pipeline::DrawEditorGrid()
+	{
+		if (!IsSwitchOn(PipelineSwitch::EDITOR_GRID))
+			return;
+
+		// Needs the deferred depth texture to occlude grid lines
+		// behind geometry; pipelines without one skip the grid.
+		auto depth = GetTextureByName("gbuffer_depth");
+		if (!depth || !m_CurrentCamera)
+			return;
+
+		static std::shared_ptr<Shader> gridShader;
+		if (!gridShader)
+		{
+			// Screen-space reference grid on the XZ plane (engine
+			// unit = 1 cm, so 100-unit minor / 1000-unit major
+			// cells). The fragment reconstructs a world ray from the
+			// inverse projection, intersects y=0, and emits a line
+			// only where the plane point sits in front of the scene
+			// depth (gbuffer stores -viewZ / camera_far).
+			static const char* grid_vs =
+				"#version 330\n"
+				"in vec3 vertex_position;\n"
+				"void main() {\n"
+				"    gl_Position = vec4(vertex_position.xy, 0.0, 1.0);\n"
+				"}\n";
+			static const char* grid_fs =
+				"#version 330\n"
+				"out vec4 fragment_output;\n"
+				"uniform sampler2D gbuffer_depth;\n"
+				"uniform mat4 projection_matrix;\n"
+				"uniform mat4 camera_world_matrix;\n"
+				"uniform vec3 camera_pos;\n"
+				"uniform float camera_far;\n"
+				"uniform vec2 u_rt_size;\n"
+				"float gridLine(vec2 p, float cell) {\n"
+				"    vec2 q = p / cell;\n"
+				"    vec2 g = abs(fract(q - 0.5) - 0.5) / fwidth(q);\n"
+				"    return 1.0 - min(min(g.x, g.y), 1.0);\n"
+				"}\n"
+				"void main() {\n"
+				"    vec2 uv = gl_FragCoord.xy / u_rt_size;\n"
+				"    vec4 v = inverse(projection_matrix) * vec4(uv * 2.0 - 1.0, -1.0, 1.0);\n"
+				"    vec3 view_dir = normalize(v.xyz / v.w);\n"
+				"    float scene_z = texture(gbuffer_depth, uv).x * camera_far;\n"
+				"    vec3 rd = normalize((camera_world_matrix * vec4(view_dir, 0.0)).xyz);\n"
+				"    if (abs(rd.y) < 1e-6) discard;\n"
+				"    float t = -camera_pos.y / rd.y;\n"
+				"    if (t <= 0.0) discard;\n"
+				"    vec3 pw = camera_pos + rd * t;\n"
+				"    vec3 cam_fwd = -normalize(camera_world_matrix[2].xyz);\n"
+				"    float grid_z = dot(pw - camera_pos, cam_fwd);\n"
+				"    if (grid_z >= scene_z - 0.5) discard;\n"
+				"    float minor = gridLine(pw.xz, 100.0);\n"
+				"    float major = gridLine(pw.xz, 1000.0);\n"
+				"    float fade = 1.0 - clamp(grid_z / camera_far, 0.0, 1.0);\n"
+				"    fade *= fade;\n"
+				"    float a = max(minor * 0.3, major * 0.6) * fade;\n"
+				"    if (a < 0.004) discard;\n"
+				"    fragment_output = vec4(vec3(0.6) + major * 0.2, a);\n"
+				"}\n";
+
+			gridShader = Shader::Create("EditorGridShader", ShaderType::OTHER);
+			if (!gridShader->Compile(grid_vs, grid_fs, ""))
+			{
+				FURYE << "Failed to compile editor grid shader!";
+				gridShader = nullptr;
+				return;
+			}
+		}
+
+		GLint vp[4] = { 0, 0, 0, 0 };
+		glGetIntegerv(GL_VIEWPORT, vp);
+
+		auto quad = MeshUtil::GetUnitQuad();
+		gridShader->Bind();
+		gridShader->BindMesh(quad);
+		gridShader->BindCamera(m_CurrentCamera);
+		gridShader->BindTexture("gbuffer_depth", depth);
+		gridShader->BindFloat("u_rt_size", (float)vp[2], (float)vp[3]);
+		// NOTE: BindCamera's "invert_view_matrix" is the VIEW matrix
+		// (world->view) in this engine's naming, not view->world — the
+		// world ray needs the camera's world matrix, bound explicitly.
+		gridShader->BindMatrix("camera_world_matrix", m_CurrentCamera->GetWorldMatrix());
+
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(GL_FALSE);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+		glDisable(GL_BLEND);
+		glDepthMask(GL_TRUE);
+		glEnable(GL_DEPTH_TEST);
+
+		gridShader->UnBind();
+
+		RenderUtil::Instance()->IncreaseDrawCall();
+		RenderUtil::Instance()->IncreaseTriangleCount(quad->Indices.Data.size());
 	}
 }

@@ -81,6 +81,9 @@ namespace fury
 
 		float GetRadius() const;
 
+		// Radius × owner node world scale.
+		float GetEffectiveRadius() const;
+
 		void SetCastShadows(bool cast);
 
 		bool GetCastShadows() const;

@@ -54,6 +54,7 @@ extern bool g_SnapEnabled;
 extern float g_SnapTranslate;
 extern float g_SnapRotate;
 extern float g_SnapScale;
+extern bool g_ShowGrid;
 
 // Public-ish accessors used by the window rendering code, kept in
 // this TU so we don't multiply globals.
@@ -187,6 +188,23 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
+	// Reference-grid toggle (EditorWindows.cpp owns the global).
+	int grid = -1;
+	if (std::sscanf(line, "ShowGrid=%d", &grid) == 1 && (grid == 0 || grid == 1)) {
+		g_ShowGrid = (grid != 0);
+		return;
+	}
+
+	// Import flags — one line per flag: ImportFlag=<name>=<0|1>.
+	// Persisted so toggles in Settings → Import survive a restart.
+	char flagname[128];
+	int flagval = -1;
+	if (std::sscanf(line, "ImportFlag=%127[^=]=%d", flagname, &flagval) == 2
+		&& (flagval == 0 || flagval == 1)) {
+		g_ImportFlags[flagname] = (flagval != 0);
+		return;
+	}
+
 	// Gizmo persistence. Single line:
 	// Gizmo=<op>,<space>,<snap_enabled>,<snap_t>,<snap_r>,<snap_s>
 	// op: 0=translate, 1=rotate, 2=scale (matches the order we
@@ -224,6 +242,11 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("[%s][Editor]\n", handler->TypeName);
 	buf->appendf("Theme=%d\n", GetCurrentThemeIndex());
 	buf->appendf("Layout=%d\n", kCurrentLayoutVersion);
+	buf->appendf("ShowGrid=%d\n", g_ShowGrid ? 1 : 0);
+	// Import flags — one line per flag so adding/removing flags
+	// doesn't break the format.
+	for (const auto& kv : g_ImportFlags)
+		buf->appendf("ImportFlag=%s=%d\n", kv.first.c_str(), kv.second ? 1 : 0);
 	const int op_idx =
 		(g_GizmoOp == ImGuizmo::ROTATE) ? 1 : (g_GizmoOp == ImGuizmo::SCALE) ? 2
 																			 : 0;

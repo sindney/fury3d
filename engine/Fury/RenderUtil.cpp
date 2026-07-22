@@ -346,6 +346,13 @@ namespace fury
 			const char *vs =
 				"in vec3 vertex_position;"
 				"in vec3 vertex_normal;"
+				// Referenced (via a zero uniform) so the linker keeps
+				// the attributes and skinned meshes don't trip the
+				// "Can't find bone_ids/bone_weights" bind warnings —
+				// thumbnails render the bind pose.
+				"in ivec4 bone_ids;"
+				"in vec3 bone_weights;"
+				"uniform float u_bone_keep = 0.0;"
 				"uniform mat4 _WorldMatrix;"
 				"uniform mat4 _ViewMatrix;"
 				"uniform mat4 _ProjectionMatrix;"
@@ -354,7 +361,8 @@ namespace fury
 				"{"
 				"	vec4 worldPos = _WorldMatrix * vec4(vertex_position, 1.0);"
 				"	v_normal = mat3(_WorldMatrix) * vertex_normal;"
-				"	gl_Position = _ProjectionMatrix * _ViewMatrix * worldPos;"
+				"	gl_Position = _ProjectionMatrix * _ViewMatrix * worldPos"
+				"		+ vec4(u_bone_keep * float(bone_ids.x) * bone_weights.x);"
 				"}";
 			const char *fs =
 				"in vec3 v_normal;"

@@ -31,6 +31,7 @@
 #include "Fury/Vector4.h"
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
+#include "ImGuizmo.h"
 
 #include <algorithm>
 #include <array>
@@ -60,6 +61,21 @@ extern bool g_ViewportVisible;
 // Defined in EditorGizmo.cpp.
 void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size);
 
+// Gizmo state lives in EditorGizmo.cpp; the viewport toolbar
+// edits it directly (moved out of the Node Properties window).
+extern ImGuizmo::OPERATION g_GizmoOp;
+extern ImGuizmo::MODE g_GizmoSpace;
+extern bool g_SnapEnabled;
+extern float g_SnapTranslate;
+extern float g_SnapRotate;
+extern float g_SnapScale;
+
+// Reference-grid toggle state. Editor-owned (persisted to imgui.ini
+// via the FuryEditor settings handler in Editor.cpp), default ON;
+// applied to the pipeline switch per frame from the viewport
+// toolbar so pipeline recreation (scene reload) keeps the choice.
+bool g_ShowGrid = true;
+
 // ----------------------------------------------------------------
 // Settings window (Camera / Import / Themes)
 // ----------------------------------------------------------------
@@ -70,8 +86,25 @@ void RenderSettingsWindow(bool* open) {
 		return;
 	}
 
-	// --- Editor (camera + theme) ----------------------------------
+	// --- Editor (grid + camera + theme) ---------------------------
 	if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Spacing();
+
+		// Reference grid — persisted editor state (see g_ShowGrid);
+		// the viewport toolbar's Grid checkbox binds the same global.
+		if (ImGui::Checkbox("Show Grid", &g_ShowGrid)) {
+			ImGui::MarkIniSettingsDirty();
+		}
+
+		// Snap step sizes (the viewport toolbar carries the Snap
+		// toggle itself).
+		ImGui::TextDisabled("Snap Steps");
+		bool snap_changed = false;
+		if (ImGui::DragFloat("Translate Step", &g_SnapTranslate, 0.1f, 0.001f, 1000.0f, "%.3f")) snap_changed = true;
+		if (ImGui::DragFloat("Rotate Step", &g_SnapRotate, 0.5f, 0.1f, 180.0f, "%.1f deg")) snap_changed = true;
+		if (ImGui::DragFloat("Scale Step", &g_SnapScale, 0.01f, 0.001f, 100.0f, "%.3f")) snap_changed = true;
+		if (snap_changed) ImGui::MarkIniSettingsDirty();
+
 		ImGui::Spacing();
 
 		ImGui::TextDisabled("Camera");
@@ -114,10 +147,25 @@ void RenderSettingsWindow(bool* open) {
 	}
 
 	// --- Import ---------------------------------------------------
-	if (ImGui::CollapsingHeader("Import", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (ImGui::CollapsingHeader("Import")) {
 		bool v = GetImportFlag("auto_default_sun", true);
 		if (ImGui::Checkbox("Auto-Add Default Sun", &v)) {
 			SetImportFlag("auto_default_sun", v);
+		}
+		bool a = GetImportFlag("auto_scale_detect", true);
+		if (ImGui::Checkbox("Auto-Scale Detection", &a)) {
+			SetImportFlag("auto_scale_detect", a);
+		}
+		// Normal generation for NORMAL-less primitives (GltfImporter).
+		int ng = GetImportFlag("normals_smooth", true) ? 0 : 1;
+		ImGui::SetNextItemWidth(170.0f);
+		if (ImGui::Combo("Normal Gen", &ng, "Smooth (default)\0Flat\0")) {
+			SetImportFlag("normals_smooth", ng == 0);
+		}
+		// Weld/dedup coincident vertices on import (MeshUtil::OptimizeMesh).
+		bool om = GetImportFlag("optimize_mesh", true);
+		if (ImGui::Checkbox("Optimize Mesh (Weld)", &om)) {
+			SetImportFlag("optimize_mesh", om);
 		}
 	}
 
@@ -144,7 +192,7 @@ void RenderSettingsWindow(bool* open) {
 }
 
 // ----------------------------------------------------------------
-// Profiler window (FPS / GBuffer / Shadows tabs)
+// Profiler window (Perf / GBuffer / Shadows tabs)
 // ----------------------------------------------------------------
 namespace {
 // Shadows tab light-selector state. Index into the sorted
@@ -176,7 +224,7 @@ static int LightTypeRank(LightType type) {
 	}
 	return 3;
 }
-void RenderProfilerFpsTab() {
+void RenderProfilerPerfTab() {
 	static float upper_bound = 100.0f;
 	const float curFps = ImGui::GetIO().Framerate;
 	while (curFps > upper_bound) upper_bound += 50;
@@ -204,70 +252,6 @@ void RenderProfilerFpsTab() {
 	ImGui::Text("Mesh: %u", RenderUtil::Instance()->GetMeshCount());
 	ImGui::Text("SkinnedMesh: %u", RenderUtil::Instance()->GetSkinnedMeshCount());
 	ImGui::Text("Light: %u", RenderUtil::Instance()->GetLightCount());
-
-	ImGui::Separator();
-	ImGui::Text("Debug Overlays:");
-
-	// Multi-select combo: scene-debug toggles are independent and
-	// toggled together often, so ImGuiSelectableFlags_DontClosePopups
-	// lets the user flip several in one open. The preview shows the
-	// single-selected name, or a count when more are active.
-	static bool draw_light_bounds = false;
-	static bool draw_mesh_bounds = false;
-	static bool draw_custom_bounds = false;
-	static bool draw_octree_bounds = false;
-	static bool lod_debug_on = false;
-
-	const char* overlayItems[] = {
-		"Draw Light Bounds",
-		"Draw Mesh Bounds",
-		"Draw Custom Bounds",
-		"Draw OcTree Bounds",
-		"LOD Debug Colors"
-	};
-	bool overlayState[] = {
-		draw_light_bounds,
-		draw_mesh_bounds,
-		draw_custom_bounds,
-		draw_octree_bounds,
-		lod_debug_on
-	};
-	int selectedCount = 0;
-	int firstSelected = -1;
-	for (int i = 0; i < 5; ++i) {
-		if (overlayState[i]) {
-			++selectedCount;
-			if (firstSelected < 0) firstSelected = i;
-		}
-	}
-	std::string overlayPreview;
-	if (selectedCount == 0)       overlayPreview = "(none)";
-	else if (selectedCount == 1)  overlayPreview = overlayItems[firstSelected];
-	else                          overlayPreview = std::to_string(selectedCount) + " overlays selected";
-
-	ImGui::SetNextItemWidth(-FLT_MIN);
-	if (ImGui::BeginCombo("##debug_overlays", overlayPreview.c_str())) {
-		for (int i = 0; i < 5; ++i) {
-			if (ImGui::Selectable(overlayItems[i], overlayState[i],
-								  ImGuiSelectableFlags_DontClosePopups)) {
-				overlayState[i] = !overlayState[i];
-			}
-		}
-		ImGui::EndCombo();
-	}
-	draw_light_bounds   = overlayState[0];
-	draw_mesh_bounds    = overlayState[1];
-	draw_custom_bounds  = overlayState[2];
-	draw_octree_bounds  = overlayState[3];
-	lod_debug_on        = overlayState[4];
-
-	if (Pipeline::Active) {
-		Pipeline::Active->SetSwitch(PipelineSwitch::LIGHT_BOUNDS, draw_light_bounds);
-		Pipeline::Active->SetSwitch(PipelineSwitch::MESH_BOUNDS, draw_mesh_bounds);
-		Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
-		Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
-		Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on);
-	}
 }
 
 void RenderProfilerGBufferTab() {
@@ -537,8 +521,8 @@ void RenderProfilerWindow(bool* open) {
 	}
 
 	if (ImGui::BeginTabBar("ProfilerTabs")) {
-		if (ImGui::BeginTabItem("FPS")) {
-			RenderProfilerFpsTab();
+		if (ImGui::BeginTabItem("Perf")) {
+			RenderProfilerPerfTab();
 			ImGui::EndTabItem();
 		}
 		if (ImGui::BeginTabItem("GBuffer")) {
@@ -1091,6 +1075,43 @@ struct TileEntry {
 	std::shared_ptr<void> ptr;
 };
 
+// Content-browser filter state (window-local). g_FilterType indexes
+// kFilterTypeNames; g_FilterText is a case-insensitive fuzzy
+// (subsequence) match against asset names.
+static int g_FilterType = 0;
+static char g_FilterText[128] = "";
+constexpr const char* kFilterTypeNames[] = {
+	"All", "Mesh", "Material", "Texture", "AnimationClip"};
+
+// Case-insensitive subsequence: every char of `pattern` appears in
+// `text` in order ("spz" matches "Sponza").
+bool FuzzyMatch(const char* pattern, const char* text) {
+	if (!pattern || !text) return false;
+	auto lower = [](char c) {
+		return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+	};
+	for (; *text && *pattern; ++text)
+		if (lower(*text) == lower(*pattern)) ++pattern;
+	return *pattern == '\0';
+}
+
+// True when `tile` passes the active type + text filters.
+bool TilePassesFilter(const TileEntry& tile) {
+	if (g_FilterType != 0) {
+		const std::type_info* want = nullptr;
+		switch (g_FilterType) {
+		case 1: want = &typeid(Mesh); break;
+		case 2: want = &typeid(Material); break;
+		case 3: want = &typeid(Texture); break;
+		case 4: want = &typeid(AnimationClip); break;
+		}
+		if (want && tile.type != *want) return false;
+	}
+	if (g_FilterText[0] != '\0' && !FuzzyMatch(g_FilterText, tile.name.c_str()))
+		return false;
+	return true;
+}
+
 void CollectTiles(std::vector<TileEntry>& tiles) {
 	if (!Scene::Active) return;
 	auto em = Scene::Active->GetEntityManager();
@@ -1607,12 +1628,10 @@ void RenderContentBrowserWindow(bool* open) {
 				  return a.name < b.name;
 			  });
 
-	// Evict the Refresh flag (no-op — we re-enumerate every
-	// frame — but the menu item exists per spec).
-	g_NeedsRefresh = false;
-
 	// Build the set of live BufferIds from the current tiles,
 	// then evict stale mesh-thumbnail cache entries (task 7.3).
+	// Uses the UNFILTERED set — filtering the grid must never
+	// evict thumbnails of hidden tiles.
 	std::unordered_set<size_t> liveBufferIds;
 	for (const auto& tile : tiles) {
 		if (tile.type == typeid(Mesh)) {
@@ -1621,6 +1640,30 @@ void RenderContentBrowserWindow(bool* open) {
 		}
 	}
 	EvictStaleMeshThumbnails(liveBufferIds);
+
+	// Filter toolbar: type combo + fuzzy name search.
+	ImGui::SetNextItemWidth(110.0f);
+	ImGui::Combo("##cb_type", &g_FilterType, kFilterTypeNames,
+				 IM_ARRAYSIZE(kFilterTypeNames));
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	ImGui::InputTextWithHint("##cb_search", "Search…", g_FilterText,
+							 IM_ARRAYSIZE(g_FilterText));
+	ImGui::Separator();
+
+	// Apply the filters (type AND fuzzy name); grid keeps name sort.
+	tiles.erase(std::remove_if(tiles.begin(), tiles.end(),
+							   [](const TileEntry& t) { return !TilePassesFilter(t); }),
+				tiles.end());
+	if (tiles.empty()) {
+		ImGui::TextDisabled("(no assets in active scene)");
+		ImGui::End();
+		return;
+	}
+
+	// Evict the Refresh flag (no-op — we re-enumerate every
+	// frame — but the menu item exists per spec).
+	g_NeedsRefresh = false;
 
 	// Wrapping grid. panel_right_x is the screen-space right
 	// edge of the content region, captured once before any tile.
@@ -1680,6 +1723,114 @@ void RenderContentBrowserWindow(bool* open) {
 // captured content rect (g_ViewportContentMin/Size) is what the
 // gizmo and picking use for viewport-space coordinates.
 // ----------------------------------------------------------------
+// Viewport top toolbar: gizmo controls flush-left, the Debug
+// Overlays combo flush-right. Consumes one line of the window's
+// content region — RenderViewportWindow captures the scene rect
+// AFTER this runs, so gizmo / picking coordinates stay correct.
+void RenderViewportToolbar() {
+	// --- Left: gizmo mode + snap + grid -----------------------
+	bool changed = false;
+	if (ImGui::RadioButton("Translate", g_GizmoOp == ImGuizmo::TRANSLATE)) {
+		g_GizmoOp = ImGuizmo::TRANSLATE;
+		changed = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Rotate", g_GizmoOp == ImGuizmo::ROTATE)) {
+		g_GizmoOp = ImGuizmo::ROTATE;
+		changed = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Scale", g_GizmoOp == ImGuizmo::SCALE)) {
+		g_GizmoOp = ImGuizmo::SCALE;
+		changed = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::Checkbox("Snap", &g_SnapEnabled)) {
+		changed = true;
+	}
+	if (changed) ImGui::MarkIniSettingsDirty();
+
+	// Reference grid toggle (persisted; applied per-frame below so
+	// pipeline recreation can't silently reset it). Settings →
+	// Editor → Show Grid binds the same global.
+	ImGui::SameLine();
+	if (ImGui::Checkbox("Grid", &g_ShowGrid)) {
+		ImGui::MarkIniSettingsDirty();
+	}
+
+	// --- Right: debug overlays combo (moved from Profiler) ----
+	// Multi-select: scene-debug toggles are independent and toggled
+	// together often, so DontClosePopups lets the user flip several
+	// in one open. Preview shows the single-selected name, or a
+	// count when more are active.
+	static bool draw_light_bounds = false;
+	static bool draw_mesh_bounds = false;
+	static bool draw_custom_bounds = false;
+	static bool draw_octree_bounds = false;
+	static bool lod_debug_on = false;
+
+	const char* overlayItems[] = {
+		"Draw Light Bounds",
+		"Draw Mesh Bounds",
+		"Draw Custom Bounds",
+		"Draw OcTree Bounds",
+		"LOD Debug Colors"
+	};
+	bool overlayState[] = {
+		draw_light_bounds,
+		draw_mesh_bounds,
+		draw_custom_bounds,
+		draw_octree_bounds,
+		lod_debug_on
+	};
+	int selectedCount = 0;
+	int firstSelected = -1;
+	for (int i = 0; i < 5; ++i) {
+		if (overlayState[i]) {
+			++selectedCount;
+			if (firstSelected < 0) firstSelected = i;
+		}
+	}
+	std::string overlayPreview;
+	if (selectedCount == 0)       overlayPreview = "(none)";
+	else if (selectedCount == 1)  overlayPreview = overlayItems[firstSelected];
+	else                          overlayPreview = std::to_string(selectedCount) + " overlays selected";
+
+	// Right-align on the SAME line: SameLine first so the cursor is
+	// on the bar's line (after an item, GetCursorPosX reports the
+	// next line's start X — measuring without SameLine wrapped the
+	// combo onto a second line).
+	const float combo_w = 200.0f;
+	ImGui::SameLine();
+	const float remaining = ImGui::GetContentRegionAvail().x;
+	if (remaining > combo_w)
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + remaining - combo_w);
+	ImGui::SetNextItemWidth(combo_w);
+	if (ImGui::BeginCombo("##debug_overlays", overlayPreview.c_str())) {
+		for (int i = 0; i < 5; ++i) {
+			if (ImGui::Selectable(overlayItems[i], overlayState[i],
+								  ImGuiSelectableFlags_DontClosePopups)) {
+				overlayState[i] = !overlayState[i];
+			}
+		}
+		ImGui::EndCombo();
+	}
+	draw_light_bounds   = overlayState[0];
+	draw_mesh_bounds    = overlayState[1];
+	draw_custom_bounds  = overlayState[2];
+	draw_octree_bounds  = overlayState[3];
+	lod_debug_on        = overlayState[4];
+
+	if (Pipeline::Active) {
+		Pipeline::Active->SetSwitch(PipelineSwitch::EDITOR_GRID, g_ShowGrid);
+		Pipeline::Active->SetSwitch(PipelineSwitch::LIGHT_BOUNDS, draw_light_bounds);
+		Pipeline::Active->SetSwitch(PipelineSwitch::MESH_BOUNDS, draw_mesh_bounds);
+		Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
+		Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
+		Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on);
+	}
+}
+
 void RenderViewportWindow(bool* open) {
 	// Function-local static: the RT persists across frames and is
 	// resized as the window resizes. Owned by this TU.
@@ -1703,6 +1854,10 @@ void RenderViewportWindow(bool* open) {
 		ImGui::End();
 		return;
 	}
+
+	// Top toolbar (gizmo + debug overlays) — consumes one line, so
+	// the scene rect captured below already excludes the bar.
+	RenderViewportToolbar();
 
 	const ImVec2 avail = ImGui::GetContentRegionAvail();
 	const ImVec2 pos = ImGui::GetCursorScreenPos();

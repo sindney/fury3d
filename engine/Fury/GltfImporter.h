@@ -49,7 +49,13 @@ namespace fury
 			// 24 matches the engine's FBX-heritage default.
 			float anim_ticks_per_second;
 
-			Options() : anim_ticks_per_second(24.0f) {}
+			// Normal generation mode for NORMAL-less primitives.
+			enum class NormalGen { Smooth, Flat } normal_gen;
+
+			// Weld + dedup coincident vertices on import.
+			bool optimize_mesh;
+
+			Options() : anim_ticks_per_second(24.0f), normal_gen(NormalGen::Smooth), optimize_mesh(true) {}
 		};
 
 		// Returns nullptr on any error (file not found, parse failure,
