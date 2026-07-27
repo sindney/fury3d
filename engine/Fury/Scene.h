@@ -1,6 +1,7 @@
 #ifndef _FURY_SCENE_H_
 #define _FURY_SCENE_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,11 +15,13 @@ namespace fury
 
 	class SceneManager;
 
-	class Material; 
+	class Material;
 
 	class Mesh;
 
-	class FURY_API Scene : public Entity 
+	class RenderSettings;
+
+	class FURY_API Scene : public Entity
 	{
 	public:
 
@@ -27,7 +30,7 @@ namespace fury
 		static Ptr Active;
 
 		// Scene file format version; absent in files = 1.
-		static constexpr int kFormatVersion = 2;
+		static constexpr int kFormatVersion = 3;
 
 		static std::string Path(const std::string &path);
 
@@ -45,12 +48,16 @@ namespace fury
 
 		std::string m_WorkingDir;
 
+		// Per-scene render settings (pipeline path, HDR, CSM,
+		// postprocess chain). Always non-null.
+		std::shared_ptr<RenderSettings> m_RenderSettings;
+
 	public:
 
 		Scene(const std::string &name, const std::string &workingDir, const std::shared_ptr<SceneManager> &sceneManager = nullptr);
 
 		~Scene();
-		
+
 		void Clear();
 
 		virtual bool Load(const void* wrapper, bool object = true) override;
@@ -67,7 +74,10 @@ namespace fury
 		std::string GetWorkingDir() const;
 
 		void SetWorkingDir(const std::string &path);
-		
+
+		// Per-scene render settings; the editor writes through this.
+		// Mark the scene dirty after edits.
+		std::shared_ptr<RenderSettings> GetRenderSettings() const;
 	};
 }
 

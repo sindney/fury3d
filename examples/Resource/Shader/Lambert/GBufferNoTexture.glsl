@@ -53,20 +53,27 @@ uniform vec3 diffuse_color;
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 
+#ifdef PBR
+// See GBuffer.glsl — same metallic-roughness packing for
+// color-only materials.
+uniform float metallic_factor = 0.0;
+uniform float roughness_factor = -1.0;
+uniform float shininess = 32.0;
+#endif
+
 #ifdef WITH_EDITOR
 // Editor LOD-debug tint. See GBuffer.glsl.
 uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
 #endif
 
-// normal.xyz, shininess
+// normal.xyz, (PBR: roughness)
 layout (location = 0) out vec4 rt0;
-// diffuse rgb
+// diffuse rgb, (PBR: metallic)
 layout (location = 1) out vec4 rt1;
 
 void main()
 {
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
-	rt0.a = 1.0;
 
 	vec3 finalDiffuse = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;
 #ifdef WITH_EDITOR
@@ -74,7 +81,17 @@ void main()
 		finalDiffuse *= lod_debug_color.rgb;
 #endif
 	rt1.rgb = finalDiffuse;
+
+#ifdef PBR
+	float rough = roughness_factor >= 0.0
+		? roughness_factor
+		: clamp(pow(2.0 / (shininess + 2.0), 0.25), 0.0, 1.0);
+	rt0.a = rough;
+	rt1.a = metallic_factor;
+#else
+	rt0.a = 1.0;
 	rt1.a = 1.0;
+#endif
 
 	gl_FragDepth = out_depth / camera_far;
 }

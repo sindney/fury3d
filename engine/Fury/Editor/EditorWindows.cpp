@@ -4,6 +4,7 @@
 #include "Fury/AnimationClip.h"
 #include "Fury/Camera.h"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorAssetPicker.h"
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
@@ -20,6 +21,9 @@
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/Pipeline.h"
+#include "Fury/PostProcessEffect.h"
+#include "Fury/PostProcessRegistry.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/SceneManager.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
@@ -176,15 +180,111 @@ void RenderSettingsWindow(bool* open) {
 		ImGui::TextDisabled("Coords: right-handed, +Y up, -Z front");
 		ImGui::Spacing();
 
-		// CSM toggle — drives Pipeline::CASCADED_SHADOW_MAP for the
-		// directional light's shadow frustum splitting.
-		if (Pipeline::Active) {
-			bool csm = Pipeline::Active->IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
-			if (ImGui::Checkbox("Cascaded Shadow Map (CSM)", &csm)) {
-				Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, csm);
+		// HDR / LDR + CSM + postprocess chain: these are all fields
+		// of the active scene's `renderSettings` block (see Scene.h
+		// / RenderSettings.h). When no scene is active the panel
+		// stays read-only and shows "(no active pipeline)".
+		auto scene = Scene::Active;
+		auto settings = scene ? scene->GetRenderSettings() : nullptr;
+
+		if (Pipeline::Active && settings) {
+			// HDR toggle. The renderSettings block now carries
+			// HDR / CSM / the postprocess chain, so toggling HDR
+			// is a single click — no Camera-component ceremony
+			// required. (Earlier revisions opened an "Add Camera?"
+			// confirm dialog here, but the camera typically lives
+			// in a child node, not the root, so the existence
+			// check was always wrong; removing it makes the
+			// toggle a single click.)
+			bool hdr = settings->IsHDR();
+			if (ImGui::Checkbox("HDR (rgba16f + ACES tonemap)", &hdr)) {
+				settings->SetHDR(hdr);
+				Pipeline::Active->SetHDRMode(hdr);
+				Editor::MarkSceneDirty();
 			}
+
+			// CSM toggle. Reads from the scene's renderSettings
+			// (the single source of truth — the pipeline switch is
+			// seeded from it on each frame by
+			// PrelightPipeline::Execute).
+			bool csm = settings->IsCascadedShadowMap();
+			if (ImGui::Checkbox("Cascaded Shadow Map (CSM)", &csm)) {
+				settings->SetCascadedShadowMap(csm);
+				Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, csm);
+				Editor::MarkSceneDirty();
+			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextDisabled("Postprocess chain");
+
+			// One row per effect entry: name + enabled checkbox +
+			// reorder buttons + remove. Add row at the bottom.
+			auto &chain = settings->GetChainMutable();
+			for (size_t i = 0; i < chain.size(); ++i) {
+				ImGui::PushID(static_cast<int>(i));
+				auto &entry = chain[i];
+
+				// Resolve status: dim the row when the name is not
+				// in the registry so the user can see at a glance
+				// which entries are broken.
+				auto resolved = fury::PostProcessRegistry::Get(entry.effectName);
+				if (!resolved) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+				}
+				ImGui::AlignTextToFramePadding();
+				ImGui::Text("%s", entry.effectName.c_str());
+				if (!resolved) {
+					ImGui::PopStyleColor();
+					ImGui::SameLine();
+					ImGui::TextDisabled("(unresolved)");
+				}
+
+				ImGui::SameLine();
+				if (ImGui::Checkbox("Enabled", &entry.enabled)) {
+					settings->SetEffectEnabled(static_cast<unsigned int>(i), entry.enabled);
+					Editor::MarkSceneDirty();
+				}
+
+				ImGui::SameLine();
+				if (ImGui::Button("Up") && i > 0) {
+					settings->MoveEffect(static_cast<unsigned int>(i), static_cast<unsigned int>(i - 1));
+					Editor::MarkSceneDirty();
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Down") && i + 1 < chain.size()) {
+					settings->MoveEffect(static_cast<unsigned int>(i), static_cast<unsigned int>(i + 1));
+					Editor::MarkSceneDirty();
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Remove")) {
+					settings->RemoveEffect(entry.effectName);
+					Editor::MarkSceneDirty();
+					ImGui::PopID();
+					break; // chain mutated; restart the loop.
+				}
+				ImGui::PopID();
+			}
+
+			if (ImGui::Button("Add Effect...")) {
+				ImGui::OpenPopup("PostprocessPicker");
+			}
+			// Effect picker modal (task 4.3): reuses the shared
+			// RenderAssetPickerModal; the PostProcessEffect collect
+			// branch in EditorAssetPicker iterates the process-global
+			// PostProcessRegistry (effects don't live in the scene's
+			// EntityManager). Picking appends to the chain enabled.
+			RenderAssetPickerModal("PostprocessPicker", "Add Postprocess Effect",
+				typeid(PostProcessEffect),
+				[settings](std::shared_ptr<void> p) {
+					auto effect = std::static_pointer_cast<PostProcessEffect>(p);
+					if (effect) {
+						settings->AddEffect(effect->GetName(), true);
+						Editor::MarkSceneDirty();
+					}
+				});
 		} else {
-			ImGui::TextDisabled("(no active pipeline)");
+			ImGui::TextDisabled("(no active pipeline or scene)");
 		}
 	}
 
@@ -279,12 +379,26 @@ void RenderProfilerGBufferTab() {
 			ImGui::Image((ImTextureID)(intptr_t)t->GetID(),
 						 ImVec2(img_w, img_w * aspect),
 						 ImVec2(0, 1), ImVec2(1, 0));
+		} else {
+			ImGui::TextDisabled("(not in active pipeline)");
 		}
 	};
+	// LDR/HDR auto-switch: the HDR pipeline (DefferedLightingPBR)
+	// names its lighting targets hdr_light / hdr_composite (rgba16f)
+	// and has no gbuffer_light at all — key the list off what the
+	// active pipeline declares rather than the LDR layout, so the
+	// light buffer keeps updating after a pipeline switch. HDR
+	// float textures sample fine through ImGui::Image (values >1
+	// clamp to white, which reads as "hot" — acceptable for debug).
 	show("Depth Buffer:", "gbuffer_depth");
 	show("Normal Buffer:", "gbuffer_normal");
 	show("Diffuse Buffer:", "gbuffer_diffuse");
-	show("Light Buffer:", "gbuffer_light");
+	if (Pipeline::Active->GetTextureByName("hdr_light")) {
+		show("Light Buffer (HDR rgba16f):", "hdr_light");
+		show("Composite (pre-tonemap HDR):", "hdr_composite");
+	} else {
+		show("Light Buffer:", "gbuffer_light");
+	}
 }
 
 void RenderProfilerShadowsTab() {

@@ -69,6 +69,14 @@ namespace fury
 
 		std::bitset<(size_t)PipelineSwitch::LENGTH> m_Switches;
 
+		// HDR mode: float lighting targets; the chain is forced to
+		// include a tonemap. Defaults to false.
+		bool m_HDRMode = false;
+
+		// Resolved postprocess chain, rebuilt per-frame from the
+		// scene's renderSettings. Empty = legacy final-pass path.
+		std::vector<std::shared_ptr<class PostProcessEffect>> m_ActiveChain;
+
 		// rendering
 
 		std::shared_ptr<SceneNode> m_CurrentCamera;
@@ -130,6 +138,29 @@ namespace fury
 
 		bool IsSwitchOn(std::initializer_list<PipelineSwitch> list, bool any = true);
 
+		// HDR mode accessors (runtime side; persisted via Scene's renderSettings).
+		void SetHDRMode(bool value);
+
+		bool IsHDRMode() const;
+
+		// Set the active postprocess chain (editor edits, or the
+		// per-frame rebuild from renderSettings).
+		void SetActiveChain(const std::vector<std::shared_ptr<class PostProcessEffect>> &chain);
+
+		const std::vector<std::shared_ptr<class PostProcessEffect>> &GetActiveChain() const;
+
+		// Seed HDR mode, CSM switch, and the resolved chain from
+		// RenderSettings; unresolved names are skipped with a warning.
+		void ApplyRenderSettings(const class RenderSettings &settings);
+
+		// Prepend ACES to the chain when missing (HDR must always
+		// tonemap). No-op when no ACES effect is registered.
+		void EnsureTonemapInChain();
+
+		// True iff this pipeline declares the hdr_composite target
+		// the chain reads in HDR mode.
+		bool HasHDRComposite() const;
+
 		void ClearDebugCollidables();
 
 		void AddDebugCollidable(const BoxBounds &bounds);
@@ -138,7 +169,7 @@ namespace fury
 
 		std::shared_ptr<Pass> GetPassByName(const std::string &name);
 
-		std::shared_ptr<Texture> GetTextureByName(const std::string &name);
+		std::shared_ptr<Texture> GetTextureByName(const std::string &name) const;
 
 		std::shared_ptr<Shader> GetShaderByName(const std::string &name);
 

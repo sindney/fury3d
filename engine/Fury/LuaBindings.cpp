@@ -18,6 +18,10 @@
 #include "Fury/FbxConverter.h"
 #include "Fury/FileUtil.h"
 #include "Fury/GltfImporter.h"
+#include "Fury/PostProcessEffect.h"
+#include "Fury/PostProcessRegistry.h"
+#include "Fury/RenderSettings.h"
+
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Joint.h"
@@ -219,6 +223,7 @@ namespace fury
 				"GetRootNode", &Scene::GetRootNode,
 				"GetSceneManager", &Scene::GetSceneManager,
 				"GetEntityManager", &Scene::GetEntityManager,
+				"GetRenderSettings", &Scene::GetRenderSettings,
 				"GetWorkingDir", &Scene::GetWorkingDir,
 				"SetWorkingDir", &Scene::SetWorkingDir,
 				// Union of every mesh-bearing node's world AABB — the
@@ -259,6 +264,12 @@ namespace fury
 			// Lua entry point that callers use right after mutation.
 			lua["Scene"]["SaveActive"] = [](const std::string &path) -> bool {
 				return Scene::Active && FileUtil::SaveByExtension(Scene::Active, path);
+			};
+			// LoadActive replaces the active scene with the contents
+			// of `path` (.json / .bin). Returns false on failure.
+			lua["Scene"]["LoadActive"] = [](const std::string &path) -> bool {
+				if (!Scene::Active) return false;
+				return FileUtil::LoadByExtension(Scene::Active, path);
 			};
 
 			// Iteration helpers — wrap the existing EntityManager::ForEach<T>
@@ -710,6 +721,89 @@ namespace fury
 				sol::base_classes, sol::bases<Pipeline, Entity, Serializable>(),
 				"Create", &PrelightPipeline::Create);
 
+			// Pipeline HDR / chain bindings. The editor toggles HDR
+			// via Scene::RenderSettings; these Lua hooks let a
+			// startup script do the same. ApplyRenderSettings
+			// rebuilds the active chain from a RenderSettings
+			// (resolving effect names against the registry).
+			lua["Pipeline"]["SetHDRMode"] = [](Pipeline::Ptr p, bool value) {
+				if (p) p->SetHDRMode(value);
+			};
+			lua["Pipeline"]["IsHDRMode"] = [](Pipeline::Ptr p) -> bool {
+				return p && p->IsHDRMode();
+			};
+			lua["Pipeline"]["ApplyRenderSettings"] = [](Pipeline::Ptr p, RenderSettings &rs) {
+				if (p) p->ApplyRenderSettings(rs);
+			};
+
+			// --- PostProcessEffect (usertype for chain editor / scripts) -----
+			lua.new_usertype<PostProcessEffect>("PostProcessEffect",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"GetName", &PostProcessEffect::GetName,
+				"GetShaderPath", &PostProcessEffect::GetShaderPath);
+
+			// --- RenderSettings -----------------------------------------------
+			// Per-scene render config: pipeline path, HDR / CSM flags,
+			// ordered postprocess chain. The editor's Engine settings
+			// panel + the postprocess chain editor drive these; the
+			// scene's `renderSettings` block serializes them.
+			lua.new_usertype<RenderSettings>("RenderSettings",
+				sol::no_constructor,
+				"GetPipelinePath", &RenderSettings::GetPipelinePath,
+				"SetPipelinePath", &RenderSettings::SetPipelinePath,
+				"IsHDR", &RenderSettings::IsHDR,
+				"SetHDR", &RenderSettings::SetHDR,
+				"IsCascadedShadowMap", &RenderSettings::IsCascadedShadowMap,
+				"SetCascadedShadowMap", &RenderSettings::SetCascadedShadowMap,
+				"GetChain", [&lua](RenderSettings &self) {
+					// Hand back a Lua table of { effectName, enabled }
+					// entries. sol2's binding for std::vector<struct>
+					// doesn't expose field access cleanly, so we
+					// marshal manually.
+					const auto &c = self.GetChain();
+					sol::table out = lua.create_table();
+					for (size_t i = 0; i < c.size(); ++i) {
+						sol::table e = lua.create_table();
+						e["effectName"] = c[i].effectName;
+						e["enabled"] = c[i].enabled;
+						out[static_cast<int>(i + 1)] = e;
+					}
+					return out;
+				},
+				"ClearChain", &RenderSettings::ClearChain,
+				"AddEffect", [](RenderSettings &self, const std::string &name, sol::optional<bool> enabled) {
+					self.AddEffect(name, enabled.value_or(true));
+				},
+				"RemoveEffect", &RenderSettings::RemoveEffect,
+				"MoveEffect", &RenderSettings::MoveEffect,
+				"SetEffectEnabled", &RenderSettings::SetEffectEnabled);
+
+			// --- PostProcessRegistry -----------------------------------------
+			// Exposed as a Lua table so scripts can call
+			//   PostProcess.LoadFromDirectory("Resource/PostProcess")
+			// once at startup. The C++ side owns the actual map;
+			// Lua only calls into it.
+			sol::table pp_tbl = lua.create_named_table("PostProcess");
+			pp_tbl["LoadFromDirectory"] = [](const std::string &dir) {
+				return fury::PostProcessRegistry::LoadFromDirectory(dir);
+			};
+			pp_tbl["Clear"] = []() {
+				fury::PostProcessRegistry::Clear();
+			};
+			pp_tbl["GetAll"] = [&lua]() {
+				std::vector<fury::PostProcessEffect::Ptr> all =
+					fury::PostProcessRegistry::GetAll();
+				// Marshal to a Lua table; capture by ref so the
+				// closure can reach the lua_State.
+				sol::table out = lua.create_table();
+				int i = 1;
+				for (auto &e : all) {
+					out[i++] = e;
+				}
+				return out;
+			};
+
 			// --- FileUtil (free functions in a Lua table) ---------------------
 			sol::table fu_tbl = lua.create_named_table("FileUtil");
 			fu_tbl["GetAbsPath"] = sol::overload(
@@ -801,6 +895,11 @@ namespace fury
 				// Editor stub returns the default (true), so CLI imports
 				// always optimize.
 				opts.optimize_mesh = Editor::GetImportFlag("optimize_mesh", true);
+				// HDR-aware material translation (opsx camera-postprocess-hdr
+				// task 5.2): when the active pipeline is in HDR mode, the
+				// importer maps glTF metallic/roughness/normal/occlusion onto
+				// the material's PBR slots instead of discarding them.
+				opts.hdr_target = Pipeline::Active && Pipeline::Active->IsHDRMode();
 				return opts;
 			};
 			// Import a .gltf or .glb into a fresh Scene::Ptr. Returns nil on

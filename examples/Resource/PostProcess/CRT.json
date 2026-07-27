@@ -1,0 +1,13 @@
+{
+    "name": "CRT",
+    "shader": "Resource/Shader/PostProcess/CRT.glsl",
+    "inputs": ["crt_input"],
+    "output_format": "rgba8",
+    "uniforms": [
+        { "name": "u_scanline_strength", "value": [0.25] },
+        { "name": "u_scanline_freq", "value": [2.0] },
+        { "name": "u_curvature", "value": [0.08] },
+        { "name": "u_vignette", "value": [0.35] },
+        { "name": "u_chroma", "value": [1.0] }
+    ]
+}

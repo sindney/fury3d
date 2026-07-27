@@ -36,6 +36,14 @@ namespace fury
 
 	const std::string Material::EMISSIVE_COLOR = "emissive_color";
 
+	const std::string Material::METALLIC_FACTOR = "metallic_factor";
+
+	const std::string Material::ROUGHNESS_FACTOR = "roughness_factor";
+
+	const std::string Material::METALLIC_ROUGHNESS_TEXTURE = "metallic_roughness_texture";
+
+	const std::string Material::OCCLUSION_TEXTURE = "occlusion_texture";
+
 	const std::string Material::MATERIAL_ID = "material_id";
 
 	Material::Ptr Material::Create(const std::string &name)

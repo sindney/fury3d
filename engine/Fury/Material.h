@@ -53,6 +53,20 @@ namespace fury
 
 		static const std::string EMISSIVE_COLOR;
 
+		// ---- PBR (metallic-roughness) slots -----------------------------
+		// Populated by GltfImporter when the active pipeline is HDR.
+		// The HDR pipeline's lighting shaders (added in the same
+		// change) read these to drive the PBR BRDF. LDR pipelines
+		// ignore them — the legacy Lambert shader chain doesn't bind
+		// them.
+		static const std::string METALLIC_FACTOR;
+
+		static const std::string ROUGHNESS_FACTOR;
+
+		static const std::string METALLIC_ROUGHNESS_TEXTURE;
+
+		static const std::string OCCLUSION_TEXTURE;
+
 		static const std::string MATERIAL_ID;
 
 		static Ptr Create(const std::string &name);

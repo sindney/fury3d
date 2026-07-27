@@ -1,0 +1,9 @@
+{
+    "name": "FXAA",
+    "shader": "Resource/Shader/PostProcess/FXAA.glsl",
+    "inputs": ["fxaa_input"],
+    "output_format": "rgba8",
+    "uniforms": [
+        { "name": "u_quality", "value": [3.0] }
+    ]
+}

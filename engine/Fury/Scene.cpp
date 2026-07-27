@@ -10,6 +10,8 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/OcTree.h"
+#include "Fury/PostProcessRegistry.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Texture.h"
 
@@ -42,6 +44,9 @@ Scene::Scene(const std::string& name, const std::string& workingDir, const std::
 
 	m_EntityManager = EntityManager::Create();
 	m_RootNode = SceneNode::Create("RootNode");
+
+	// Defaults: LDR, CSM on, empty chain (legacy behavior).
+	m_RenderSettings = std::make_shared<RenderSettings>();
 }
 
 Scene::~Scene() {
@@ -54,6 +59,9 @@ void Scene::Clear() {
 	m_SceneManager->Clear();
 	m_RootNode->RemoveAllChilds();
 	m_RootNode->RemoveAllComponents();
+	// Reset render settings to defaults; Load replaces this if the
+	// scene carries the block.
+	m_RenderSettings = std::make_shared<RenderSettings>();
 }
 
 bool Scene::Load(const void* wrapper, bool object) {
@@ -189,6 +197,17 @@ bool Scene::Load(const void* wrapper, bool object) {
 	// setup scene manager
 	m_SceneManager->AddSceneNodeRecursively(m_RootNode);
 
+	// renderSettings block is optional — old scenes (pre-this change)
+	// load with the LDR + CSM-on + empty chain defaults that
+	// RenderSettings() constructs by default. When present, parse it
+	// and overwrite.
+	if (auto rsNode = FindMember(wrapper, "renderSettings"))
+	{
+		if (!m_RenderSettings)
+			m_RenderSettings = std::make_shared<RenderSettings>();
+		m_RenderSettings->Load(rsNode, false);
+	}
+
 	return true;
 }
 
@@ -247,6 +266,18 @@ void Scene::Save(void* wrapper, bool object) {
 	SaveKey(wrapper, "nodes");
 	m_RootNode->Save(wrapper);
 
+	// renderSettings block (always emitted by Save so reload is
+	// stable; backwards compatibility is on the Load side).
+	if (m_RenderSettings)
+	{
+		SaveKey(wrapper, "renderSettings");
+		// Pass object=true so RenderSettings::Save wraps its
+		// fields in { ... } — Scene::Save has just emitted the
+		// "renderSettings" key and the writer expects a value
+		// next.
+		m_RenderSettings->Save(wrapper, true);
+	}
+
 	if (object)
 		EndObject(wrapper);
 }
@@ -269,5 +300,9 @@ std::string Scene::GetWorkingDir() const {
 
 void Scene::SetWorkingDir(const std::string& path) {
 	m_WorkingDir = path;
+}
+
+std::shared_ptr<RenderSettings> Scene::GetRenderSettings() const {
+	return m_RenderSettings;
 }
 } // namespace fury

@@ -58,6 +58,11 @@ namespace fury
 		// → SaveFile, .bin → SaveCompressedFile. Returns false otherwise.
 		static bool SaveByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = kMaxDecimalPlaces);
 
+		// Mirror of SaveByExtension: pick LoadFile (.json) or
+		// LoadCompressedFile (.bin) by extension. Returns false on
+		// unsupported extension.
+		static bool LoadByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath);
+
 		// In-memory serialization. Used by CloneTree to round-trip a
 		// node subtree through the engine's existing Save/Load — the
 		// single source of truth for "what's in a SceneNode". This

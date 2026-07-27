@@ -235,6 +235,14 @@ Texture::Ptr CreateEngineTexture(
 // emissive_color, alphaMode -> opaque flag. Other PBR fields are read
 // but discarded with a one-shot warning per material.
 //
+// HDR mode: when hdr is true, PBR fields are NOT discarded — they are
+// mapped onto the engine's PBR material slots (METALLIC_FACTOR,
+// ROUGHNESS_FACTOR, METALLIC_ROUGHNESS_TEXTURE, OCCLUSION_TEXTURE,
+// normal slot reused for normalTexture). The Lambert defaults are
+// still populated so a legacy LDR pass that reads them doesn't crash,
+// but the importer doesn't emit the discard warning because no PBR
+// field was thrown away.
+//
 // already_warned: signatures of discarded-field sets we've already
 // reported, so identical materials don't spam the log.
 Material::Ptr TranslateMaterial(
@@ -242,6 +250,7 @@ Material::Ptr TranslateMaterial(
 	int material_index,
 	const std::string& input_stem,
 	const std::string& input_dir,
+	bool hdr,
 	std::set<std::string>& already_warned) {
 	const auto& gm = model.materials[material_index];
 	const std::string name = gm.name.empty()
@@ -288,19 +297,58 @@ Material::Ptr TranslateMaterial(
 	material->SetUniform(Material::EMISSIVE_FACTOR, Uniform1f::Create({0.0f}));
 	material->SetUniform(Material::SPECULAR_COLOR, Uniform3f::Create({0.2f, 0.2f, 0.2f}));
 
-	// Build a discarded-fields signature so we don't log the same
-	// warning twice when many materials share the same shape.
-	std::string sig;
-	if (gm.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) sig += "metallicRoughnessTexture,";
-	if (gm.normalTexture.index >= 0) sig += "normalTexture,";
-	if (gm.occlusionTexture.index >= 0) sig += "occlusionTexture,";
-	if (gm.emissiveTexture.index >= 0) sig += "emissiveTexture,";
-	if (gm.pbrMetallicRoughness.metallicFactor != 1.0) sig += "metallicFactor,";
-	if (gm.pbrMetallicRoughness.roughnessFactor != 1.0) sig += "roughnessFactor,";
-	if (!sig.empty() && already_warned.insert(sig).second) {
-		FURYW << "gltf-importer: material '" << name
-			  << "' — discarded PBR fields: " << sig
-			  << " (engine pipeline is Lambert in v1; HDR/PBR pipeline deferred)";
+	if (hdr) {
+		// HDR target: map the full PBR field set. No field is
+		// discarded, so no "discarded PBR fields" warning is logged.
+		// Factors default to glTF defaults (metallic=1, roughness=1)
+		// when the source omits them, which matches the glTF 2.0
+		// spec's "PBR metallic-roughness" model.
+		material->SetUniform(Material::METALLIC_FACTOR,
+			Uniform1f::Create({static_cast<float>(gm.pbrMetallicRoughness.metallicFactor)}));
+		material->SetUniform(Material::ROUGHNESS_FACTOR,
+			Uniform1f::Create({static_cast<float>(gm.pbrMetallicRoughness.roughnessFactor)}));
+
+		if (gm.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
+			auto tex = CreateEngineTexture(model,
+				gm.pbrMetallicRoughness.metallicRoughnessTexture.index,
+				/*srgb=*/false, // metallic-roughness is data
+				input_stem, input_dir);
+			if (tex) material->SetTexture(Material::METALLIC_ROUGHNESS_TEXTURE, tex);
+		}
+
+		// Reuse the existing NORMAL_TEXTURE slot for the PBR
+		// normal map (the engine had a single normal slot; PBR
+		// inherits the same path).
+		if (gm.normalTexture.index >= 0) {
+			auto tex = CreateEngineTexture(model,
+				gm.normalTexture.index,
+				/*srgb=*/false, // normals are data
+				input_stem, input_dir);
+			if (tex) material->SetTexture(Material::NORMAL_TEXTURE, tex);
+		}
+
+		if (gm.occlusionTexture.index >= 0) {
+			auto tex = CreateEngineTexture(model,
+				gm.occlusionTexture.index,
+				/*srgb=*/false, // occlusion is data
+				input_stem, input_dir);
+			if (tex) material->SetTexture(Material::OCCLUSION_TEXTURE, tex);
+		}
+	} else {
+		// Build a discarded-fields signature so we don't log the same
+		// warning twice when many materials share the same shape.
+		std::string sig;
+		if (gm.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) sig += "metallicRoughnessTexture,";
+		if (gm.normalTexture.index >= 0) sig += "normalTexture,";
+		if (gm.occlusionTexture.index >= 0) sig += "occlusionTexture,";
+		if (gm.emissiveTexture.index >= 0) sig += "emissiveTexture,";
+		if (gm.pbrMetallicRoughness.metallicFactor != 1.0) sig += "metallicFactor,";
+		if (gm.pbrMetallicRoughness.roughnessFactor != 1.0) sig += "roughnessFactor,";
+		if (!sig.empty() && already_warned.insert(sig).second) {
+			FURYW << "gltf-importer: material '" << name
+				  << "' — discarded PBR fields: " << sig
+				  << " (engine pipeline is Lambert in v1; HDR/PBR pipeline deferred)";
+		}
 	}
 
 	// Material::SetTexture recomputes m_TextureFlags. If we never
@@ -1177,7 +1225,8 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	materials.reserve(model.materials.size());
 	for (size_t mi = 0; mi < model.materials.size(); ++mi) {
 		auto mat = TranslateMaterial(model, static_cast<int>(mi),
-									 input_stem, input_dir, warned_signatures);
+									 input_stem, input_dir, opts.hdr_target,
+									 warned_signatures);
 		entities->Add(mat);
 		// Register the material's textures as first-class assets so
 		// the picker can find them via em->ForEach<Texture>. Add

@@ -1,0 +1,9 @@
+{
+    "name": "ACES",
+    "shader": "Resource/Shader/PostProcess/ACES.glsl",
+    "inputs": ["hdr_input"],
+    "output_format": "rgba8",
+    "uniforms": [
+        { "name": "u_exposure", "value": [1.0] }
+    ]
+}

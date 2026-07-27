@@ -34,6 +34,12 @@
 local octree           = nil
 local cam_node         = nil
 local cam_pos          = nil           -- Vector4, set in on_init
+
+-- Which pipeline JSON we last loaded into Pipeline.GetActive().
+-- Compared against renderSettings.pipelinePath on File → Open so
+-- we only reload when the saved scene references a different
+-- pipeline. Set in on_init after the initial LoadPipelineFromFile.
+local g_LoadedPipelinePath = ""
 local yaw              = 0.0
 local pitch            = -math.rad(30.0)
 local move_speed       = 500.0         -- cm/s (engine unit = 1 cm)
@@ -63,7 +69,61 @@ local function replace_active_scene(new_scene)
     Editor.SetSelectedSceneNode(nil)
     active:Clear()
     Importer.MergeInto(active, new_scene)
+    -- MergeInto doesn't transfer renderSettings; copy them so
+    -- HDR/CSM/chain survive File → Open.
+    local src_rs = new_scene:GetRenderSettings()
+    local dst_rs = active:GetRenderSettings()
+    if src_rs and dst_rs then
+        dst_rs:SetPipelinePath(src_rs:GetPipelinePath())
+        dst_rs:SetHDR(src_rs:IsHDR())
+        dst_rs:SetCascadedShadowMap(src_rs:IsCascadedShadowMap())
+        dst_rs:ClearChain()
+        for _, e in ipairs(src_rs:GetChain()) do
+            dst_rs:AddEffect(e.effectName, e.enabled)
+        end
+    end
     ensure_default_sun(active)
+    -- Reload the pipeline when the opened scene references a
+    -- different JSON (g_LoadedPipelinePath tracks what's loaded).
+    if src_rs and dst_rs then
+        local saved_path = src_rs:GetPipelinePath()
+        if saved_path and saved_path ~= "" and saved_path ~= g_LoadedPipelinePath then
+            local full = FileUtil.GetAbsPath(saved_path)
+            if FileUtil.FileExist(full) then
+                local active_pl = Pipeline.GetActive()
+                if active_pl then
+                    FileUtil.LoadPipelineFromFile(active_pl, full)
+                    g_LoadedPipelinePath = saved_path
+                    print("Editor: reloaded pipeline " .. saved_path)
+                end
+            else
+                print("Editor: saved pipeline not found: " .. full)
+            end
+        end
+        -- Apply the scene's HDR + chain to the (possibly reloaded) pipeline.
+        local active_pl = Pipeline.GetActive()
+        if active_pl then
+            Pipeline.ApplyRenderSettings(active_pl, dst_rs)
+        end
+    end
+    -- active:Clear() destroyed the old editor camera; create a
+    -- fresh one and point the pipeline at it.
+    local editor_cam = SceneNode.Create("EditorCamera")
+    editor_cam:SetLocalPosition(Vector4(0.0, 170.0, 400.0, 1.0))
+    editor_cam:SetLocalRoattion(MathUtil.EulerRadToQuat(yaw, pitch, 0.0))
+    editor_cam:Recompose(false)
+    editor_cam:AddComponent(Transform.Create())
+    local editor_camera = Camera.Create()
+    editor_camera:PerspectiveFov(0.7854, 1.778, 1, 5000)
+    editor_camera:SetShadowFar(2000)
+    editor_camera:SetShadowBounds(Vector4(-500), Vector4(500))
+    editor_cam:AddComponent(editor_camera)
+    editor_cam:Recompose(true)
+    active:GetRootNode():AddChild(editor_cam)
+    cam_node = editor_cam
+    if Pipeline.GetActive() then
+        Pipeline.GetActive():SetCurrentCamera(editor_cam)
+    end
 end
 
 -- True for formats the engine can save back to (.json / .bin). Any other
@@ -379,26 +439,9 @@ local function on_init()
 
     Scene.SetActive(Scene.Create("main", FileUtil.GetAbsPath(), octree))
 
-    local startup = arg and arg[1]
-    if startup and startup ~= "" then
-        local resolved = resolve_startup_scene(startup)
-        if resolved then
-            -- Route through the shared open path so startup imports
-            -- get the same unit-scale prompt as File → Open.
-            if not open_scene_at_path(resolved) then
-                print("Editor.lua: Importer.LoadScene rejected '" .. startup .. "'; falling back to scene.bin")
-                set_status("failed to open " .. startup .. " — using default scene")
-                load_default_scene()
-            end
-        else
-            print("Editor.lua: startup scene '" .. startup .. "' not found (tried literal and Resource/Scene/ prefix); falling back to scene.bin")
-            set_status("not found: " .. startup .. " — using default scene")
-            load_default_scene()
-        end
-    else
-        load_default_scene()
-    end
-
+    -- Camera + default LDR pipeline must exist BEFORE the startup
+    -- scene's renderSettings decide whether to reload the pipeline.
+    --
     -- Engine unit = 1 cm (see docs/ARCHITECTURE.md). Camera near/far
     -- and shadow frustum are in cm.
     local camera = Camera.Create()
@@ -422,6 +465,49 @@ local function on_init()
     FileUtil.LoadPipelineFromFile(
         Pipeline.GetActive(),
         FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
+    g_LoadedPipelinePath = "Resource/Pipeline/DefferedLightingLambert.json"
+
+    -- Load postprocess effects from the project's registry BEFORE
+    -- opening the startup scene. ApplyRenderSettings (called from
+    -- replace_active_scene) resolves effect names against this
+    -- registry; loading effects AFTER the open means the chain
+    -- is built with empty resolutions and every entry is dropped
+    -- with a warning.
+    local pp_loaded = PostProcess.LoadFromDirectory("Resource/PostProcess")
+    if pp_loaded and pp_loaded > 0 then
+        print("Editor: loaded " .. pp_loaded .. " postprocess effect(s)")
+    end
+
+    local startup = arg and arg[1]
+    if startup and startup ~= "" then
+        local resolved = resolve_startup_scene(startup)
+        if resolved then
+            -- Route through the shared open path so startup imports
+            -- get the same unit-scale prompt as File → Open.
+            if not open_scene_at_path(resolved) then
+                print("Editor.lua: Importer.LoadScene rejected '" .. startup .. "'; falling back to scene.bin")
+                set_status("failed to open " .. startup .. " — using default scene")
+                load_default_scene()
+            end
+        else
+            print("Editor.lua: startup scene '" .. startup .. "' not found (tried literal and Resource/Scene/ prefix); falling back to scene.bin")
+            set_status("not found: " .. startup .. " — using default scene")
+            load_default_scene()
+        end
+    else
+        load_default_scene()
+    end
+
+    -- Reflect the currently-loaded pipeline back into renderSettings.
+    -- The startup scene's renderSettings may already point at a
+    -- different pipeline (handled above); for scenes whose saved
+    -- renderSettings were cleared (legacy scenes, File → New) we
+    -- keep the default LDR pipeline. This block is purely
+    -- informational — it doesn't reload the pipeline.
+    local settings = Scene.GetActive():GetRenderSettings()
+    if settings and settings:GetPipelinePath() == "" then
+        settings:SetPipelinePath(g_LoadedPipelinePath)
+    end
 
     -- Wire the editor's File menu callbacks. The C++ side dispatches
     -- File → Open... (Ctrl+O), File → Import... (Ctrl+Shift+I), and

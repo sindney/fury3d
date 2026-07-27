@@ -193,9 +193,12 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Pass.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Pipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Plane.cpp
+	${PROJECT_SOURCE_DIR}/Fury/PostProcessEffect.cpp
+	${PROJECT_SOURCE_DIR}/Fury/PostProcessRegistry.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PrelightPipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Quaternion.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderQuery.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RenderSettings.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderTarget.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Scene.cpp

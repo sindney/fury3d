@@ -7,6 +7,9 @@
 #include "Fury/Light.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/EntityManager.h"
+#include "Fury/PostProcessEffect.h"
+#include "Fury/PostProcessRegistry.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/Scene.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Frustum.h"
@@ -68,6 +71,13 @@ namespace fury
 
 		if (!Entity::Load(wrapper, false))
 			return false;
+
+		// A pipeline JSON is a complete definition: drop previously
+		// loaded render entities before parsing.
+		m_EntityManager->RemoveAll<Texture>();
+		m_EntityManager->RemoveAll<Shader>();
+		m_EntityManager->RemoveAll<Pass>();
+		m_SortedPasses.clear();
 
 		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
 		{
@@ -200,6 +210,68 @@ namespace fury
 		return any ? false : true;
 	}
 
+	void Pipeline::SetHDRMode(bool value)
+	{
+		m_HDRMode = value;
+	}
+
+	bool Pipeline::IsHDRMode() const
+	{
+		return m_HDRMode;
+	}
+
+	void Pipeline::SetActiveChain(const std::vector<std::shared_ptr<PostProcessEffect>> &chain)
+	{
+		m_ActiveChain = chain;
+	}
+
+	const std::vector<std::shared_ptr<PostProcessEffect>> &Pipeline::GetActiveChain() const
+	{
+		return m_ActiveChain;
+	}
+
+	void Pipeline::ApplyRenderSettings(const RenderSettings &settings)
+	{
+		m_HDRMode = settings.IsHDR();
+		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, settings.IsCascadedShadowMap());
+
+		std::vector<std::shared_ptr<PostProcessEffect>> resolved;
+		for (const auto &entry : settings.GetChain())
+		{
+			if (!entry.enabled) continue;
+			auto effect = PostProcessRegistry::Get(entry.effectName);
+			if (effect)
+				resolved.push_back(effect);
+			else
+				FURYW << "Pipeline::ApplyRenderSettings: postprocess effect '"
+					  << entry.effectName
+					  << "' is not registered; skipping (scene still loads)";
+		}
+		m_ActiveChain = std::move(resolved);
+	}
+
+	void Pipeline::EnsureTonemapInChain()
+	{
+		// Spec (postprocess-effects §Tonemapping is mandatory in HDR):
+		// ACES must run before the final composite in HDR mode even
+		// when the postprocess chain is otherwise empty. We achieve
+		// this by prepending the registered ACES effect (if any) to
+		// the active chain. If ACES is already first, leave it.
+		auto aces = PostProcessRegistry::Get("ACES");
+		if (!aces) return;
+		if (!m_ActiveChain.empty() && m_ActiveChain.front()->GetName() == "ACES") return;
+		m_ActiveChain.insert(m_ActiveChain.begin(), aces);
+	}
+
+	bool Pipeline::HasHDRComposite() const
+	{
+		// The HDR pipeline JSON declares a `hdr_composite` rgba16f
+		// target that holds lighting * diffuse before tonemapping.
+		// Its presence is what tells the chain "this pipeline can
+		// produce a valid HDR composite for the postprocess pass".
+		return GetTextureByName("hdr_composite") != nullptr;
+	}
+
 	void Pipeline::SortPassByIndex()
 	{
 		using DataPair = std::pair<unsigned int, std::string>;
@@ -245,7 +317,7 @@ namespace fury
 		return m_EntityManager->Get<Pass>(name);
 	}
 
-	std::shared_ptr<Texture> Pipeline::GetTextureByName(const std::string &name)
+	std::shared_ptr<Texture> Pipeline::GetTextureByName(const std::string &name) const
 	{
 		return m_EntityManager->Get<Texture>(name);
 	}

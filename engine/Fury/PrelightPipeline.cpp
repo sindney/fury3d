@@ -15,10 +15,15 @@
 #include "Fury/MeshRender.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/Pass.h"
+#include "Fury/Pipeline.h"
+#include "Fury/PostProcessEffect.h"
+#include "Fury/PostProcessRegistry.h"
 #include "Fury/PrelightPipeline.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/RenderUtil.h"
+#include "Fury/Scene.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
@@ -87,6 +92,13 @@ namespace fury
 		m_CurrentMesh = nullptr;
 		SortPassByIndex();
 
+		// Seed HDR / CSM / chain from the scene's renderSettings;
+		// HDR mode always tonemaps.
+		if (Scene::Active && Scene::Active->GetRenderSettings())
+			ApplyRenderSettings(*Scene::Active->GetRenderSettings());
+		if (IsHDRMode())
+			EnsureTonemapInChain();
+
 		// Drop last-frame's per-light shadow map cache. The map is
 		// populated by Draw{Dir,Point,Spot,Cascaded}LightShadowMap
 		// during the per-pass draw loop below and read by the editor's
@@ -104,6 +116,14 @@ namespace fury
 
 		Texture::Ptr finalBuffer = nullptr;
 		unsigned int passCount = m_SortedPasses.size();
+
+		// The chain replaces the LAST quad pass (the screen write)
+		// but keeps intermediate quad passes (e.g. pass_combine)
+		// running so their outputs stay readable.
+		const bool chainReplacesFinal =
+			!m_ActiveChain.empty() &&
+			(!IsHDRMode() || HasHDRComposite());
+
 		for (unsigned int i = 0; i < passCount; i++)
 		{
 			auto passName = m_SortedPasses[i];
@@ -116,8 +136,19 @@ namespace fury
 			if (m_CurrentCamera == nullptr)
 				continue;
 
-			// enable gamma correction on last pass
-			if (i == passCount - 1)
+			// Skip only the last quad pass (the screen write);
+			// earlier quad passes must still produce their outputs
+			// for the chain to read.
+			bool isLastQuadPass = (chainReplacesFinal &&
+				drawMode == DrawMode::QUAD &&
+				i == passCount - 1);
+			if (isLastQuadPass)
+				continue;
+
+			// enable gamma correction on last pass (legacy path;
+			// the chain encodes itself)
+			bool isFinalLegacyPass = !chainReplacesFinal && (i == passCount - 1);
+			if (isFinalLegacyPass)
 				glEnable(GL_FRAMEBUFFER_SRGB);
 
 			if (drawMode == DrawMode::OPAQUE)
@@ -157,7 +188,7 @@ namespace fury
 
 			pass->UnBind();
 
-			if (i == passCount - 1)
+			if (isFinalLegacyPass)
 				glDisable(GL_FRAMEBUFFER_SRGB);
 
 			if (m_CurrentShader != nullptr)
@@ -167,6 +198,14 @@ namespace fury
 			m_CurrentMateral = nullptr;
 			m_CurrentMesh = nullptr;
 		}
+
+		// Run the postprocess chain if one is active. The chain's
+		// final write hits the default framebuffer (or the editor's
+		// RenderTarget if set) with sRGB encode baked into the
+		// shader's u_gamma_correct uniform (since the FBOs we bind
+		// are non-sRGB).
+		if (chainReplacesFinal)
+			RunPostProcessChain();
 
 		// draw debug
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
@@ -608,5 +647,169 @@ namespace fury
 
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
+	}
+
+	void PrelightPipeline::RunPostProcessChain()
+	{
+		if (m_ActiveChain.empty()) return;
+		if (m_CurrentCamera == nullptr) return;
+
+		// Chain input: hdr_composite (HDR) or gbuffer_light (LDR).
+		Texture::Ptr sourceTex = nullptr;
+		if (IsHDRMode())
+		{
+			sourceTex = GetTextureByName("hdr_composite");
+			if (!sourceTex) sourceTex = GetTextureByName("hdr_light");
+			if (!sourceTex) sourceTex = GetTextureByName("gbuffer_light");
+		}
+		else
+		{
+			sourceTex = GetTextureByName("gbuffer_light");
+			if (!sourceTex) sourceTex = GetTextureByName("hdr_light");
+		}
+		if (!sourceTex)
+		{
+			FURYW << "RunPostProcessChain: no lighting output texture "
+					 "found (gbuffer_light/hdr_composite) — chain skipped";
+			return;
+		}
+
+		// Ping-pong texture dims match the source. Chain effects
+		// produce a same-size intermediate.
+		const int W = sourceTex->GetWidth() > 0 ? sourceTex->GetWidth() : 1280;
+		const int H = sourceTex->GetHeight() > 0 ? sourceTex->GetHeight() : 720;
+		const TextureFormat fmt = sourceTex->GetFormat();
+
+		// Ping-pong via the temp pool: fresh temp per intermediate
+		// step, each read texture released after its consuming draw —
+		// read and write never alias, nothing leaks.
+		Texture::Ptr readTex = sourceTex;
+
+		auto quad = MeshUtil::GetUnitQuad();
+		const bool toRT = (m_RenderTarget != nullptr && m_RenderTarget->IsAllocated());
+
+		// A throwaway Pass we configure once to host each temp
+		// texture as an FBO color attachment. Pass owns the FBO +
+		// viewport wiring so we don't have to repeat the GL calls
+		// per effect.
+		auto chainPass = Pass::Create("ChainFBO");
+		chainPass->SetBlendMode(BlendMode::REPLACE);
+		chainPass->SetClearMode(ClearMode::COLOR);
+		chainPass->SetClearColor(Color(0, 0, 0, 1));
+
+		// Final-write target: editor offscreen RT or default FB. We
+		// bind one of these manually as the FBO color attachment
+		// for the last effect.
+		GLint prev_fbo = 0;
+		GLint prev_vp[4] = {0, 0, 0, 0};
+		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
+		glGetIntegerv(GL_VIEWPORT, prev_vp);
+
+		auto bindScreenFBO = [&]()
+		{
+			if (toRT)
+			{
+				glBindFramebuffer(GL_FRAMEBUFFER, m_RenderTarget->GetFBO());
+				glViewport(0, 0, m_RenderTarget->GetWidth(), m_RenderTarget->GetHeight());
+			}
+			else
+			{
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glViewport(0, 0, W, H);
+			}
+		};
+
+		for (size_t i = 0; i < m_ActiveChain.size(); ++i)
+		{
+			auto &effect = m_ActiveChain[i];
+			if (!effect) continue;
+			const bool isLast = (i + 1 == m_ActiveChain.size());
+
+			// Compile the effect shader on first use (cached by path+defines).
+			auto shader = GetShaderByName(effect->GetShaderPath());
+			if (!shader)
+			{
+				shader = Shader::Create(effect->GetShaderPath(), ShaderType::OTHER);
+				for (const auto &d : effect->GetShaderDefines())
+					shader->AddDefine(d);
+				if (!shader->LoadAndCompile(effect->GetShaderPath()))
+				{
+					FURYE << "RunPostProcessChain: failed to compile effect '"
+						  << effect->GetName() << "' (" << effect->GetShaderPath() << ")";
+					continue;
+				}
+				m_EntityManager->Add(shader);
+			}
+
+			// Final write goes to the screen/RT directly; earlier
+			// steps write into a freshly-acquired temp via chainPass.
+			int writeW, writeH;
+			Texture::Ptr writeTex = nullptr;
+			if (isLast)
+			{
+				bindScreenFBO();
+				writeW = toRT ? m_RenderTarget->GetWidth() : W;
+				writeH = toRT ? m_RenderTarget->GetHeight() : H;
+			}
+			else
+			{
+				writeTex = Texture::GetTemporary(W, H, 0, fmt, TextureType::TEXTURE_2D);
+				chainPass->RemoveAllTextures();
+				chainPass->AddTexture(writeTex, false);
+				chainPass->Bind(false);
+				writeW = W;
+				writeH = H;
+			}
+
+			shader->Bind();
+			shader->BindMesh(quad);
+			shader->BindCamera(m_CurrentCamera);
+
+			// u_rt_size: pixels (FXAA + CRT need it for fwidth /
+			// scanline frequency).
+			shader->BindFloat("u_rt_size", (float)writeW, (float)writeH);
+
+			// Only the chain's final effect sRGB-encodes;
+			// intermediates stay linear.
+			shader->BindInt("u_gamma_correct", isLast ? 1 : 0);
+
+			// Bind the running texture to every declared input sampler.
+			for (const auto &inputName : effect->GetInputs())
+				shader->BindTexture(inputName, readTex);
+
+			// Apply the effect's declared default uniforms. The
+			// editor can override these per-instance; here we
+			// use the JSON-declared values.
+			for (const auto &kv : effect->GetUniforms())
+			{
+				auto &u = kv.second;
+				if (!u) continue;
+				u->Bind(shader->GetProgram(), kv.first);
+			}
+
+			glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+			shader->UnBind();
+
+			RenderUtil::Instance()->IncreaseDrawCall();
+			RenderUtil::Instance()->IncreaseTriangleCount(quad->Indices.Data.size());
+
+			if (!isLast)
+				chainPass->UnBind();
+
+			// Release the previous read texture if it was a temp
+			// (sourceTex is owned by the pipeline entity manager;
+			// don't release it). On the final step writeTex is
+			// nullptr, so readTex becomes null and nothing dangles.
+			if (readTex != sourceTex)
+				Texture::ReleaseTemporary(readTex);
+
+			readTex = writeTex;
+		}
+
+		// Restore default FB + viewport so subsequent draws (editor
+		// debug overlay, GUI) render against the original target.
+		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
+		glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
 	}
 }

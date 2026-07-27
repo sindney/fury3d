@@ -55,7 +55,15 @@ namespace fury
 			// Weld + dedup coincident vertices on import.
 			bool optimize_mesh;
 
-			Options() : anim_ticks_per_second(24.0f), normal_gen(NormalGen::Smooth), optimize_mesh(true) {}
+			// When true, PBR fields (metallic, roughness, normal,
+			// occlusion) are mapped onto the engine's PBR material
+			// slots instead of being discarded. Default false to
+			// keep existing scenes untouched — callers that target
+			// the HDR pipeline set this from
+			// Pipeline::IsHDRMode() at import time.
+			bool hdr_target;
+
+			Options() : anim_ticks_per_second(24.0f), normal_gen(NormalGen::Smooth), optimize_mesh(true), hdr_target(false) {}
 		};
 
 		// Returns nullptr on any error (file not found, parse failure,

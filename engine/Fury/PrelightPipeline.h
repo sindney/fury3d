@@ -47,6 +47,11 @@ namespace fury
 		void DrawSpotLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
 		void DrawQuad(const std::shared_ptr<Pass> &pass);
+
+		// Run the active postprocess chain after the pass loop; the
+		// final effect writes to the default FB / editor RenderTarget
+		// with sRGB encode.
+		void RunPostProcessChain();
 	};
 }
 

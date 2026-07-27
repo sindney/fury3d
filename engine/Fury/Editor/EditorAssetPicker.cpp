@@ -4,6 +4,8 @@
 #include "Fury/EntityManager.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/PostProcessEffect.h"
+#include "Fury/PostProcessRegistry.h"
 #include "Fury/Scene.h"
 #include "Fury/Texture.h"
 #include "ImGui/imgui.h"
@@ -93,6 +95,19 @@ void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
 	}
 }
 
+// Postprocess effects live in the process-global registry (not the
+// active scene's EntityManager — see PostProcessRegistry::LoadFromDirectory),
+// so the picker can't reuse the em->ForEach path. Iterate the registry
+// directly and surface them through the same std::shared_ptr<void> shape
+// the picker expects.
+void CollectPostProcessEffects(std::vector<PickerEntry>& out) {
+	for (auto &effect : PostProcessRegistry::GetAll()) {
+		if (!effect) continue;
+		out.push_back({effect->GetName(),
+					   std::static_pointer_cast<void>(effect)});
+	}
+}
+
 void CollectByType(std::type_index type,
 				   std::vector<PickerEntry>& out) {
 	if (type == typeid(Mesh))
@@ -103,6 +118,8 @@ void CollectByType(std::type_index type,
 		CollectTextures(out);
 	else if (type == typeid(AnimationClip))
 		CollectAnimationClipsIntoEntries(out);
+	else if (type == typeid(PostProcessEffect))
+		CollectPostProcessEffects(out);
 	// Unknown type: leave out empty — the OK button stays
 	// disabled and the user can only Cancel.
 }

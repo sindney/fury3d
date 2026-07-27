@@ -32,6 +32,7 @@ compile_commands.json
 # CWD-resolved Resource/ tree sits next to it. Runtime artifacts:
 /examples/Log.txt
 /examples/fury
+/examples/furye
 /examples/FBX2glTF-darwin-x64
 /examples/FBX2glTF-windows-x64.exe
 /examples/FBX2glTF-linux-x64
@@ -40,6 +41,13 @@ compile_commands.json
 /examples/libfury.so
 /examples/libfury.a
 /examples/*.pdb
+
+# Editor thumbnail cache (regenerated on demand)
+/examples/Resource/.thumbcache/
+
+# Out-of-tree build dirs beyond the ones listed above
+/build-debug/
+/Log.txt
 
 # Editor / IDE
 *.sublime-project

@@ -46,8 +46,13 @@ uniform float light_outterangle;
 
 // linear depth
 uniform sampler2D gbuffer_depth;
-// normal, shniness
+// normal (view space *0.5+0.5); PBR: roughness in alpha
 uniform sampler2D gbuffer_normal;
+
+#ifdef PBR
+// albedo rgb, metallic in alpha (see SunLight.glsl PBR block).
+uniform sampler2D gbuffer_diffuse;
+#endif
 
 #ifdef SHADOW
 uniform mat4 shadow_matrix;
@@ -93,15 +98,81 @@ vec4 apply_lighting(const in vec3 normal, const in vec3 surface_pos)
 	);
 }
 
+#ifdef PBR
+// Normalized Blinn-Phong BRDF — see SunLight.glsl for the
+// normalization / unit-parity rationale. Shares the cone-attenuation
+// shape with apply_lighting above.
+vec4 apply_lighting_pbr(const in vec3 normal, const in vec3 surface_pos,
+	const in vec3 albedo, const in float metallic, const in float roughness)
+{
+	float halfInner = light_innerangle * 0.5f;
+	float halfOutter = light_outterangle * 0.5f;
+
+	vec3 vs_light_pos = (invert_view_matrix * vec4(light_pos, 1)).xyz;
+
+	vec3 L = vs_light_pos - surface_pos;
+
+	float dist = length(L);
+	float attenuation = pow(max(0.0, 1.0 - dist / light_radius), light_falloff + 1.0);
+
+	L = normalize(L);
+
+	float theta = acos(dot(vs_dir, L));
+
+	if(theta < halfInner)
+		attenuation *= 1;
+	else if(theta < halfOutter)
+		attenuation *= (halfOutter - theta) / (halfOutter - halfInner);
+	else
+		attenuation = 0;
+
+	vec3 N = normalize(normal);
+	vec3 V = normalize(-surface_pos); // view space: camera at origin
+
+	float NdotL = max(0.0, dot(N, L));
+
+	float r4 = roughness * roughness;
+	r4 *= r4;
+	float n = clamp(2.0 / max(r4, 1e-4) - 2.0, 2.0, 8192.0);
+
+	vec3 F0 = mix(vec3(0.04), albedo, metallic);
+	vec3 H = normalize(L + V);
+	float NdotH = max(0.0, dot(N, H));
+	vec3 spec = F0 * ((n + 8.0) / 8.0) * pow(NdotH, n);
+
+	vec3 diffuse = albedo * (1.0 - metallic);
+
+	return vec4(
+		light_color * NdotL * attenuation * light_intensity * (diffuse + spec), 1.0
+	);
+}
+#endif
+
 void main()
 {
 	vec2 screenUV = (ss_pos.xy / ss_pos.w) * 0.5 + 0.5;
+
+#ifdef PBR
+	// Sky mask — see SunLight.glsl.
+	if (texture(gbuffer_depth, screenUV).r >= 1.0)
+	{
+		fragment_output = vec4(0.0);
+		return;
+	}
+#endif
+
 	vec3 vs_surface_pos = pos_from_depth(screenUV);
 
 	vec4 raw_normal = texture(gbuffer_normal, screenUV);
 	vec3 vs_normal = raw_normal.xyz * 2.0 - 1.0;
 
+#ifdef PBR
+	vec4 diffuse = texture(gbuffer_diffuse, screenUV);
+	fragment_output = apply_lighting_pbr(vs_normal, vs_surface_pos,
+		diffuse.rgb, diffuse.a, raw_normal.a);
+#else
 	fragment_output = apply_lighting(vs_normal, vs_surface_pos);
+#endif
 
 #ifdef SHADOW
 	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);

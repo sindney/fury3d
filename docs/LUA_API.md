@@ -13,7 +13,7 @@ Source: `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.
 
 ## `Vector4` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:110`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:114`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -24,7 +24,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Quaternion` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:138`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:142`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -32,13 +32,13 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `MathUtil` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:150`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:154`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:150 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:154 -->
 
 ## `SceneManager` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:169`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:173`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -46,25 +46,25 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Serializable` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:174`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:178`._
 
 _No members registered._
 
 ## `Entity` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:178`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:182`._
 
 _No members registered._
 
 ## `OcTree` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:189`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:193`._
 
 _No members registered._
 
 ## `Scene` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:208`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:212`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -72,25 +72,26 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 | `GetRootNode` | function | GetRootNode |
 | `GetSceneManager` | function | GetSceneManager |
 | `GetEntityManager` | function | GetEntityManager |
+| `GetRenderSettings` | function | GetRenderSettings |
 | `GetWorkingDir` | function | GetWorkingDir |
 | `SetWorkingDir` | function | SetWorkingDir |
 | `ComputeWorldAABB` | lambda | lua-side |
 
 ## `Component` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:390`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:401`._
 
 _No members registered._
 
 ## `Transform` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:395`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:406`._
 
 _No members registered._
 
 ## `Camera` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:403`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:414`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -104,19 +105,19 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Color` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:415`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:426`._
 
 _No members registered._
 
 ## `LightType` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:422`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:433`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:422 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:433 -->
 
 ## `Light` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:427`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:438`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -134,7 +135,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `MeshRender` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:447`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:458`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -148,7 +149,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `BoxBounds` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:463`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:474`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -162,19 +163,19 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `WrapMode` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:478`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:489`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:478 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:489 -->
 
 ## `PlayMode` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:485`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:496`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:485 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:496 -->
 
 ## `AnimationClip` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:490`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:501`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -194,7 +195,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `AnimationState` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:514`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:525`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -218,7 +219,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Joint` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:535`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:546`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -232,7 +233,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Animator` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:547`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:558`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -252,13 +253,13 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `AnimationUtil` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:580`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:591`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:580 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:591 -->
 
 ## `SceneNode` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:595`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:606`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -273,7 +274,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Pipeline` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:679`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:690`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -283,51 +284,85 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `PrelightPipeline` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:708`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:719`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
 | `Create` | function | Create |
 
+## `PostProcessEffect` (usertype)
+
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:740`._
+
+| Member | Kind | Signature hint |
+|--------|------|----------------|
+| `GetName` | function | GetName |
+| `GetShaderPath` | function | GetShaderPath |
+
+## `RenderSettings` (usertype)
+
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:751`._
+
+| Member | Kind | Signature hint |
+|--------|------|----------------|
+| `GetPipelinePath` | function | GetPipelinePath |
+| `SetPipelinePath` | function | SetPipelinePath |
+| `IsHDR` | function | IsHDR |
+| `SetHDR` | function | SetHDR |
+| `IsCascadedShadowMap` | function | IsCascadedShadowMap |
+| `SetCascadedShadowMap` | function | SetCascadedShadowMap |
+| `GetChain` | lambda | lua-side |
+| `ClearChain` | function | ClearChain |
+| `AddEffect` | lambda | lua-side |
+| `RemoveEffect` | function | RemoveEffect |
+| `MoveEffect` | function | MoveEffect |
+| `SetEffectEnabled` | function | SetEffectEnabled |
+
+## `PostProcess` (namespace table)
+
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:787`._
+
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:787 -->
+
 ## `FileUtil` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:714`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:808`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:714 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:808 -->
 
 ## `Importer` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:790`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:884`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:790 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:884 -->
 
 ## `Gui` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:965`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1064`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:965 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1064 -->
 
 ## `Window` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1006`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1105`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1006 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1105 -->
 
 ## `Editor` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1014`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1113`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1014 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1113 -->
 
 ## `RenderUtil` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1389`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1488`._
 
 _No members registered._
 
 ## `InputUtil` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1397`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1496`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -339,25 +374,25 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Key` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1425`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1524`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1425 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1524 -->
 
 ## `MouseButton` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1478`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1577`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1478 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1577 -->
 
 ## `Engine` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1490`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1589`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1490 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1589 -->
 
 ## `Mesh` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1554`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1653`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -374,7 +409,7 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `Material` (usertype)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1702`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1801`._
 
 | Member | Kind | Signature hint |
 |--------|------|----------------|
@@ -390,12 +425,12 @@ _Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBi
 
 ## `MeshUtil` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1801`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1900`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1801 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1900 -->
 
 ## `MeshSimplifier` (namespace table)
 
-_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1851`._
+_Registered at `/Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1950`._
 
-<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1851 -->
+<!-- docgen: unable to introspect, see /Users/sindney/Documents/git/furyengine/fury3d/engine/Fury/LuaBindings.cpp:1950 -->

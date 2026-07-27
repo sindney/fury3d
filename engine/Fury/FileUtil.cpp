@@ -571,6 +571,22 @@ bool FileUtil::SaveByExtension(const std::shared_ptr<Serializable>& source, cons
 	}
 }
 
+bool FileUtil::LoadByExtension(const std::shared_ptr<Serializable>& source, const std::string& filePath) {
+	std::filesystem::path p(filePath);
+	std::string ext = p.extension().string();
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+				   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (ext == ".json") {
+		return LoadFile(source, filePath);
+	} else if (ext == ".bin") {
+		return LoadCompressedFile(source, filePath);
+	} else {
+		FURYE << "FileUtil::LoadByExtension: unsupported extension '" << ext
+			  << "' (expected .json or .bin) for path " << filePath;
+		return false;
+	}
+}
+
 bool FileUtil::DeserializeFromString(const std::shared_ptr<Serializable>& target, const std::string& json) {
 	using namespace rapidjson;
 	Document dom;
