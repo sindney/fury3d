@@ -1,0 +1,51 @@
+{
+    "name": "SSAO",
+    "description": "Screen-space ambient occlusion (pre-tonemap, linear scene). Reads gbuffer depth/normals. Distances are WORLD units (1 unit = 1 cm).",
+    "shader": "Resource/Shader/PostProcess/SSAO.glsl",
+    "inputs": [
+        "$scene",
+        "$gbuffer_depth",
+        "$gbuffer_normal"
+    ],
+    "output_format": "rgba16f",
+    "stage": "pre_tonemap",
+    "order": 10,
+    "uniforms": [
+        {
+            "name": "u_radius",
+            "value": [
+                30.0
+            ],
+            "tip": "Sample radius in WORLD units. ~0.02 for a 16 cm vase, ~30 for meter-scale scenes.",
+            "min": 0.01,
+            "max": 100.0
+        },
+        {
+            "name": "u_strength",
+            "value": [
+                1.0
+            ],
+            "tip": "Occlusion multiplier.",
+            "min": 0.0,
+            "max": 3.0
+        },
+        {
+            "name": "u_power",
+            "value": [
+                1.0
+            ],
+            "tip": "Contrast exponent on the AO term.",
+            "min": 0.2,
+            "max": 4.0
+        },
+        {
+            "name": "u_bias",
+            "value": [
+                1.0
+            ],
+            "tip": "Depth bias in WORLD units; raise to kill self-shadowing acne (~5% of radius).",
+            "min": 0.001,
+            "max": 10.0
+        }
+    ]
+}

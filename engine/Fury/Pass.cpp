@@ -90,6 +90,12 @@ namespace fury
 		}
 		SetDrawMode(EnumUtil::DrawModeFromString(str));
 
+		bool depthWrite = true;
+		if (LoadMemberValue(wrapper, "depth_write", depthWrite))
+			SetDepthWrite(depthWrite);
+		else
+			SetDepthWrite(true);
+
 		if (!LoadMemberValue(wrapper, "index", (int&)m_RenderIndex))
 		{
 			FURYE << "Pass param 'index' not found!";
@@ -213,6 +219,9 @@ namespace fury
 		SaveKey(wrapper, "drawMode");
 		SaveValue(wrapper, EnumUtil::DrawModeToString(m_DrawMode));
 
+		SaveKey(wrapper, "depth_write");
+		SaveValue(wrapper, m_DepthWrite);
+
 		if (object)
 			EndObject(wrapper);
 	}
@@ -285,6 +294,16 @@ namespace fury
 	DrawMode Pass::GetDrawMode() const
 	{
 		return m_DrawMode;
+	}
+
+	void Pass::SetDepthWrite(bool value)
+	{
+		m_DepthWrite = value;
+	}
+
+	bool Pass::GetDepthWrite() const
+	{
+		return m_DepthWrite;
 	}
 
 	void Pass::SetArrayTextureLayer(const std::string &name, int index)
@@ -678,6 +697,7 @@ namespace fury
 
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(EnumUtil::CompareModeToUint(m_CompareMode));
+		glDepthMask(m_DepthWrite ? GL_TRUE : GL_FALSE);
 
 		if (m_BlendMode != BlendMode::REPLACE)
 		{
@@ -705,6 +725,18 @@ namespace fury
 	void Pass::UnBind()
 	{
 		m_Binded = false;
+
+		// Restore engine defaults for everything Bind() declares so
+		// state never leaks into unrelated draws (a leaked
+		// GL_BLEND+ONE/ONE once made the postprocess chain
+		// accumulate into the editor RT every frame). Depth test
+		// stays enabled — Bind() always enables it and most
+		// free-standing draws assume that.
+		glDepthMask(GL_TRUE);
+		glDepthFunc(GL_LESS);
+		glDisable(GL_BLEND);
+		glDisable(GL_CULL_FACE);
+
 		for (auto texture : m_OutputTextures)
 		{
 			if (texture->GetMipmap())

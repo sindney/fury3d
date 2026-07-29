@@ -58,14 +58,20 @@ uniform sampler2D diffuse_texture;
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 
+// transparency + alpha_test cutoff gate discard: `transparency` is the per-material see-through fraction (1.0 = fully see-through ALPHA_TEST on translucent mask), `u_alpha_cutoff` is the threshold.
+uniform float transparency = 0.0;
+#ifdef ALPHA_TEST
+uniform float u_alpha_cutoff = 0.5;
+#endif
+
 #ifdef PBR
 // Metallic-roughness material slots (Material::METALLIC_FACTOR /
 // ROUGHNESS_FACTOR), bound by name via Shader::BindMaterial.
 // roughness_factor < 0 = slot absent (legacy FBX / Lambert material)
 // → derive perceptual roughness from the legacy `shininess` slot.
-// The mapping is the exact inverse of the light-side conversion
-// n = 2/r^4 - 2 (see SunLight.glsl PBR block), so a legacy
-// Blinn-Phong exponent round-trips unchanged.
+// The mapping r = (2/(n+2))^0.25 was tuned against the old
+// Blinn-Phong light-side exponent; with the GGX light shaders it
+// lands on a visually close roughness (no longer an exact inverse).
 uniform float metallic_factor = 0.0;
 uniform float roughness_factor = -1.0;
 uniform float shininess = 32.0;
@@ -84,9 +90,15 @@ layout (location = 1) out vec4 rt1;
 
 void main()
 {
+	vec4 texel = texture(diffuse_texture, out_uv);
+#ifdef ALPHA_TEST
+	if (texel.a * (1.0 - transparency) < u_alpha_cutoff)
+		discard;
+#endif
+
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
 
-	vec3 finalDiffuse = texture(diffuse_texture, out_uv).rgb * diffuse_factor + ambient_color * ambient_factor;
+	vec3 finalDiffuse = texel.rgb * diffuse_factor + ambient_color * ambient_factor;
 #ifdef WITH_EDITOR
 	if (lod_debug_color.a > 0.0)
 		finalDiffuse *= lod_debug_color.rgb;

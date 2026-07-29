@@ -1,171 +1,353 @@
 {
-    "name": "deffered_lighting_pipeline", 
-    "shaders": [
-        {
-            "name": "gbuffer_shader",
-            "path": "Resource/Shader/Lambert/Gbuffer.glsl",
-            "type": "static_mesh", 
-            "textures" : ["diffuse"], 
-            "defines": ["STATIC_MESH"]
-        },
-        {
-            "name": "gbuffer_notexture_shader",
-            "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
-            "type": "static_mesh", 
-            "textures" : ["color_only"], 
-            "defines": ["STATIC_MESH"]
-        },
-        {
-            "name": "gbuffer_skin_shader",
-            "path": "Resource/Shader/Lambert/Gbuffer.glsl",
-            "type": "skinned_mesh", 
-            "textures" : ["diffuse"], 
-            "defines": ["SKINNED_MESH"]
-        },
-        {
-            "name": "gbuffer_notexture_skin_shader",
-            "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
-            "type": "skinned_mesh", 
-            "textures" : ["color_only"], 
-            "defines": ["SKINNED_MESH"]
-        },
-        {
-            "name": "pointlight_shader", 
-            "path": "Resource/Shader/Lambert/PointLight.glsl"
-        },
-        {
-            "name": "dirlight_shader",
-            "path": "Resource/Shader/Lambert/SunLight.glsl"
-        },
-        {
-            "name": "spotlight_shader",
-            "path": "Resource/Shader/Lambert/SpotLight.glsl"
-        },
-        {
-            "name": "pointlight_shadow_shader", 
-            "path": "Resource/Shader/Lambert/PointLight.glsl", 
-            "defines": ["SHADOW"]
-        },
-        {
-            "name": "dirlight_shadow_shader",
-            "path": "Resource/Shader/Lambert/SunLight.glsl",
-            "defines": ["SHADOW"]
-        },
-        {
-            "name": "spotlight_shadow_shader",
-            "path": "Resource/Shader/Lambert/SpotLight.glsl",
-            "defines": ["SHADOW"]
-        },
-        {
-            "name": "dirlight_csm_shader",
-            "path": "Resource/Shader/Lambert/SunLight.glsl",
-            "defines": ["CSM"]
-        },
-        {
-            "name": "lambert_shader",
-            "path": "Resource/Shader/Lambert/Lambert.glsl"
-        },
-        {
-            "name": "depth_shader",
-            "path": "Resource/Shader/DrawDepth.glsl"
-        },
-        {
-            "name": "leagcy_depth_shader",
-            "path": "Resource/Shader/DrawDepthLeagcy.glsl"
-        },
-        {
-            "name": "leagcy_depth_skin_shader",
-            "path": "Resource/Shader/DrawDepthLeagcy.glsl",
-            "type": "skinned_mesh",
-            "defines": ["SKINNED_MESH"]
-        },
-        {
-            "name": "cube_depth_shader",
-            "path": "Resource/Shader/DrawDepthCube.glsl"
-        },
-        {
-            "name": "cube_depth_skin_shader",
-            "path": "Resource/Shader/DrawDepthCube.glsl",
-            "type": "skinned_mesh",
-            "defines": ["SKINNED_MESH"]
-        }
-    ],
-    "textures": [
-        {
-            "name": "gbuffer_depth",
-            "format": "depth24",
-            "width": 1280,
-            "height": 720
-        },
-        {
-            "name": "gbuffer_normal",
-            "format": "rgba16",
-            "width": 1280,
-            "height": 720
-        },
-        {
-            "name": "gbuffer_diffuse",
-            "format": "rgba8",
-            "width": 1280,
-            "height": 720
-        },
-        {
-            "name": "gbuffer_light",
-            "format": "rgba8",
-            "width": 1280,
-            "height": 720
-        }
-    ],
-    "passes": [
-        {
-            "name": "pass_gbuffer",
-            "camera": "camNode",
-            "shaders": [
-                "gbuffer_shader", 
-                "gbuffer_notexture_shader", 
-                "gbuffer_skin_shader", 
-                "gbuffer_notexture_skin_shader"
-            ],
-            "index": 0,
-            "input": [],
-            "output": [
-                "gbuffer_depth",
-                "gbuffer_normal",
-                "gbuffer_diffuse"
-            ],
-            "blendMode": "replace",
-            "drawMode": "opaque"
-        },
-        {
-            "name": "pass_light",
-            "camera": "camNode",
-            "index": 1,
-            "input": [
-                "gbuffer_depth",
-                "gbuffer_normal"
-            ],
-            "output": [
-                "gbuffer_light"
-            ],
-            "blendMode": "add",
-            "clearMode": "color",
-            "clearColor": [0.01, 0.01, 0.01, 1.0],
-            "drawMode": "light"
-        },
-        {
-            "name": "pass_final",
-            "camera": "camNode",
-            "shaders": [
-                "lambert_shader"
-            ],
-            "index": 2,
-            "input": [
-                "gbuffer_light",
-                "gbuffer_diffuse"
-            ],
-            "output": [],
-            "blendMode": "replace",
-            "drawMode": "quad"
-        }
-    ]
+  "name": "deffered_lighting_pipeline",
+  "shaders": [
+    {
+      "name": "gbuffer_shader",
+      "path": "Resource/Shader/Lambert/Gbuffer.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "diffuse"
+      ],
+      "defines": [
+        "STATIC_MESH"
+      ]
+    },
+    {
+      "name": "gbuffer_notexture_shader",
+      "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "color_only"
+      ],
+      "defines": [
+        "STATIC_MESH"
+      ]
+    },
+    {
+      "name": "gbuffer_skin_shader",
+      "path": "Resource/Shader/Lambert/Gbuffer.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "diffuse"
+      ],
+      "defines": [
+        "SKINNED_MESH"
+      ]
+    },
+    {
+      "name": "gbuffer_notexture_skin_shader",
+      "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "color_only"
+      ],
+      "defines": [
+        "SKINNED_MESH"
+      ]
+    },
+    {
+      "name": "pointlight_shader",
+      "path": "Resource/Shader/Lambert/PointLight.glsl"
+    },
+    {
+      "name": "dirlight_shader",
+      "path": "Resource/Shader/Lambert/SunLight.glsl"
+    },
+    {
+      "name": "spotlight_shader",
+      "path": "Resource/Shader/Lambert/SpotLight.glsl"
+    },
+    {
+      "name": "pointlight_shadow_shader",
+      "path": "Resource/Shader/Lambert/PointLight.glsl",
+      "defines": [
+        "SHADOW"
+      ]
+    },
+    {
+      "name": "dirlight_shadow_shader",
+      "path": "Resource/Shader/Lambert/SunLight.glsl",
+      "defines": [
+        "SHADOW"
+      ]
+    },
+    {
+      "name": "spotlight_shadow_shader",
+      "path": "Resource/Shader/Lambert/SpotLight.glsl",
+      "defines": [
+        "SHADOW"
+      ]
+    },
+    {
+      "name": "dirlight_csm_shader",
+      "path": "Resource/Shader/Lambert/SunLight.glsl",
+      "defines": [
+        "CSM"
+      ]
+    },
+    {
+      "name": "lambert_shader",
+      "path": "Resource/Shader/Lambert/Lambert.glsl"
+    },
+    {
+      "name": "depth_shader",
+      "path": "Resource/Shader/DrawDepth.glsl"
+    },
+    {
+      "name": "leagcy_depth_shader",
+      "path": "Resource/Shader/DrawDepthLeagcy.glsl"
+    },
+    {
+      "name": "leagcy_depth_skin_shader",
+      "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+      "type": "skinned_mesh",
+      "defines": [
+        "SKINNED_MESH"
+      ]
+    },
+    {
+      "name": "cube_depth_shader",
+      "path": "Resource/Shader/DrawDepthCube.glsl"
+    },
+    {
+      "name": "cube_depth_skin_shader",
+      "path": "Resource/Shader/DrawDepthCube.glsl",
+      "type": "skinned_mesh",
+      "defines": [
+        "SKINNED_MESH"
+      ]
+    },
+    {
+      "name": "forward_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "diffuse"
+      ],
+      "defines": [
+        "STATIC_MESH"
+      ]
+    },
+    {
+      "name": "forward_notexture_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "color_only"
+      ],
+      "defines": [
+        "STATIC_MESH",
+        "COLOR_ONLY"
+      ]
+    },
+    {
+      "name": "forward_skin_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "diffuse"
+      ],
+      "defines": [
+        "SKINNED_MESH"
+      ]
+    },
+    {
+      "name": "forward_notexture_skin_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "color_only"
+      ],
+      "defines": [
+        "SKINNED_MESH",
+        "COLOR_ONLY"
+      ]
+    },
+    {
+      "name": "ldr_final_shader",
+      "path": "Resource/Shader/Lambert/LdrFinal.glsl"
+    },
+    {
+      "name": "gbuffer_shader_mask",
+      "path": "Resource/Shader/Lambert/GBuffer.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "diffuse",
+        "alpha_test"
+      ],
+      "defines": [
+        "STATIC_MESH",
+        "ALPHA_TEST"
+      ]
+    },
+    {
+      "name": "gbuffer_notexture_shader_mask",
+      "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "color_only",
+        "alpha_test"
+      ],
+      "defines": [
+        "STATIC_MESH",
+        "ALPHA_TEST"
+      ]
+    },
+    {
+      "name": "gbuffer_skin_shader_mask",
+      "path": "Resource/Shader/Lambert/GBuffer.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "diffuse",
+        "alpha_test"
+      ],
+      "defines": [
+        "SKINNED_MESH",
+        "ALPHA_TEST"
+      ]
+    },
+    {
+      "name": "gbuffer_notexture_skin_shader_mask",
+      "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "color_only",
+        "alpha_test"
+      ],
+      "defines": [
+        "SKINNED_MESH",
+        "ALPHA_TEST"
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "name": "gbuffer_depth",
+      "format": "depth24",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "name": "gbuffer_normal",
+      "format": "rgba16",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "name": "gbuffer_diffuse",
+      "format": "rgba8",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "name": "gbuffer_light",
+      "format": "rgba8",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "name": "ldr_composite",
+      "format": "rgba8",
+      "width": 1280,
+      "height": 720
+    }
+  ],
+  "passes": [
+    {
+      "name": "pass_gbuffer",
+      "camera": "camNode",
+      "shaders": [
+        "gbuffer_shader",
+        "gbuffer_notexture_shader",
+        "gbuffer_skin_shader",
+        "gbuffer_notexture_skin_shader",
+        "gbuffer_shader_mask",
+        "gbuffer_notexture_shader_mask",
+        "gbuffer_skin_shader_mask",
+        "gbuffer_notexture_skin_shader_mask"
+      ],
+      "index": 0,
+      "input": [],
+      "output": [
+        "gbuffer_depth",
+        "gbuffer_normal",
+        "gbuffer_diffuse"
+      ],
+      "blendMode": "replace",
+      "drawMode": "opaque"
+    },
+    {
+      "name": "pass_light",
+      "camera": "camNode",
+      "index": 1,
+      "input": [
+        "gbuffer_depth",
+        "gbuffer_normal"
+      ],
+      "output": [
+        "gbuffer_light"
+      ],
+      "blendMode": "add",
+      "clearMode": "color",
+      "clearColor": [
+        0.01,
+        0.01,
+        0.01,
+        1.0
+      ],
+      "drawMode": "light"
+    },
+    {
+      "name": "pass_combine",
+      "camera": "camNode",
+      "shaders": [
+        "lambert_shader"
+      ],
+      "index": 2,
+      "input": [
+        "gbuffer_light",
+        "gbuffer_diffuse"
+      ],
+      "output": [
+        "ldr_composite"
+      ],
+      "blendMode": "replace",
+      "drawMode": "quad"
+    },
+    {
+      "name": "pass_transparent",
+      "camera": "camNode",
+      "shaders": [
+        "forward_shader",
+        "forward_notexture_shader",
+        "forward_skin_shader",
+        "forward_notexture_skin_shader"
+      ],
+      "index": 3,
+      "input": [],
+      "output": [
+        "gbuffer_depth",
+        "ldr_composite"
+      ],
+      "blendMode": "alpha",
+      "clearMode": "none",
+      "compareMode": "less",
+      "depth_write": false,
+      "drawMode": "transparent"
+    },
+    {
+      "name": "pass_final",
+      "camera": "camNode",
+      "shaders": [
+        "ldr_final_shader"
+      ],
+      "index": 4,
+      "input": [
+        "ldr_composite"
+      ],
+      "output": [],
+      "blendMode": "replace",
+      "drawMode": "quad"
+    }
+  ]
 }

@@ -90,9 +90,16 @@ namespace fury
 			"fury convert — convert an asset to the engine's runtime scene format\n"
 			"\n"
 			"USAGE\n"
-			"  fury convert gltf  <input.gltf|.glb>  <output.json|.bin>\n"
-			"  fury convert fbx   <input.fbx>        <output.gltf|.glb|.json|.bin>\n"
-			"  fury convert scene <input.json|.bin>  <output.json|.bin>\n"
+			"  fury convert gltf  <input.gltf|.glb>  <output.json|.bin> [scale opts]\n"
+			"  fury convert fbx   <input.fbx>        <output.gltf|.glb|.json|.bin> [scale opts]\n"
+			"  fury convert scene <input.json|.bin>  <output.json|.bin> [scale opts]\n"
+			"\n"
+			"SCALE OPTIONS (all kinds; applied to the top-level nodes before save)\n"
+			"  --auto-scale   apply the editor import heuristic: when the scene's\n"
+			"                 largest bounds dimension is under 100 units (1 m),\n"
+			"                 scale up by the smallest power of 100 that reaches it.\n"
+			"  --scale N      multiply every top-level node's local scale by N\n"
+			"                 (explicit; wins over --auto-scale).\n"
 			"\n"
 			"KINDS\n"
 			"  gltf   load a glTF 2.0 file via tinygltf, translate to engine types,\n"
@@ -106,13 +113,12 @@ namespace fury
 			"         on failure of the importer step.\n"
 			"  scene  engine scene -> engine scene (`.bin` <-> `.json`).\n"
 			"\n"
-			"LOSSY MAPPINGS (v1)\n"
-			"  PBR -> Lambert: baseColorFactor -> diffuse_color (rgb) +\n"
-			"    transparency (1 - a); baseColorTexture -> diffuse_texture slot;\n"
-			"    emissiveFactor -> emissive_color. metallicFactor, roughnessFactor,\n"
-			"    metallicRoughnessTexture, normalTexture, occlusionTexture are read\n"
-			"    but discarded with one warning per source material. HDR/PBR\n"
-			"    pipeline is deferred.\n"
+			"MATERIAL / ANIMATION MAPPINGS\n"
+			"  PBR: baseColorFactor -> diffuse_color (rgb) + transparency (1 - a);\n"
+			"    metallicFactor/roughnessFactor -> metallic_factor / roughness_factor\n"
+			"    slots; baseColorTexture -> diffuse slot; emissiveFactor -> emissive.\n"
+			"  alphaMode/alphaCutoff -> material alpha_mode (OPAQUE/MASK/BLEND);\n"
+			"    KHR_materials_transmission -> BLEND with alpha = transmissionFactor.\n"
 			"  Animation time-base: glTF samples (seconds) resampled at 24 fps\n"
 			"    into engine ticks. CUBICSPLINE -> LINEAR with a per-sampler warning.\n"
 			"\n"
@@ -523,6 +529,46 @@ namespace fury
 			return 0;
 		}
 
+		// Largest world-AABB dimension over all MeshRender nodes (0 when
+		// the scene has no finite mesh bounds). Same walk as the
+		// Scene:ComputeWorldAABB Lua binding.
+		static float SceneMaxDim(const Scene::Ptr &scene)
+		{
+			auto root = scene ? scene->GetRootNode() : nullptr;
+			if (!root) return 0.0f;
+			BoxBounds total(true);
+			bool any = false;
+			std::function<void(const SceneNode::Ptr &)> walk =
+				[&](const SceneNode::Ptr &n) {
+					if (!n) return;
+					if (n->GetComponent<MeshRender>())
+					{
+						BoxBounds wb = n->GetWorldAABB();
+						if (!wb.GetInfinite()) { total.Encapsulate(wb); any = true; }
+					}
+					for (unsigned int i = 0; i < n->GetChildCount(); ++i)
+						walk(n->GetChildAt(i));
+				};
+			walk(root);
+			if (!any) return 0.0f;
+			auto ext = total.GetMax() - total.GetMin();
+			return std::max({ ext.x, ext.y, ext.z });
+		}
+
+		// Multiply every top-level node's local scale. Mirrors
+		// Editor.lua's scale_import_roots (the scene root's own
+		// transform stays identity, so the children carry the content).
+		static void ApplyRootScale(const Scene::Ptr &scene, float factor)
+		{
+			auto root = scene->GetRootNode();
+			for (unsigned int i = 0; i < root->GetChildCount(); ++i)
+			{
+				auto c = root->GetChildAt(i);
+				c->SetLocalScale(c->GetLocalScale() * factor);
+				c->Recompose(true);
+			}
+		}
+
 		int DoConvert(int argc, char **argv)
 		{
 			if (argc < 3 || WantsHelp(argv[2]))
@@ -549,6 +595,47 @@ namespace fury
 			const std::string output = argv[4];
 			const std::string in_ext = ToLowerExt(input);
 			const std::string out_ext = ToLowerExt(output);
+
+			// Optional scale pass: --scale N (explicit) or --auto-scale
+			// (editor-import heuristic: smallest power of 100 bringing
+			// the scene's largest bounds dimension to >= 100 units).
+			float explicitScale = 0.0f;
+			bool autoScale = false;
+			for (int i = 5; i < argc; ++i)
+			{
+				if (std::strcmp(argv[i], "--auto-scale") == 0)
+					autoScale = true;
+				else if (std::strcmp(argv[i], "--scale") == 0 && i + 1 < argc)
+					explicitScale = std::strtof(argv[++i], nullptr);
+			}
+			auto applyScaleOptions = [&](const Scene::Ptr &scene)
+			{
+				const float dim = SceneMaxDim(scene);
+				float factor = 0.0f;
+				const char* why = nullptr;
+				if (explicitScale > 0.0f)
+				{
+					factor = explicitScale;
+					why = "--scale";
+				}
+				else if (autoScale && dim > 0.0f && dim < 100.0f)
+				{
+					factor = 100.0f;
+					while (dim * factor < 100.0f) factor *= 100.0f;
+					why = "--auto-scale";
+				}
+				if (factor > 0.0f && factor != 1.0f)
+				{
+					ApplyRootScale(scene, factor);
+					std::cout << "fury convert: applied " << why << " x" << factor
+						<< " (max-dim " << dim << " -> " << dim * factor << " units)\n";
+				}
+				else if (autoScale)
+				{
+					std::cout << "fury convert: --auto-scale not needed"
+						<< " (max-dim " << dim << " units)\n";
+				}
+			};
 
 			// Set the active scene so any Save paths that use Scene::Path
 			// resolve relative resources correctly. Cleared at function exit.
@@ -581,6 +668,7 @@ namespace fury
 					std::cerr << "fury convert scene: failed to load '" << input << "'\n";
 					return 1;
 				}
+				applyScaleOptions(scene);
 				int rc = WriteSceneByExt(scene, output);
 				Scene::Active = nullptr;
 				return rc;
@@ -608,6 +696,7 @@ namespace fury
 					return 1;
 				}
 				Scene::Active = scene;
+				applyScaleOptions(scene);
 				int rc = WriteSceneByExt(scene, output);
 				Scene::Active = nullptr;
 				return rc;
@@ -697,6 +786,7 @@ namespace fury
 				return 1;
 			}
 			Scene::Active = scene;
+			applyScaleOptions(scene);
 			int rc = WriteSceneByExt(scene, output);
 			Scene::Active = nullptr;
 

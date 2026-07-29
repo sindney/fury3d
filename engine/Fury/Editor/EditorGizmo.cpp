@@ -92,6 +92,13 @@ namespace fury
 			Matrix4 proj  = camera->GetProjectionMatrix();
 			Matrix4 world = g_SelectedSceneNode->GetWorldMatrix();
 
+			// NOTE: ImGuizmo interprets the matrix's scale as the
+			// gizmo's screen-space size, so any non-identity scale on
+			// the active scene's root (or any ancestor) shrinks the
+			// gizmo to a 1/N-pixel dot. Keep the root transform at
+			// identity; EditorNodeProperties.cpp locks the root's
+			// Position/Rotation/Scale inputs to enforce this.
+
 			// Snap value: ImGuizmo expects either nullptr or a 3-float
 			// array (x/y/z) regardless of operation; we replicate the
 			// scalar across components. Rotation snap is interpreted

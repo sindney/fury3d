@@ -99,8 +99,8 @@ vec4 apply_lighting(const in vec3 normal, const in vec3 surface_pos)
 }
 
 #ifdef PBR
-// Normalized Blinn-Phong BRDF — see SunLight.glsl for the
-// normalization / unit-parity rationale. Shares the cone-attenuation
+// GGX (Cook-Torrance) BRDF — see SunLight.glsl for the units /
+// normalization rationale. Shares the cone-attenuation
 // shape with apply_lighting above.
 vec4 apply_lighting_pbr(const in vec3 normal, const in vec3 surface_pos,
 	const in vec3 albedo, const in float metallic, const in float roughness)
@@ -131,14 +131,30 @@ vec4 apply_lighting_pbr(const in vec3 normal, const in vec3 surface_pos,
 
 	float NdotL = max(0.0, dot(N, L));
 
-	float r4 = roughness * roughness;
-	r4 *= r4;
-	float n = clamp(2.0 / max(r4, 1e-4) - 2.0, 2.0, 8192.0);
+	// GGX (Cook-Torrance) specular — see SunLight.glsl for the units
+	// rationale. a = roughness^2 (Disney reparam).
+	float a = max(roughness * roughness, 1e-3);
+	float a2 = a * a;
 
 	vec3 F0 = mix(vec3(0.04), albedo, metallic);
 	vec3 H = normalize(L + V);
 	float NdotH = max(0.0, dot(N, H));
-	vec3 spec = F0 * ((n + 8.0) / 8.0) * pow(NdotH, n);
+	float NdotV = max(1e-4, dot(N, V));
+	float VdotH = max(0.0, dot(V, H));
+
+	// Trowbridge-Reitz NDF (pi-less — light_color carries 1/pi).
+	float ndfDenom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+	float D = a2 / (ndfDenom * ndfDenom);
+
+	// Smith height-correlated visibility, Schlick-GGX k = (a+1)^2/8.
+	float k = (a + 1.0) * (a + 1.0) / 8.0;
+	float visL = NdotL / (NdotL * (1.0 - k) + k);
+	float visV = NdotV / (NdotV * (1.0 - k) + k);
+
+	// Schlick Fresnel.
+	vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotH, 5.0);
+
+	vec3 spec = F * (D * visL * visV) / max(4.0 * NdotL * NdotV, 1e-3);
 
 	vec3 diffuse = albedo * (1.0 - metallic);
 

@@ -15,11 +15,14 @@
 #include "Fury/Light.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
+#include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/MeshUtil.h"
+#include "Fury/Pass.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
@@ -80,6 +83,11 @@ extern float g_SnapScale;
 // toolbar so pipeline recreation (scene reload) keeps the choice.
 bool g_ShowGrid = true;
 
+// Chain index whose per-effect settings dialog ("EffectSettings"
+// modal) is open; -1 = closed. Set by the chain editor's Edit
+// buttons in the Settings window.
+static int g_EditChainIndex = -1;
+
 // ----------------------------------------------------------------
 // Settings window (Camera / Import / Themes)
 // ----------------------------------------------------------------
@@ -100,8 +108,19 @@ void RenderSettingsWindow(bool* open) {
 			ImGui::MarkIniSettingsDirty();
 		}
 
-		// Snap step sizes (the viewport toolbar carries the Snap
-		// toggle itself).
+		// Snap toggle + step sizes (the viewport toolbar carries the
+		// gizmo mode radios only; snapping is configured here).
+		if (ImGui::Checkbox("Snap Enabled", &g_SnapEnabled)) {
+			ImGui::MarkIniSettingsDirty();
+		}
+
+		// Auto-focus: frame the scene's whole AABB on open / startup.
+		// Default ON; toggled via the auto_focus editor setting (same
+		// imgui.ini path as auto_scale_detect / auto_default_sun).
+		bool af = GetImportFlag("auto_focus", true);
+		if (ImGui::Checkbox("Auto-Focus on Open", &af)) {
+			SetImportFlag("auto_focus", af);
+		}
 		ImGui::TextDisabled("Snap Steps");
 		bool snap_changed = false;
 		if (ImGui::DragFloat("Translate Step", &g_SnapTranslate, 0.1f, 0.001f, 1000.0f, "%.3f")) snap_changed = true;
@@ -200,6 +219,25 @@ void RenderSettingsWindow(bool* open) {
 			if (ImGui::Checkbox("HDR (rgba16f + ACES tonemap)", &hdr)) {
 				settings->SetHDR(hdr);
 				Pipeline::Active->SetHDRMode(hdr);
+
+				// Reload the matching stock pipeline for the new mode.
+				// Without the PBR pipeline the chain has no hdr_composite
+				// to read, so HDR-on silently disabled postprocessing
+				// (chainReplacesFinal = false). Only swaps when the
+				// current pipeline is one of the two stock JSONs (or
+				// unset) — never stomps a custom pipeline.
+				static const char* kLdrPipeline = "Resource/Pipeline/DefferedLightingLambert.json";
+				static const char* kHdrPipeline = "Resource/Pipeline/DefferedLightingPBR.json";
+				const std::string &cur = settings->GetPipelinePath();
+				if (cur.empty() || cur == kLdrPipeline || cur == kHdrPipeline) {
+					const char* next = hdr ? kHdrPipeline : kLdrPipeline;
+					if (cur != next) {
+						if (FileUtil::LoadFile(Pipeline::Active, FileUtil::GetAbsPath(next)))
+							settings->SetPipelinePath(next);
+						else
+							FURYW << "HDR toggle: failed to load pipeline " << next;
+					}
+				}
 				Editor::MarkSceneDirty();
 			}
 
@@ -216,73 +254,208 @@ void RenderSettingsWindow(bool* open) {
 
 			ImGui::Spacing();
 			ImGui::Separator();
-			ImGui::TextDisabled("Postprocess chain");
+			ImGui::TextDisabled("Postprocess chain (fixed order)");
 
-			// One row per effect entry: name + enabled checkbox +
-			// reorder buttons + remove. Add row at the bottom.
+			// Chain order is engine-owned: PrelightPipeline runs
+			// effects sorted by (stage, order, name) — pre-tonemap
+			// (SSAO/SSR) → tonemap (ACES, auto with HDR) →
+			// post-tonemap (FXAA/CRT). Users only toggle effects
+			// on/off here; there is deliberately no reorder UI.
+			// Entry order in the saved scene is ignored at runtime.
 			auto &chain = settings->GetChainMutable();
-			for (size_t i = 0; i < chain.size(); ++i) {
-				ImGui::PushID(static_cast<int>(i));
-				auto &entry = chain[i];
+			auto findEntry = [&](const std::string &name) -> int {
+				for (size_t i = 0; i < chain.size(); ++i)
+					if (chain[i].effectName == name) return static_cast<int>(i);
+				return -1;
+			};
 
-				// Resolve status: dim the row when the name is not
-				// in the registry so the user can see at a glance
-				// which entries are broken.
-				auto resolved = fury::PostProcessRegistry::Get(entry.effectName);
-				if (!resolved) {
-					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+			fury::PostProcessStage lastStage = fury::PostProcessStage::POST_TONEMAP;
+			bool firstRow = true;
+			for (auto &effect : fury::PostProcessRegistry::GetSortedAll()) {
+				if (!effect) continue;
+				const auto stage = effect->GetStage();
+				const bool isTonemap = (stage == fury::PostProcessStage::TONEMAP);
+
+				// Stage group header doubles as the ordering hint.
+				if (firstRow || stage != lastStage) {
+					if (!firstRow) ImGui::Spacing();
+					switch (stage) {
+					case fury::PostProcessStage::PRE_TONEMAP:
+						ImGui::TextDisabled("Pre-tonemap (linear HDR)"); break;
+					case fury::PostProcessStage::TONEMAP:
+						ImGui::TextDisabled("Tonemap"); break;
+					default:
+						ImGui::TextDisabled("Post-tonemap (LDR)"); break;
+					}
+					lastStage = stage;
+					firstRow = false;
 				}
+
+				ImGui::PushID(effect->GetName().c_str());
+				const int idx = findEntry(effect->GetName());
+				bool enabled = isTonemap
+					? settings->IsHDR()
+					: (idx >= 0 && chain[idx].enabled);
+
 				ImGui::AlignTextToFramePadding();
-				ImGui::Text("%s", entry.effectName.c_str());
-				if (!resolved) {
-					ImGui::PopStyleColor();
-					ImGui::SameLine();
-					ImGui::TextDisabled("(unresolved)");
-				}
+				ImGui::Text("%s", effect->GetName().c_str());
+				if (!effect->GetDescription().empty() && ImGui::IsItemHovered())
+					ImGui::SetTooltip("%s", effect->GetDescription().c_str());
 
 				ImGui::SameLine();
-				if (ImGui::Checkbox("Enabled", &entry.enabled)) {
-					settings->SetEffectEnabled(static_cast<unsigned int>(i), entry.enabled);
+				if (isTonemap) {
+					// Tonemapping is not a user choice: it tracks the
+					// HDR checkbox (HDR on → always tonemapped).
+					ImGui::BeginDisabled();
+					ImGui::Checkbox("Enabled", &enabled);
+					ImGui::EndDisabled();
+					if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+						ImGui::SetTooltip("Tonemapping is automatic: on when HDR is enabled.");
+				} else if (ImGui::Checkbox("Enabled", &enabled)) {
+					if (idx >= 0)
+						settings->SetEffectEnabled(static_cast<unsigned int>(idx), enabled);
+					else
+						settings->AddEffect(effect->GetName(), enabled);
 					Editor::MarkSceneDirty();
 				}
 
+				// Edit opens the per-effect settings dialog (uniform
+				// overrides). Toggling isn't required first — an entry
+				// is created (kept disabled) so e.g. ACES exposure is
+				// editable while the auto flag governs execution.
 				ImGui::SameLine();
-				if (ImGui::Button("Up") && i > 0) {
-					settings->MoveEffect(static_cast<unsigned int>(i), static_cast<unsigned int>(i - 1));
-					Editor::MarkSceneDirty();
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Down") && i + 1 < chain.size()) {
-					settings->MoveEffect(static_cast<unsigned int>(i), static_cast<unsigned int>(i + 1));
-					Editor::MarkSceneDirty();
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Remove")) {
-					settings->RemoveEffect(entry.effectName);
-					Editor::MarkSceneDirty();
-					ImGui::PopID();
-					break; // chain mutated; restart the loop.
+				if (ImGui::Button("Edit")) {
+					int editIdx = idx;
+					if (editIdx < 0) {
+						settings->AddEffect(effect->GetName(), isTonemap ? settings->IsHDR() : false);
+						editIdx = static_cast<int>(chain.size()) - 1;
+						Editor::MarkSceneDirty();
+					}
+					// Only record the request here — OpenPopup runs
+					// after the loop at matching ID depth.
+					g_EditChainIndex = editIdx;
 				}
 				ImGui::PopID();
 			}
 
-			if (ImGui::Button("Add Effect...")) {
-				ImGui::OpenPopup("PostprocessPicker");
+			// Saved entries whose effect is no longer registered are
+			// dead weight: list them in red with a way to drop them.
+			for (size_t i = 0; i < chain.size(); ++i) {
+				if (fury::PostProcessRegistry::Get(chain[i].effectName)) continue;
+				ImGui::PushID(static_cast<int>(i));
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+				ImGui::AlignTextToFramePadding();
+				ImGui::Text("%s", chain[i].effectName.c_str());
+				ImGui::PopStyleColor();
+				ImGui::SameLine();
+				ImGui::TextDisabled("(unresolved)");
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Remove")) {
+					settings->RemoveEffect(chain[i].effectName);
+					Editor::MarkSceneDirty();
+					ImGui::PopID();
+					break; // chain mutated; restart next frame.
+				}
+				ImGui::PopID();
 			}
-			// Effect picker modal (task 4.3): reuses the shared
-			// RenderAssetPickerModal; the PostProcessEffect collect
-			// branch in EditorAssetPicker iterates the process-global
-			// PostProcessRegistry (effects don't live in the scene's
-			// EntityManager). Picking appends to the chain enabled.
-			RenderAssetPickerModal("PostprocessPicker", "Add Postprocess Effect",
-				typeid(PostProcessEffect),
-				[settings](std::shared_ptr<void> p) {
-					auto effect = std::static_pointer_cast<PostProcessEffect>(p);
-					if (effect) {
-						settings->AddEffect(effect->GetName(), true);
-						Editor::MarkSceneDirty();
+
+			if (g_EditChainIndex >= 0 && !ImGui::IsPopupOpen("EffectSettings"))
+				ImGui::OpenPopup("EffectSettings");
+
+			// Per-effect settings dialog: edits the chain entry's
+			// uniform overrides. Opened by the row's Edit button
+			// (g_EditChainIndex); values seed from the override when
+			// present, else the effect's declared default.
+			if (g_EditChainIndex >= 0 &&
+				ImGui::BeginPopupModal("EffectSettings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+				auto &chainRef = settings->GetChainMutable();
+				if (g_EditChainIndex >= static_cast<int>(chainRef.size())) {
+					g_EditChainIndex = -1;
+					ImGui::CloseCurrentPopup();
+				} else {
+					auto &editEntry = chainRef[g_EditChainIndex];
+					auto editEffect = fury::PostProcessRegistry::Get(editEntry.effectName);
+					if (!editEffect) {
+						g_EditChainIndex = -1;
+						ImGui::CloseCurrentPopup();
+					} else {
+						ImGui::Text("%s uniforms", editEntry.effectName.c_str());
+						if (editEffect->GetStage() == fury::PostProcessStage::TONEMAP)
+							ImGui::TextDisabled("(runs automatically while HDR is on)");
+						ImGui::Separator();
+
+						// Stable order: unordered_map iteration is not.
+						std::vector<std::string> names;
+						for (const auto &kv : editEffect->GetUniforms())
+							names.push_back(kv.first);
+						std::sort(names.begin(), names.end());
+
+						for (const auto &uname : names) {
+							auto declared = editEffect->GetUniforms().at(uname);
+							auto it = editEntry.uniformOverrides.find(uname);
+							auto current = (it != editEntry.uniformOverrides.end() && it->second)
+								? it->second : declared;
+
+							float v[4] = {0, 0, 0, 0};
+							int arity = 0;
+							if (auto p = std::dynamic_pointer_cast<Uniform1f>(current)) { v[0] = p->GetDataAt(0); arity = 1; }
+							else if (auto p = std::dynamic_pointer_cast<Uniform2f>(current)) { v[0] = p->GetDataAt(0); v[1] = p->GetDataAt(1); arity = 2; }
+							else if (auto p = std::dynamic_pointer_cast<Uniform3f>(current)) { v[0] = p->GetDataAt(0); v[1] = p->GetDataAt(1); v[2] = p->GetDataAt(2); arity = 3; }
+							else if (auto p = std::dynamic_pointer_cast<Uniform4f>(current)) { v[0] = p->GetDataAt(0); v[1] = p->GetDataAt(1); v[2] = p->GetDataAt(2); v[3] = p->GetDataAt(3); arity = 4; }
+							if (arity == 0) continue;
+
+							// Descriptor-declared editor metadata:
+							// hover tip + rough adjustment range.
+							auto meta = editEffect->GetUniformMeta(uname);
+
+							ImGui::PushID(uname.c_str());
+							bool changed = false;
+							bool isColor = uname.find("color") != std::string::npos;
+							if (arity == 1) changed = ImGui::DragFloat(uname.c_str(), v, 0.01f);
+							else if (arity == 2) changed = ImGui::DragFloat2(uname.c_str(), v, 0.01f);
+							else if (arity == 3 && isColor) changed = ImGui::ColorEdit3(uname.c_str(), v);
+							else if (arity == 3) changed = ImGui::DragFloat3(uname.c_str(), v, 0.01f);
+							else changed = ImGui::DragFloat4(uname.c_str(), v, 0.01f);
+							if (meta && (!meta->tip.empty() || meta->hasRange) && ImGui::IsItemHovered()) {
+								std::string tip = meta->tip;
+								if (meta->hasRange) {
+									char range[64];
+									std::snprintf(range, sizeof(range), "%sRange: %g - %g",
+												  tip.empty() ? "" : "\n", meta->min, meta->max);
+									tip += range;
+								}
+								ImGui::SetTooltip("%s", tip.c_str());
+							}
+							if (changed && meta && meta->hasRange) {
+								for (int c = 0; c < arity; ++c)
+									v[c] = std::min(std::max(v[c], meta->min), meta->max);
+							}
+							if (changed) {
+								switch (arity) {
+								case 1: editEntry.uniformOverrides[uname] = Uniform1f::Create({v[0]}); break;
+								case 2: editEntry.uniformOverrides[uname] = Uniform2f::Create({v[0], v[1]}); break;
+								case 3: editEntry.uniformOverrides[uname] = Uniform3f::Create({v[0], v[1], v[2]}); break;
+								default: editEntry.uniformOverrides[uname] = Uniform4f::Create({v[0], v[1], v[2], v[3]}); break;
+								}
+								Editor::MarkSceneDirty();
+							}
+							ImGui::PopID();
+						}
+
+						ImGui::Separator();
+						if (ImGui::Button("Reset to defaults")) {
+							editEntry.uniformOverrides.clear();
+							Editor::MarkSceneDirty();
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("Close")) {
+							g_EditChainIndex = -1;
+							ImGui::CloseCurrentPopup();
+						}
 					}
-				});
+				}
+				ImGui::EndPopup();
+			}
 		} else {
 			ImGui::TextDisabled("(no active pipeline or scene)");
 		}
@@ -360,45 +533,120 @@ void RenderProfilerGBufferTab() {
 		return;
 	}
 
-	// GBuffer textures match the rendered framebuffer aspect.
-	// Sizing must preserve that aspect; using the Profiler
-	// window's own size produces tall-narrow distortions when
-	// the window is docked on the side.
+	// Preview blitter: gbuffer alpha is near-zero under PBR (metallic/roughness pack) and depth samples as (d,0,0,1), so each preview is blitted to an opaque rgba8 scratch via a tiny shader before ImGui::Image sees it.
+	static Shader::Ptr s_previewShader;
+	if (!s_previewShader) {
+		static const char* vs =
+			"#version 330\n"
+			"in vec3 vertex_position;\n"
+			"in vec2 vertex_uv;\n"
+			"out vec2 out_uv;\n"
+			"void main() { out_uv = vertex_uv; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
+		static const char* fs =
+			"#version 330\n"
+			"in vec2 out_uv;\n"
+			"out vec4 fragment_output;\n"
+			"uniform sampler2D src;\n"
+			"uniform int u_depth;\n"
+			"void main() {\n"
+			"    vec4 t = texture(src, out_uv);\n"
+			"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
+			"}\n";
+		s_previewShader = Shader::Create("GBufferPreviewShader", ShaderType::OTHER);
+		if (!s_previewShader->Compile(vs, fs, "")) {
+			FURYE << "GBuffer preview shader failed to compile!";
+			s_previewShader = nullptr;
+			return;
+		}
+	}
+
+	// Size previews to match the rendered framebuffer aspect — using the Profiler window itself produces tall-narrow distortion when docked on the side.
 	const float content_w = ImGui::GetContentRegionAvail().x;
 	float img_w = content_w > 0.0f ? content_w : 256.0f;
 	if (img_w > 320.0f) img_w = 320.0f;
 
-	auto show = [&](const char* label, const char* tex_name) {
+	static std::unordered_map<std::string, Texture::Ptr> s_previews;
+	static Pass::Ptr s_previewPass;
+	if (!s_previewPass) {
+		s_previewPass = Pass::Create("GBufferPreviewFBO");
+		s_previewPass->SetBlendMode(BlendMode::REPLACE);
+		s_previewPass->SetClearMode(ClearMode::COLOR);
+	}
+
+	GLint prev_fbo = 0;
+	GLint prev_vp[4] = { 0, 0, 0, 0 };
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
+	glGetIntegerv(GL_VIEWPORT, prev_vp);
+
+	auto show = [&](const char* label, const char* tex_name, bool is_depth) {
 		ImGui::Text("%s", label);
-		if (auto t = Pipeline::Active->GetTextureByName(tex_name)) {
-			const float tex_w = (float)t->GetWidth();
-			const float tex_h = (float)t->GetHeight();
-			const float aspect = (tex_w > 0.0f && tex_h > 0.0f)
-									 ? tex_h / tex_w
-									 : 0.5625f; // 16:9 fallback
-			ImGui::Image((ImTextureID)(intptr_t)t->GetID(),
-						 ImVec2(img_w, img_w * aspect),
-						 ImVec2(0, 1), ImVec2(1, 0));
-		} else {
+		auto t = Pipeline::Active->GetTextureByName(tex_name);
+		if (!t) {
 			ImGui::TextDisabled("(not in active pipeline)");
+			return;
 		}
+		const float tex_w = (float)t->GetWidth();
+		const float tex_h = (float)t->GetHeight();
+		const float aspect = (tex_w > 0.0f && tex_h > 0.0f)
+								 ? tex_h / tex_w
+								 : 0.5625f; // 16:9 fallback
+
+		// Blit into the opaque scratch texture (320-wide, same aspect).
+		auto &preview = s_previews[tex_name];
+		const int pw = 320;
+		const int ph = (int)(pw * aspect);
+		if (!preview || preview->GetWidth() != pw || preview->GetHeight() != ph) {
+			preview = Texture::Create("gbuffer_preview_" + std::string(tex_name));
+			preview->CreateEmpty(pw, ph, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+		}
+
+		s_previewPass->RemoveAllTextures();
+		s_previewPass->AddTexture(preview, false);
+		s_previewPass->Bind(false);
+		glDisable(GL_BLEND);
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(GL_FALSE);
+		glDisable(GL_CULL_FACE);
+		s_previewShader->Bind();
+		s_previewShader->BindMesh(MeshUtil::GetUnitQuad());
+		s_previewShader->BindTexture("src", t);
+		s_previewShader->BindInt("u_depth", is_depth ? 1 : 0);
+		glDrawElements(GL_TRIANGLES, MeshUtil::GetUnitQuad()->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		s_previewShader->UnBind();
+		s_previewPass->UnBind();
+
+		ImGui::Image((ImTextureID)(intptr_t)preview->GetID(),
+					 ImVec2(img_w, img_w * aspect),
+					 ImVec2(0, 1), ImVec2(1, 0));
 	};
+
 	// LDR/HDR auto-switch: the HDR pipeline (DefferedLightingPBR)
 	// names its lighting targets hdr_light / hdr_composite (rgba16f)
 	// and has no gbuffer_light at all — key the list off what the
 	// active pipeline declares rather than the LDR layout, so the
 	// light buffer keeps updating after a pipeline switch. HDR
-	// float textures sample fine through ImGui::Image (values >1
-	// clamp to white, which reads as "hot" — acceptable for debug).
-	show("Depth Buffer:", "gbuffer_depth");
-	show("Normal Buffer:", "gbuffer_normal");
-	show("Diffuse Buffer:", "gbuffer_diffuse");
+	// float sources clamp to white where >1 ("hot" — acceptable
+	// for debug).
+	show("Depth Buffer:", "gbuffer_depth", true);
+	show("Normal Buffer:", "gbuffer_normal", false);
+	show("Diffuse Buffer:", "gbuffer_diffuse", false);
 	if (Pipeline::Active->GetTextureByName("hdr_light")) {
-		show("Light Buffer (HDR rgba16f):", "hdr_light");
-		show("Composite (pre-tonemap HDR):", "hdr_composite");
+		show("Light Buffer (HDR rgba16f):", "hdr_light", false);
+		show("Composite (pre-tonemap HDR):", "hdr_composite", false);
 	} else {
-		show("Light Buffer:", "gbuffer_light");
+		show("Light Buffer:", "gbuffer_light", false);
 	}
+	// Buffer debug view (viewport toolbar View SSAO/SSR) — shown
+	// here too when the pipeline produced one this frame.
+	if (Pipeline::Active->GetDebugViewTexture()) {
+		show("Debug View (SSAO/SSR):", "debug_view", false);
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
+	glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
 }
 
 void RenderProfilerShadowsTab() {
@@ -532,11 +780,18 @@ void RenderProfilerShadowsTab() {
 
 				ImGui::BeginGroup();
 				for (int row = 0; row < 2; ++row) {
+					// PushID per Image so each cube face has a unique
+					// ImGui item ID; the 4-Image grid (2x2 slice faces)
+					// would otherwise collide on the empty-label ID.
+					ImGui::PushID(row * 2);
 					ImGui::Image((ImTextureID)(intptr_t)slices[row * 2]->GetID(),
 								 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::PopID();
 					ImGui::SameLine(140);
+					ImGui::PushID(row * 2 + 1);
 					ImGui::Image((ImTextureID)(intptr_t)slices[row * 2 + 1]->GetID(),
 								 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+					ImGui::PopID();
 				}
 				ImGui::EndGroup();
 			} else {
@@ -606,11 +861,18 @@ void RenderProfilerShadowsTab() {
 
 			ImGui::BeginGroup();
 			for (int row = 0; row < 3; ++row) {
+				// PushID per Image so each cube face has a unique
+				// ImGui item ID; the 6-Image grid (3x2 cube faces)
+				// would otherwise collide on the empty-label ID.
+				ImGui::PushID(row * 2);
 				ImGui::Image((ImTextureID)(intptr_t)faces[row * 2]->GetID(),
 							 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+				ImGui::PopID();
 				ImGui::SameLine(140);
+				ImGui::PushID(row * 2 + 1);
 				ImGui::Image((ImTextureID)(intptr_t)faces[row * 2 + 1]->GetID(),
 							 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
+				ImGui::PopID();
 			}
 			ImGui::EndGroup();
 			break;
@@ -1366,7 +1628,11 @@ static std::string EllipsizeName(const std::string& name, float width) {
 // just the name as a row.
 void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	const std::string& name = tile.name;
-	ImGui::PushID(name.c_str());
+	// ID must be unique across TYPES too: a mesh and a material can
+	// share a name (glTF imports do this constantly) and otherwise
+	// produce "conflicting ID" warnings on hover.
+	const std::string tileId = std::string(tile.type.name()) + ":" + name;
+	ImGui::PushID(tileId.c_str());
 
 	// Capture the tile's top-left for drawing the type badge.
 	ImVec2 tile_min = ImGui::GetCursorScreenPos();
@@ -1842,7 +2108,9 @@ void RenderContentBrowserWindow(bool* open) {
 // content region — RenderViewportWindow captures the scene rect
 // AFTER this runs, so gizmo / picking coordinates stay correct.
 void RenderViewportToolbar() {
-	// --- Left: gizmo mode + snap + grid -----------------------
+	// --- Left: gizmo mode ----------------------------------------
+	// (Snap toggle lives in Settings → Editor next to the snap step
+	// sizes; the toolbar stays minimal.)
 	bool changed = false;
 	if (ImGui::RadioButton("Translate", g_GizmoOp == ImGuizmo::TRANSLATE)) {
 		g_GizmoOp = ImGuizmo::TRANSLATE;
@@ -1858,48 +2126,64 @@ void RenderViewportToolbar() {
 		g_GizmoOp = ImGuizmo::SCALE;
 		changed = true;
 	}
-	ImGui::SameLine();
-	if (ImGui::Checkbox("Snap", &g_SnapEnabled)) {
-		changed = true;
-	}
 	if (changed) ImGui::MarkIniSettingsDirty();
 
-	// Reference grid toggle (persisted; applied per-frame below so
-	// pipeline recreation can't silently reset it). Settings →
-	// Editor → Show Grid binds the same global.
-	ImGui::SameLine();
-	if (ImGui::Checkbox("Grid", &g_ShowGrid)) {
-		ImGui::MarkIniSettingsDirty();
-	}
-
-	// --- Right: debug overlays combo (moved from Profiler) ----
-	// Multi-select: scene-debug toggles are independent and toggled
-	// together often, so DontClosePopups lets the user flip several
-	// in one open. Preview shows the single-selected name, or a
-	// count when more are active.
+	// --- Right: debug view (single-select) + overlays (multi) ----
+	// Debug views replace the viewport image with a buffer view
+	// (pipeline DrawEffectDebugView) — inherently single-select.
+	// Overlays draw on top of the scene and combine freely.
+	static int debug_view = 0; // 0=none, 1=SSAO, 2=SSR
 	static bool draw_light_bounds = false;
 	static bool draw_mesh_bounds = false;
 	static bool draw_custom_bounds = false;
 	static bool draw_octree_bounds = false;
 	static bool lod_debug_on = false;
 
-	const char* overlayItems[] = {
-		"Draw Light Bounds",
-		"Draw Mesh Bounds",
-		"Draw Custom Bounds",
-		"Draw OcTree Bounds",
-		"LOD Debug Colors"
-	};
+	// Right-align the pair on the SAME line (see the historical
+	// note below about measuring before SameLine).
+	const float view_w = 130.0f;
+	const float combo_w = 200.0f;
+	const float spacing = ImGui::GetStyle().ItemSpacing.x;
+	ImGui::SameLine();
+	const float remaining = ImGui::GetContentRegionAvail().x;
+	const float pair_w = view_w + spacing + combo_w;
+	if (remaining > pair_w)
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + remaining - pair_w);
+
+	// Single-select debug view combo.
+	static const char* viewItems[] = { "(none)", "SSAO", "SSR" };
+	ImGui::SetNextItemWidth(view_w);
+	if (ImGui::BeginCombo("##debug_view", viewItems[debug_view])) {
+		for (int i = 0; i < 3; ++i) {
+			if (ImGui::Selectable(viewItems[i], debug_view == i))
+				debug_view = i;
+		}
+		ImGui::EndCombo();
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Buffer debug view: replaces the viewport with the\neffect's raw output (AO term / reflection contribution).");
+
+	// Multi-select overlays combo. Preview shows the single-selected
+	// name, or a count when more are active.
 	bool overlayState[] = {
+		g_ShowGrid,
 		draw_light_bounds,
 		draw_mesh_bounds,
 		draw_custom_bounds,
 		draw_octree_bounds,
 		lod_debug_on
 	};
+	const char* overlayItems[] = {
+		"Show Grid",
+		"Draw Light Bounds",
+		"Draw Mesh Bounds",
+		"Draw Custom Bounds",
+		"Draw OcTree Bounds",
+		"LOD Debug Colors"
+	};
 	int selectedCount = 0;
 	int firstSelected = -1;
-	for (int i = 0; i < 5; ++i) {
+	for (int i = 0; i < 6; ++i) {
 		if (overlayState[i]) {
 			++selectedCount;
 			if (firstSelected < 0) firstSelected = i;
@@ -1910,18 +2194,10 @@ void RenderViewportToolbar() {
 	else if (selectedCount == 1)  overlayPreview = overlayItems[firstSelected];
 	else                          overlayPreview = std::to_string(selectedCount) + " overlays selected";
 
-	// Right-align on the SAME line: SameLine first so the cursor is
-	// on the bar's line (after an item, GetCursorPosX reports the
-	// next line's start X — measuring without SameLine wrapped the
-	// combo onto a second line).
-	const float combo_w = 200.0f;
 	ImGui::SameLine();
-	const float remaining = ImGui::GetContentRegionAvail().x;
-	if (remaining > combo_w)
-		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + remaining - combo_w);
 	ImGui::SetNextItemWidth(combo_w);
 	if (ImGui::BeginCombo("##debug_overlays", overlayPreview.c_str())) {
-		for (int i = 0; i < 5; ++i) {
+		for (int i = 0; i < 6; ++i) {
 			if (ImGui::Selectable(overlayItems[i], overlayState[i],
 								  ImGuiSelectableFlags_DontClosePopups)) {
 				overlayState[i] = !overlayState[i];
@@ -1929,11 +2205,18 @@ void RenderViewportToolbar() {
 		}
 		ImGui::EndCombo();
 	}
-	draw_light_bounds   = overlayState[0];
-	draw_mesh_bounds    = overlayState[1];
-	draw_custom_bounds  = overlayState[2];
-	draw_octree_bounds  = overlayState[3];
-	lod_debug_on        = overlayState[4];
+	if (overlayState[0] != g_ShowGrid) {
+		// Reference grid toggle (persisted; Settings → Editor → Show
+		// Grid binds the same global). Applied per-frame below so
+		// pipeline recreation can't silently reset it.
+		g_ShowGrid = overlayState[0];
+		ImGui::MarkIniSettingsDirty();
+	}
+	draw_light_bounds   = overlayState[1];
+	draw_mesh_bounds    = overlayState[2];
+	draw_custom_bounds  = overlayState[3];
+	draw_octree_bounds  = overlayState[4];
+	lod_debug_on        = overlayState[5];
 
 	if (Pipeline::Active) {
 		Pipeline::Active->SetSwitch(PipelineSwitch::EDITOR_GRID, g_ShowGrid);
@@ -1942,6 +2225,8 @@ void RenderViewportToolbar() {
 		Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on);
+		Pipeline::Active->SetSwitch(PipelineSwitch::SSAO_VIEW, debug_view == 1);
+		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, debug_view == 2);
 	}
 }
 
@@ -2015,10 +2300,13 @@ void RenderViewportWindow(bool* open) {
 
 		g_ViewportVisible = true;
 
-		// Present the RT's color texture. The texture is sampled
+		// Present the RT's color texture — or the buffer debug view
+		// (SSAO/SSR) while one is active. The texture is sampled
 		// during Gui::Render (after Pipeline::Execute has written
 		// this frame's scene into it), so there's no one-frame lag.
 		ImTextureID tex = (ImTextureID)(intptr_t)rt->GetColorTexture()->GetID();
+		if (auto dbg = Pipeline::Active->GetDebugViewTexture())
+			tex = (ImTextureID)(intptr_t)dbg->GetID();
 		ImGui::Image(tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
 		// Render the TRS gizmo into the Viewport window's own draw

@@ -12,6 +12,19 @@
 
 namespace fury
 {
+	// Optional per-uniform editor metadata, declared in the effect
+	// JSON next to the default value: "tip" (hover help, shown in
+	// the Edit dialog — include tuning guidance like world units)
+	// plus "min"/"max" (a rough adjustment range: values are clamped
+	// to it in the dialog and the range shows in the tooltip).
+	struct UniformMeta
+	{
+		std::string tip;
+		float min = 0.0f;
+		float max = 0.0f;
+		bool hasRange = false;
+	};
+
 	// Data-driven postprocess effect: name + shader path + declared
 	// inputs/output format + uniform defaults. Mirrors the pipeline's
 	// JSON shape so the same Serializable / LoadArray machinery that
@@ -47,6 +60,19 @@ namespace fury
 		// input; FXAA / CRT write LDR rgba8. Defaults to RGBA8.
 		TextureFormat m_OutputFormat = TextureFormat::RGBA8;
 
+		// Chain placement (engine-owned order — users toggle on/off
+		// only, never reorder). PRE_TONEMAP effects run on linear
+		// scene color pre-ACES, TONEMAP is the HDR→LDR pivot (auto
+		// injected/stripped with the HDR switch), POST_TONEMAP runs
+		// last on LDR. JSON "stage"; default infers PRE_TONEMAP when
+		// any declared input is $gbuffer_*, else POST_TONEMAP.
+		PostProcessStage m_Stage = PostProcessStage::POST_TONEMAP;
+
+		// Tie-breaker within a stage (JSON "order", default 0); the
+		// chain sorts by (stage, order, name).
+		int m_Order = 0;
+
+
 		// 0 = match the active render target (the screen or the
 		// editor's offscreen RT). Otherwise the effect renders into a
 		// temporary at this size. Currently only the 0 path is wired
@@ -59,6 +85,13 @@ namespace fury
 		// editor can override these per-effect from the chain editor;
 		// here we carry the values declared in the JSON descriptor.
 		std::unordered_map<std::string, std::shared_ptr<UniformBase>> m_Uniforms;
+
+		// Optional editor metadata per uniform (see UniformMeta).
+		std::unordered_map<std::string, UniformMeta> m_UniformMeta;
+
+		// Optional effect-level description (JSON "description"),
+		// shown as the chain row's hover tooltip in the editor.
+		std::string m_Description;
 
 	public:
 
@@ -86,6 +119,14 @@ namespace fury
 
 		void SetOutputFormat(TextureFormat fmt);
 
+		PostProcessStage GetStage() const;
+
+		void SetStage(PostProcessStage stage);
+
+		int GetOrder() const;
+
+		void SetOrder(int order);
+
 		unsigned int GetOutputWidth() const;
 
 		unsigned int GetOutputHeight() const;
@@ -97,6 +138,12 @@ namespace fury
 		void SetUniform(const std::string &name, const std::shared_ptr<UniformBase> &ptr);
 
 		std::shared_ptr<UniformBase> GetUniform(const std::string &name) const;
+
+		// Editor metadata for a uniform; nullptr when the descriptor
+		// declares none.
+		const UniformMeta *GetUniformMeta(const std::string &name) const;
+
+		const std::string &GetDescription() const;
 	};
 }
 

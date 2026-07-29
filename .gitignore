@@ -59,6 +59,8 @@ compile_commands.json
 # Tooling-specific (user-local session state)
 .claude/
 .codebuddy/
+.diffcue/
+.kimi/
 
 # OS noise
 .DS_Store
@@ -81,3 +83,12 @@ examples/bin/FBX2glTF-darwin-x64
 # are tracked; these are user-local one-offs.
 examples/Resource/Scene/outdoor.json
 examples/Resource/Scene/scene_saved.json
+
+# Per-project JSON shadow of an existing .bin — keep .bin (LZ4-compressed,
+# smaller) as the runtime form. JSON versions get staged when the editor
+# does File→Save or the CLI's `convert` writes both; .bin is canonical.
+examples/Projects/*/*.json
+!examples/Projects/tank/scene-hdr.json
+!examples/Projects/tank/scene-hdr-noshadowsun.json
+!examples/Projects/tank/scene-ldr.json
+!examples/Projects/sponza/metadata.json

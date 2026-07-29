@@ -10,6 +10,7 @@
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
 #include "Fury/RenderSettings.h"
+#include "Fury/Uniform.h"
 #include "Fury/Scene.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Frustum.h"
@@ -235,32 +236,111 @@ namespace fury
 		m_HDRMode = settings.IsHDR();
 		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, settings.IsCascadedShadowMap());
 
+		// Chain resolution. Entry order in the scene file is IGNORED
+		// by design: effects run in the engine-owned canonical order
+		// (stage, order, name — see PostProcessRegistry::GetSortedAll),
+		// users only toggle them on/off. Tonemapping is not a user
+		// choice either: exactly one tonemap-stage effect runs in HDR
+		// (auto-injected when missing, duplicates dropped) and none in
+		// LDR (stripped). Duplicate names collapse (first enabled
+		// wins) so old scenes saved with dupes can't double-apply.
 		std::vector<std::shared_ptr<PostProcessEffect>> resolved;
+		std::vector<std::unordered_map<std::string, std::shared_ptr<UniformBase>>> overrides;
+		std::unordered_map<std::string, bool> seen;
+		bool haveTonemap = false;
 		for (const auto &entry : settings.GetChain())
 		{
-			if (!entry.enabled) continue;
 			auto effect = PostProcessRegistry::Get(entry.effectName);
-			if (effect)
-				resolved.push_back(effect);
-			else
-				FURYW << "Pipeline::ApplyRenderSettings: postprocess effect '"
-					  << entry.effectName
-					  << "' is not registered; skipping (scene still loads)";
-		}
-		m_ActiveChain = std::move(resolved);
-	}
+			if (!effect)
+			{
+				if (entry.enabled)
+					FURYW << "Pipeline::ApplyRenderSettings: postprocess effect '"
+						  << entry.effectName
+						  << "' is not registered; skipping (scene still loads)";
+				continue;
+			}
+			if (seen.count(entry.effectName))
+				continue;
+			seen[entry.effectName] = true;
 
-	void Pipeline::EnsureTonemapInChain()
-	{
-		// Spec (postprocess-effects §Tonemapping is mandatory in HDR):
-		// ACES must run before the final composite in HDR mode even
-		// when the postprocess chain is otherwise empty. We achieve
-		// this by prepending the registered ACES effect (if any) to
-		// the active chain. If ACES is already first, leave it.
-		auto aces = PostProcessRegistry::Get("ACES");
-		if (!aces) return;
-		if (!m_ActiveChain.empty() && m_ActiveChain.front()->GetName() == "ACES") return;
-		m_ActiveChain.insert(m_ActiveChain.begin(), aces);
+			if (effect->GetStage() == PostProcessStage::TONEMAP)
+			{
+				// Tonemap follows the HDR switch, not the entry's
+				// enabled flag: keep it in HDR even when the saved
+				// entry is disabled, drop it in LDR even when enabled.
+				if (!m_HDRMode)
+					continue;
+				if (haveTonemap)
+				{
+					FURYW << "Pipeline::ApplyRenderSettings: multiple tonemap-stage "
+						 "effects in chain; keeping the first, dropping '"
+					  << entry.effectName << "'";
+					continue;
+				}
+				haveTonemap = true;
+				resolved.push_back(effect);
+				overrides.push_back(entry.uniformOverrides);
+				continue;
+			}
+
+			if (!entry.enabled)
+				continue;
+			resolved.push_back(effect);
+			overrides.push_back(entry.uniformOverrides);
+		}
+
+		// HDR without a tonemap entry: inject ACES so HDR output is
+		// always tonemapped. Uniform overrides from a saved (disabled)
+		// ACES entry ride along, so exposure edits survive toggles.
+		if (m_HDRMode && !haveTonemap)
+		{
+			if (auto aces = PostProcessRegistry::Get("ACES"))
+			{
+				resolved.push_back(aces);
+				std::unordered_map<std::string, std::shared_ptr<UniformBase>> acesOverrides;
+				for (const auto &entry : settings.GetChain())
+				{
+					if (entry.effectName == "ACES")
+					{
+						acesOverrides = entry.uniformOverrides;
+						break;
+					}
+				}
+				overrides.push_back(std::move(acesOverrides));
+			}
+			else
+			{
+				static bool warnedOnce = false;
+				if (!warnedOnce)
+				{
+					FURYW << "Pipeline::ApplyRenderSettings: HDR is on but no ACES "
+						 "effect is registered — output will not be tonemapped!";
+					warnedOnce = true;
+				}
+			}
+		}
+
+		// Canonical order: (stage, order, name). Overrides stay
+		// index-aligned with their effect.
+		std::vector<size_t> order(resolved.size());
+		for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+		std::sort(order.begin(), order.end(), [&](size_t a, size_t b)
+		{
+			auto ea = resolved[a], eb = resolved[b];
+			if (ea->GetStage() != eb->GetStage())
+				return ea->GetStage() < eb->GetStage();
+			if (ea->GetOrder() != eb->GetOrder())
+				return ea->GetOrder() < eb->GetOrder();
+			return ea->GetName() < eb->GetName();
+		});
+
+		m_ActiveChain.clear();
+		m_ActiveChainOverrides.clear();
+		for (size_t i : order)
+		{
+			m_ActiveChain.push_back(resolved[i]);
+			m_ActiveChainOverrides.push_back(std::move(overrides[i]));
+		}
 	}
 
 	bool Pipeline::HasHDRComposite() const
@@ -353,6 +433,16 @@ namespace fury
 	RenderTarget* Pipeline::GetRenderTarget() const
 	{
 		return m_RenderTarget;
+	}
+
+	void Pipeline::SetDebugViewTexture(const std::shared_ptr<Texture> &ptr)
+	{
+		m_DebugViewTexture = ptr;
+	}
+
+	std::shared_ptr<Texture> Pipeline::GetDebugViewTexture() const
+	{
+		return m_DebugViewTexture;
 	}
 
 	void Pipeline::FilterNodes(const Collidable &collider, std::vector<std::shared_ptr<SceneNode>> &possibles, std::vector<std::shared_ptr<SceneNode>> &collisions)

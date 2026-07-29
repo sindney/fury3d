@@ -1,9 +1,22 @@
 {
     "name": "FXAA",
+    "description": "FXAA antialiasing (Lottes / FXAA 3.11 reduced). Runs on the final LDR image, post-tonemap.",
     "shader": "Resource/Shader/PostProcess/FXAA.glsl",
-    "inputs": ["fxaa_input"],
+    "inputs": [
+        "fxaa_input"
+    ],
     "output_format": "rgba8",
+    "stage": "post_tonemap",
+    "order": 10,
     "uniforms": [
-        { "name": "u_quality", "value": [3.0] }
+        {
+            "name": "u_quality",
+            "value": [
+                3.0
+            ],
+            "tip": "0 = off (passthrough), 1 = low, 2 = medium, 3 = high.",
+            "min": 0.0,
+            "max": 3.0
+        }
     ]
 }

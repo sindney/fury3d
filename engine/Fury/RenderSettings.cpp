@@ -1,9 +1,25 @@
 #include "Fury/RenderSettings.h"
 
 #include "Fury/Log.h"
+#include "Fury/Uniform.h"
 
 namespace fury
 {
+	// float1-4 overrides only (postprocess uniforms never use int/
+	// matrix types in practice). Empty vector = unsupported type.
+	static std::vector<float> UniformFloats(const UniformBase::Ptr &u)
+	{
+		if (!u) return {};
+		if (auto p = std::dynamic_pointer_cast<Uniform1f>(u))
+			return { p->GetDataAt(0) };
+		if (auto p = std::dynamic_pointer_cast<Uniform2f>(u))
+			return { p->GetDataAt(0), p->GetDataAt(1) };
+		if (auto p = std::dynamic_pointer_cast<Uniform3f>(u))
+			return { p->GetDataAt(0), p->GetDataAt(1), p->GetDataAt(2) };
+		if (auto p = std::dynamic_pointer_cast<Uniform4f>(u))
+			return { p->GetDataAt(0), p->GetDataAt(1), p->GetDataAt(2), p->GetDataAt(3) };
+		return {};
+	}
 	RenderSettings::RenderSettings()
 	{
 	}
@@ -33,8 +49,9 @@ namespace fury
 			m_CascadedShadowMap = true; // legacy default: CSM on
 
 		m_Chain.clear();
-		// Ordered chain: [{ effect, enabled }, ...]. Missing / empty
-		// chain loads as empty (legacy compatible).
+		// Ordered chain: [{ effect, enabled, uniforms? }, ...]. Missing /
+		// empty chain loads as empty (legacy compatible); entries without
+		// "uniforms" get empty overrides (effect defaults).
 		LoadArray(wrapper, "chain", [&](const void* node) -> bool
 		{
 			RenderChainEntry e;
@@ -43,6 +60,27 @@ namespace fury
 				bool en = true;
 				LoadMemberValue(node, "enabled", en);
 				e.enabled = en;
+				if (auto uniformsNode = FindMember(node, "uniforms"))
+					LoadArray(uniformsNode, [&](const void* unode) -> bool
+					{
+						// {"name","value":[...]} — same shape as
+						// PostProcessEffect descriptor defaults.
+						if (!IsObject(unode)) return true;
+						std::string uname;
+						if (!LoadMemberValue(unode, "name", uname)) return true;
+						std::vector<float> values;
+						if (auto v = FindMember(unode, "value"))
+							if (!LoadArray<float>(v, values)) return true;
+						switch (values.size())
+						{
+						case 1: e.uniformOverrides[uname] = Uniform1f::Create({values[0]}); break;
+						case 2: e.uniformOverrides[uname] = Uniform2f::Create({values[0], values[1]}); break;
+						case 3: e.uniformOverrides[uname] = Uniform3f::Create({values[0], values[1], values[2]}); break;
+						case 4: e.uniformOverrides[uname] = Uniform4f::Create({values[0], values[1], values[2], values[3]}); break;
+						default: break;
+						}
+						return true;
+					});
 				m_Chain.push_back(e);
 			}
 			return true;
@@ -74,6 +112,26 @@ namespace fury
 			SaveValue(wrapper, e.effectName);
 			SaveKey(wrapper, "enabled");
 			SaveValue(wrapper, e.enabled);
+			if (!e.uniformOverrides.empty())
+			{
+				SaveKey(wrapper, "uniforms");
+				StartArray(wrapper);
+				for (const auto &kv : e.uniformOverrides)
+				{
+					auto floats = UniformFloats(kv.second);
+					if (floats.empty()) continue;
+					StartObject(wrapper);
+					SaveKey(wrapper, "name");
+					SaveValue(wrapper, kv.first);
+					SaveKey(wrapper, "value");
+					StartArray(wrapper);
+					for (float f : floats)
+						SaveValue(wrapper, f);
+					EndArray(wrapper);
+					EndObject(wrapper);
+				}
+				EndArray(wrapper);
+			}
 			EndObject(wrapper);
 		}
 		EndArray(wrapper);
@@ -125,6 +183,11 @@ namespace fury
 	void RenderSettings::ClearChain()
 	{
 		m_Chain.clear();
+	}
+
+	void RenderSettings::CopyChainFrom(const RenderSettings &other)
+	{
+		m_Chain = other.m_Chain;
 	}
 
 	void RenderSettings::AddEffect(const std::string &effectName, bool enabled)

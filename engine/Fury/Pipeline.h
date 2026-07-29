@@ -48,6 +48,14 @@ namespace fury
 		OCTREE_BOUNDS,
 		LOD_DEBUG_COLORS,
 		EDITOR_GRID,
+		// Fullscreen buffer debug views (viewport toolbar "View SSAO"
+		// / "View SSR"). When on, Execute renders the effect's
+		// DEBUG_VIEW shader variant into the debug-view texture; the
+		// viewport presents that instead of the scene RT and the
+		// Profiler's GBuffer tab lists it. Mutually exclusive in the
+		// UI; SSAO wins if both are set.
+		SSAO_VIEW,
+		SSR_VIEW,
 		LENGTH
 	};
 
@@ -77,6 +85,11 @@ namespace fury
 		// scene's renderSettings. Empty = legacy final-pass path.
 		std::vector<std::shared_ptr<class PostProcessEffect>> m_ActiveChain;
 
+		// Per-entry uniform overrides, index-aligned with m_ActiveChain
+		// (empty map = descriptor defaults). Populated from
+		// RenderChainEntry::uniformOverrides by ApplyRenderSettings.
+		std::vector<std::unordered_map<std::string, std::shared_ptr<class UniformBase>>> m_ActiveChainOverrides;
+
 		// rendering
 
 		std::shared_ptr<SceneNode> m_CurrentCamera;
@@ -97,6 +110,12 @@ namespace fury
 		// default framebuffer (the historical behavior, used by non-editor
 		// builds and any sample that calls Execute without an RT).
 		RenderTarget* m_RenderTarget = nullptr;
+
+		// Buffer debug-view output (SSAO_VIEW / SSR_VIEW switches).
+		// Allocated on demand by PrelightPipeline::DrawEffectDebugView,
+		// registered as the "debug_view" texture; the editor presents it
+		// in place of the scene RT while a debug view is active.
+		std::shared_ptr<Texture> m_DebugViewTexture;
 
 		// end rendering
 
@@ -150,12 +169,13 @@ namespace fury
 		const std::vector<std::shared_ptr<class PostProcessEffect>> &GetActiveChain() const;
 
 		// Seed HDR mode, CSM switch, and the resolved chain from
-		// RenderSettings; unresolved names are skipped with a warning.
+		// RenderSettings. The chain runs in the engine-owned canonical
+		// order (stage, order, name — saved entry order is ignored),
+		// and tonemapping follows the HDR switch: exactly one
+		// tonemap-stage effect (ACES) is auto-injected in HDR and all
+		// tonemap entries are stripped in LDR. Unresolved names are
+		// skipped with a warning.
 		void ApplyRenderSettings(const class RenderSettings &settings);
-
-		// Prepend ACES to the chain when missing (HDR must always
-		// tonemap). No-op when no ACES effect is registered.
-		void EnsureTonemapInChain();
 
 		// True iff this pipeline declares the hdr_composite target
 		// the chain reads in HDR mode.
@@ -192,6 +212,12 @@ namespace fury
 		void SetRenderTarget(RenderTarget* target);
 
 		RenderTarget* GetRenderTarget() const;
+
+		// Buffer debug-view texture (see m_DebugViewTexture). Null when
+		// no debug view is active — the editor presents the scene RT.
+		void SetDebugViewTexture(const std::shared_ptr<Texture> &ptr);
+
+		std::shared_ptr<Texture> GetDebugViewTexture() const;
 
 		// begin shaodw mapping
 

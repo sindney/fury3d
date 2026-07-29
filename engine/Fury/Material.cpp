@@ -64,7 +64,7 @@ namespace fury
 	}
 
 	Material::Material(const std::string &name)
-		: Entity(name), m_Opaque(true), m_ID(GetMaterialID()), m_TextureFlags(0)
+		: Entity(name), m_Opaque(true), m_AlphaMode(AlphaMode::OPAQUE), m_AlphaCutoff(0.5f), m_ID(GetMaterialID()), m_TextureFlags(0)
 	{
 		m_TypeIndex = typeid(Material);
 		m_Dirty = false;
@@ -89,6 +89,15 @@ namespace fury
 
 		LoadMemberValue(wrapper, "opaque", m_Opaque);
 		LoadMemberValue(wrapper, "texture_flags", m_TextureFlags);
+
+		// alpha mode/cutoff: new files carry them; legacy files only
+		// have "opaque" — derive (opaque→OPAQUE, !opaque→BLEND).
+		std::string alphaMode;
+		if (LoadMemberValue(wrapper, "alpha_mode", alphaMode))
+			SetAlphaMode(EnumUtil::AlphaModeFromString(alphaMode));
+		else
+			SetAlphaMode(m_Opaque ? AlphaMode::OPAQUE : AlphaMode::BLEND);
+		LoadMemberValue(wrapper, "alpha_cutoff", m_AlphaCutoff);
 
 		// load shaders
 		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
@@ -196,6 +205,10 @@ namespace fury
 
 		SaveKey(wrapper, "opaque");
 		SaveValue(wrapper, m_Opaque);
+		SaveKey(wrapper, "alpha_mode");
+		SaveValue(wrapper, EnumUtil::AlphaModeToString(m_AlphaMode));
+		SaveKey(wrapper, "alpha_cutoff");
+		SaveValue(wrapper, m_AlphaCutoff);
 		SaveKey(wrapper, "texture_flags");
 		SaveValue(wrapper, m_TextureFlags);
 
@@ -283,30 +296,22 @@ namespace fury
 		}
 
 		// calculate new matching shaderType
-		bool hasTexture = false;
+		// Priority is deterministic (diffuse > specular > normal):
+		// iterating the unordered map and taking the first match made
+		// the flags nondeterministic for multi-texture materials —
+		// a baseColor+normal glTF import could get NORMAL flags and
+		// then match no pass shader ("shader not found").
 		m_TextureFlags = 0;
 
-		for (auto pair : m_Textures)
-		{
-			if (pair.first == DIFFUSE_TEXTURE)
-			{
-				hasTexture = true;
-				m_TextureFlags = m_TextureFlags | (unsigned int)ShaderTexture::DIFFUSE;
-				break;
-			}
-			if (pair.first == SPECULAR_TEXTURE)
-			{
-				hasTexture = true;
-				m_TextureFlags = m_TextureFlags | (unsigned int)ShaderTexture::SPECULAR;
-				break;
-			}
-			if (pair.first == NORMAL_TEXTURE)
-			{
-				hasTexture = true;
-				m_TextureFlags = m_TextureFlags | (unsigned int)ShaderTexture::NORMAL;
-				break;
-			}
-		}
+		bool hasTexture = true;
+		if (m_Textures.find(DIFFUSE_TEXTURE) != m_Textures.end())
+			m_TextureFlags = (unsigned int)ShaderTexture::DIFFUSE;
+		else if (m_Textures.find(SPECULAR_TEXTURE) != m_Textures.end())
+			m_TextureFlags = (unsigned int)ShaderTexture::SPECULAR;
+		else if (m_Textures.find(NORMAL_TEXTURE) != m_Textures.end())
+			m_TextureFlags = (unsigned int)ShaderTexture::NORMAL;
+		else
+			hasTexture = false;
 
 		if (!hasTexture)
 			m_TextureFlags = (unsigned int)ShaderTexture::COLOR_ONLY;
@@ -376,5 +381,27 @@ namespace fury
 	void Material::SetOpaque(bool value)
 	{
 		m_Opaque = value;
+		m_AlphaMode = value ? AlphaMode::OPAQUE : AlphaMode::BLEND;
+	}
+
+	AlphaMode Material::GetAlphaMode() const
+	{
+		return m_AlphaMode;
+	}
+
+	void Material::SetAlphaMode(AlphaMode mode)
+	{
+		m_AlphaMode = mode;
+		m_Opaque = (mode != AlphaMode::BLEND);
+	}
+
+	float Material::GetAlphaCutoff() const
+	{
+		return m_AlphaCutoff;
+	}
+
+	void Material::SetAlphaCutoff(float value)
+	{
+		m_AlphaCutoff = value;
 	}
 }

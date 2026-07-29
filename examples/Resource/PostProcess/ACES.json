@@ -1,9 +1,21 @@
 {
     "name": "ACES",
+    "description": "ACES filmic tonemap (HDR -> LDR). Runs automatically while HDR is on, always after screen-space effects.",
     "shader": "Resource/Shader/PostProcess/ACES.glsl",
-    "inputs": ["hdr_input"],
+    "inputs": [
+        "hdr_input"
+    ],
     "output_format": "rgba8",
+    "stage": "tonemap",
     "uniforms": [
-        { "name": "u_exposure", "value": [1.0] }
+        {
+            "name": "u_exposure",
+            "value": [
+                1.0
+            ],
+            "tip": "Exposure multiplier before tonemapping. >1 brightens, <1 darkens.",
+            "min": 0.1,
+            "max": 4.0
+        }
     ]
 }

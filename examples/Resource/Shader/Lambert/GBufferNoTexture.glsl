@@ -53,6 +53,12 @@ uniform vec3 diffuse_color;
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
 
+// Color-only path: alpha-test still gates discard against (1 - transparency). See GBuffer.glsl for variable semantics.
+uniform float transparency = 0.0;
+#ifdef ALPHA_TEST
+uniform float u_alpha_cutoff = 0.5;
+#endif
+
 #ifdef PBR
 // See GBuffer.glsl — same metallic-roughness packing for
 // color-only materials.
@@ -73,6 +79,11 @@ layout (location = 1) out vec4 rt1;
 
 void main()
 {
+#ifdef ALPHA_TEST
+	if ((1.0 - transparency) < u_alpha_cutoff)
+		discard;
+#endif
+
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
 
 	vec3 finalDiffuse = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;

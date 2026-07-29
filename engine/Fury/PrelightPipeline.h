@@ -38,7 +38,11 @@ namespace fury
 
 	protected:
 
-		void DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit);
+		// lightNode is only used by TRANSPARENT passes: nullptr draws
+		// the ambient/emissive base, a light node draws that light's
+		// additive contribution.
+		void DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit,
+			const std::shared_ptr<SceneNode> &lightNode = nullptr);
 
 		void DrawPointLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
 
@@ -52,6 +56,18 @@ namespace fury
 		// final effect writes to the default FB / editor RenderTarget
 		// with sRGB encode.
 		void RunPostProcessChain();
+
+		// Buffer debug views (SSAO_VIEW / SSR_VIEW switches): runs
+		// the named effect's DEBUG_VIEW shader variant over the
+		// current gbuffer + composite and stores the result in the
+		// "debug_view" texture (presented by the editor viewport /
+		// Profiler instead of the scene). The effect does NOT need to
+		// be enabled in the chain — the view recomputes it standalone.
+		void DrawEffectDebugView(const std::string &effectName);
+
+		// Chain/debug-view shared input: the lighting output texture
+		// (hdr_composite / ldr_composite with legacy fallbacks).
+		std::shared_ptr<Texture> GetLightingOutputTexture() const;
 	};
 }
 

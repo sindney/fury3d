@@ -99,9 +99,11 @@ std::function<void(SceneNode*)> g_FrameSelectionHandler;
 std::unordered_map<std::string, bool> g_ImportFlags;
 SceneNode* g_SelectedSceneNode = nullptr;
 bool g_ShowSettings = false;
-// Default to true so ImGui Begin()-s the window on startup and
-// persists its state (dock, visibility) to imgui.ini.
-bool g_ShowProfiler = true;		  // visible by default — docked right
+// Hidden by default — opened on demand via the Window menu. (It was
+// briefly default-ON for dock persistence; the [FuryEditor] ini
+// handler now persists visibility either way, so the default layout
+// stays clean.)
+bool g_ShowProfiler = false; // hidden by default — opened on demand
 bool g_ShowSceneInspector = true; // visible by default — docked left
 bool g_ShowNodeProperties = true; // visible by default — docked right
 bool g_ShowConsole = true;		  // visible by default — bottom dock
@@ -222,6 +224,36 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		g_SnapTranslate = st;
 		g_SnapRotate = sr;
 		g_SnapScale = sc;
+		return;
+	}
+
+	// Window visibility — one line per window: Show=<name>=<0|1>.
+	// Restoring these BEFORE the first frame means each visible
+	// window is Begin()'d every frame, which is what lets ImGui
+	// record + restore its [Window][<name>] dock/pos entry (the
+	// Settings window previously defaulted closed, so its dock
+	// position was never persisted).
+	char winname[64];
+	int winval = -1;
+	if (std::sscanf(line, "Show=%63[^=]=%d", winname, &winval) == 2
+		&& (winval == 0 || winval == 1)) {
+		static const std::pair<const char*, bool*> kWindows[] = {
+			{"Settings", &g_ShowSettings},
+			{"Profiler", &g_ShowProfiler},
+			{"SceneInspector", &g_ShowSceneInspector},
+			{"NodeProperties", &g_ShowNodeProperties},
+			{"Console", &g_ShowConsole},
+			{"ContentBrowser", &g_ShowContentBrowser},
+			{"Viewport", &g_ShowViewport},
+			{"Animation", &g_ShowAnimation},
+		};
+		for (const auto& kv : kWindows) {
+			if (std::strcmp(winname, kv.first) == 0) {
+				*kv.second = (winval != 0);
+				break;
+			}
+		}
+		return;
 	}
 }
 
@@ -254,6 +286,16 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Gizmo=%d,%d,%d,%.6f,%.6f,%.6f\n",
 				 op_idx, space_idx, g_SnapEnabled ? 1 : 0,
 				 g_SnapTranslate, g_SnapRotate, g_SnapScale);
+	// Window visibility — restoring these pre-first-frame keeps every
+	// window Begin()'d, so ImGui can persist/restore its dock entry.
+	buf->appendf("Show=Settings=%d\n", g_ShowSettings ? 1 : 0);
+	buf->appendf("Show=Profiler=%d\n", g_ShowProfiler ? 1 : 0);
+	buf->appendf("Show=SceneInspector=%d\n", g_ShowSceneInspector ? 1 : 0);
+	buf->appendf("Show=NodeProperties=%d\n", g_ShowNodeProperties ? 1 : 0);
+	buf->appendf("Show=Console=%d\n", g_ShowConsole ? 1 : 0);
+	buf->appendf("Show=ContentBrowser=%d\n", g_ShowContentBrowser ? 1 : 0);
+	buf->appendf("Show=Viewport=%d\n", g_ShowViewport ? 1 : 0);
+	buf->appendf("Show=Animation=%d\n", g_ShowAnimation ? 1 : 0);
 	buf->append("\n");
 }
 

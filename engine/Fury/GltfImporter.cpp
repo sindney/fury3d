@@ -258,8 +258,10 @@ Material::Ptr TranslateMaterial(
 								 : gm.name;
 	auto material = Material::Create(name);
 
-	// alphaMode -> opaque
-	material->SetOpaque(gm.alphaMode != "BLEND" && gm.alphaMode != "MASK");
+	// alphaMode/alphaCutoff -> material alpha mode (MASK stays
+	// opaque-bucketed and alpha-tests in the gbuffer shader)
+	material->SetAlphaMode(EnumUtil::AlphaModeFromString(gm.alphaMode));
+	material->SetAlphaCutoff(static_cast<float>(gm.alphaCutoff));
 
 	// baseColorFactor -> diffuse_color (rgb) + transparency (1 - a)
 	const auto& bcf = gm.pbrMetallicRoughness.baseColorFactor;
@@ -269,6 +271,23 @@ Material::Ptr TranslateMaterial(
 	float a = bcf.size() > 3 ? static_cast<float>(bcf[3]) : 1.0f;
 	material->SetUniform(Material::DIFFUSE_COLOR, Uniform3f::Create({r, g, b}));
 	material->SetUniform(Material::TRANSPARENCY, Uniform1f::Create({1.0f - a}));
+
+	// KHR_materials_transmission fallback: no refraction support —
+	// approximate as BLEND glass with alpha = 1 - transmissionFactor.
+	// Explicit alphaMode=BLEND wins over the extension.
+	if (gm.alphaMode != "BLEND") {
+		auto extIt = gm.extensions.find("KHR_materials_transmission");
+		if (extIt != gm.extensions.end() && extIt->second.IsObject()) {
+			double t = 1.0;
+			auto f = extIt->second.Get("transmissionFactor");
+			if (f.IsNumber()) t = f.GetNumberAsDouble();
+			if (t > 0.0) {
+				material->SetAlphaMode(AlphaMode::BLEND);
+				material->SetUniform(Material::TRANSPARENCY,
+					Uniform1f::Create({static_cast<float>(t)}));
+			}
+		}
+	}
 
 	// baseColorTexture -> diffuse_texture slot
 	if (gm.pbrMetallicRoughness.baseColorTexture.index >= 0) {

@@ -3,9 +3,7 @@
 ## Purpose
 
 The CPU-only translator from `tinygltf::Model` to engine `Scene` / `SceneNode` / `Mesh` / `Material` / `Joint` / `AnimationClip`. Covers what gets mapped, the lossy choices (PBR → Lambert, seconds → ticks), and what's explicitly rejected (morph targets, sparse accessors, byte-stride buffer views). Used by both the CLI and the Lua bindings.
-
 ## Requirements
-
 ### Requirement: The CLI SHALL provide a `convert gltf` subcommand that imports glTF 2.0 into the engine's runtime scene format
 
 The `fury` binary SHALL accept the invocation `fury convert gltf <input> <output>` where `<input>` is a path to a `.gltf` or `.glb` file and `<output>` is a path with extension `.json` or `.bin`. The output extension SHALL determine the on-disk format: `.json` uses `FileUtil::SaveFile` (human-readable Serializable JSON), `.bin` uses `FileUtil::SaveCompressedFile` (LZ4-compressed Serializable JSON). The importer SHALL populate a `Scene` containing the glTF model's node hierarchy, meshes (including submesh splits per material), materials (lossy PBR → Phong/Lambert), joints (for skinned meshes), and animation clips (resampled to ticks at 24 fps). The importer SHALL NOT require an OpenGL context — all CPU-side data must be populated without GPU upload.
@@ -73,7 +71,7 @@ For each `tinygltf::Mesh`, the importer SHALL emit one engine `Mesh` registered 
 
 ### Requirement: The importer SHALL translate glTF materials to engine Lambert materials with lossy PBR mapping
 
-For each `tinygltf::Material`, the importer SHALL emit one engine `Material` registered in the scene's `EntityManager` with the engine's named-uniform shape (matching today's `Material::Save` output for the Lambert pipeline). The PBR `baseColorFactor` SHALL map to the `diffuse_color` uniform; the `baseColorTexture` SHALL map to the `diffuse_texture` slot. The texture's pixels SHALL be loaded according to the "embedded glTF images directly from memory" requirement (in-memory upload for embedded images, file-path passthrough for external-URI images). The `emissiveFactor` SHALL map to the `emissive_color` uniform. The emitted material's `opaque` flag SHALL be `true` when the glTF material's `alphaMode` is `OPAQUE` and `false` otherwise.
+For each `tinygltf::Material`, the importer SHALL emit one engine `Material` registered in the scene's `EntityManager` with the engine's named-uniform shape (matching today's `Material::Save` output for the Lambert pipeline). The PBR `baseColorFactor` SHALL map to the `diffuse_color` uniform; the `baseColorTexture` SHALL map to the `diffuse_texture` slot. The texture's pixels SHALL be loaded according to the "embedded glTF images directly from memory" requirement (in-memory upload for embedded images, file-path passthrough for external-URI images). The `emissiveFactor` SHALL map to the `emissive_color` uniform. The glTF `alphaMode` SHALL map to the material's alpha mode: `OPAQUE` (or unspecified) → `OPAQUE`, `MASK` → `MASK`, `BLEND` → `BLEND`; `alphaCutoff` (default 0.5 when unspecified) SHALL map to the material's alpha cutoff. The legacy `opaque` flag SHALL be derived as `alpha_mode != BLEND` — so MASK materials are opaque-bucketed (alpha-tested) and only BLEND materials join the transparent queue. When the material declares `KHR_materials_transmission` with a positive `transmissionFactor` and `alphaMode` is not `"BLEND"`, the importer SHALL fall back to alpha mode `BLEND` with `transparency = transmissionFactor` (a refraction approximation, not a full transmission implementation).
 
 Material translation SHALL be sensitive to the target pipeline's HDR mode at import time:
 
@@ -81,34 +79,55 @@ Material translation SHALL be sensitive to the target pipeline's HDR mode at imp
 - **When the target pipeline is HDR** (PBR), the importer SHALL additionally map `metallicFactor`, `roughnessFactor`, `metallicRoughnessTexture`, `normalTexture`, and `occlusionTexture` to the corresponding PBR material uniforms/texture slots, so no PBR field is silently discarded.
 
 #### Scenario: baseColorFactor maps to diffuse_color
+
 - **WHEN** a glTF material has `pbrMetallicRoughness.baseColorFactor = [0.8, 0.2, 0.2, 1.0]`
 - **THEN** the emitted engine `Material` has a `Uniform3f` named `diffuse_color` with values `(0.8, 0.2, 0.2)`
 
 #### Scenario: baseColorTexture maps to diffuse_texture slot (external URI)
+
 - **WHEN** a glTF material has `pbrMetallicRoughness.baseColorTexture.index` set, AND that texture's image has a non-empty `uri` (e.g., `"foo.png"`)
 - **THEN** the emitted engine `Material` has an entry in its texture map with key `diffuse_texture` whose `m_FilePath` is the URI verbatim
 - **AND** the texture's GPU upload uses `Texture::CreateFromImage(uri, ...)` (existing path)
 
 #### Scenario: baseColorTexture maps to diffuse_texture slot (embedded bytes)
+
 - **WHEN** a glTF material has `pbrMetallicRoughness.baseColorTexture.index` set, AND that texture's image is bufferView-backed with empty `uri`
 - **THEN** the emitted engine `Material` has an entry in its texture map with key `diffuse_texture` whose GPU upload was driven by `Texture::CreateFromMemory(bytes, len, ...)`
 - **AND** the texture's `m_FilePath` is empty until the scene is saved
 - **AND** the texture's recorded `m_OriginalFilename` matches the glTF `image.name` (or the synthesized `<stem>_image<i>.<ext>` fallback when `image.name` is empty)
 
 #### Scenario: LDR import discards PBR-only fields with a warning
+
 - **WHEN** a glTF material with metallic/roughness/normal/occlusion inputs is imported while the target pipeline is LDR
 - **THEN** those fields are read but not mapped to engine uniforms
 - **AND** exactly one warning per source material lists the discarded fields
 
 #### Scenario: HDR import maps PBR fields
+
 - **WHEN** a glTF material with metallic/roughness/normal/occlusion inputs is imported while the target pipeline is HDR
 - **THEN** those inputs are mapped to the PBR material's metallic/roughness/normal/occlusion uniforms and texture slots
 - **AND** no warning about discarded PBR fields is logged
 
-#### Scenario: alphaMode controls opaque flag
+#### Scenario: alphaMode BLEND maps to transparent
+
 - **WHEN** a glTF material has `alphaMode = "BLEND"`
-- **THEN** the emitted engine `Material`'s `opaque` flag is `false`
-- **AND WHEN** `alphaMode` is `"OPAQUE"` (or unspecified), the flag is `true`
+- **THEN** the emitted engine `Material` has alpha mode `BLEND` and its `opaque` flag is `false`
+
+#### Scenario: alphaMode MASK maps to alpha-tested opaque
+
+- **WHEN** a glTF material has `alphaMode = "MASK"` and `alphaCutoff = 0.25`
+- **THEN** the emitted engine `Material` has alpha mode `MASK`, alpha cutoff 0.25, and its `opaque` flag is `true`
+
+#### Scenario: alphaMode OPAQUE or unspecified
+
+- **WHEN** a glTF material has `alphaMode = "OPAQUE"` or no `alphaMode` field
+- **THEN** the emitted engine `Material` has alpha mode `OPAQUE`, default cutoff 0.5, and its `opaque` flag is `true`
+
+#### Scenario: KHR_materials_transmission falls back to BLEND
+
+- **WHEN** a glTF material declares `KHR_materials_transmission` with `transmissionFactor > 0` and its `alphaMode` is not `"BLEND"`
+- **THEN** the emitted engine `Material` has alpha mode `BLEND` and its `transparency` uniform equals the transmissionFactor (so alpha = 1 − transmissionFactor)
+- **AND** an explicit `alphaMode = "BLEND"` takes precedence over the extension
 
 ### Requirement: The importer SHALL load embedded glTF images directly from memory into engine `Texture` objects, without writing to disk
 
@@ -163,7 +182,6 @@ The `Texture::Save` serializer SHALL not embed bytes inline in JSON. The disk-ex
 - **WHEN** a scene with an in-memory texture is saved via `FileUtil::SaveFile` (which triggers the save-time extraction step)
 - **THEN** the texture's `m_FilePath` is set to the relative or absolute path of the extracted sibling file
 - **AND** the saved JSON's texture entry has `path` pointing at that file
-
 
 ### Requirement: The importer SHALL translate glTF skins into engine Joint trees and emit per-vertex skin data
 
@@ -371,3 +389,4 @@ The editor SHALL surface the mode in Settings → Import as a `Normal Gen` combo
 
 - **WHEN** a glTF primitive provides a `NORMAL` attribute
 - **THEN** the importer copies the authored normals verbatim regardless of the mode setting
+

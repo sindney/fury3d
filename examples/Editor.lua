@@ -25,10 +25,10 @@
 -- Pipeline.SetCurrentCamera.
 --
 -- Startup scene:
---   * No argv: load Resource/Scene/scene.bin (engine's bundled tank scene).
+--   * No argv: load Projects/tank/scene.bin (engine's bundled tank scene).
 --   * argv:    `./fury Editor.lua <name>` opens <name> at startup.
---              The path is tried literally first, then with a Resource/Scene/
---              prefix, then any extension Importer.LoadScene supports.
+--              The path is tried literally first, then with Projects/ and
+--              Resource/Scene/ prefixes, then any extension Importer.LoadScene supports.
 --              On failure: fall back to scene.bin so the editor stays interactive.
 
 local octree           = nil
@@ -61,6 +61,7 @@ end
 -- referenced from earlier local functions). Lua needs the name in scope at
 -- closure-capture time.
 local ensure_default_sun
+local frame_scene
 
 -- Replace the active scene's content with `new_scene`. Camera + pipeline survive.
 local function replace_active_scene(new_scene)
@@ -70,17 +71,16 @@ local function replace_active_scene(new_scene)
     active:Clear()
     Importer.MergeInto(active, new_scene)
     -- MergeInto doesn't transfer renderSettings; copy them so
-    -- HDR/CSM/chain survive File → Open.
+    -- HDR/CSM/chain survive File → Open. CopyChainFrom preserves
+    -- per-entry uniform overrides (the old AddEffect loop dropped
+    -- them).
     local src_rs = new_scene:GetRenderSettings()
     local dst_rs = active:GetRenderSettings()
     if src_rs and dst_rs then
         dst_rs:SetPipelinePath(src_rs:GetPipelinePath())
         dst_rs:SetHDR(src_rs:IsHDR())
         dst_rs:SetCascadedShadowMap(src_rs:IsCascadedShadowMap())
-        dst_rs:ClearChain()
-        for _, e in ipairs(src_rs:GetChain()) do
-            dst_rs:AddEffect(e.effectName, e.enabled)
-        end
+        dst_rs:CopyChainFrom(src_rs)
     end
     ensure_default_sun(active)
     -- Reload the pipeline when the opened scene references a
@@ -219,6 +219,7 @@ local function open_scene_at_path(path)
         local basename = path:match("[^/\\]+$") or path
         Editor.SetCurrentScene(path, is_native_format(basename))
         set_status("opened " .. path)
+        frame_scene(Scene.GetActive())
     end
     if is_gltf_family(path) then
         local scale, dim = suggest_unit_scale(imported)
@@ -291,7 +292,7 @@ local function save_active_scene(_unused_filename)
 
     local path = Editor.SaveDialog({
         filter = "json,bin",
-        default_path = FileUtil.GetAbsPath("Resource/Scene/"),
+        default_path = FileUtil.GetAbsPath("Projects/"),
         default_name = default_name,
     })
     if not path then return end
@@ -353,7 +354,7 @@ ensure_default_sun = ensure_default_sun_impl
 -- Startup scene resolution
 
 local function load_default_scene()
-    local path = FileUtil.GetAbsPath("Resource/Scene/scene.bin")
+    local path = FileUtil.GetAbsPath("Projects/tank/scene.bin")
     -- Route through open_scene_at_path so the loading scene's
     -- working_dir is set correctly for texture path resolution.
     if open_scene_at_path(path) then return end
@@ -371,6 +372,8 @@ local function resolve_startup_scene(name)
     if not name or name == "" then return nil end
     local literal = FileUtil.GetAbsPath(name)
     if file_exists(literal) then return literal end
+    local proj = FileUtil.GetAbsPath("Projects/" .. name)
+    if file_exists(proj) then return proj end
     local prefixed = FileUtil.GetAbsPath("Resource/Scene/" .. name)
     if file_exists(prefixed) then return prefixed end
     return nil
@@ -379,6 +382,68 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Frame the camera on a SceneNode. Invoked by the C++ Scene
+
+-- After loading a scene (startup or File -> Open), frame the camera on the whole-scene AABB. Toggled by the auto_focus editor setting (default ON; persisted via the editor settings handler — same path as auto_scale_detect).
+-- Same yaw/pitch math as frame_selection so the camera convention stays consistent.
+frame_scene = function(scene)
+    if not Editor.GetImportFlag("auto_focus", true) then return end
+    if not scene then return end
+    local bmin, bmax = scene:ComputeWorldAABB()
+    if not bmin or not bmax then return end
+    local center = (bmin + bmax) * 0.5
+    local size = bmax - bmin
+    local radius = math.max(size.x, size.y, size.z) * 0.5
+
+    local distance = (radius > 1e-4)
+        and (radius / math.tan(0.7854 * 0.5) * 1.1)
+        or 10.0
+    if distance < 1.0 then distance = 1.0 end
+
+    -- Big scenes (tank / outdoor auto-scaled to ~1.4k units) need a
+    -- far plane beyond the editor's default 5000 to keep the
+    -- terrain visible from the framed pose. Without this the
+    -- background mesh is sliced off when auto-scale grows the
+    -- scene above 1250 radius.
+    local cam = cam_node and cam_node:GetCamera()
+    if cam and distance * 4.0 > 5000.0 then
+        cam:PerspectiveFov(0.7854, 1.778, math.max(1.0, distance * 0.001), distance * 4.0)
+    end
+
+    local dir_len = math.sqrt(1.0 + 0.36 + 1.0)  -- normalized (1, 0.6, 1)
+    local dirx = 1.0 / dir_len
+    local diry = 0.6 / dir_len
+    local dirz = 1.0 / dir_len
+
+    local eye = Vector4(
+        center.x + dirx * distance,
+        center.y + diry * distance,
+        center.z + dirz * distance,
+        1.0)
+
+    local dx = eye.x - center.x
+    local dy = eye.y - center.y
+    local dz = eye.z - center.z
+    local horiz = math.sqrt(dx * dx + dz * dz)
+
+    if horiz < 1e-6 then yaw = 0.0 else yaw = math.atan(dx, dz) end
+    pitch = math.atan(-dy, horiz)
+    local limit = math.rad(89.0)
+    if pitch >  limit then pitch =  limit end
+    if pitch < -limit then pitch = -limit end
+
+    cam_pos = eye
+
+    -- Apply immediately so the camera is at its framed pose before
+    -- the next mouse event lands. Without this the camera sits at
+    -- its pre-frame yaw/pitch for one tick, and the first drag's
+    -- delta gets applied on top of the old (out-of-sync) state.
+    if cam_node then
+        cam_node:SetLocalPosition(cam_pos)
+        cam_node:SetLocalRoattion(MathUtil.EulerRadToQuat(yaw, pitch, 0.0))
+        cam_node:Recompose(false)
+    end
+end
+
 -- Inspector's leaf-double-click via Editor::FrameSelection.
 local function frame_selection(node)
     if not node or not node:GetParent() then return end
@@ -516,6 +581,10 @@ local function on_init()
     -- only routes the menu / shortcut events.
     Editor.SetSceneIO({
         on_new     = function()
+            -- Clear the C++ selection before active:Clear() orphans the
+            -- node (same ordering as replace_active_scene — File → Open
+            -- goes through that path, so this matches it).
+            Editor.SetSelectedSceneNode(nil)
             Scene.GetActive():Clear()
             Editor.ClearCurrentScene()
             set_status("scene cleared")
@@ -526,7 +595,7 @@ local function on_init()
             -- loadable format (.json / .bin / .gltf / .glb / .fbx).
             local path = Editor.OpenDialog({
                 filter = SCENE_FILE_FILTER,
-                default_path = FileUtil.GetAbsPath("Resource/Scene/"),
+                default_path = FileUtil.GetAbsPath("Projects/"),
             })
             if not path then return end -- user cancelled
             open_scene_at_path(path)
@@ -537,7 +606,7 @@ local function on_init()
             -- one. Accepts any engine loadable format.
             local paths = Editor.OpenDialog({
                 filter = SCENE_FILE_FILTER,
-                default_path = FileUtil.GetAbsPath("Resource/Scene/"),
+                default_path = FileUtil.GetAbsPath("Projects/"),
                 multi = true,
             })
             if not paths then return end -- user cancelled
@@ -548,7 +617,7 @@ local function on_init()
         end,
         on_save    = save_scene_in_place,
         on_save_as = save_active_scene,
-        scene_dir  = function() return FileUtil.GetAbsPath("Resource/Scene/") end,
+        scene_dir  = function() return FileUtil.GetAbsPath("Projects/") end,
     })
 
     -- Import flags: persisted to imgui.ini by the FuryEditor settings

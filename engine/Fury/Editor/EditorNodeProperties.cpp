@@ -62,6 +62,24 @@ void RenderSceneNodeSection(SceneNode* node) {
 	ImGui::SameLine();
 	if (ImGui::RadioButton("World##NodeSpace", g_NodeShowWorld)) g_NodeShowWorld = true;
 
+	// Root-node transform is conventionally identity at runtime:
+	// any non-identity on the active scene's root cascades into
+	// the gizmo (ImGuizmo reads matrix scale as gizmo size), the
+	// editor camera, and the entire world-AABB walk. Lock the
+	// inputs to identity when the user selects the root so a stray
+	// edit can't poison everything downstream. CLI auto-scale
+	// (`ApplyRootScale`) scales *children* for this reason.
+	const bool isRoot = (node == (Scene::Active
+		? Scene::Active->GetRootNode().get()
+		: nullptr));
+	if (isRoot) {
+		ImGui::SameLine();
+		ImGui::TextDisabled("(root transform locked)");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Root node transform is locked to identity.\nScale or move children instead.");
+	}
+	if (isRoot) ImGui::BeginDisabled();
+
 	bool changed = false;
 
 	if (!g_NodeShowWorld) {
@@ -91,6 +109,7 @@ void RenderSceneNodeSection(SceneNode* node) {
 		ImGui::EndDisabled();
 	}
 	if (changed) node->Recompose(false);
+	if (isRoot) ImGui::EndDisabled();
 }
 
 // ----- Component body renderers -----

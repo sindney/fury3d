@@ -223,6 +223,15 @@ namespace fury
 				"GetRootNode", &Scene::GetRootNode,
 				"GetSceneManager", &Scene::GetSceneManager,
 				"GetEntityManager", &Scene::GetEntityManager,
+				// Register a script-created Material so it saves with the
+				// scene (imports register their own; without this a
+				// Material.Create'd material is GC'd and missing on reload).
+				"AddMaterial", [](Scene &s, const Material::Ptr &m) {
+					if (auto em = s.GetEntityManager()) em->Add(m);
+				},
+				"AddMesh", [](Scene &s, const Mesh::Ptr &m) {
+					if (auto em = s.GetEntityManager()) em->Add(m);
+				},
 				"GetRenderSettings", &Scene::GetRenderSettings,
 				"GetWorkingDir", &Scene::GetWorkingDir,
 				"SetWorkingDir", &Scene::SetWorkingDir,
@@ -777,6 +786,7 @@ namespace fury
 				},
 				"RemoveEffect", &RenderSettings::RemoveEffect,
 				"MoveEffect", &RenderSettings::MoveEffect,
+				"CopyChainFrom", &RenderSettings::CopyChainFrom,
 				"SetEffectEnabled", &RenderSettings::SetEffectEnabled);
 
 			// --- PostProcessRegistry -----------------------------------------
@@ -784,6 +794,17 @@ namespace fury
 			//   PostProcess.LoadFromDirectory("Resource/PostProcess")
 			// once at startup. The C++ side owns the actual map;
 			// Lua only calls into it.
+			// --- Launcher flags ------------------------------------------------
+			// Read-only view of the launcher's --flags for scripts:
+			//   Launcher.GetFlag("auto_confirm") / ("auto_focus")
+			sol::table launcher_tbl = lua.create_named_table("Launcher");
+			launcher_tbl["GetFlag"] = [&lua](const std::string &name) -> sol::object {
+				if (!s_launcher_options) return sol::nil;
+				if (name == "auto_confirm") return sol::make_object(lua, s_launcher_options->auto_confirm);
+				if (name == "auto_focus") return sol::make_object(lua, s_launcher_options->auto_focus);
+				return sol::nil;
+			};
+
 			sol::table pp_tbl = lua.create_named_table("PostProcess");
 			pp_tbl["LoadFromDirectory"] = [](const std::string &dir) {
 				return fury::PostProcessRegistry::LoadFromDirectory(dir);
@@ -1420,11 +1441,19 @@ namespace fury
 			// callback fires exactly once with true (Yes) / false (No/Esc).
 			editor_tbl["RequestConfirmDialog"] = [](const std::string& title, const std::string& message,
 													sol::protected_function cb) {
-				Editor::RequestConfirmDialog(title, message, [cb](bool yes) mutable {
+				auto invoke = [cb](bool yes) mutable {
 					if (!cb.valid()) return;
 					sol::protected_function_result r = cb(yes);
 					if (!r.valid()) { sol::error e = r; FURYE << "confirm dialog callback error: " << e.what(); }
-				});
+				};
+				// --auto-confirm: fire the default (Yes) selection
+				// immediately so headless runs never block on a modal.
+				if (s_launcher_options && s_launcher_options->auto_confirm)
+				{
+					invoke(true);
+					return;
+				}
+				Editor::RequestConfirmDialog(title, message, std::move(invoke));
 			};
 			editor_tbl["SetCurrentScene"]     = [](const std::string& path, bool is_native) {
 				Editor::SetCurrentScene(path, is_native);
@@ -1799,7 +1828,10 @@ namespace fury
 			// shape: number -> Uniform1f, integer-valued number -> Uniform1ui,
 			// 3-element table -> Uniform3f, 4-element table -> Uniform4f.
 			lua.new_usertype<Material>("Material",
-				sol::no_constructor,
+				// Material.Create(name) — for scripts that build test/demo
+				// content programmatically (scene imports own materials
+				// otherwise).
+				"Create", &Material::Create,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
 				"GetName", &Material::GetName,
 				"SetName", &Material::SetName,

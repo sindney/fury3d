@@ -49,6 +49,9 @@ namespace fury
 
 		DrawMode m_DrawMode = DrawMode::OPAQUE;
 
+		// False for the transparent pass: depth-tested but not written.
+		bool m_DepthWrite = true;
+
 		std::vector<std::shared_ptr<Shader>> m_Shaders;
 
 		unsigned int m_RenderIndex = 0;
@@ -106,6 +109,10 @@ namespace fury
 		void SetDrawMode(DrawMode mode);
 
 		DrawMode GetDrawMode() const;
+
+		void SetDepthWrite(bool value);
+
+		bool GetDepthWrite() const;
 
 		// After binding, call this to specify the layer of the texture array to render to.
 		void SetArrayTextureLayer(const std::string &name, int index);

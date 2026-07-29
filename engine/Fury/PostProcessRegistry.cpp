@@ -1,5 +1,6 @@
 #include "Fury/PostProcessRegistry.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -43,6 +44,20 @@ namespace fury
 		out.reserve(map.size());
 		for (const auto &kv : map)
 			out.push_back(kv.second);
+		return out;
+	}
+
+	std::vector<PostProcessEffect::Ptr> PostProcessRegistry::GetSortedAll()
+	{
+		auto out = GetAll();
+		std::sort(out.begin(), out.end(), [](const PostProcessEffect::Ptr &a, const PostProcessEffect::Ptr &b)
+		{
+			if (a->GetStage() != b->GetStage())
+				return a->GetStage() < b->GetStage();
+			if (a->GetOrder() != b->GetOrder())
+				return a->GetOrder() < b->GetOrder();
+			return a->GetName() < b->GetName();
+		});
 		return out;
 	}
 

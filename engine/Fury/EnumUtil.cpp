@@ -1,6 +1,8 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/GLLoader.h"
 
+#include <cctype>
+
 #undef OPAQUE
 #undef TRANSPARENT
 
@@ -190,9 +192,10 @@ namespace fury
 	const std::vector<std::pair<ShaderTexture, std::string>> EnumUtil::m_ShaderTexture =
 	{
 		std::make_pair(ShaderTexture::COLOR_ONLY, "color_only"),
-		std::make_pair(ShaderTexture::DIFFUSE, "diffuse"), 
-		std::make_pair(ShaderTexture::SPECULAR, "specular"), 
-		std::make_pair(ShaderTexture::NORMAL, "normal")
+		std::make_pair(ShaderTexture::DIFFUSE, "diffuse"),
+		std::make_pair(ShaderTexture::SPECULAR, "specular"),
+		std::make_pair(ShaderTexture::NORMAL, "normal"),
+		std::make_pair(ShaderTexture::ALPHA_TEST, "alpha_test")
 	};
 
 	const std::vector<unsigned int> EnumUtil::m_LineMode =
@@ -215,6 +218,13 @@ namespace fury
 	{
 		std::make_pair(PlayMode::StopSameLayer, "stop_same_layer"),
 		std::make_pair(PlayMode::StopAll, "stop_all")
+	};
+
+	const std::vector<std::pair<AlphaMode, std::string>> EnumUtil::m_AlphaMode =
+	{
+		std::make_pair(AlphaMode::OPAQUE, "opaque"),
+		std::make_pair(AlphaMode::MASK, "mask"),
+		std::make_pair(AlphaMode::BLEND, "blend")
 	};
 
 
@@ -554,5 +564,47 @@ namespace fury
 				return pair.first;
 		}
 		return PlayMode::StopSameLayer;
+	}
+
+	std::string EnumUtil::PostProcessStageToString(PostProcessStage stage)
+	{
+		switch (stage)
+		{
+		case PostProcessStage::PRE_TONEMAP:
+			return "pre_tonemap";
+		case PostProcessStage::TONEMAP:
+			return "tonemap";
+		case PostProcessStage::POST_TONEMAP:
+		default:
+			return "post_tonemap";
+		}
+	}
+
+	PostProcessStage EnumUtil::PostProcessStageFromString(const std::string &name)
+	{
+		if (name == "pre_tonemap")
+			return PostProcessStage::PRE_TONEMAP;
+		else if (name == "tonemap")
+			return PostProcessStage::TONEMAP;
+		else
+			return PostProcessStage::POST_TONEMAP;
+	}
+
+	std::string EnumUtil::AlphaModeToString(AlphaMode mode)
+	{
+		return m_AlphaMode[(unsigned int)mode].second;
+	}
+
+	AlphaMode EnumUtil::AlphaModeFromString(const std::string &name)
+	{
+		std::string lower = name;
+		for (auto &c : lower)
+			c = (char)tolower((unsigned char)c);
+		for (const auto &pair : m_AlphaMode)
+		{
+			if (pair.second == lower)
+				return pair.first;
+		}
+		return AlphaMode::OPAQUE;
 	}
 }

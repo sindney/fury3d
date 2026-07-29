@@ -87,7 +87,13 @@ namespace fury
 
 		unsigned int m_TextureFlags;
 
+		// Derived: m_AlphaMode != AlphaMode::BLEND. Kept as a stored
+		// field because legacy files serialize it directly.
 		bool m_Opaque;
+
+		AlphaMode m_AlphaMode;
+
+		float m_AlphaCutoff;
 
 		unsigned int m_ID;
 
@@ -134,6 +140,15 @@ namespace fury
 		bool GetOpaque() const;
 
 		void SetOpaque(bool value);
+
+		AlphaMode GetAlphaMode() const;
+
+		// Also syncs m_Opaque (mode != BLEND).
+		void SetAlphaMode(AlphaMode mode);
+
+		float GetAlphaCutoff() const;
+
+		void SetAlphaCutoff(float value);
 
 		// get this material's unique identifier for rendering.
 		unsigned int GetID() const;

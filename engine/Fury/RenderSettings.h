@@ -3,21 +3,30 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "Fury/Serializable.h"
 
 namespace fury
 {
+	class UniformBase;
+
 	// One entry in the per-scene postprocess chain. Each entry
 	// references an effect by NAME (resolved against the global
 	// PostProcessRegistry at load time) and carries its own enabled
 	// flag so individual effects can be toggled without removing
 	// the entry from the chain.
+	//
+	// uniformOverrides: optional per-instance values replacing the
+	// effect descriptor's declared defaults for matching names
+	// (serialized as "uniforms": [{ "name", "value": [f, ...] }] —
+	// the same shape as PostProcessEffect's descriptor defaults).
 	struct RenderChainEntry
 	{
 		std::string effectName;
 		bool enabled = true;
+		std::unordered_map<std::string, std::shared_ptr<UniformBase>> uniformOverrides;
 	};
 
 	// Per-scene render configuration. Owned by Scene; serialized as
@@ -71,6 +80,11 @@ namespace fury
 		void ClearChain();
 
 		void AddEffect(const std::string &effectName, bool enabled = true);
+
+		// Replace the chain with a deep copy of `other`'s (preserves
+		// per-entry uniform overrides; used by the editor's File →
+		// Open path, which previously dropped them via AddEffect).
+		void CopyChainFrom(const RenderSettings &other);
 
 		// Remove by name; first match wins.
 		void RemoveEffect(const std::string &effectName);

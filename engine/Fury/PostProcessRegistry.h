@@ -27,6 +27,12 @@ namespace fury
 
 		static std::vector<PostProcessEffect::Ptr> GetAll();
 
+		// All registered effects in canonical chain order: (stage,
+		// order, name). This is THE chain order — the pipeline and
+		// the editor both present/consume effects in this sequence;
+		// users toggle entries on/off but never reorder them.
+		static std::vector<PostProcessEffect::Ptr> GetSortedAll();
+
 		static void Clear();
 
 	private:

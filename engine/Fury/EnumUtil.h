@@ -64,6 +64,14 @@ namespace fury
 		QUAD
 	};
 
+	// glTF alphaMode: OPAQUE solid, MASK alpha-tested, BLEND transparent. Material::m_Opaque = (mode != BLEND).
+	enum class AlphaMode : unsigned int
+	{
+		OPAQUE = 0,
+		MASK,
+		BLEND
+	};
+
 	enum class TextureFormat : unsigned int
 	{
 		UNKNOW = 0,
@@ -147,7 +155,9 @@ namespace fury
 		COLOR_ONLY = 0x0001,
 		DIFFUSE = 0x0002,
 		SPECULAR = 0x0004,
-		NORMAL = 0x0008
+		NORMAL = 0x0008,
+		// MASK material variant bit — pipeline JSONs pair "alpha_test" texture flag with an ALPHA_TEST define so the discard branch compiles only where needed.
+		ALPHA_TEST = 0x0010
 	};
 
 	enum class LineMode : unsigned int
@@ -173,6 +183,19 @@ namespace fury
 	{
 		StopSameLayer = 0,
 		StopAll
+	};
+
+	// Where a postprocess effect sits in the chain. Chain order is
+	// engine-owned (users toggle on/off only): PRE_TONEMAP effects
+	// (SSAO/SSR — gbuffer consumers) run on linear HDR scene color,
+	// TONEMAP is the HDR→LDR pivot (ACES; auto-injected when HDR is
+	// on, stripped when off), POST_TONEMAP display effects (FXAA/CRT)
+	// run last on LDR. Sorted by (stage, order, name).
+	enum class PostProcessStage : unsigned int
+	{
+		PRE_TONEMAP = 0,
+		TONEMAP,
+		POST_TONEMAP
 	};
 
 	class FURY_API EnumUtil final
@@ -212,6 +235,8 @@ namespace fury
 		static const std::vector<std::pair<AnimWrapMode, std::string>> m_AnimWrapMode;
 
 		static const std::vector<std::pair<PlayMode, std::string>> m_PlayMode;
+
+		static const std::vector<std::pair<AlphaMode, std::string>> m_AlphaMode;
 
 	public:
 
@@ -310,6 +335,16 @@ namespace fury
 		static std::string PlayModeToString(PlayMode mode);
 
 		static PlayMode PlayModeFromString(const std::string &name);
+
+		static std::string PostProcessStageToString(PostProcessStage stage);
+
+		static PostProcessStage PostProcessStageFromString(const std::string &name);
+
+		static std::string AlphaModeToString(AlphaMode mode);
+
+		// Case-insensitive; accepts glTF spellings ("OPAQUE") and
+		// engine spellings ("opaque"). Unknown → OPAQUE.
+		static AlphaMode AlphaModeFromString(const std::string &name);
 	};
 }
 

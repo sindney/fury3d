@@ -100,6 +100,22 @@ namespace
 				}
 				continue;
 			}
+			if (std::strcmp(a, "--auto-confirm") == 0)
+			{
+				// Auto-answer editor confirm dialogs (import unit-scale
+				// prompt etc.) with the default selection — keeps headless
+				// automation running without UI interaction.
+				out_options.auto_confirm = true;
+				continue;
+			}
+			if (std::strcmp(a, "--focus") == 0)
+			{
+				// Frame the camera on the opened scene's content after
+				// load (whole-scene bounds) — keeps headless screenshots
+				// consistently framed regardless of scene scale.
+				out_options.auto_focus = true;
+				continue;
+			}
 			out_filtered.push_back(a);
 		}
 		return true;

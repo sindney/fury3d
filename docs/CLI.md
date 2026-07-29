@@ -163,6 +163,20 @@ before the glTF importer resamples.
 - Non-triangle primitives (`primitive.mode != 4`)
 - Non-empty `extensionsRequired`
 
+**Scale options** (apply to all kinds before save; `--auto-scale` only
+triggers when the scene's largest world-AABB dimension is under 100 units,
+i.e. looks authored in cm rather than the engine's m unit):
+
+```
+--scale N        multiply every top-level node's local scale by N
+--auto-scale     smallest power-of-100 scaling that lifts max-dim to >= 100 units
+```
+
+When `--auto-scale` is *not* needed (the input already sits at engine
+scale), the command prints `--auto-scale not needed (max-dim X units)`
+and proceeds without scaling — so it's safe to leave in scripted batches.
+`--scale` wins over `--auto-scale` when both are present.
+
 **Examples:**
 
 ```bash

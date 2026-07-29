@@ -17,6 +17,14 @@ namespace fury
 		{
 			std::string screenshot_path;
 			int screenshot_frame = 2;
+			// Auto-answer any Editor.RequestConfirmDialog with the default
+			// (affirmative) selection, so modal prompts (import unit-scale
+			// etc.) don't block headless automation.
+			bool auto_confirm = false;
+			// Frame the camera on the opened scene's content (whole-scene
+			// bounds) after load — same math as the editor's
+			// frame-selection, applied automatically.
+			bool auto_focus = false;
 			// Sentinel `-1` means the engine never wrote a result. Engine::Run
 			// writes 0 (capture success) or 1 (capture failure) once a capture
 			// is requested via screenshot_path.

@@ -60,6 +60,30 @@ namespace fury
 			});
 		}
 
+		// Chain placement. Explicit "stage" wins; otherwise infer:
+		// gbuffer consumers are pre-tonemap by nature, everything
+		// else is a post-tonemap display effect.
+		str.clear();
+		if (LoadMemberValue(wrapper, "stage", str))
+		{
+			m_Stage = EnumUtil::PostProcessStageFromString(str);
+		}
+		else
+		{
+			for (const auto &in : m_Inputs)
+			{
+				if (in.rfind("$gbuffer", 0) == 0)
+				{
+					m_Stage = PostProcessStage::PRE_TONEMAP;
+					break;
+				}
+			}
+		}
+
+		int order = 0;
+		if (LoadMemberValue(wrapper, "order", order))
+			m_Order = order;
+
 		// output format: defaults to RGBA8; ACES uses rgba16f to
 		// receive HDR input.
 		str.clear();
@@ -76,9 +100,16 @@ namespace fury
 		if (LoadMemberValue(wrapper, "output_height", h))
 			m_OutputHeight = (unsigned int)h;
 
+		// Optional effect-level description (editor chain-row tooltip).
+		str.clear();
+		if (LoadMemberValue(wrapper, "description", str))
+			m_Description = str;
+
 		// Optional defaults object: { "u_name": [v0, v1, v2, ...] }.
 		// The size of the float array picks the Uniform1f/2f/3f/4f
 		// template instantiation. Missing defaults are ignored.
+		// Each entry may also carry editor metadata: "tip" (hover
+		// help) and "min"/"max" (rough adjustment range).
 		if (auto uniformsNode = FindMember(wrapper, "uniforms"))
 		{
 			LoadArray(uniformsNode, [&](const void* node) -> bool
@@ -107,6 +138,20 @@ namespace fury
 						  << "' has unsupported arity " << values.size();
 					break;
 				}
+
+				UniformMeta meta;
+				LoadMemberValue(node, "tip", meta.tip);
+				float fmin = 0.0f, fmax = 0.0f;
+				const bool hasMin = LoadMemberValue(node, "min", fmin);
+				const bool hasMax = LoadMemberValue(node, "max", fmax);
+				if (hasMin && hasMax)
+				{
+					meta.min = fmin;
+					meta.max = fmax;
+					meta.hasRange = true;
+				}
+				if (!meta.tip.empty() || meta.hasRange)
+					m_UniformMeta[uname] = meta;
 				return true;
 			});
 		}
@@ -145,6 +190,15 @@ namespace fury
 		SaveKey(wrapper, "output_format");
 		SaveValue(wrapper, EnumUtil::TextureFormatToString(m_OutputFormat));
 
+		SaveKey(wrapper, "stage");
+		SaveValue(wrapper, EnumUtil::PostProcessStageToString(m_Stage));
+
+		if (m_Order != 0)
+		{
+			SaveKey(wrapper, "order");
+			SaveValue(wrapper, m_Order);
+		}
+
 		if (m_OutputWidth > 0)
 		{
 			SaveKey(wrapper, "output_width");
@@ -154,6 +208,12 @@ namespace fury
 		{
 			SaveKey(wrapper, "output_height");
 			SaveValue(wrapper, (int)m_OutputHeight);
+		}
+
+		if (!m_Description.empty())
+		{
+			SaveKey(wrapper, "description");
+			SaveValue(wrapper, m_Description);
 		}
 
 		if (!m_Uniforms.empty())
@@ -167,6 +227,21 @@ namespace fury
 				SaveValue(wrapper, kv.first);
 				SaveKey(wrapper, "value");
 				kv.second->Save(wrapper);
+				if (auto meta = GetUniformMeta(kv.first))
+				{
+					if (!meta->tip.empty())
+					{
+						SaveKey(wrapper, "tip");
+						SaveValue(wrapper, meta->tip);
+					}
+					if (meta->hasRange)
+					{
+						SaveKey(wrapper, "min");
+						SaveValue(wrapper, meta->min);
+						SaveKey(wrapper, "max");
+						SaveValue(wrapper, meta->max);
+					}
+				}
 				EndObject(wrapper);
 			}
 			EndArray(wrapper);
@@ -216,6 +291,26 @@ namespace fury
 		m_OutputFormat = fmt;
 	}
 
+	PostProcessStage PostProcessEffect::GetStage() const
+	{
+		return m_Stage;
+	}
+
+	void PostProcessEffect::SetStage(PostProcessStage stage)
+	{
+		m_Stage = stage;
+	}
+
+	int PostProcessEffect::GetOrder() const
+	{
+		return m_Order;
+	}
+
+	void PostProcessEffect::SetOrder(int order)
+	{
+		m_Order = order;
+	}
+
 	unsigned int PostProcessEffect::GetOutputWidth() const
 	{
 		return m_OutputWidth;
@@ -247,5 +342,17 @@ namespace fury
 		auto it = m_Uniforms.find(name);
 		if (it == m_Uniforms.end()) return nullptr;
 		return it->second;
+	}
+
+	const UniformMeta *PostProcessEffect::GetUniformMeta(const std::string &name) const
+	{
+		auto it = m_UniformMeta.find(name);
+		if (it == m_UniformMeta.end()) return nullptr;
+		return &it->second;
+	}
+
+	const std::string &PostProcessEffect::GetDescription() const
+	{
+		return m_Description;
 	}
 }

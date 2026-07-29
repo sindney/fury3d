@@ -92,12 +92,11 @@ namespace fury
 		m_CurrentMesh = nullptr;
 		SortPassByIndex();
 
-		// Seed HDR / CSM / chain from the scene's renderSettings;
-		// HDR mode always tonemaps.
+		// Seed HDR / CSM / chain from the scene's renderSettings.
+		// ApplyRenderSettings owns chain order (canonical stages)
+		// and auto-injects the tonemap when HDR is on.
 		if (Scene::Active && Scene::Active->GetRenderSettings())
 			ApplyRenderSettings(*Scene::Active->GetRenderSettings());
-		if (IsHDRMode())
-			EnsureTonemapInChain();
 
 		// Drop last-frame's per-light shadow map cache. The map is
 		// populated by Draw{Dir,Point,Spot,Cascaded}LightShadowMap
@@ -160,8 +159,30 @@ namespace fury
 			else if (drawMode == DrawMode::TRANSPARENT)
 			{
 				pass->Bind();
+
+				// Back-to-front (RenderQuery::Sort) alpha-blended base:
+				// ambient + emissive + albedo*alpha compositing.
 				for (const auto &unit : query->transparentUnits)
 					DrawUnit(pass, unit);
+
+				// One additive (ONE, ONE) draw per light so
+				// transparents pick up direct lighting without light arrays. The forward shader premultiplies diffuse by alpha and leaves specular full-strength (glass highlights); per-light occlusion between transparents is ignored — documented approximation.
+				if (!query->lightNodes.empty())
+				{
+					// Additive over the pass's declared alpha blend: restore exactly when the loop exits so the deviation doesn't leak.
+					GLint prevSrc, prevDst;
+					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
+					glGetIntegerv(GL_BLEND_DST_RGB, &prevDst);
+					glBlendFunc(GL_ONE, GL_ONE);
+					for (const auto &lightNode : query->lightNodes)
+					{
+						if (lightNode->GetComponent<Light>() == nullptr)
+							continue;
+						for (const auto &unit : query->transparentUnits)
+							DrawUnit(pass, unit, lightNode);
+					}
+					glBlendFunc(prevSrc, prevDst);
+				}
 			}
 			else if (drawMode == DrawMode::QUAD)
 			{
@@ -237,13 +258,24 @@ namespace fury
 			}
 		}
 
+		// Buffer debug view (viewport toolbar "View SSAO/SSR"): runs
+		// the effect's DEBUG_VIEW variant into the "debug_view"
+		// texture; the editor presents it in place of the scene.
+		if (IsSwitchOn(PipelineSwitch::SSAO_VIEW))
+			DrawEffectDebugView("SSAO");
+		else if (IsSwitchOn(PipelineSwitch::SSR_VIEW))
+			DrawEffectDebugView("SSR");
+		else
+			SetDebugViewTexture(nullptr);
+
 		// post
 		m_CurrentShader = nullptr;
 		m_CurrentMateral = nullptr;
 		m_CurrentMesh = nullptr;
 	}
 
-	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit)
+	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit,
+		const std::shared_ptr<SceneNode> &lightNode)
 	{
 		auto node = unit.node;
 		auto material = unit.material;
@@ -266,8 +298,21 @@ namespace fury
 		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
 		if (shader == nullptr)
+		{
+			// MASK materials request the ALPHA_TEST shader variant so
+			// the discard branch compiles only where it's needed.
+			unsigned int textureFlags = material->GetTextureFlags();
+			if (material->GetAlphaMode() == AlphaMode::MASK)
+				textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
 			shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
-			material->GetTextureFlags());
+				textureFlags);
+
+			// Fall back to the non-alpha-test variant when the pass
+			// doesn't declare one (e.g. passes that never need it).
+			if (shader == nullptr)
+				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
+					material->GetTextureFlags());
+		}
 
 		if (shader == nullptr)
 		{
@@ -299,7 +344,32 @@ namespace fury
 		}
 
 		if (materialChanged)
+		{
 			shader->BindMaterial(material);
+
+			// Alpha test: only MASK materials get a cutoff >= 0;
+			// everything else disables the discard branch via -1.
+			// (Programs retain stale uniforms, so bind every time the
+			// material changes.)
+			shader->BindFloat("u_alpha_cutoff",
+				material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
+		}
+
+		// Forward transparent shading: u_light_type 0 = ambient/emissive
+		// base, 1/2/3 = directional/point/spot additive contribution.
+		if (pass->GetDrawMode() == DrawMode::TRANSPARENT)
+		{
+			int lightType = 0;
+			if (lightNode != nullptr)
+			{
+				if (auto light = lightNode->GetComponent<Light>())
+				{
+					lightType = (int)light->GetType() + 1;
+					shader->BindLight(lightNode);
+				}
+			}
+			shader->BindInt("u_light_type", lightType);
+		}
 
 		// glTF-standard skinning: skinned vertices reach world space via
 		// Final = JᵢW * ibm (Joint::GetFinalMatrix), so the mesh node's
@@ -633,7 +703,11 @@ namespace fury
 		// lambert shader gamma-encodes its output itself to keep the
 		// viewport from rendering too dark. The default-framebuffer path
 		// leaves this 0 and lets GL_FRAMEBUFFER_SRGB do the encoding.
-		shader->BindInt("u_gamma_correct", m_RenderTarget != nullptr ? 1 : 0);
+		// Only screen-bound passes (no output textures) encode —
+		// intermediate composites (e.g. LDR pass_combine → ldr_composite)
+		// must stay linear.
+		shader->BindInt("u_gamma_correct",
+			(m_RenderTarget != nullptr && pass->GetTextureCount(false) == 0) ? 1 : 0);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 		{
@@ -649,12 +723,10 @@ namespace fury
 		RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
 	}
 
-	void PrelightPipeline::RunPostProcessChain()
+	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture() const
 	{
-		if (m_ActiveChain.empty()) return;
-		if (m_CurrentCamera == nullptr) return;
-
-		// Chain input: hdr_composite (HDR) or gbuffer_light (LDR).
+		// hdr_composite (HDR) or ldr_composite (LDR), with fallbacks
+		// for legacy pipelines that predate the composite textures.
 		Texture::Ptr sourceTex = nullptr;
 		if (IsHDRMode())
 		{
@@ -664,9 +736,20 @@ namespace fury
 		}
 		else
 		{
-			sourceTex = GetTextureByName("gbuffer_light");
+			sourceTex = GetTextureByName("ldr_composite");
+			if (!sourceTex) sourceTex = GetTextureByName("gbuffer_light");
 			if (!sourceTex) sourceTex = GetTextureByName("hdr_light");
 		}
+		return sourceTex;
+	}
+
+	void PrelightPipeline::RunPostProcessChain()
+	{
+		if (m_ActiveChain.empty()) return;
+		if (m_CurrentCamera == nullptr) return;
+
+		// Chain input: the pipeline's lighting output texture.
+		Texture::Ptr sourceTex = GetLightingOutputTexture();
 		if (!sourceTex)
 		{
 			FURYW << "RunPostProcessChain: no lighting output texture "
@@ -725,13 +808,18 @@ namespace fury
 			if (!effect) continue;
 			const bool isLast = (i + 1 == m_ActiveChain.size());
 
-			// Compile the effect shader on first use (cached by path+defines).
-			auto shader = GetShaderByName(effect->GetShaderPath());
+			// Compile shader on first use (cached by path+mode); LDR variants get the `LDR` define via a `|ldr`-suffixed key so effects can branch on HDR-only data — e.g. SSR falls back to u_ldr_roughness when Lambert packs no roughness in normal.a.
+			std::string shaderKey = effect->GetShaderPath();
+			if (!IsHDRMode())
+				shaderKey += "|ldr";
+			auto shader = GetShaderByName(shaderKey);
 			if (!shader)
 			{
-				shader = Shader::Create(effect->GetShaderPath(), ShaderType::OTHER);
+				shader = Shader::Create(shaderKey, ShaderType::OTHER);
 				for (const auto &d : effect->GetShaderDefines())
 					shader->AddDefine(d);
+				if (!IsHDRMode())
+					shader->AddDefine("LDR");
 				if (!shader->LoadAndCompile(effect->GetShaderPath()))
 				{
 					FURYE << "RunPostProcessChain: failed to compile effect '"
@@ -740,6 +828,39 @@ namespace fury
 				}
 				m_EntityManager->Add(shader);
 			}
+
+			// Resolve inputs before acquiring the write target so a
+			// missing reserved texture skips the effect without leaking
+			// a temp. `$`-prefixed names are reserved pipeline textures
+			// bound read-only ($scene = previous chain output,
+			// $gbuffer_* = G-buffer, $hdr_light/$ldr_composite =
+			// lighting targets); plain names keep the legacy behavior
+			// (previous output). Sampler uniform = name without `$`.
+			std::vector<std::pair<std::string, Texture::Ptr>> resolvedInputs;
+			bool missingInput = false;
+			for (const auto &inputName : effect->GetInputs())
+			{
+				if (!inputName.empty() && inputName[0] == '$')
+				{
+					// $-prefix resolves against named textures (or the current frame); bare names reuse the stage output.
+					Texture::Ptr reserved = (inputName == "$scene")
+						? readTex : GetTextureByName(inputName.substr(1));
+					if (!reserved)
+					{
+						FURYW << "RunPostProcessChain: effect '" << effect->GetName()
+							  << "' input '" << inputName << "' not found — effect skipped";
+						missingInput = true;
+						break;
+					}
+					resolvedInputs.emplace_back(inputName.substr(1), reserved);
+				}
+				else
+				{
+					resolvedInputs.emplace_back(inputName, readTex);
+				}
+			}
+			if (missingInput)
+				continue;
 
 			// Final write goes to the screen/RT directly; earlier
 			// steps write into a freshly-acquired temp via chainPass.
@@ -765,26 +886,49 @@ namespace fury
 			shader->BindMesh(quad);
 			shader->BindCamera(m_CurrentCamera);
 
+			// Chain draws are full-screen REPLACES — never inherit
+			// pipeline state. Without this, the screen-bound final
+			// effect runs with whatever the last pass left behind:
+			// pass_transparent exits with GL_BLEND + glBlendFunc(ONE,
+			// ONE) from its additive light loop, so a single-effect
+			// chain (e.g. [ACES]) ADDED its output into the render
+			// target every frame — the "disable FXAA → progressive
+			// overexposure" bug. Multi-effect chains only looked clean
+			// because the intermediate chainPass->Bind(REPLACE) reset
+			// the blend state before the final draw.
+			glDisable(GL_BLEND);
+			glDisable(GL_DEPTH_TEST);
+			glDepthMask(GL_FALSE);
+			glDisable(GL_CULL_FACE);
+
 			// u_rt_size: pixels (FXAA + CRT need it for fwidth /
 			// scanline frequency).
 			shader->BindFloat("u_rt_size", (float)writeW, (float)writeH);
 
-			// Only the chain's final effect sRGB-encodes;
-			// intermediates stay linear.
+			// Only the final chain effect sRGB-encodes; intermediates stay linear.
 			shader->BindInt("u_gamma_correct", isLast ? 1 : 0);
 
-			// Bind the running texture to every declared input sampler.
-			for (const auto &inputName : effect->GetInputs())
-				shader->BindTexture(inputName, readTex);
+			for (const auto &kv : resolvedInputs)
+				shader->BindTexture(kv.first, kv.second);
 
-			// Apply the effect's declared default uniforms. The
-			// editor can override these per-instance; here we
-			// use the JSON-declared values.
+			// Apply the effect's declared default uniforms, then this
+			// entry's per-instance overrides (only names the effect
+			// declares; unknown override names are ignored).
 			for (const auto &kv : effect->GetUniforms())
 			{
 				auto &u = kv.second;
 				if (!u) continue;
 				u->Bind(shader->GetProgram(), kv.first);
+			}
+			if (i < m_ActiveChainOverrides.size())
+			{
+				for (const auto &kv : m_ActiveChainOverrides[i])
+				{
+					if (!kv.second) continue;
+					if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
+						continue;
+					kv.second->Bind(shader->GetProgram(), kv.first);
+				}
 			}
 
 			glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
@@ -809,7 +953,161 @@ namespace fury
 
 		// Restore default FB + viewport so subsequent draws (editor
 		// debug overlay, GUI) render against the original target.
+		// Render state goes back to the engine's boring defaults
+		// (depth on, blend off) — DrawDebug and ImGui set their own
+		// state on top of this.
 		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
 		glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
+		glDepthMask(GL_TRUE);
+		glEnable(GL_DEPTH_TEST);
+		glDisable(GL_BLEND);
+	}
+
+	void PrelightPipeline::DrawEffectDebugView(const std::string &effectName)
+	{
+		if (m_CurrentCamera == nullptr) return;
+
+		auto effect = PostProcessRegistry::Get(effectName);
+		if (!effect)
+		{
+			SetDebugViewTexture(nullptr);
+			return;
+		}
+
+		Texture::Ptr sourceTex = GetLightingOutputTexture();
+		if (!sourceTex)
+		{
+			SetDebugViewTexture(nullptr);
+			return;
+		}
+
+		// (Re)allocate the debug texture at the composite's size. The
+		// entity manager owns it by name so the Profiler's GBuffer tab
+		// finds it like any pipeline texture.
+		const int W = sourceTex->GetWidth() > 0 ? sourceTex->GetWidth() : 1280;
+		const int H = sourceTex->GetHeight() > 0 ? sourceTex->GetHeight() : 720;
+		auto debugTex = GetTextureByName("debug_view");
+		if (!debugTex || debugTex->GetWidth() != W || debugTex->GetHeight() != H)
+		{
+			debugTex = Texture::Create("debug_view");
+			debugTex->CreateEmpty(W, H, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			m_EntityManager->Add(debugTex);
+		}
+
+		// DEBUG_VIEW variant of the effect shader (own cache key).
+		std::string shaderKey = effect->GetShaderPath() + "|debug";
+		if (!IsHDRMode()) shaderKey += "|ldr";
+		auto shader = GetShaderByName(shaderKey);
+		if (!shader)
+		{
+			shader = Shader::Create(shaderKey, ShaderType::OTHER);
+			for (const auto &d : effect->GetShaderDefines())
+				shader->AddDefine(d);
+			shader->AddDefine("DEBUG_VIEW");
+			if (!IsHDRMode())
+				shader->AddDefine("LDR");
+			if (!shader->LoadAndCompile(effect->GetShaderPath()))
+			{
+				FURYE << "DrawEffectDebugView: failed to compile debug view for '"
+					  << effect->GetName() << "'";
+				SetDebugViewTexture(nullptr);
+				return;
+			}
+			m_EntityManager->Add(shader);
+		}
+
+		// Resolve inputs exactly like the chain runner ($-prefixed
+		// reserved names; $scene / plain names = lighting output).
+		std::vector<std::pair<std::string, Texture::Ptr>> resolvedInputs;
+		for (const auto &inputName : effect->GetInputs())
+		{
+			if (!inputName.empty() && inputName[0] == '$')
+			{
+				Texture::Ptr reserved = (inputName == "$scene")
+					? sourceTex : GetTextureByName(inputName.substr(1));
+				if (!reserved)
+				{
+					FURYW << "DrawEffectDebugView: effect '" << effect->GetName()
+						  << "' input '" << inputName << "' not found — view skipped";
+					SetDebugViewTexture(nullptr);
+					return;
+				}
+				resolvedInputs.emplace_back(inputName.substr(1), reserved);
+			}
+			else
+			{
+				resolvedInputs.emplace_back(inputName, sourceTex);
+			}
+		}
+
+		// Render into the debug texture. Same state rules as the
+		// chain: fullscreen replace, never inherit pass state.
+		GLint prev_fbo = 0;
+		GLint prev_vp[4] = { 0, 0, 0, 0 };
+		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
+		glGetIntegerv(GL_VIEWPORT, prev_vp);
+
+		auto debugPass = Pass::Create("DebugViewFBO");
+		debugPass->SetBlendMode(BlendMode::REPLACE);
+		debugPass->SetClearMode(ClearMode::COLOR);
+		debugPass->AddTexture(debugTex, false);
+		debugPass->Bind(false);
+
+		auto quad = MeshUtil::GetUnitQuad();
+		shader->Bind();
+		shader->BindMesh(quad);
+		shader->BindCamera(m_CurrentCamera);
+		shader->BindFloat("u_rt_size", (float)W, (float)H);
+		// The debug texture is displayed as-is by ImGui (non-sRGB):
+		// encode here so the view matches the viewport's brightness.
+		shader->BindInt("u_gamma_correct", 1);
+
+		glDisable(GL_BLEND);
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(GL_FALSE);
+		glDisable(GL_CULL_FACE);
+
+		for (const auto &kv : resolvedInputs)
+			shader->BindTexture(kv.first, kv.second);
+
+		// Descriptor defaults, then the scene entry's overrides (so
+		// the Edit dialog tunes the debug view live).
+		for (const auto &kv : effect->GetUniforms())
+		{
+			auto &u = kv.second;
+			if (!u) continue;
+			u->Bind(shader->GetProgram(), kv.first);
+		}
+		if (Scene::Active && Scene::Active->GetRenderSettings())
+		{
+			for (const auto &entry : Scene::Active->GetRenderSettings()->GetChain())
+			{
+				if (entry.effectName != effectName) continue;
+				for (const auto &kv : entry.uniformOverrides)
+				{
+					if (!kv.second) continue;
+					if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
+						continue;
+					kv.second->Bind(shader->GetProgram(), kv.first);
+				}
+				break;
+			}
+		}
+
+		glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+
+		shader->UnBind();
+		debugPass->UnBind();
+
+		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
+		glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
+		glDepthMask(GL_TRUE);
+		glEnable(GL_DEPTH_TEST);
+		glDisable(GL_BLEND);
+
+		RenderUtil::Instance()->IncreaseDrawCall();
+		RenderUtil::Instance()->IncreaseTriangleCount(quad->Indices.Data.size());
+
+		SetDebugViewTexture(debugTex);
 	}
 }
