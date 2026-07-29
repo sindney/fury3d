@@ -6,13 +6,17 @@
 
 ## Introduction
 
-Fury3D is a cross-platform rendering engine written in C++17 and modern OpenGL, with a Lua-driven editor, JSON-configurable rendering pipelines, and a data-driven post-process chain.
+Fury3D is a cross-platform rendering engine written in C++17 and OpenGL, with a Lua-driven editor, JSON-configurable rendering pipelines, and a data-driven post-process chain.
+
+Picked up the development with the help of Kimi K3, MiniMax M3, GLM 5.2 with Claude Code. 
+
+> Start with M3 and GLM, then mainly K3, since it's multimodal and easier to buy than GLM and is really powerful.
 
 Works on Windows and macOS. Designed for study — the editor, importers, and shaders are all small enough to read end-to-end.
 
 ### Highlights
 
-* **Modern OpenGL** (3.3+ core profile) with explicit per-draw state (Vulkan-PSO-shaped) so chain + debug draws never leak `GL_BLEND` into unrelated passes.
+* **OpenGL** (3.3+ core profile) with explicit per-draw state (Vulkan-PSO-shaped) so chain + debug draws never leak `GL_BLEND` into unrelated passes.
 * **C++17** smart pointers, **`sol2 + Lua 5.4`** scripting bridge.
 * **JSON-configurable pipelines** — every pass, every shader variant, every uniform lives in a `.json` next to the runtime.
 * **Editor (ImGui + ImGuizmo)** — Scene Inspector, Content Browser, Node Properties, viewport gizmo, native file dialogs, configurable dock layout, persisted across launches.
@@ -107,39 +111,9 @@ cmake --build build-engine -j
 | `BUILD_SHARED_LIBS` | `OFF` | Builds `fury` / `furye` as executables (default). `ON` produces `libfury.{dylib,so,dll}` for embedding — the Lua launcher `main` is then excluded. |
 | `EXPORT_DLL` (Windows) | `ON` | Defines `FURY_API_EXPORT` so the shared lib exports symbols. Ignored for static builds. |
 
-### How submodules are wired into CMake
+### Adding a vendored dependency
 
-Each submodule is brought in with the same two-step pattern:
-
-1. **Configure-time presence check** — `engine/CMakeLists.txt` fails early with a clear message if a submodule wasn't initialised, so a missing dependency is reported at configure time rather than as an obscure compile error:
-
-   ```cmake
-   if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/nfd/CMakeLists.txt")
-       message(FATAL_ERROR "nfd submodule missing — run: git submodule update --init --recursive")
-   endif()
-   ```
-
-2. **`add_subdirectory()` + alias target** — for libraries that ship their own CMake build (SFML, nfd), the submodule is added via `add_subdirectory()` and linked through the upstream alias target. This lets the vendored CMake handle per-platform source selection (e.g. nfd picks `nfd_cocoa.m` on macOS, `nfd_win.cpp` on Windows) without us duplicating that logic. Editor-only deps are gated on `WITH_EDITOR`:
-
-   ```cmake
-   if(WITH_EDITOR)
-       set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-       set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
-       add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/nfd)
-   endif()
-   # ...
-   if(WITH_EDITOR)
-       target_link_libraries(fury PRIVATE nfd::nfd)
-   endif()
-   ```
-
-3. **Flat-source libraries** (lua, meshoptimizer) are compiled directly into a static library in `engine/CMakeLists.txt` via `file(GLOB)` + `add_library(... STATIC ...)`, because their upstream doesn't ship a CMake build we can call into.
-
-Adding a new vendored dependency follows the same shape: add the submodule under `engine/ThirdParty/<name>/`, add a presence check, decide between `add_subdirectory()` (if upstream has CMake) or `file(GLOB)` (if not), and link the alias target into `fury` / `furye` (gating on `WITH_EDITOR` if it's editor-only).
-
-### macOS note
-
-nfd's macOS backend compiles `nfd_cocoa.m` (Objective-C), so `engine/CMakeLists.txt` declares `project(FURY3D LANGUAGES C CXX OBJC)` on Apple. CMake needs the OBJC language enabled for the `.m` source to be picked up by the static-library rule. On Windows/Linux the language is omitted — no `.m` sources exist there.
+Each submodule under `engine/ThirdParty/` is wired the same way: a configure-time presence check that fails with the right git command, then either `add_subdirectory(...)` (if upstream ships CMake) or a flat `file(GLOB)` static lib (if it doesn't). Editor-only deps sit behind `if(WITH_EDITOR)`. nfd's macOS backend compiles `nfd_cocoa.m`, so `engine/CMakeLists.txt` declares `LANGUAGES C CXX OBJC` on Apple.
 
 ## Run the demo / editor
 
@@ -198,66 +172,6 @@ cd examples
 
 Run `./fury help <subcommand>` for full flags; see `docs/CLI.md` for the reference.
 
-## Examples
-
-The runtime is driven from any `.lua` file. A minimal scene + flythrough camera looks like this:
-
-```lua
-local function on_init()
-    local octree = OcTree.Create(
-        Vector4(-1000, -1000, -1000, 1),
-        Vector4( 1000,  1000,  1000, 1),
-        2)
-
-    Scene.SetActive(Scene.Create("main", FileUtil.GetAbsPath(), octree))
-    FileUtil.LoadSceneFromCompressedFile(
-        Scene.GetActive(),
-        FileUtil.GetAbsPath("Projects/tank/scene.bin"))
-
-    local camera = Camera.Create()
-    camera:PerspectiveFov(0.7854, 1.778, 1, 5000)
-
-    local cam_node = SceneNode.Create("camNode")
-    cam_node:SetLocalPosition(Vector4(0, 170, 400, 1))
-    cam_node:AddComponent(Transform.Create())
-    cam_node:AddComponent(camera)
-    cam_node:Recompose(true)
-
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
-    Pipeline.GetActive():SetCurrentCamera(cam_node)
-    FileUtil.LoadPipelineFromFile(
-        Pipeline.GetActive(),
-        FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
-end
-
-local function on_update(dt)
-    Gui.ShowDefault(dt)
-    Gui.Render()
-    Pipeline.GetActive():Execute(SceneManager.Instance())
-end
-
-Engine.run({ on_init = on_init, on_update = on_update })
-```
-
-Reference scripts under `examples/`:
-
-* `Editor.lua` — full editor (default).
-* `play_animated_cube.lua` / `play_fox.lua` / `play_james.lua` / `play_transparency.lua` — animation + transparency demos.
-* `pp_matrix.lua` — 22-variant postprocess matrix harness (used for HDR/chain correctness sweeps).
-* `pp_debugview.lua` — single-effect debug view (SSAO/SSR).
-* `gen_projects.lua`, `gen_outdoor_puddle.lua`, `gen_transparency_samples.lua` — scene generators.
-
-Runtime pipelines under `examples/Resource/Pipeline/`:
-
-* `DefferedLightingLambert.json` — LDR Lambert deferred + Lambert forward transparent pass.
-* `DefferedLightingPBR.json` — HDR PBR (RGBA16F composite + ACES) + PBR forward transparent.
-
-Postprocess descriptor JSONs under `examples/Resource/PostProcess/`:
-
-* `CRT.json`, `FXAA.json`, `SSAO.json`, `SSR.json`, `ACES.json`.
-
-See `docs/LUA.md` for the full bound API reference. You can also configure the rendering pipeline via JSON — see the example Lambert pipeline.
-
 ## Special thanks
 
 * [Rapidjson](https://github.com/miloyip/rapidjson) — loading pipeline / scene JSON
@@ -274,7 +188,4 @@ See `docs/LUA.md` for the full bound API reference. You can also configure the r
 * [ImGui](https://github.com/ocornut/imgui) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) + [ImReflect](https://github.com/CedricGuillemet/ImReflect) — editor UI / gizmo / reflected inspector
 * [nativefiledialog-extended](https://github.com/samhocevar/nativefiledialog) — cross-platform file dialogs
 * [RenderDoc](https://github.com/baldurk/renderdoc) — OpenGL debugging
-
-## One more thing
-
-If you use Sublime Text, you can try my [GLSLCompiler](https://github.com/sindney/GLSLCompiler) plugin to debug GLSL code :D
+* [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) - Sample assets
