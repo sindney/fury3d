@@ -991,7 +991,9 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 		if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 			os.yaw   += io.MouseDelta.x * 0.01f;
 			os.pitch += io.MouseDelta.y * 0.01f;
-			const float lim = static_cast<float>(M_PI_2) - 0.01f;
+			// Use the explicit constant rather than M_PI_2 — MSVC's <cmath>
+			// gates M_PI_2 behind _USE_MATH_DEFINES, which isn't set globally.
+			const float lim = 1.57079632679489661923f - 0.01f;
 			if (os.pitch >  lim) os.pitch =  lim;
 			if (os.pitch < -lim) os.pitch = -lim;
 		}

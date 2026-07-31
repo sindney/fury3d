@@ -32,9 +32,31 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-int-to-void-pointer-cast")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -DNDEBUG")
+# -Wno-int-to-void-pointer-cast is a GCC/Clang warning flag — MSVC rejects
+# unknown /W options outright (D8021). Only forward it when the active
+# toolchain actually understands it.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-int-to-void-pointer-cast")
+endif()
+
+# MSVC's /W options are spelled differently from GCC's -W; -Wall is silently
+# accepted as "enable all warnings" only on GCC/Clang. On MSVC, the project's
+# /W4 default is already strong enough for our purposes.
+#
+# Also pass /bigobj: sol2's heavy template instantiations (used in
+# LuaBindings.cpp) blow past MSVC's 2^16 section limit (~64K symbols
+# in a single .obj) and trigger C1128. /bigobj lifts the cap to 2^32.
+# /utf-8 sets the execution character set so literal UTF-8 paths don't
+# need a wchar conversion layer on Windows.
+#
+# _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS hides rapidjson's std::iterator
+# deprecation noise (vendored third-party; not our code).
+if(MSVC)
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /utf-8 /bigobj /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_CRT_SECURE_NO_WARNINGS /D_SCL_SECURE_NO_WARNINGS /D_USE_MATH_DEFINES /DWIN32_LEAN_AND_MEAN /DNOMINMAX")
+else()
+	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
+	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -DNDEBUG")
+endif()
 
 # ImReflect (vendored at ThirdParty/ImReflect) uses C++17 template-template
 # parameters with defaulted template arguments — accepted by P0522 but
@@ -253,7 +275,9 @@ endif()
 set(FURY_COMMON_SRC ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 
 if(OS_WINDOWS)
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 lua meshoptimizer)
+	# ws2_32 supplies htonl/ntohl used by FileUtil.cpp on Windows
+	# (FileUtil.cpp pulls in <winsock.h> for the ntohl/htonl helpers).
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 lua meshoptimizer)
 elseif(OS_MACOSX)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
 endif()
@@ -294,13 +318,42 @@ function(fury_add_target NAME)
 	# — deterministic output, so re-running on the same input produces
 	# byte-identical docs/LUA_API.md. The script intentionally never blocks
 	# the build on parse errors; unparseable bindings emit a marker.
-	add_custom_command(TARGET ${NAME} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E env
-			python3 "${PROJECT_SOURCE_DIR}/Tools/lua_api_docgen.py"
-				--src "${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp"
-				--out "${PROJECT_SOURCE_DIR}/../docs/LUA_API.md"
-		COMMENT "Regenerating docs/LUA_API.md from LuaBindings.cpp"
-		VERBATIM)
+	#
+	# Probe for the Python interpreter once at configure time. macOS / Linux
+	# usually have `python3` on PATH; Windows hosts typically expose
+	# `python` or `py`. Resolve to an absolute path here so the post-build
+	# step doesn't depend on PATH at build time, and skip the step with
+	# a status message when Python isn't available so the build still
+	# succeeds (docs drift is the only consequence — they can be regenerated
+	# manually with `python engine/Tools/lua_api_docgen.py`).
+	if(NOT COMMAND find_package OR 1)
+		find_package(Python3 COMPONENTS Interpreter QUIET)
+	endif()
+	if(Python3_Interpreter_FOUND)
+		set(FURY_DOCGEN_PYTHON "${Python3_EXECUTABLE}")
+	else()
+		# Last-ditch: try the literal names Windows users typically have.
+		find_program(FURY_DOCGEN_PYTHON
+			NAMES python3 python py
+			PATHS ENV PATH
+			DOC "Python interpreter used by the docs/LUA_API.md docgen"
+			NO_DEFAULT_PATH)
+	endif()
+	if(FURY_DOCGEN_PYTHON)
+		add_custom_command(TARGET ${NAME} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E env
+				"${FURY_DOCGEN_PYTHON}" "${PROJECT_SOURCE_DIR}/Tools/lua_api_docgen.py"
+					--src "${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp"
+					--out "${PROJECT_SOURCE_DIR}/../docs/LUA_API.md"
+			COMMENT "Regenerating docs/LUA_API.md from LuaBindings.cpp"
+			VERBATIM)
+	else()
+		add_custom_command(TARGET ${NAME} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E echo
+				"docs/LUA_API.md not regenerated: no python3 interpreter on PATH"
+			COMMENT "Skipping docs/LUA_API.md regeneration (no python3 on PATH)"
+			VERBATIM)
+	endif()
 endfunction()
 
 # Output the fury / furye binaries directly into examples/ so launching is

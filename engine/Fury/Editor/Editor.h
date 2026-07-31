@@ -34,7 +34,7 @@ namespace fury
 		// ----- selection / visibility -------------------------------------
 		// Returns the SceneNode currently selected in the Scene Inspector,
 		// or nullptr if none / the selection has been invalidated.
-		SceneNode* FURY_API GetSelectedSceneNode();
+		FURY_API SceneNode* GetSelectedSceneNode();
 
 		// Set the selected SceneNode and emit OnSelectionChanged. Every
 		// internal write to the selection goes through this helper so the
@@ -57,7 +57,7 @@ namespace fury
 		// deselect-to-nullptr). Consumers subscribe via Connect; the
 		// returned shared_ptr owns the signal. Selection visualization
 		// and other editor systems use this instead of polling.
-		std::shared_ptr<Signal<SceneNode*>> FURY_API OnSelectionChanged();
+		FURY_API std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged();
 
 		// True while the viewport-picking state machine is resolving a
 		// pick (RenderRequested or AwaitingReadback). Exposed so the
@@ -106,9 +106,9 @@ namespace fury
 
 		void FURY_API SetSnapEnabled(bool enabled);
 
-		const char* FURY_API GetGizmoMode();
+		FURY_API const char* GetGizmoMode();
 
-		const char* FURY_API GetGizmoSpace();
+		FURY_API const char* GetGizmoSpace();
 
 		bool FURY_API GetSnapEnabled();
 
