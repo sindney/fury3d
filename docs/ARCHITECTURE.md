@@ -1350,6 +1350,19 @@ Real HiDPI support is deferred. The path forward involves:
 That is a separate change; this one only fixes the symptom (double
 scaling) and documents the underlying limitation.
 
+## 17. Windows DPI awareness
+
+The Windows build declares per-monitor V2 DPI awareness via an embedded manifest at `engine/Resources/fury.exe.manifest` (`<dpiAwareness>PerMonitorV2</dpiAwareness>`). Without it the editor process is "Per Monitor DPI Aware" (v1) at best — SFML 3.1's Win32 backend only sets the legacy SHCore flag, and the stock MSVC manifest has no `<dpiAwareness>`. On a 200% display the OS bitmap-stretches a 1× logical framebuffer to 2× backing pixels and the UI looks half-size. V2 (not V1) re-issues `WM_DPICHANGED` on monitor changes and lets the OS scale non-client chrome. macOS / Linux don't link the manifest; the existing paths are unchanged.
+
+The system DPI is read once at `Engine::Initialize` via `Engine::GetSystemDPI()` (Windows: `GetDpiForSystem()/96.0f`; macOS: `[NSScreen mainScreen].backingScaleFactor` via `engine/Fury/Engine_dpi_mac.mm`, returns 1.0 today because SFML 3 macOS forces `highDpi=NO`; Linux: hard-coded 1.0). The PLATFORM_* macros are in `engine/Fury/Macros.h`.
+
+The DPI is applied via two new `EngineOptions` fields:
+- `gui_scale = 0.0f` (the default) is a sentinel meaning "use system DPI". Pass an explicit value (e.g. 1.0) to bypass.
+- `gui_font_scale = 0.0f` (the default) follows the resolved `gui_scale` so the font density tracks the widget layout on HiDPI displays.
+- `dpi_aware_override` (default `false`) when true multiplies the caller's `gui_scale` by the system DPI.
+
+The resolved values are logged once at init. DPI is read once at init and never re-read — dragging the window between monitors of different DPI takes effect on the next launch. `Engine::HandleEvent` also bounds-checks `KeyPressed`/`KeyReleased` codes against `[0, sf::Keyboard::KeyCount)` to prevent an OOB write when SFML's Win32 backend returns `Key::Unknown` for IME virtual keys. The editor's `HandleShortcuts` checks `InputUtil::IsIMEComposing()` (always false today; stub for future IME wiring) before routing shortcuts.
+
 ---
 
 ## Appendix A — File-by-file responsibility

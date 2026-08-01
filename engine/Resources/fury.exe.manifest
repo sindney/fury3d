@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"
+          xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <asmv3:application>
+    <asmv3:windowsSettings>
+      <!-- PerMonitor V2: re-issues WM_DPICHANGED when the user drags
+           the window between monitors and gives the OS enough info to
+           apply automatic non-client-area scaling. V2 is needed because
+           SFML's Win32 backend at
+           engine/ThirdParty/SFML/src/SFML/Window/Win32/WindowImplWin32.cpp:70-125
+           only sets the legacy ProcessPerMonitorDpiAware (v1) via SHCore
+           and does not call SetProcessDpiAwarenessContext. -->
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <!-- V1 fallback: recognized by older Windows that doesn't know the
+           2016 namespace above. -->
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <!-- Enable long-path support for Resource/ lookups. -->
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+</assembly>

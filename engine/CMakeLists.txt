@@ -22,6 +22,12 @@ if(GUI_IMP)
 	add_definitions(-D_FURY_GUI_IMP_)
 endif()
 
+# Regenerate docs/LUA_API.md from LuaBindings.cpp at build time. Off by
+# default — most builds don't need to refresh the docs; only enable when
+# shipping a release or preparing a docs PR. Pass -DFURY_DOCGEN=ON to
+# enable.
+option(FURY_DOCGEN "Regenerate docs/LUA_API.md from LuaBindings.cpp at build time." OFF)
+
 # Two binaries from one configure:
 #   fury   — headless runtime, no editor shell (no ImReflect/ImGuizmo/nfd, no WITH_EDITOR)
 #   furye  — editor shell + runtime (ImReflect/ImGuizmo/nfd linked, WITH_EDITOR defined)
@@ -274,6 +280,24 @@ endif()
 
 set(FURY_COMMON_SRC ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 
+# macOS-only DPI shim. The file is Objective-C++ and the project's
+# project() call already enables the OBJC language on APPLE (see top of
+# this file). The shim is the only consumer of <AppKit/AppKit.h> and is
+# gated in C++ by #if PLATFORM_MACOS so non-Apple builds that happen to
+# pick up the file would be no-ops. See platform-window-dpi spec.
+if(OS_MACOSX)
+	list(APPEND FURY_COMMON_SRC "${PROJECT_SOURCE_DIR}/Fury/Engine_dpi_mac.mm")
+endif()
+
+# Windows-only V2 DPI awareness manifest. Linker flag form (`LINK_FLAGS`)
+# is portable across MSVC, MinGW, and Clang. The manifest file is in
+# engine/Resources/ and is shipped with the source tree. See
+# platform-window-dpi spec.
+if(OS_WINDOWS)
+	set(_FURY_MANIFEST "${PROJECT_SOURCE_DIR}/Resources/fury.exe.manifest")
+	set(_FURY_MANIFEST_FLAG "/MANIFESTINPUT:${_FURY_MANIFEST}")
+endif()
+
 if(OS_WINDOWS)
 	# ws2_32 supplies htonl/ntohl used by FileUtil.cpp on Windows
 	# (FileUtil.cpp pulls in <winsock.h> for the ntohl/htonl helpers).
@@ -300,6 +324,20 @@ function(fury_add_target NAME)
 	target_link_libraries(${NAME} PRIVATE ${FURY_PLATFORM_LIBS})
 	set_target_properties(${NAME} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples")
+	# Windows-only V2 DPI awareness manifest (see platform-window-dpi
+	# spec). The manifest linker flag is defined at the top of the
+	# static-binary section (gated by if(OS_WINDOWS)). We also disable
+	# the default GenerateManifest via VS_GLOBAL_GenerateManifest
+	# because the MSVC linker would otherwise generate a stock manifest
+	# with no <dpiAwareness> and win over our /MANIFESTINPUT.
+	# <dpiAwareness> element and win over our /MANIFESTINPUT. See
+	# platform-window-dpi spec.
+	if(OS_WINDOWS)
+		set_property(TARGET ${NAME} APPEND_STRING PROPERTY
+			LINK_FLAGS " ${_FURY_MANIFEST_FLAG}")
+		set_target_properties(${NAME} PROPERTIES
+			VS_GLOBAL_GenerateManifest "false")
+	endif()
 	if(EXISTS "${FBX2GLTF_SRC_BINARY}")
 		add_custom_command(TARGET ${NAME} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -313,46 +351,40 @@ function(fury_add_target NAME)
 				VERBATIM)
 		endif()
 	endif()
-	# Regenerate docs/LUA_API.md whenever LuaBindings.cpp changes. The
-	# docgen is a hand-rolled Python scanner (engine/Tools/lua_api_docgen.py)
-	# — deterministic output, so re-running on the same input produces
-	# byte-identical docs/LUA_API.md. The script intentionally never blocks
-	# the build on parse errors; unparseable bindings emit a marker.
-	#
-	# Probe for the Python interpreter once at configure time. macOS / Linux
-	# usually have `python3` on PATH; Windows hosts typically expose
-	# `python` or `py`. Resolve to an absolute path here so the post-build
-	# step doesn't depend on PATH at build time, and skip the step with
-	# a status message when Python isn't available so the build still
-	# succeeds (docs drift is the only consequence — they can be regenerated
-	# manually with `python engine/Tools/lua_api_docgen.py`).
-	if(NOT COMMAND find_package OR 1)
-		find_package(Python3 COMPONENTS Interpreter QUIET)
-	endif()
-	if(Python3_Interpreter_FOUND)
-		set(FURY_DOCGEN_PYTHON "${Python3_EXECUTABLE}")
-	else()
-		# Last-ditch: try the literal names Windows users typically have.
-		find_program(FURY_DOCGEN_PYTHON
-			NAMES python3 python py
-			PATHS ENV PATH
-			DOC "Python interpreter used by the docs/LUA_API.md docgen"
-			NO_DEFAULT_PATH)
-	endif()
-	if(FURY_DOCGEN_PYTHON)
-		add_custom_command(TARGET ${NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E env
-				"${FURY_DOCGEN_PYTHON}" "${PROJECT_SOURCE_DIR}/Tools/lua_api_docgen.py"
-					--src "${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp"
-					--out "${PROJECT_SOURCE_DIR}/../docs/LUA_API.md"
-			COMMENT "Regenerating docs/LUA_API.md from LuaBindings.cpp"
-			VERBATIM)
-	else()
-		add_custom_command(TARGET ${NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E echo
-				"docs/LUA_API.md not regenerated: no python3 interpreter on PATH"
-			COMMENT "Skipping docs/LUA_API.md regeneration (no python3 on PATH)"
-			VERBATIM)
+	# Regenerate docs/LUA_API.md from LuaBindings.cpp. Off by default;
+	# pass -DFURY_DOCGEN=ON to enable. When on, the post-build step
+	# invokes engine/Tools/lua_api_docgen.py (deterministic, byte-identical
+	# output for unchanged input) and rewrites docs/LUA_API.md. The step
+	# is skipped with a status message when no Python interpreter is on
+	# PATH, so the build still succeeds.
+	if(FURY_DOCGEN)
+		if(NOT COMMAND find_package OR 1)
+			find_package(Python3 COMPONENTS Interpreter QUIET)
+		endif()
+		if(Python3_Interpreter_FOUND)
+			set(_FURY_DOCGEN_PYTHON "${Python3_EXECUTABLE}")
+		else()
+			find_program(_FURY_DOCGEN_PYTHON
+				NAMES python3 python py
+				PATHS ENV PATH
+				DOC "Python interpreter used by the docs/LUA_API.md docgen"
+				NO_DEFAULT_PATH)
+		endif()
+		if(_FURY_DOCGEN_PYTHON)
+			add_custom_command(TARGET ${NAME} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E env
+					"${_FURY_DOCGEN_PYTHON}" "${PROJECT_SOURCE_DIR}/Tools/lua_api_docgen.py"
+						--src "${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp"
+						--out "${PROJECT_SOURCE_DIR}/../docs/LUA_API.md"
+				COMMENT "Regenerating docs/LUA_API.md from LuaBindings.cpp"
+				VERBATIM)
+		else()
+			add_custom_command(TARGET ${NAME} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E echo
+					"docs/LUA_API.md not regenerated: no python3 interpreter on PATH"
+				COMMENT "Skipping docs/LUA_API.md regeneration (no python3 on PATH)"
+				VERBATIM)
+		endif()
 	endif()
 endfunction()
 

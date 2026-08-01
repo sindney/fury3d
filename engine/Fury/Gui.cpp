@@ -45,10 +45,11 @@ namespace fury
 			// only matches what users expect from Unity/Unreal/Godot and
 			// keeps the Viewport content rect a clean input surface.
 			io.ConfigWindowsMoveFromTitleBarOnly = true;
-			io.FontGlobalScale = fontScale;
 
 			ImGuiStyle& style = ImGui::GetStyle();
 			ImGui::StyleColorsDark(&style);
+			// ImGui 1.92 renamed io.FontGlobalScale → style.FontScaleMain.
+			style.FontScaleMain = fontScale;
 			style.ScaleAllSizes(scale);
 
 			if (!ImGui_ImplSFML3_Init(window))

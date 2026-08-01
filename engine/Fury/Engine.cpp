@@ -8,6 +8,7 @@
 #include "Fury/BufferManager.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Engine.h"
+#include "Fury/Macros.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
@@ -24,6 +25,11 @@
 
 namespace fury
 {
+#if PLATFORM_MACOS
+	// Defined in Engine_dpi_mac.mm (compiled only on macOS).
+	float furyGetMacOSBackingScale();
+#endif
+
 	namespace
 	{
 		// Read the SFML window's back-buffer and write it to `path` as an
@@ -70,6 +76,23 @@ namespace fury
 
 	namespace { float s_FixedTickAlpha = 0.0f; }
 
+	namespace
+	{
+		bool s_NeedsFocusSeed = true;
+		int s_DroppedUnknownKeys = 0;
+	}
+
+	float Engine::GetSystemDPI()
+	{
+#if PLATFORM_WINDOWS
+		return static_cast<float>(GetDpiForSystem()) / 96.0f;
+#elif PLATFORM_MACOS
+		return furyGetMacOSBackingScale();
+#else
+		return 1.0f;
+#endif
+	}
+
 	bool Engine::Initialize(sf::Window &window, int numThreads, LogLevel level, const char* logfile,
 		bool console, const LogFormatter &formatter, bool append)
 	{
@@ -89,6 +112,20 @@ namespace fury
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
+
+		// Bootstrap focus state. Windows does not auto-fire WM_SETFOCUS
+		// for a window shown via CreateWindowW(WS_VISIBLE), and SFML
+		// only maps WM_SETFOCUS / WM_KILLFOCUS — so without this seed
+		// m_WindowFocused stays false on first launch and the editor's
+		// drag gate silently fails. Cross-platform: window.hasFocus()
+		// is a generic SFML call.
+		if (window.hasFocus())
+		{
+			InputUtil::Instance()->m_WindowFocused = true;
+			const sf::Vector2i pos = sf::Mouse::getPosition(window);
+			InputUtil::Instance()->m_MousePosition = std::make_pair(static_cast<int>(pos.x), static_cast<int>(pos.y));
+			InputUtil::Instance()->OnWindowFocus->Emit(true);
+		}
 
 		int flag = gl::LoadGLFunctions();
 
@@ -111,7 +148,7 @@ namespace fury
 		return false;
 	}
 
-	void Engine::HandleEvent(sf::Event &event)
+	void Engine::HandleEvent(sf::Event &event, sf::Window &window)
 	{
 		auto &inputMgr = InputUtil::Instance();
 
@@ -135,17 +172,31 @@ namespace fury
 			// deliver release events, so any key held when focus was
 			// lost would read as "down" forever after — the
 			// "camera slides backwards after File → Open" symptom.
-			// Clearing here is the input-layer fix; per-callers like
-			// frame_selection's parent-check are defense-in-depth.
-			for (unsigned int i = 0; i < sf::Keyboard::KeyCount; ++i)
-				inputMgr->m_KeyDown[i] = false;
-			for (unsigned int i = 0; i < sf::Mouse::ButtonCount; ++i)
-				inputMgr->m_MouseDown[i] = false;
-			inputMgr->m_MouseWheel = 0.0f;
+			// ResetTransientInputState also flags the focus-gain seed
+			// (see s_NeedsFocusSeed below) so the next FocusGained
+			// re-seeds the cursor position from the live window.
+			inputMgr->ResetTransientInputState();
 			inputMgr->OnWindowFocus->Emit(false);
+			s_NeedsFocusSeed = true;
 		}
 		else if (event.is<sf::Event::FocusGained>())
 		{
+			// One-shot cursor seed on every focus-gain transition:
+			// re-read the live mouse position so the editor's hit-tests
+			// see a real cursor after a focus round trip.
+			if (s_NeedsFocusSeed)
+			{
+				const sf::Vector2i pos = sf::Mouse::getPosition(window);
+				int mx = static_cast<int>(pos.x);
+				int my = static_cast<int>(pos.y);
+				inputMgr->m_MousePosition = std::make_pair(mx, my);
+				// ResetTransientInputState re-zeros m_MousePosition;
+				// re-write it after the reset so the seed survives.
+				inputMgr->ResetTransientInputState();
+				inputMgr->m_MousePosition = std::make_pair(mx, my);
+				inputMgr->OnMouseMove->Emit(std::move(mx), std::move(my));
+				s_NeedsFocusSeed = false;
+			}
 			inputMgr->m_WindowFocused = true;
 			inputMgr->OnWindowFocus->Emit(true);
 		}
@@ -156,12 +207,32 @@ namespace fury
 		}
 		else if (const auto* key = event.getIf<sf::Event::KeyPressed>())
 		{
+#if PLATFORM_WINDOWS
+			// Drop unknown / out-of-range key codes to prevent an OOB
+			// write into m_KeyDown[]. SFML's Win32 backend returns
+			// Key::Unknown (-1) for IME virtual keys (e.g. VK_PROCESSKEY)
+			// and the cast to unsigned would index 0xFFFFFFFF.
+			if (key->code == sf::Keyboard::Key::Unknown
+				|| static_cast<unsigned int>(key->code) >= sf::Keyboard::KeyCount)
+			{
+				++s_DroppedUnknownKeys;
+				return;
+			}
+#endif
 			inputMgr->m_KeyDown[static_cast<unsigned int>(key->code)] = true;
 			sf::Keyboard::Key code = key->code;
 			inputMgr->OnKeyDown->Emit(std::move(code));
 		}
 		else if (const auto* key = event.getIf<sf::Event::KeyReleased>())
 		{
+#if PLATFORM_WINDOWS
+			if (key->code == sf::Keyboard::Key::Unknown
+				|| static_cast<unsigned int>(key->code) >= sf::Keyboard::KeyCount)
+			{
+				++s_DroppedUnknownKeys;
+				return;
+			}
+#endif
 			inputMgr->m_KeyDown[static_cast<unsigned int>(key->code)] = false;
 			sf::Keyboard::Key code = key->code;
 			inputMgr->OnKeyUp->Emit(std::move(code));
@@ -269,15 +340,45 @@ namespace fury
 	{
 		if (cb.OnInit) cb.OnInit();
 
+		// Compute the effective gui_scale from the system DPI. The caller
+		// can opt into system-DPI scaling by passing gui_scale = 0.0f
+		// (sentinel for "use system DPI") or by passing
+		// dpi_aware_override = true to compose the system DPI with an
+		// explicit gui_scale. The effective gui_font_scale follows the
+		// same sentinel so the font density tracks the widget layout
+		// on HiDPI displays — without this, widgets are 2x but text
+		// is still 1x and the editor looks "small". See
+		// platform-window-dpi spec.
+		const float systemDpi = GetSystemDPI();
+		float effectiveScale = opts.gui_scale;
+		const char *scaleSource = "explicit";
+		if (opts.gui_scale == 0.0f)
+		{
+			effectiveScale = systemDpi;
+			scaleSource = "system DPI";
+		}
+		else if (opts.dpi_aware_override)
+		{
+			effectiveScale = opts.gui_scale * systemDpi;
+			scaleSource = "explicit * system DPI";
+		}
+
+		float effectiveFontScale = opts.gui_font_scale;
+		if (opts.gui_font_scale == 0.0f) effectiveFontScale = effectiveScale;
+
 #ifdef _FURY_GUI_IMP_
-		Gui::Initialize(&window, opts.gui_scale, opts.gui_font_scale);
+		Gui::Initialize(&window, effectiveScale, effectiveFontScale);
 		Editor::Initialize();
 #endif
 
 		window.setFramerateLimit(opts.max_fps < 0 ? 0u : static_cast<unsigned int>(opts.max_fps));
 		FURYD << "framerate cap: " << opts.max_fps;
-		FURYD << "gui_scale: " << opts.gui_scale;
-		FURYD << "gui_font_scale: " << opts.gui_font_scale;
+		FURYD << "gui_scale: " << opts.gui_scale << " (" << scaleSource << ")"
+		      << ", effective: " << effectiveScale;
+		FURYD << "gui_font_scale: " << opts.gui_font_scale
+		      << ", effective: " << effectiveFontScale;
+		FURYD << "system DPI: " << systemDpi;
+		FURYD << "dpi_aware_override: " << opts.dpi_aware_override;
 
 		const std::int32_t SKIP_TICKS = 1000 / 25;       // 25 Hz fixed
 		const int MAX_FRAMESKIP = 5;
@@ -299,7 +400,7 @@ namespace fury
 					break;
 				}
 				sf::Event ev = *event;
-				HandleEvent(ev);
+				HandleEvent(ev, window);
 			}
 
 			int numLoops = 0;
@@ -360,6 +461,16 @@ namespace fury
 		window.display();
 
 			RenderUtil::Instance()->EndFrame();
+
+			// End-of-frame summary of dropped key events. One FURYW
+			// line per overflow frame; an active IME can produce
+			// hundreds per frame so per-event logging is too chatty.
+			if (s_DroppedUnknownKeys > 0)
+			{
+				FURYW << "rejected " << s_DroppedUnknownKeys
+					<< " invalid KeyPressed/KeyReleased events this frame";
+				s_DroppedUnknownKeys = 0;
+			}
 
 			++frame_index;
 			if (!opts.screenshot_path.empty() && frame_index == opts.screenshot_frame)
