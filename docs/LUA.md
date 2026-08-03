@@ -36,9 +36,10 @@ Engine.run({
     on_fixed_update = function() ... end,    -- called 0..MAX_FRAMESKIP times per frame to catch up to 25 Hz
     on_shutdown     = function() ... end,    -- called once after the loop exits
 }, {
-    max_fps         = 144,    -- optional, default 144. 0 (or false) disables the cap.
-    gui_scale       = 1.0,    -- optional, default 1.0. ImGuiStyle::ScaleAllSizes multiplier.
-    gui_font_scale  = 1.0,    -- optional, default 1.0. Assigned to ImGuiIO::FontGlobalScale.
+    max_fps                 = 144,    -- optional, default 144. 0 (or false) disables the cap.
+    gui_scale               = 0.0,    -- optional, default 0.0 (sentinel: use system DPI on Windows). ImGuiStyle::ScaleAllSizes multiplier.
+    gui_font_scale          = 0.0,    -- optional, default 0.0 (sentinel: follow gui_scale). Assigned to ImGuiStyle::FontScaleMain (ImGui 1.92).
+    dpi_aware_override      = false,  -- optional, default false. When true, the system DPI is multiplied with `gui_scale`.
 })
 ```
 
@@ -49,8 +50,9 @@ The second argument (the options table) is also optional. Calling `Engine.run({.
 **Options:**
 
 - `max_fps` (number, default `144`): frame-rate cap applied via `sf::Window::setFramerateLimit`. `0`, `false`, or a negative number disables the cap (the demo will run as fast as the host allows). Per-frame work + the underlying SFML limiter define the actual upper bound; on macOS expect ±5 FPS slack.
-- `gui_scale` (number, default `1.0`): multiplier passed to `ImGuiStyle::ScaleAllSizes`. Controls widget sizes, padding, borders. `1.5` makes the UI about 50% larger.
-- `gui_font_scale` (number, default `1.0`): assigned directly to `ImGuiIO::FontGlobalScale`. Controls only the bitmap font size. Usually keep this equal to `gui_scale`.
+- `gui_scale` (number, default `0.0` — sentinel meaning "use system DPI"): multiplier passed to `ImGuiStyle::ScaleAllSizes`. Controls widget sizes, padding, borders. The default of `0.0` is a sentinel that makes the editor Just Work on HiDPI displays — on a 200%-scaled monitor the UI is scaled by 2.0× without the user having to opt in. Pass an explicit value (e.g., `1.0`) to bypass the system DPI and get a fixed size.
+- `gui_font_scale` (number, default `0.0` — sentinel meaning "follow `gui_scale`"): assigned to `ImGuiStyle::FontScaleMain` (the ImGui 1.92 replacement for the deprecated `ImGuiIO::FontGlobalScale`). Controls the bitmap font density. The default follows `gui_scale` so the font scales with the system DPI alongside the widget layout. Pass an explicit value (e.g., `1.0`) to override.
+- `dpi_aware_override` (boolean, default `false`): when `true`, the system DPI is multiplied with `gui_scale` (so `gui_scale = 1.0` becomes `2.0` on a 200% display). When `false`, an explicit `gui_scale` wins over the system DPI. See the `platform-window-dpi` spec for details.
 
 Unknown keys in the options table are silently ignored, so you can leave a `vsync = true` (or similar) entry in your script and it won't error — it just won't do anything yet.
 

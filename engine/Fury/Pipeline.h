@@ -8,6 +8,8 @@
 
 #include "Fury/Entity.h"
 #include "Fury/Matrix4.h"
+#include "Fury/BoxBounds.h"
+#include "Fury/Frustum.h"
 
 namespace fury
 {

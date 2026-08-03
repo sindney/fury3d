@@ -52,4 +52,14 @@ namespace fury
 	{
 		return m_KeyDown[static_cast<unsigned int>(key)];
 	}
+
+	void InputUtil::ResetTransientInputState()
+	{
+		for (unsigned int i = 0; i < sf::Keyboard::KeyCount; ++i)
+			m_KeyDown[i] = false;
+		for (unsigned int i = 0; i < sf::Mouse::ButtonCount; ++i)
+			m_MouseDown[i] = false;
+		m_MouseWheel = 0.0f;
+		m_MousePosition = std::make_pair(0, 0);
+	}
 }

@@ -10,6 +10,8 @@
 #undef DELETE
 #undef OPAQUE
 #undef TRANSPARENT
+#undef IN
+#undef OUT
 
 namespace fury
 {
