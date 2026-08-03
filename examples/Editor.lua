@@ -718,7 +718,7 @@ local function on_update(dt)
         dragging = false
     end
 
-    -- ── WASD / arrows / Space / LControl translate ────────────────────────
+    -- ── WASD / arrows translate ───────────────────────────────────────────
     -- Gated on content-rect hover (not just OS window focus), so WASD
     -- doesn't translate the camera while the user is interacting with a
     -- docked panel or the viewport window's chrome. Combined with the
@@ -726,15 +726,12 @@ local function on_update(dt)
     -- single predicate — they cannot fall out of sync with each other.
     if focused and Editor.IsViewportContentHovered() then
         local fwd, rgt = camera_basis()
-        local up       = Vector4(0.0, 1.0, 0.0, 0.0)
         local move     = Vector4(0.0, 0.0, 0.0, 0.0)
 
         if input:GetKeyDown(Key.W) or input:GetKeyDown(Key.Up)    then move = move + fwd end
         if input:GetKeyDown(Key.S) or input:GetKeyDown(Key.Down)  then move = move - fwd end
         if input:GetKeyDown(Key.A) or input:GetKeyDown(Key.Left)  then move = move - rgt end
         if input:GetKeyDown(Key.D) or input:GetKeyDown(Key.Right) then move = move + rgt end
-        if input:GetKeyDown(Key.Space)    then move = move + up end
-        if input:GetKeyDown(Key.LControl) then move = move - up end
 
         local mlen = move:Length()
         if mlen > 0.0 then
