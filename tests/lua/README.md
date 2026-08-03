@@ -18,9 +18,17 @@ that no existing CLI feature touches:
 - `smoke_iterate.lua` — proves `Scene.ForEachMesh` / `ForEachMaterial` /
   `ForEachNode` work from Lua. NOT a replacement for `fury info`; the
   summarization feature is the `info` subcommand's job.
+- `dump_nodes.lua` / `dump_ground.lua` — scene-graph + material-uniform
+  dump helpers for debugging content regressions (ad-hoc, kept as
+  examples of the exec-inspection pattern).
 - `gen_lod.lua` — exercises `MeshSimplifier.SimplifyMesh` +
   `Mesh.SetLodMeshes`. Genuinely new — no existing CLI feature generates
   LODs.
+- `smoke_particles.lua` — particle-system regression guards: name-based
+  renderer→system resolution, save/reload module round-trip, and the
+  `Importer.MergeInto` ParticleSystem transfer. Exercises
+  `SceneNode.GetParticleRenderer`, `ParticleRenderer.GetSystem(Name)`,
+  and `Scene.GetParticleSystem` — surface no CLI subcommand touches.
 
 ## Usage
 
@@ -28,22 +36,22 @@ From the repo root:
 
 ```bash
 # Iterate scene contents (read-only).
-./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_iterate.lua
+./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_iterate.lua
 
 # Round-trip a scene to .bin (proves the save binding works).
-./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_save.lua /tmp/out.bin
+./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_save.lua /tmp/out.bin
 
 # Round-trip a scene to .json (the inverse direction).
-./fury exec examples/Resource/Scene/scene.bin tests/lua/smoke_save.lua /tmp/out.json
+./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_save.lua /tmp/out.json
 
 # Generate LODs on every mesh and save.
-./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua --all /tmp/out.json
+./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all /tmp/out.json
 
 # Generate LODs and just log counts (no save).
-./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua --all
+./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all
 
 # Target a single mesh by name.
-./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua TankMesh /tmp/out.json
+./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua TankMesh /tmp/out.json
 ```
 
 ## Script reference
@@ -54,7 +62,7 @@ From the repo root:
 **Args:** none.
 **Sample:**
 ```bash
-./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_iterate.lua
+./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_iterate.lua
 ```
 **Output:**
 ```
@@ -71,10 +79,30 @@ ForEachNode callbacks: <n>
 the serializer.
 **Sample:**
 ```bash
-./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_save.lua /tmp/out.bin
+./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_save.lua /tmp/out.bin
 ```
 **Notes:** proves the Lua save binding works. The actual format-conversion
 feature is `fury convert`'s job.
+
+### `smoke_particles.lua`
+
+**Purpose:** regression-guard the particle system's asset-model invariants.
+**Args:** none.
+**Sample:**
+```bash
+./fury exec examples/Projects/outdoor/outdoor_water.bin tests/lua/smoke_particles.lua
+```
+**Output:**
+```
+1. name resolution OK (2 renderers -> 2 systems)
+2. serialization round-trip OK (systems + renderers + modules survive)
+3. MergeInto transfer OK (systems resolve in the merged scene)
+smoke_particles: OK
+```
+**Notes:** hardcodes the outdoor_water scene's two emitters (`FireEmber`,
+`SmokePlume`) — run it against that scene. The GPU/GUI-only traps
+(dynamic-mesh `SetDirty`, content-browser tile casts) are covered by the
+furye screenshot captures, not by this exec script (no GL context there).
 
 ### `gen_lod.lua`
 
@@ -86,16 +114,16 @@ via `Mesh.SetLodMeshes`. Genuinely new — no existing CLI feature does this.
 
 **Sample (save):**
 ```bash
-./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua --all /tmp/out.json
+./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all /tmp/out.json
 ```
 **Sample (no save, just log counts):**
 ```bash
-./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua --all
+./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all
 ```
 
 ## Exit codes
 
-All three scripts follow the `fury exec` convention:
+All scripts follow the `fury exec` convention:
 
 - `0` — script ran to completion.
 - `1` — missing arg / no match / save failure (with stderr message).
