@@ -87,6 +87,16 @@ uniform float u_ambient = 0.01;
 // 0 = base (ambient/emissive), 1 = directional, 2 = point, 3 = spot.
 uniform int u_light_type = 0;
 
+// Shadow-receive for the per-light additive contribution
+// (u_shadow_type: 0 none, 1 point cube, 2 directional 2D).
+// shadow_matrix: point = camera world (view->world, deferred
+// PointLight.glsl convention); dir = view->shadow UV (deferred
+// SunLight.glsl convention).
+uniform samplerCube shadow_buffer;
+uniform sampler2D shadow_map;
+uniform int u_shadow_type = 0;
+uniform mat4 shadow_matrix;
+
 uniform vec3 light_pos;
 uniform vec3 light_dir;
 uniform vec3 light_color;
@@ -200,6 +210,36 @@ void main()
 #else
 	vec3 radiance = albedo * light_color * NdotL * attenuation * light_intensity * alpha;
 #endif
+
+	// Shadow-receive: multiply THIS light's contribution by its shadow
+	// factor (ambient/emissive live in the u_light_type == 0 base pass).
+	// Point: radial distance vs cube texel * radius, slope/distance-
+	// scaled bias (deferred PointLight.glsl). Dir: z>1 lit else z<tex
+	// (deferred SunLight.glsl; bias in the caster polygon offset).
+	if (u_shadow_type == 1)
+	{
+		vec3 worldPos = (shadow_matrix * vec4(vs_pos, 1.0)).xyz;
+		vec3 dir = worldPos - light_pos;
+		float current = length(dir);
+		// Outside the light's radius there's no shadow info (and no
+		// light influence) — count as lit.
+		if (current <= light_radius)
+		{
+			float closest = texture(shadow_buffer, dir).x * light_radius;
+			vec3 worldN = normalize((shadow_matrix * vec4(out_normal, 0.0)).xyz);
+			float ndl = max(dot(worldN, -normalize(dir)), 0.0);
+			float bias = 0.002 * (light_radius / 10.0)
+			           + (light_radius / 256.0) * 4.0 * (1.0 - ndl);
+			radiance *= float(current - bias < closest);
+		}
+	}
+	else if (u_shadow_type == 2)
+	{
+		vec4 sc = shadow_matrix * vec4(vs_pos, 1.0);
+		sc = sc / sc.w;
+		float f = sc.z > 1.0 ? 1.0 : float(sc.z < texture(shadow_map, sc.xy).x);
+		radiance *= f;
+	}
 
 	fragment_output = vec4(radiance, alpha);
 }

@@ -14,6 +14,8 @@
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/MeshUtil.h"
+#include "Fury/ParticleRenderer.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/Pass.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PostProcessEffect.h"
@@ -105,6 +107,7 @@ namespace fury
 		// ensures light pointers from the previous frame cannot leak
 		// into the new frame.
 		m_LastShadowTextures.clear();
+		m_LastShadowMatrices.clear();
 
 		// find visible nodes
 		RenderQuery::Ptr query = RenderQuery::Create();
@@ -164,6 +167,87 @@ namespace fury
 				// ambient + emissive + albedo*alpha compositing.
 				for (const auto &unit : query->transparentUnits)
 					DrawUnit(pass, unit);
+
+				// CPU-driven billboard particles. Drawn after
+				// transparent mesh units so they participate in
+				// back-to-front sort order. Particles are emissive
+				// in v1 (no light sampling) — they go between the
+				// base pass and the additive light pass, NOT into
+				// the additive loop (which would double-bright
+				// the smoke/fire).
+				if (!query->particleNodes.empty())
+				{
+					// Camera axes (world space) for billboard baking —
+					// columns 0/1 of the camera's world matrix.
+					Vector4 camRight(1.0f, 0.0f, 0.0f, 0.0f);
+					Vector4 camUp(0.0f, 1.0f, 0.0f, 0.0f);
+					if (m_CurrentCamera)
+					{
+						Matrix4 cw = m_CurrentCamera->GetWorldMatrix();
+						camRight = Vector4(cw.Raw[0], cw.Raw[1], cw.Raw[2], 0.0f);
+						camUp = Vector4(cw.Raw[4], cw.Raw[5], cw.Raw[6], 0.0f);
+					}
+
+					// First shadow-casting light with a cached map feeds
+					// the particle shadow-receive path (v1: point cube /
+					// single-map dir; CSM + spot skipped by design).
+					ParticleShadowInfo shadowInfo;
+					for (const auto &lightNode : query->lightNodes)
+					{
+						auto light = lightNode->GetComponent<Light>();
+						if (!light || !light->GetCastShadows()) continue;
+						auto it = m_LastShadowTextures.find(lightNode.get());
+						if (it == m_LastShadowTextures.end() || !it->second) continue;
+						if (light->GetType() == LightType::POINT)
+						{
+							shadowInfo.type = 1;
+							shadowInfo.texture = it->second;
+							shadowInfo.lightPos = lightNode->GetWorldPosition();
+							shadowInfo.lightRadius = light->GetEffectiveRadius();
+							break;
+						}
+						if (light->GetType() == LightType::DIRECTIONAL &&
+							!IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP))
+						{
+							auto mit = m_LastShadowMatrices.find(lightNode.get());
+							if (mit == m_LastShadowMatrices.end()) continue;
+							// Deferred convention maps view -> shadow UV;
+							// particles have world pos, so append the
+							// camera's view matrix (world -> view).
+							shadowInfo.matrix = mit->second * m_CurrentCamera->GetInvertWorldMatrix();
+							shadowInfo.type = 2;
+							shadowInfo.texture = it->second;
+							break;
+						}
+					}
+
+					GLint prevSrc, prevDst;
+					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
+					glGetIntegerv(GL_BLEND_DST_RGB, &prevDst);
+					for (const auto &node : query->particleNodes)
+					{
+						auto pr = node->GetComponent<ParticleRenderer>();
+						if (!pr) continue;
+						// Sync mesh to live pool, then issue draw
+						// with the configured blend mode.
+						pr->UpdateMesh(camRight, camUp);
+						// Mirror the renderer's blend mode onto GL
+						// state. Particle renderers don't bind the
+						// pipeline's Pass blend — each emitter has
+						// its own ALPHA/ADDITIVE choice.
+						if (pr->GetBlendMode() == ParticleBlend::ADDITIVE)
+							glBlendFunc(GL_ONE, GL_ONE);
+						else
+							glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+						// Depth-tested, NOT depth-written (the
+						// transparent pass convention).
+						glEnable(GL_DEPTH_TEST);
+						glDepthMask(GL_FALSE);
+						pr->Draw(m_CurrentCamera, &shadowInfo);
+						glDepthMask(GL_TRUE);
+					}
+					glBlendFunc(prevSrc, prevDst);
+				}
 
 				// One additive (ONE, ONE) draw per light so
 				// transparents pick up direct lighting without light arrays. The forward shader premultiplies diffuse by alpha and leaves specular full-strength (glass highlights); per-light occlusion between transparents is ignored — documented approximation.
@@ -272,6 +356,13 @@ namespace fury
 		m_CurrentShader = nullptr;
 		m_CurrentMateral = nullptr;
 		m_CurrentMesh = nullptr;
+
+		// Now that every pass (transparent shadow-receive included) is
+		// done sampling this frame's shadow maps, return them to the
+		// temporary pool.
+		for (auto &tex : m_FrameShadowTemps)
+			Texture::ReleaseTemporary(tex);
+		m_FrameShadowTemps.clear();
 	}
 
 	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit,
@@ -366,6 +457,46 @@ namespace fury
 				{
 					lightType = (int)light->GetType() + 1;
 					shader->BindLight(lightNode);
+
+					// Shadow-receive for this light's direct
+					// contribution (matches the deferred path's
+					// behavior for opaques): point -> cube map +
+					// camera-world matrix (view->world); dir ->
+					// 2D map + cached view-space matrix. CSM +
+					// spot are out of v1 scope. Both samplers are
+					// ALWAYS bound (real map when active, dummy
+					// otherwise) — core GL rejects glDrawElements
+					// on any sampler target mismatch.
+					int shadowType = 0;
+					Texture::Ptr shadowTex2D, shadowCube;
+					if (light->GetCastShadows())
+					{
+						auto it = m_LastShadowTextures.find(lightNode.get());
+						if (it != m_LastShadowTextures.end() && it->second)
+						{
+							if (light->GetType() == LightType::POINT)
+							{
+								shadowType = 1;
+								shadowCube = it->second;
+								Matrix4 camWorld = m_CurrentCamera->GetWorldMatrix();
+								shader->BindMatrix("shadow_matrix", &camWorld.Raw[0]);
+							}
+							else if (light->GetType() == LightType::DIRECTIONAL &&
+								!IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP))
+							{
+								auto mit = m_LastShadowMatrices.find(lightNode.get());
+								if (mit != m_LastShadowMatrices.end())
+								{
+									shadowType = 2;
+									shadowTex2D = it->second;
+									shader->BindMatrix("shadow_matrix", &mit->second.Raw[0]);
+								}
+							}
+						}
+					}
+					shader->BindTexture("shadow_map", shadowTex2D ? shadowTex2D : GetDummyTexture2D());
+					shader->BindTexture("shadow_buffer", shadowCube ? shadowCube : GetDummyCubeTexture());
+					shader->BindInt("u_shadow_type", shadowType);
 				}
 			}
 			shader->BindInt("u_light_type", lightType);
@@ -501,9 +632,10 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer
+		// collect used shadow buffer (released at end of Execute —
+		// the transparent pass samples it for shadow-receiving)
 		if (castShadows)
-			Texture::ReleaseTemporary(shadowData.first);
+			m_FrameShadowTemps.push_back(shadowData.first);
 	}
 
 	void PrelightPipeline::DrawDirLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
@@ -586,13 +718,18 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer
+		// collect used shadow buffer (released at end of Execute);
+		// cache the single-map dir matrix for the transparent pass's
+		// shadow-receive path (CSM stays out of that path in v1)
 		if (castShadows)
 		{
 			if (useCascaded)
-				Texture::ReleaseTemporary(cascadedShadowData.first);
+				m_FrameShadowTemps.push_back(cascadedShadowData.first);
 			else
-				Texture::ReleaseTemporary(shadowData.first);
+			{
+				m_FrameShadowTemps.push_back(shadowData.first);
+				m_LastShadowMatrices[node.get()] = shadowData.second;
+			}
 		}
 	}
 
@@ -677,9 +814,9 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer
+		// collect used shadow buffer (released at end of Execute)
 		if (castShadows)
-			Texture::ReleaseTemporary(shadowData.first);
+			m_FrameShadowTemps.push_back(shadowData.first);
 	}
 
 	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)

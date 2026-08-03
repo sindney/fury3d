@@ -4,6 +4,7 @@
 
 #include "Fury/RenderUtil.h"
 #include "Fury/BoxBounds.h"
+#include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Vector4.h"
@@ -380,6 +381,38 @@ namespace fury
 			if (!shader->Compile(vs, fs, ""))
 				FURYE << "SimpleLambertShader: compile failed (see GLSL error above)";
 		}
+		return shader;
+	}
+
+	std::shared_ptr<Texture> GetDummyCubeTexture()
+	{
+		static auto tex = Texture::Create("DummyCube");
+		if (tex->GetID() == 0)
+			tex->CreateEmpty(1, 1, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP, false);
+		return tex;
+	}
+
+	std::shared_ptr<Texture> GetDummyTexture2D()
+	{
+		static auto tex = Texture::Create("Dummy2D");
+		if (tex->GetID() == 0)
+			tex->CreateEmpty(1, 1, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, false);
+		return tex;
+	}
+
+	std::shared_ptr<Shader> GetParticleShader()
+	{
+		// Particle billboard shader, loaded from
+		// Resource/Shader/Lambert/Particle.glsl (artists iterate on GLSL
+		// without rebuilding). v1 samples the bound Material's diffuse
+		// texture and multiplies by u_Tint — particles are emissive (no
+		// scene-light sampling). Uniform names follow the engine
+		// convention (world_matrix / invert_view_matrix /
+		// projection_matrix) so Shader::BindCamera + BindMatrix resolve.
+		static auto shader = Shader::Create("ParticleShader", ShaderType::PARTICLE);
+		if (shader->GetDirty())
+			shader->LoadAndCompile(
+				FileUtil::GetAbsPath() + "Resource/Shader/Lambert/Particle.glsl", false);
 		return shader;
 	}
 

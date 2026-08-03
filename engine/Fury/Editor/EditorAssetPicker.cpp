@@ -4,6 +4,7 @@
 #include "Fury/EntityManager.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
 #include "Fury/Scene.h"
@@ -108,6 +109,19 @@ void CollectPostProcessEffects(std::vector<PickerEntry>& out) {
 	}
 }
 
+void CollectParticleSystems(std::vector<PickerEntry>& out) {
+	if (!Scene::Active) return;
+	auto em = Scene::Active->GetEntityManager();
+	if (!em) return;
+	em->ForEach<ParticleSystem>([&](const std::shared_ptr<ParticleSystem>& p) {
+		char buf[300];
+		std::snprintf(buf, sizeof(buf), "%s    %u/%u live",
+					  p->GetName().c_str(), p->GetAliveCount(), p->GetMaxParticles());
+		out.push_back({buf, std::static_pointer_cast<void>(p)});
+		return true;
+	});
+}
+
 void CollectByType(std::type_index type,
 				   std::vector<PickerEntry>& out) {
 	if (type == typeid(Mesh))
@@ -118,6 +132,8 @@ void CollectByType(std::type_index type,
 		CollectTextures(out);
 	else if (type == typeid(AnimationClip))
 		CollectAnimationClipsIntoEntries(out);
+	else if (type == typeid(ParticleSystem))
+		CollectParticleSystems(out);
 	else if (type == typeid(PostProcessEffect))
 		CollectPostProcessEffects(out);
 	// Unknown type: leave out empty — the OK button stays

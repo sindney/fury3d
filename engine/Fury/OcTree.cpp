@@ -6,6 +6,7 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/ParticleRenderer.h"
 #include "Fury/OcTreeNode.h"
 #include "Fury/OcTree.h"
 #include "Fury/RenderQuery.h"
@@ -109,6 +110,11 @@ namespace fury
 			{
 				if (render->GetRenderable())
 					renderQuery->AddRenderable(sceneNode);
+			}
+
+			if (auto particle = sceneNode->GetComponent<ParticleRenderer>())
+			{
+				renderQuery->AddParticle(sceneNode);
 			}
 		});
 	}

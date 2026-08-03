@@ -6,6 +6,7 @@
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorAssetPicker.h"
+#include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Editor/EditorReflect.hpp"
 #include "Fury/EnumUtil.h"
 #include "Fury/Light.h"
@@ -13,6 +14,8 @@
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/ParticleRenderer.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
@@ -364,6 +367,52 @@ struct ComponentEntry {
 static const char* kAnimWrapModeNames[] = {"Default", "Once", "Loop", "ClampForever", "PingPong"};
 static int kAnimWrapModeCount = 5;
 
+// ParticleRenderer node-properties body. The system row mirrors the
+// MeshRender mesh row: Change (asset picker) / → (jump to asset) /
+// × (unbind). Authoring of modules lives in the ParticleSystem asset
+// (particle editor); the component only references it by name.
+void RenderParticleRendererBody(SceneNode* node, ParticleRenderer* pr) {
+	if (!pr) return;
+	auto system = pr->GetSystem();
+
+	// System row: buttons first, then label + name.
+	ImGui::AlignTextToFramePadding();
+	if (ImGui::Button("Change"))
+		ImGui::OpenPopup("ParticleSystemPicker");
+	ImGui::SameLine();
+	const bool hasSystem = !pr->GetSystemName().empty();
+	if (!hasSystem) ImGui::BeginDisabled();
+	if (ImGui::Button("→"))
+		Editor::SelectAssetInBrowser(typeid(ParticleSystem), pr->GetSystemName());
+	if (!hasSystem) ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button("×"))
+		pr->SetSystemName("");
+	ImGui::SameLine();
+	ImGui::TextUnformatted("System:");
+	ImGui::SameLine();
+	if (hasSystem)
+		ImGui::TextUnformatted(pr->GetSystemName().c_str());
+	else
+		ImGui::TextDisabled("(no system)");
+
+	RenderAssetPickerModal("ParticleSystemPicker", "Pick ParticleSystem",
+		typeid(ParticleSystem),
+		[pr](std::shared_ptr<void> p) {
+			auto ps = std::static_pointer_cast<ParticleSystem>(p);
+			pr->SetSystemName(ps ? ps->GetName() : "");
+		});
+
+	if (system)
+		ImGui::TextDisabled("  Live: %u / %u", system->GetAliveCount(), system->GetMaxParticles());
+	ImGui::TextDisabled("Blend mode: %s",
+		pr->GetBlendMode() == ParticleBlend::ADDITIVE ? "ADDITIVE" : "ALPHA");
+	ImGui::TextDisabled("Material: %s",
+		(pr->GetMaterial() ? pr->GetMaterial()->GetName().c_str() : "(none)"));
+	if (system && ImGui::Button("Open Particle Editor…"))
+		Editor::OpenParticleEditor(system);
+}
+
 void RenderAnimatorBody(SceneNode* node, Animator* anim) {
 	bool phys = anim->GetAnimatePhysics();
 	if (ImGui::Checkbox("Animate Physics", &phys)) {
@@ -560,6 +609,7 @@ static const std::vector<ComponentEntry>& ComponentRenderTable() {
 		{"Camera", typeid(Camera), true, [](SceneNode* n, Component* c) { RenderCameraBody(n, static_cast<Camera*>(c)); }},
 		{"MeshRender", typeid(MeshRender), true, [](SceneNode* n, Component* c) { RenderMeshRenderBody(n, static_cast<MeshRender*>(c)); }},
 		{"Animator", typeid(Animator), true, [](SceneNode* n, Component* c) { RenderAnimatorBody(n, static_cast<Animator*>(c)); }},
+		{"ParticleRenderer", typeid(ParticleRenderer), true, [](SceneNode* n, Component* c) { RenderParticleRendererBody(n, static_cast<ParticleRenderer*>(c)); }},
 	};
 	return table;
 }

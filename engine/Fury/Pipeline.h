@@ -134,6 +134,19 @@ namespace fury
 		// section per shadow-casting light.
 		std::unordered_map<SceneNode*, std::shared_ptr<Texture>> m_LastShadowTextures;
 
+		// Directional (single-map) shadow matrices, same lifetime as
+		// m_LastShadowTextures. The transparent pass's shadow-receive
+		// path needs the matrix the deferred light draw already composed
+		// (deferred convention: maps camera-view -> shadow UV).
+		std::unordered_map<SceneNode*, Matrix4> m_LastShadowMatrices;
+
+		// Shadow-map temporaries held until the END of Execute.
+		// ReleaseTemporary returns the map to a spec-keyed pool for
+		// immediate reuse, so releasing at light-draw time let a second
+		// same-spec caster's shadow draw pop and overwrite the first
+		// light's map before pass_transparent sampled it.
+		std::vector<std::shared_ptr<Texture>> m_FrameShadowTemps;
+
 		// end debug
 
 	public:

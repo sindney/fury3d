@@ -10,7 +10,9 @@
 #include "Fury/Color.h"
 #include "Fury/Component.h"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
+#include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
 #include "Fury/EntityManager.h"
@@ -31,6 +33,8 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/ParticleRenderer.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/MeshSimplifier.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/OcTree.h"
@@ -231,6 +235,16 @@ namespace fury
 				},
 				"AddMesh", [](Scene &s, const Mesh::Ptr &m) {
 					if (auto em = s.GetEntityManager()) em->Add(m);
+				},
+				// Name lookup for particle system assets — smoke tests and
+				// automation assert against these (there is no generic
+				// EntityManager.Get exposed to Lua).
+				"GetParticleSystem", [](Scene &s, const std::string &name) -> ParticleSystem::Ptr {
+					if (auto em = s.GetEntityManager()) return em->Get<ParticleSystem>(name);
+					return nullptr;
+				},
+				"AddParticleSystem", [](Scene &s, const ParticleSystem::Ptr &p) {
+					if (auto em = s.GetEntityManager()) em->Add(p);
 				},
 				"GetRenderSettings", &Scene::GetRenderSettings,
 				"GetWorkingDir", &Scene::GetWorkingDir,
@@ -596,6 +610,42 @@ namespace fury
 				"GetDefaultWrapMode", &Animator::GetDefaultWrapMode,
 				"SetDefaultWrapMode", [](Animator &a, int m) { a.SetDefaultWrapMode(static_cast<AnimWrapMode>(m)); });
 
+			// --- ParticleSystem ----------------------------------------------
+			lua.new_usertype<ParticleSystem>("ParticleSystem",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable, TypeComparable>(),
+				"Create",          &ParticleSystem::Create,
+				"GetName",         &ParticleSystem::GetName,
+				"SetName",         &ParticleSystem::SetName,
+				"GetAliveCount",   &ParticleSystem::GetAliveCount,
+				"GetMaxParticles", &ParticleSystem::GetMaxParticles,
+				"SetMaxParticles", &ParticleSystem::SetMaxParticles,
+				"GetLifetime",     &ParticleSystem::GetLifetime,
+				"SetLifetime",     &ParticleSystem::SetLifetime,
+				"GetStartSize",    &ParticleSystem::GetStartSize,
+				"SetStartSize",    &ParticleSystem::SetStartSize,
+				"Emit",            &ParticleSystem::Emit,
+				"IsAlive",         &ParticleSystem::IsAlive,
+				"Update",          &ParticleSystem::Update,
+				"Reset",           &ParticleSystem::Reset);
+
+			// --- ParticleRenderer --------------------------------------------
+			lua.new_usertype<ParticleRenderer>("ParticleRenderer",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create",          &ParticleRenderer::Create,
+				"GetName",         &ParticleRenderer::GetName,
+				"SetName",         &ParticleRenderer::SetName,
+				// Name-based system reference (resolved lazily against
+				// the active scene's EntityManager — GetSystem triggers
+				// the resolve).
+				"GetSystemName",   &ParticleRenderer::GetSystemName,
+				"SetSystemName",   &ParticleRenderer::SetSystemName,
+				"GetSystem",       &ParticleRenderer::GetSystem,
+				"GetBlendMode",    &ParticleRenderer::GetBlendMode,
+				"SetBlendMode",    &ParticleRenderer::SetBlendMode,
+				"GetDynamicMesh",  &ParticleRenderer::GetDynamicMesh);
+
 			// --- AnimationUtil (table namespace) ------------------------------
 			sol::table anim_util_tbl = lua.create_named_table("AnimationUtil");
 			anim_util_tbl["OptimizeAnimClip"] = [](const std::shared_ptr<AnimationClip> &clip, float quality) {
@@ -655,6 +705,16 @@ namespace fury
 					[](SceneNode &n, MeshRender::Ptr){ return n.RemoveComponent(typeid(MeshRender)); },
 					[](SceneNode &n, Animator::Ptr)  { return n.RemoveComponent(typeid(Animator)); }),
 				"GetComponent", sol::overload(
+					// Typed overloads FIRST so a Lua-side
+					// `n:GetComponent(ParticleSystem)` resolves to the
+					// ParticleSystem::Ptr overload instead of the
+					// generic `sol::type` fallback (which returns nil).
+					[](SceneNode &n, Transform::Ptr) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
+					[](SceneNode &n, Camera::Ptr)    -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
+					[](SceneNode &n, Light::Ptr)     -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
+					[](SceneNode &n, MeshRender::Ptr)-> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
+					[](SceneNode &n, Animator::Ptr)  -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); },
+					[](SceneNode &n, ParticleRenderer::Ptr) -> std::shared_ptr<ParticleRenderer> { return n.GetComponent<ParticleRenderer>(); },
 					[](SceneNode &n, sol::type t) -> sol::object {
 						// Forward a Lua-side `GetComponent(SceneNode.Light)`-style
 						// call (when registered as a table) by name lookup. This
@@ -665,17 +725,13 @@ namespace fury
 						// round-trips cleanly.
 						(void)t;
 						return sol::nil;
-					},
-					[](SceneNode &n, Transform::Ptr) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
-					[](SceneNode &n, Camera::Ptr)    -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
-					[](SceneNode &n, Light::Ptr)     -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
-					[](SceneNode &n, MeshRender::Ptr)-> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
-					[](SceneNode &n, Animator::Ptr)  -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); }),
+					}),
 							"GetTransform", [](SceneNode &n) -> std::shared_ptr<Transform> { return n.GetComponent<Transform>(); },
 				"GetCamera",    [](SceneNode &n) -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
 				"GetLight",     [](SceneNode &n) -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
 				"GetMeshRender",[](SceneNode &n) -> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
 				"GetAnimator",  [](SceneNode &n) -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); },
+				"GetParticleRenderer", [](SceneNode &n) -> std::shared_ptr<ParticleRenderer> { return n.GetComponent<ParticleRenderer>(); },
 				"AddChild", &SceneNode::AddChild,
 				"RemoveChild", &SceneNode::RemoveChild,
 				"RemoveFromParent", &SceneNode::RemoveFromParent,
@@ -1077,6 +1133,13 @@ namespace fury
 				source_em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip> &c) -> bool {
 					target_em->Add(c); return true;
 				});
+				// ParticleSystem is a top-level asset like AnimationClip —
+				// skipping it here would strand the systems in the discarded
+				// source scene (content browser misses them, renderers can't
+				// resolve, and a re-save drops particleSystems[]).
+				source_em->ForEach<ParticleSystem>([&](const std::shared_ptr<ParticleSystem> &p) -> bool {
+					target_em->Add(p); return true;
+				});
 				target->GetSceneManager()->AddSceneNodeRecursively(target_root);
 				return merged;
 			};
@@ -1474,6 +1537,22 @@ namespace fury
 			editor_tbl["GetGizmoMode"]        = []() -> std::string { return Editor::GetGizmoMode(); };
 			editor_tbl["GetGizmoSpace"]       = []() -> std::string { return Editor::GetGizmoSpace(); };
 			editor_tbl["GetSnapEnabled"]      = []() -> bool { return Editor::GetSnapEnabled(); };
+
+			// Automation hooks: open per-asset editor windows by asset
+			// name — verification scripts use these to screenshot the
+			// editors headlessly (no window-picker plumbing needed).
+			editor_tbl["OpenParticleEditor"]  = [](const std::string& name) {
+				if (!Scene::Active) return;
+				if (auto em = Scene::Active->GetEntityManager())
+					if (auto ps = em->Get<ParticleSystem>(name))
+						Editor::OpenParticleEditor(ps);
+			};
+			editor_tbl["OpenMeshEditor"]      = [](const std::string& name) {
+				if (!Scene::Active) return;
+				if (auto em = Scene::Active->GetEntityManager())
+					if (auto mesh = em->Get<Mesh>(name))
+						Editor::OpenMeshEditor(mesh);
+			};
 #else
 			// No-op stubs so user scripts that reference Editor.* compose
 			// with both build modes. Each accepts and discards arguments.
@@ -1511,6 +1590,8 @@ namespace fury
 			editor_tbl["GetGizmoMode"]          = []() -> std::string { return "translate"; };
 			editor_tbl["GetGizmoSpace"]         = []() -> std::string { return "world"; };
 			editor_tbl["GetSnapEnabled"]        = []() -> bool { return false; };
+			editor_tbl["OpenParticleEditor"]    = [](sol::object) {};
+			editor_tbl["OpenMeshEditor"]        = [](sol::object) {};
 #endif
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------

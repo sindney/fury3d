@@ -46,11 +46,16 @@ namespace fury
 
 		std::vector<RenderUnit> transparentUnits;
 
+		// ParticleRenderer nodes, drawn after transparentUnits.
+		std::vector<std::shared_ptr<SceneNode>> particleNodes;
+
 		std::vector<std::shared_ptr<SceneNode>> renderableNodes;
 
 		std::vector<std::shared_ptr<SceneNode>> lightNodes;
 
 		void AddRenderable(const std::shared_ptr<SceneNode> &node);
+
+		void AddParticle(const std::shared_ptr<SceneNode> &node);
 
 		void AddLight(const std::shared_ptr<SceneNode> &node);
 

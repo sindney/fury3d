@@ -2,6 +2,9 @@
 
 #include "Fury/BufferManager.h"
 #include "Fury/AnimationClip.h"
+#include "Fury/Editor/EditorParticleWindow.h"
+#include "Fury/ParticleRenderer.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/Camera.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAssetPicker.h"
@@ -18,6 +21,7 @@
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
+#include "Fury/MathUtil.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -967,28 +971,20 @@ bool IsDescendantOf(SceneNode* ancestor, SceneNode* target) {
 // Adjust node's local TRS so the world transform stays the same after reparenting. Call BEFORE RemoveChild/AddChild.
 void PreserveWorldTransformOnReparent(SceneNode* node, SceneNode* newParent) {
 	if (!node || !newParent) return;
-	Vector4 worldPos = node->GetWorldPosition();
-	Quaternion worldRot = node->GetWorldRoattion();
-	Vector4 worldScl = node->GetWorldScale();
-
-	// newLocalPos = newParentWorldMatrix^-1 * worldPos
-	Matrix4 invParent = newParent->GetWorldMatrix().Inverse();
-	Vector4 newLocalPos = invParent.Multiply(worldPos);
-
-	// newLocalRot = newParentWorldRot^-1 * worldRot
-	Quaternion parentRot = newParent->GetWorldRoattion();
-	Quaternion newLocalRot = parentRot.Conjugate() * worldRot;
-
-	// newLocalScl = worldScl / newParentScl (component-wise)
-	Vector4 parentScl = newParent->GetWorldScale();
-	Vector4 newLocalScl = worldScl;
-	auto safeDiv = [](float a, float b) -> float {
-		return std::abs(b) > 1e-6f ? a / b : a;
-	};
-	newLocalScl.x = safeDiv(worldScl.x, parentScl.x);
-	newLocalScl.y = safeDiv(worldScl.y, parentScl.y);
-	newLocalScl.z = safeDiv(worldScl.z, parentScl.z);
-
+	// newLocal = newParentWorld^-1 × nodeWorld, decomposed. Piecewise
+	// GetWorldRoattion / GetWorldScale reads are NOT safe here: under
+	// scaled ancestors (the outdoor scene's ×100 RootNode) they return
+	// scale-polluted non-unit quaternions and translation-contaminated
+	// scales, and writing them back as local TRS compounds the error on
+	// every reparent — the emitter node ballooned ×10⁴ on the first move
+	// ("particles gone"), and acos(w>1) NaN'd its world matrix on the
+	// second (OcTree GrowRootToContain nodeCenter=nan).
+	Matrix4 newLocal =
+		newParent->GetWorldMatrix().Inverse() * node->GetWorldMatrix();
+	Vector4 newLocalPos, newLocalScl;
+	Quaternion newLocalRot;
+	if (!MathUtil::Decompose(newLocal, newLocalPos, newLocalRot, newLocalScl))
+		return; // singular basis — leave the transform untouched
 	node->SetLocalPosition(newLocalPos);
 	node->SetLocalRoattion(newLocalRot);
 	node->SetLocalScale(newLocalScl);
@@ -1301,6 +1297,12 @@ void RenderSceneInspectorWindow(bool* open) {
 		if (srcParent) srcParent->RemoveChild(sp);
 		pr.target->AddChild(sp);
 		if (Scene::Active) {
+			// SetParent's Recompose refreshes already-registered nodes
+			// (UpdateSceneNode), and AddSceneNodeRecursively does NOT
+			// dedupe — together they double-register (a stale entry stays
+			// in the old tree node forever). Remove first so the re-add
+			// is idempotent for both registered and fresh subtrees.
+			sp->RemoveFromOcTree(true);
 			Scene::Active->GetSceneManager()->AddSceneNodeRecursively(sp);
 		}
 	}
@@ -1457,7 +1459,7 @@ struct TileEntry {
 static int g_FilterType = 0;
 static char g_FilterText[128] = "";
 constexpr const char* kFilterTypeNames[] = {
-	"All", "Mesh", "Material", "Texture", "AnimationClip"};
+	"All", "Mesh", "Material", "Texture", "AnimationClip", "ParticleSystem"};
 
 // Case-insensitive subsequence: every char of `pattern` appears in
 // `text` in order ("spz" matches "Sponza").
@@ -1480,6 +1482,7 @@ bool TilePassesFilter(const TileEntry& tile) {
 		case 2: want = &typeid(Material); break;
 		case 3: want = &typeid(Texture); break;
 		case 4: want = &typeid(AnimationClip); break;
+		case 5: want = &typeid(ParticleSystem); break;
 		}
 		if (want && tile.type != *want) return false;
 	}
@@ -1510,6 +1513,11 @@ void CollectTiles(std::vector<TileEntry>& tiles) {
 	em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& c) {
 		tiles.push_back({typeid(AnimationClip), c->GetName(),
 						 std::static_pointer_cast<void>(c)});
+		return true;
+	});
+	em->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr& p) {
+		tiles.push_back({typeid(ParticleSystem), p->GetName(),
+						 std::static_pointer_cast<void>(p)});
 		return true;
 	});
 }
@@ -1592,11 +1600,92 @@ unsigned int CountAssetReferences(std::type_index type,
 						if (mr->GetMaterial(i) == mat) ++count;
 				}
 			}
+			// ParticleRenderers reference their system BY NAME — count
+			// name matches, not pointer identity.
+			if (type == typeid(ParticleSystem)) {
+				if (auto pr = node->GetComponent<ParticleRenderer>()) {
+					auto ps = std::static_pointer_cast<ParticleSystem>(target);
+					if (ps && pr->GetSystemName() == ps->GetName()) ++count;
+				}
+			}
 			for (unsigned int i = 0; i < node->GetChildCount(); ++i)
 				walk(node->GetChildAt(i));
 		};
 	walk(root);
 	return count;
+}
+
+// Retarget every ParticleRenderer in the scene that references
+// `oldName` to `newName` — renderers reference their system by name,
+// so a rename must rewrite the name strings or the next resolve
+// (fresh node, scene reload) silently loses the binding.
+void RetargetParticleRenderers(const std::string& oldName,
+							   const std::string& newName) {
+	if (!Scene::Active) return;
+	auto root = Scene::Active->GetRootNode();
+	if (!root) return;
+	std::function<void(const SceneNode::Ptr&)> walk =
+		[&](const SceneNode::Ptr& node) {
+			if (!node) return;
+			if (auto pr = node->GetComponent<ParticleRenderer>())
+				if (pr->GetSystemName() == oldName)
+					pr->SetSystemName(newName);
+			for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+				walk(node->GetChildAt(i));
+		};
+	walk(root);
+}
+
+// Commit an inline tile rename: re-register the asset under the typed
+// EntityManager collection, disambiguating against same-type names.
+// ParticleSystem renames also retarget name-based ParticleRenderer
+// references (RetargetParticleRenderers). Texture / AnimationClip stay
+// no-ops (out of scope of the PS-tile polish task).
+void CommitAssetRename(const TileEntry& tile, const std::string& name,
+					   std::string newName) {
+	if (!Scene::Active) return;
+	auto em = Scene::Active->GetEntityManager();
+	if (!em) return;
+	auto pred = [&](const std::string& n) {
+		if (tile.type == typeid(Mesh))
+			return em->Get<Mesh>(n) != nullptr;
+		if (tile.type == typeid(Material))
+			return em->Get<Material>(n) != nullptr;
+		if (tile.type == typeid(ParticleSystem))
+			return em->Get<ParticleSystem>(n) != nullptr;
+		return false;
+	};
+	if (pred(newName))
+		newName = UniqueName(newName, pred);
+	if (tile.type == typeid(Mesh)) {
+		auto asset = em->Get<Mesh>(name);
+		if (asset) {
+			em->Remove<Mesh>(name);
+			asset->SetName(newName);
+			em->Add<Mesh>(asset);
+			g_SelectedAsset = {typeid(Mesh), newName};
+			Editor::MarkSceneDirty();
+		}
+	} else if (tile.type == typeid(Material)) {
+		auto asset = em->Get<Material>(name);
+		if (asset) {
+			em->Remove<Material>(name);
+			asset->SetName(newName);
+			em->Add<Material>(asset);
+			g_SelectedAsset = {typeid(Material), newName};
+			Editor::MarkSceneDirty();
+		}
+	} else if (tile.type == typeid(ParticleSystem)) {
+		auto asset = em->Get<ParticleSystem>(name);
+		if (asset) {
+			em->Remove<ParticleSystem>(name);
+			asset->SetName(newName);
+			em->Add<ParticleSystem>(asset);
+			RetargetParticleRenderers(name, newName);
+			g_SelectedAsset = {typeid(ParticleSystem), newName};
+			Editor::MarkSceneDirty();
+		}
+	}
 }
 
 // Helper: ellipsize `name` to fit `width` pixels, appending "…".
@@ -1676,6 +1765,16 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		ImVec2 p1 = ImGui::GetItemRectMax();
 		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
 												  ImGui::GetColorU32(ImVec4(0.20f, 0.30f, 0.22f, 1.0f)));
+	} else if (tile.type == typeid(ParticleSystem)) {
+		// ParticleSystem tile — same placeholder-rect treatment as
+		// AnimationClip (no GPU thumbnail). MUST be an explicit branch:
+		// the fallthrough `else` below casts tile.ptr to Mesh, which
+		// reinterprets the ParticleSystem and crashes (SIGBUS).
+		ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
+		ImVec2 p0 = ImGui::GetItemRectMin();
+		ImVec2 p1 = ImGui::GetItemRectMax();
+		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
+												  ImGui::GetColorU32(ImVec4(0.42f, 0.26f, 0.13f, 1.0f)));
 	} else // Mesh
 	{
 			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
@@ -1694,11 +1793,12 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			}
 		}
 
-	// Type badge (M / Mat / T / Anim) in the top-left corner.
+	// Type badge (M / Mat / T / Anim / PS) in the top-left corner.
 	const char* badge =
 		(tile.type == typeid(Mesh)) ? "M" :
 		(tile.type == typeid(Material)) ? "Mat" :
-		(tile.type == typeid(AnimationClip)) ? "Anim" : "T";
+		(tile.type == typeid(AnimationClip)) ? "Anim" :
+		(tile.type == typeid(ParticleSystem)) ? "PS" : "T";
 		ImGui::GetWindowDrawList()->AddText(thumb_min,
 											ImGui::GetColorU32(ImVec4(1, 1, 0, 0.9f)), badge);
 
@@ -1726,37 +1826,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			bool cancelled = ImGui::IsKeyPressed(ImGuiKey_Escape);
 			if (committed) {
 				std::string newName(g_RenameBuffer);
-				if (!newName.empty() && newName != name) {
-					auto em = Scene::Active->GetEntityManager();
-					if (em) {
-						auto pred = [&](const std::string& n) {
-							if (tile.type == typeid(Mesh))
-								return em->Get<Mesh>(n) != nullptr;
-							return em->Get<Material>(n) != nullptr;
-						};
-						if (pred(newName))
-							newName = UniqueName(newName, pred);
-						if (tile.type == typeid(Mesh)) {
-							auto asset = em->Get<Mesh>(name);
-							if (asset) {
-								em->Remove<Mesh>(name);
-								asset->SetName(newName);
-								em->Add<Mesh>(asset);
-								g_SelectedAsset = {typeid(Mesh), newName};
-								Editor::MarkSceneDirty();
-							}
-						} else {
-							auto asset = em->Get<Material>(name);
-							if (asset) {
-								em->Remove<Material>(name);
-								asset->SetName(newName);
-								em->Add<Material>(asset);
-								g_SelectedAsset = {typeid(Material), newName};
-								Editor::MarkSceneDirty();
-							}
-						}
-					}
-				}
+				if (!newName.empty() && newName != name)
+					CommitAssetRename(tile, name, newName);
 				g_RenamingAsset.reset();
 			} else if (cancelled) {
 				g_RenamingAsset.reset();
@@ -1776,6 +1847,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
 				else if (tile.type == typeid(AnimationClip))
 					Editor::SetWindowVisible("Animation", true);
+				else if (tile.type == typeid(ParticleSystem))
+					Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
 				else
 					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 			}
@@ -1792,6 +1865,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 			if (tile.type == typeid(Mesh))
 				OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
+			else if (tile.type == typeid(ParticleSystem))
+				Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
 			else
 				OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 		}
@@ -1811,37 +1886,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			bool cancelled = ImGui::IsKeyPressed(ImGuiKey_Escape);
 			if (committed) {
 				std::string newName(g_RenameBuffer);
-				if (!newName.empty() && newName != name) {
-					auto em = Scene::Active->GetEntityManager();
-					if (em) {
-						auto pred = [&](const std::string& n) {
-							if (tile.type == typeid(Mesh))
-								return em->Get<Mesh>(n) != nullptr;
-							return em->Get<Material>(n) != nullptr;
-						};
-						if (pred(newName))
-							newName = UniqueName(newName, pred);
-						if (tile.type == typeid(Mesh)) {
-							auto asset = em->Get<Mesh>(name);
-							if (asset) {
-								em->Remove<Mesh>(name);
-								asset->SetName(newName);
-								em->Add<Mesh>(asset);
-								g_SelectedAsset = {typeid(Mesh), newName};
-								Editor::MarkSceneDirty();
-							}
-						} else {
-							auto asset = em->Get<Material>(name);
-							if (asset) {
-								em->Remove<Material>(name);
-								asset->SetName(newName);
-								em->Add<Material>(asset);
-								g_SelectedAsset = {typeid(Material), newName};
-								Editor::MarkSceneDirty();
-							}
-						}
-					}
-				}
+				if (!newName.empty() && newName != name)
+					CommitAssetRename(tile, name, newName);
 				g_RenamingAsset.reset();
 			} else if (cancelled) {
 				g_RenamingAsset.reset();
@@ -1860,6 +1906,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 				if (tile.type == typeid(Mesh))
 					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
+				else if (tile.type == typeid(ParticleSystem))
+					Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
 				else
 					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 			}
@@ -1882,13 +1930,20 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	// Right-click context menu (on the whole tile group).
 	std::string ctx_id = "ctx_" + name;
 	if (ImGui::BeginPopupContextItem(ctx_id.c_str())) {
-		if (ImGui::MenuItem("Duplicate")) {
+		// Duplicate supports Mesh + Material + ParticleSystem — the
+		// remaining asset types (Texture, AnimationClip) have no typed
+		// clone path here and stay hidden instead of mis-serializing.
+		if ((tile.type == typeid(Mesh) || tile.type == typeid(Material) ||
+			 tile.type == typeid(ParticleSystem)) &&
+			ImGui::MenuItem("Duplicate")) {
 			std::string baseName = name + " (copy)";
 			auto pred = [&](const std::string& n) {
 				auto em = Scene::Active->GetEntityManager();
 				if (!em) return false;
 				if (tile.type == typeid(Mesh))
 					return em->Get<Mesh>(n) != nullptr;
+				if (tile.type == typeid(ParticleSystem))
+					return em->Get<ParticleSystem>(n) != nullptr;
 				return em->Get<Material>(n) != nullptr;
 			};
 			std::string newName = UniqueName(baseName, pred);
@@ -1901,6 +1956,17 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				copy->SetName(newName);
 				Scene::Active->GetEntityManager()->Add<Mesh>(copy);
 				g_SelectedAsset = {typeid(Mesh), newName};
+				Editor::MarkSceneDirty();
+			} else if (tile.type == typeid(ParticleSystem)) {
+				// Clone() copies every module; the new system starts
+				// with an empty pool (live particles are runtime state,
+				// not authoring data). Renderers keep referencing the
+				// ORIGINAL system name — correct.
+				auto orig = std::static_pointer_cast<ParticleSystem>(tile.ptr);
+				auto copy = orig->Clone();
+				copy->SetName(newName);
+				Scene::Active->GetEntityManager()->Add<ParticleSystem>(copy);
+				g_SelectedAsset = {typeid(ParticleSystem), newName};
 				Editor::MarkSceneDirty();
 			} else {
 				auto orig = std::static_pointer_cast<Material>(tile.ptr);
@@ -1921,11 +1987,16 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		if (ImGui::MenuItem("Delete")) {
 			unsigned int refs = CountAssetReferences(tile.type, tile.ptr);
 			auto em = Scene::Active->GetEntityManager();
+			// Consumer noun for the confirm dialog: Mesh/Material feed
+			// MeshRenders, a ParticleSystem feeds ParticleRenderers.
+			const char* consumer =
+				(tile.type == typeid(ParticleSystem)) ? "ParticleRenderer(s)"
+													  : "MeshRender(s)";
 			if (refs > 0) {
 				char msg[256];
 				std::snprintf(msg, sizeof(msg),
-							  "%s is in use by %u MeshRender(s). Delete anyway?",
-							  name.c_str(), refs);
+							  "%s is in use by %u %s. Delete anyway?",
+							  name.c_str(), refs, consumer);
 				auto type = tile.type;
 				auto aname = name;
 				RequestConfirmDialog("Delete Asset", msg,
@@ -1935,6 +2006,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 											 em->Remove<Mesh>(aname);
 										 else if (type == typeid(Material))
 											 em->Remove<Material>(aname);
+										 else if (type == typeid(ParticleSystem))
+											 em->Remove<ParticleSystem>(aname);
 										 g_SelectedAsset.reset();
 										 Editor::MarkSceneDirty();
 									 });
@@ -1943,6 +2016,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 					em->Remove<Mesh>(name);
 				else if (tile.type == typeid(Material))
 					em->Remove<Material>(name);
+				else if (tile.type == typeid(ParticleSystem))
+					em->Remove<ParticleSystem>(name);
 				g_SelectedAsset.reset();
 				Editor::MarkSceneDirty();
 			}

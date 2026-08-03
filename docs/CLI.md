@@ -78,6 +78,11 @@ before the engine exits). True offscreen rendering is out of scope for v1.
 
 # Wait 30 frames so an on_update animation has progressed.
 ./fury Editor.lua --screenshot /tmp/late.png --screenshot-frame 30
+
+# furye: open per-asset editor windows at startup (arg[2] = comma-separated
+# type:name list; types: particle, mesh) for headless editor verification.
+./furye Editor.lua Projects/outdoor/outdoor_water.bin \
+  particle:FireEmber,mesh:Feu --screenshot /tmp/editors.png --screenshot-frame 90
 ```
 
 ## Subcommands
@@ -220,6 +225,7 @@ triangles:      <total>
 materials:      <count>
 animations:     <count>
 joints:         <total across all skins>
+particles:      <systems> systems, <renderers> renderers
 aabb:           min=(x, y, z) max=(x, y, z)
 ```
 

@@ -21,6 +21,8 @@
 #include "Fury/Uniform.h"
 #include "Fury/Vector4.h"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/Editor3DPreview.h"
+#include "Fury/Editor/EditorParticleWindow.h"
 #include "ImGui/imgui.h"
 #include "ImGuizmo.h"
 #include "stb_image_write.h"
@@ -55,27 +57,6 @@ namespace {
 // the open bool to false) erases the entry.
 std::unordered_set<std::string> g_OpenMeshEditors;
 std::unordered_set<std::string> g_OpenMaterialEditors;
-
-// Per-editor camera state. Keyed by popup ID so each open
-// mesh editor has its own camera.
-struct OrbitState {
-	Vector4 target{0, 0, 0, 1};	// orbit center (mesh AABB center)
-	float distance = 0.0f;			// current orbit radius
-	float initialDistance = 0.0f;	// initial radius (zoom clamp)
-	float yaw = 30.0f * 0.0174532925f;	 // initial orbit azimuth (rad)
-	float pitch = 20.0f * 0.0174532925f; // initial orbit elevation (rad)
-	int preview_lod_override = -1;	// -1 = Auto (runtime-driven); [0, GetLodCount()) = override
-	std::shared_ptr<Mesh> framed_mesh;	// the mesh the orbit is currently framed on
-	bool initialized = false;
-};
-std::unordered_map<std::string, OrbitState> g_OrbitState;
-
-OrbitState& OrbitFor(const std::string& popup_id) {
-	auto it = g_OrbitState.find(popup_id);
-	if (it == g_OrbitState.end())
-		it = g_OrbitState.emplace(popup_id, OrbitState{}).first;
-	return it->second;
-}
 
 // ---- Mesh thumbnail cache ----
 // Per-mesh FBO keyed on BufferId. `contentHash` invalidates the FBO when the
@@ -703,16 +684,8 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 }
 
 // ---- Mesh editor body: 3D preview ----
-struct PreviewRT {
-	GLuint fbo = 0;
-	std::shared_ptr<Texture> colorRT;
-	std::shared_ptr<Texture> depthRT;
-	int width = 0;
-	int height = 0;
-};
-std::unordered_map<std::string, PreviewRT> g_PreviewRTs;
-
-// 3D preview of the mesh. Renders into a per-popup PreviewRT and presents via
+// FBO + orbit state now live in Editor3DPreview so the particle editor
+// can share the same pipeline. See asset-editor-windows delta spec.
 // ImGui::Image. The mesh is placed at world origin; the orbit camera frames on
 // the mesh's local AABB so any mesh renders at any scale. LMB = orbit,
 // wheel = zoom, RMB = pan.
@@ -741,36 +714,13 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 		static_cast<int>(size.y - 2.0f * pad.y + 0.5f));
 	const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
 
-	// (Re)allocate the PreviewRT on resize.
-	PreviewRT& rt = g_PreviewRTs[popup_id];
-	const bool rt_size_changed = (rt.fbo != 0 &&
-		(rt.width != w || rt.height != h));
-	if (rt.fbo == 0 || rt.width != w || rt.height != h) {
-		if (rt.fbo) {
-			glDeleteFramebuffers(1, &rt.fbo);
-			rt.fbo = 0;
-		}
-		glGenFramebuffers(1, &rt.fbo);
-		rt.colorRT = Texture::GetTemporary(w, h, 1,
-			TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		rt.depthRT = Texture::GetTemporary(w, h, 1,
-			TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
-		glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			GL_TEXTURE_2D, rt.colorRT->GetID(), 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-			GL_TEXTURE_2D, rt.depthRT->GetID(), 0);
-		const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE) {
-			FURYW << "RenderMeshPreview: FBO incomplete for popup_id "
-				  << popup_id << " (0x" << std::hex << status << std::dec << ")";
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			rt.fbo = 0;
-			return;
-		}
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		rt.width = w;
-		rt.height = h;
+	bool rt_resized = false;
+	auto& rt = EnsureRT(popup_id, w, h, &rt_resized);
+	if (rt.fbo == 0) {
+		ImGui::BeginChild("preview", size, false, ImGuiWindowFlags_NoScrollbar);
+		ImGui::TextDisabled("(3D preview - FBO incomplete)");
+		ImGui::EndChild();
+		return;
 	}
 
 	// Frame on the mesh's local AABB (mesh placed at world origin).
@@ -791,8 +741,8 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	// when the displayed mesh switches (e.g. user picks a different LOD
 	// in the dropdown — each LOD has its own AABB and the previous
 	// orbit's target / distance would frame the wrong geometry).
-	const bool mesh_changed = (os.framed_mesh.get() != render_mesh.get());
-	if (!os.initialized || rt_size_changed || mesh_changed) {
+	const bool mesh_changed = (os.framed_mesh != render_mesh.get());
+	if (!os.initialized || rt_resized || mesh_changed) {
 		const float fov0 = 45.0f * 0.0174532925f;
 		const float adjusted_dist = (radius * 0.6f) /
 			(std::tan(fov0 * 0.5f) * std::min(1.0f, aspect));
@@ -804,7 +754,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 		os.initialDistance = adjusted_dist;
 		os.distance = adjusted_dist * zoom_factor;
 		os.target = aabb_center;
-		os.framed_mesh = render_mesh;
+		os.framed_mesh = render_mesh.get();
 		os.initialized = true;
 	}
 
@@ -1291,6 +1241,9 @@ void RenderAllOpenAssetEditors() {
 	}
 	for (const auto& popup : closedMat)
 		g_OpenMaterialEditors.erase(popup);
+
+	// Particle editor windows (separate map; same RenderAll loop).
+	RenderAllOpenParticleEditors();
 }
 } // namespace Editor
 } // namespace fury

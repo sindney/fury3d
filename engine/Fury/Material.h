@@ -27,6 +27,9 @@ namespace fury
 
 		typedef std::unordered_map<std::string, std::shared_ptr<UniformBase>> UniformMap;
 
+		// The diffuse slot carries the smoke/fire PNG for CPU-driven
+		// billboard particles (see particle-system spec). ParticleRenderer
+		// reads the same key — no separate particle material class.
 		static const std::string DIFFUSE_TEXTURE;
 
 		static const std::string SPECULAR_TEXTURE;

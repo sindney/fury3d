@@ -26,6 +26,8 @@
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/ParticleRenderer.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/OcTree.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -222,6 +224,8 @@ namespace fury
 			int textures = 0;
 			int animations = 0;
 			int joints = 0;
+			int particle_systems = 0;
+			int particle_renderers = 0;
 			int meshes_total() const { return meshes_static + meshes_skinned; }
 		};
 
@@ -236,6 +240,7 @@ namespace fury
 				[&](const std::shared_ptr<SceneNode> &node) {
 				if (!node) return;
 				++out.nodes;
+				if (node->GetComponent<ParticleRenderer>()) ++out.particle_renderers;
 				auto comp_render = node->GetComponent<MeshRender>();
 				if (comp_render)
 				{
@@ -275,6 +280,7 @@ namespace fury
 			em->ForEach<Material>([&](const Material::Ptr &) -> bool { ++out.materials; return true; });
 			em->ForEach<Texture>([&](const Texture::Ptr &) -> bool { ++out.textures; return true; });
 			em->ForEach<AnimationClip>([&](const AnimationClip::Ptr &) -> bool { ++out.animations; return true; });
+			em->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr &) -> bool { ++out.particle_systems; return true; });
 		}
 
 		// ----- helpers --------------------------------------------------------
@@ -838,6 +844,8 @@ namespace fury
 			std::printf("textures:       %d\n", c.textures);
 			std::printf("animations:     %d\n", c.animations);
 			std::printf("joints:         %d\n", c.joints);
+			std::printf("particles:      %d systems, %d renderers\n",
+				c.particle_systems, c.particle_renderers);
 			if (c.nodes > 0)
 				std::printf("aabb:           min=(%g, %g, %g) max=(%g, %g, %g)\n",
 					amin.x, amin.y, amin.z, amax.x, amax.y, amax.z);

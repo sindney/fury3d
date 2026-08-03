@@ -147,7 +147,8 @@ namespace fury
 	{
 		OTHER = 0,
 		STATIC_MESH,
-		SKINNED_MESH
+		SKINNED_MESH,
+		PARTICLE
 	};
 
 	enum class ShaderTexture : unsigned int

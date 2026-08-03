@@ -6,6 +6,7 @@
 #include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Joint.h"
+#include "Fury/ParticleSystem.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
@@ -134,6 +135,19 @@ bool Scene::Load(const void* wrapper, bool object) {
 		});
 	}
 
+	// load particle systems (top-level array, if present) — assets
+	// referenced by name from ParticleRenderer components. See the
+	// particle-system spec.
+	if (auto psWrapper = FindMember(wrapper, "particleSystems")) {
+		LoadArray(psWrapper, [&](const void* node) -> bool {
+			auto ps = ParticleSystem::Create("temp");
+			if (!ps->Load(node))
+				return false;
+			m_EntityManager->Add(ps);
+			return true;
+		});
+	}
+
 	// load nodes
 	if (auto rootNodeWrapper = FindMember(wrapper, "nodes")) {
 		if (!m_RootNode->Load(rootNodeWrapper))
@@ -257,6 +271,16 @@ void Scene::Save(void* wrapper, bool object) {
 	SaveKey(wrapper, "animations");
 	StartArray(wrapper);
 	m_EntityManager->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& ptr) -> bool {
+		ptr->Save(wrapper);
+		return true;
+	});
+	EndArray(wrapper);
+
+	// save particle systems (assets referenced by name from
+	// ParticleRenderer components).
+	SaveKey(wrapper, "particleSystems");
+	StartArray(wrapper);
+	m_EntityManager->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr& ptr) -> bool {
 		ptr->Save(wrapper);
 		return true;
 	});

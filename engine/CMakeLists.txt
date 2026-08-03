@@ -191,6 +191,9 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/OcTree.cpp
 	${PROJECT_SOURCE_DIR}/Fury/OcTreeNode.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Pass.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ParticleModules.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ParticleRenderer.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ParticleSystem.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Pipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Plane.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessEffect.cpp
@@ -214,6 +217,7 @@ set(FURY_CORE_SRC
 
 set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/Editor.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/Editor3DPreview.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAnimationWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetPicker.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetWindows.cpp
@@ -222,6 +226,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorLog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorNodeProperties.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorParticleWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPicking.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSelectionViz.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorThemes.cpp

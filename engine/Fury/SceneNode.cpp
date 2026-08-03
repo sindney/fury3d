@@ -14,16 +14,18 @@
 #include "Fury/Material.h"
 #include "Fury/Transform.h"
 #include "Fury/AnimationPlayer.h"
+#include "Fury/ParticleRenderer.h"
 
 namespace fury
 {
 	std::unordered_map<std::string, std::function<Component::Ptr()>> SceneNode::ComponentRegistry =
 	{
-		{ "MeshRender", []() -> Component::Ptr { return MeshRender::Create(nullptr, nullptr); } },
-		{ "Light",      []() -> Component::Ptr { return Light::Create(); } },
-		{ "Camera",     []() -> Component::Ptr { return Camera::Create(); } },
-		{ "Transform",  []() -> Component::Ptr { return Transform::Create(); } },
-		{ "Animator",   []() -> Component::Ptr { return Animator::Create(); } }
+		{ "MeshRender",       []() -> Component::Ptr { return MeshRender::Create(nullptr, nullptr); } },
+		{ "Light",            []() -> Component::Ptr { return Light::Create(); } },
+		{ "Camera",           []() -> Component::Ptr { return Camera::Create(); } },
+		{ "Transform",        []() -> Component::Ptr { return Transform::Create(); } },
+		{ "Animator",         []() -> Component::Ptr { return Animator::Create(); } },
+		{ "ParticleRenderer", []() -> Component::Ptr { return ParticleRenderer::Create(); } }
 	};
 
 	SceneNode::Ptr SceneNode::Create(const std::string &name)

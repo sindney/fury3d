@@ -563,6 +563,24 @@ local function on_init()
         load_default_scene()
     end
 
+    -- arg[2] (automation): comma-separated "type:name" asset editors to
+    -- open after the startup scene settles — e.g.
+    --   ./furye Editor.lua Projects/outdoor/outdoor_water.bin \
+    --       particle:FireEmber,mesh:Feu --screenshot /tmp/x.png
+    -- Lets verification scripts screenshot the per-asset editors
+    -- headlessly without driving the content browser by hand.
+    local editors = arg and arg[2]
+    if editors and editors ~= "" then
+        for spec in string.gmatch(editors, "[^,]+") do
+            local kind, name = spec:match("^(%w+):(.+)$")
+            if kind == "particle" and Editor.OpenParticleEditor then
+                Editor.OpenParticleEditor(name)
+            elseif kind == "mesh" and Editor.OpenMeshEditor then
+                Editor.OpenMeshEditor(name)
+            end
+        end
+    end
+
     -- Reflect the currently-loaded pipeline back into renderSettings.
     -- The startup scene's renderSettings may already point at a
     -- different pipeline (handled above); for scenes whose saved
