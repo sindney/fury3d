@@ -1752,7 +1752,6 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	// Capture the tile's top-left for drawing the type badge.
 	ImVec2 tile_min = ImGui::GetCursorScreenPos();
 
-	bool sel = IsTileSelected(tile);
 	bool renamingThisTile = g_RenamingAsset &&
 							g_RenamingAsset->first == tile.type &&
 							g_RenamingAsset->second == name;
@@ -2162,7 +2161,6 @@ void RenderContentBrowserWindow(bool* open) {
 			float top = ImGui::GetItemRectMin().y;
 			float bot = ImGui::GetItemRectMax().y;
 			float sy = ImGui::GetScrollY();
-			float sh = ImGui::GetScrollMaxY();
 			float vis_top = sy;
 			float vis_bot = sy + ImGui::GetWindowHeight();
 			if (top < vis_top || bot > vis_bot)

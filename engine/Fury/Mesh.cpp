@@ -19,8 +19,8 @@ namespace fury
 	}
 
 	SubMesh::SubMesh() :
-		m_VAO(0), Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW),
-		m_TypeIndex(typeid(SubMesh))
+		m_TypeIndex(typeid(SubMesh)), m_VAO(0),
+		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW)
 	{
 
 	}
@@ -82,13 +82,13 @@ namespace fury
 	}
 
 	Mesh::Mesh(const std::string &name) : Entity(name), m_VAO(0),
-		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Positions("vertex_position", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Normals("vertex_normal", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
+		Weights("bone_weights", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		IDs("bone_ids", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Weights("bone_weights", GL_ARRAY_BUFFER, GL_STATIC_DRAW)
+		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW)
 	{
 		m_TypeIndex = typeid(Mesh);
 	};
@@ -761,24 +761,24 @@ namespace fury
 		// FNV-1a 64-bit constants. The offset basis is the official
 		// FNV-1a 64-bit starting value; the prime is the official
 		// 64-bit prime.
-		const unsigned int kFnv1aOffset = 0xcbf29ce484222325ULL;
-		const unsigned int kFnv1aPrime  = 0x100000001b3ULL;
+		const uint64_t kFnv1aOffset = 0xcbf29ce484222325ULL;
+		const uint64_t kFnv1aPrime  = 0x100000001b3ULL;
 
-		inline void Fnv1aAbsorbBytes(unsigned int &state, const void *data, size_t n)
+		inline void Fnv1aAbsorbBytes(uint64_t &state, const void *data, size_t n)
 		{
 			const unsigned char *bytes = static_cast<const unsigned char*>(data);
 			for (size_t i = 0; i < n; ++i)
 			{
-				state ^= static_cast<unsigned int>(bytes[i]);
+				state ^= static_cast<uint64_t>(bytes[i]);
 				state *= kFnv1aPrime;
 			}
 		}
 	}
 
-	unsigned int MeshContentHash(const Mesh* mesh)
+	uint64_t MeshContentHash(const Mesh* mesh)
 	{
 		if (!mesh) return 0;
-		unsigned int h = kFnv1aOffset;
+		uint64_t h = kFnv1aOffset;
 		// Positions: float3 stride, so size() * sizeof(float) bytes.
 		Fnv1aAbsorbBytes(h, mesh->Positions.Data.data(),
 						 mesh->Positions.Data.size() * sizeof(float));
@@ -799,13 +799,13 @@ namespace fury
 		return h;
 	}
 
-	std::string FormatHashHex(unsigned int hash)
+	std::string FormatHashHex(uint64_t hash)
 	{
 		// 16 lowercase hex chars, no leading 0x. Use snprintf rather
 		// than std::format to keep header-light and to match the rest
 		// of the engine's C-style string conventions.
 		char buf[17];
-		std::snprintf(buf, sizeof(buf), "%016x", static_cast<unsigned long long>(hash));
+		std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(hash));
 		return std::string(buf);
 	}
 }

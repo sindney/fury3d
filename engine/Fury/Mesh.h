@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <cstdint>
 
 #include "Fury/Entity.h"
 #include "Fury/ArrayBuffers.h"
@@ -245,12 +246,12 @@ namespace fury
 	// in-place vertex edits do not change it). No allocations beyond
 	// the 64-bit accumulator; safe to call from worker threads on a
 	// shared_ptr-stabilized mesh.
-	unsigned int FURY_API MeshContentHash(const class Mesh* mesh);
+	uint64_t FURY_API MeshContentHash(const class Mesh* mesh);
 
 	// 16-character lowercase hexadecimal representation of a 64-bit
 	// hash, e.g. 0x1a2b3c4d5e6f7a8b → "1a2b3c4d5e6f7a8b". Used to
 	// build the on-disk thumbnail filename `furye_<hex>.png`.
-	std::string FURY_API FormatHashHex(unsigned int hash);
+	std::string FURY_API FormatHashHex(uint64_t hash);
 }
 
 #endif // _FURY_MESH_H_

@@ -34,7 +34,7 @@ namespace fury
 	}
 
 	SceneNode::SceneNode(const std::string &name)
-		: Entity(name), m_LocalScale(1.0f, 1.0f, 1.0f, 1.0f), m_TransformDirty(true)
+		: Entity(name), m_TransformDirty(true), m_LocalScale(1.0f, 1.0f, 1.0f, 1.0f)
 	{
 		m_TypeIndex = typeid(SceneNode);
 		OnTransformChange = Signal<const Ptr&>::Create();

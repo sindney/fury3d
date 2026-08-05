@@ -1029,7 +1029,6 @@ void WalkNode(
 			if (light) {
 				sn->AddComponent(light);
 				++lights_attached;
-				const auto& gl = model.lights[node.light];
 				const auto col = light->GetColor();
 				FURYI << "gltf-importer: attached "
 					  << EnumUtil::LightTypeToString(light->GetType())

@@ -64,7 +64,7 @@ namespace fury
 	}
 
 	Material::Material(const std::string &name)
-		: Entity(name), m_Opaque(true), m_AlphaMode(AlphaMode::OPAQUE), m_AlphaCutoff(0.5f), m_ID(GetMaterialID()), m_TextureFlags(0)
+		: Entity(name), m_TextureFlags(0), m_Opaque(true), m_AlphaMode(AlphaMode::OPAQUE), m_AlphaCutoff(0.5f), m_ID(GetMaterialID())
 	{
 		m_TypeIndex = typeid(Material);
 		m_Dirty = false;

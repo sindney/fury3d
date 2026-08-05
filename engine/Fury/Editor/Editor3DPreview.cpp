@@ -29,8 +29,6 @@ namespace fury
 			GLuint g_GridVBO = 0;
 			GLuint g_GridVAO = 0;
 			float g_GridCachedExtent = -1.0f;
-			GLuint g_AabbVBO = 0;
-			GLuint g_AabbVAO = 0;
 
 			std::shared_ptr<Shader> GetLineShader()
 			{

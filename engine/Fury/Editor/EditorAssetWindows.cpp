@@ -67,7 +67,7 @@ struct ThumbnailCacheEntry {
 	std::shared_ptr<Texture> colorRT;
 	std::shared_ptr<Texture> depthRT;
 	size_t bufferId = 0;			// the BufferId the RT was rendered with
-	unsigned int contentHash = 0;	// 0 = not yet hashed
+	uint64_t contentHash = 0;		// 0 = not yet hashed
 	bool hashInFlight = false;		// an async hash is in flight
 	bool wasDirtyLastFrame = false; // for dirty-transition detection
 	bool diskLoaded = false;		// FBO has been populated from disk this session
@@ -105,13 +105,13 @@ namespace
 	}
 
 	// Build the absolute path for a given content hash.
-	std::string GetCachePath(unsigned int hash)
+	std::string GetCachePath(uint64_t hash)
 	{
 		return GetCacheDir() + "furye_" + FormatHashHex(hash) + ".png";
 	}
 
 	// O(1) cache-hit check against the in-memory index.
-	bool IsCached(unsigned int hash)
+	bool IsCached(uint64_t hash)
 	{
 		if (hash == 0) return false;
 		const std::string filename = "furye_" + FormatHashHex(hash) + ".png";
@@ -1088,7 +1088,7 @@ unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 	// and eliminates the race at the root.
 	const bool isDirty = mesh->GetDirty();
 	if (entry.wasDirtyLastFrame && !isDirty) {
-		unsigned int h = MeshContentHash(mesh.get());
+		uint64_t h = MeshContentHash(mesh.get());
 		if (h != entry.contentHash) {
 			FURYD << "Mesh thumbnail: content changed for BufferId "
 				  << bufferId << " (" << entry.contentHash << " -> " << h << ")";

@@ -6,7 +6,7 @@
 
 namespace fury
 {
-	Plane::Plane() : m_Distance(0), m_Normal() {}
+	Plane::Plane() : m_Normal(), m_Distance(0) {}
 
 	Plane::Plane(float a, float b, float c, float d) :
 		m_Normal(a, b, c, 0.0f), m_Distance(d) {}

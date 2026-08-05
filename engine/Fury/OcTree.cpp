@@ -381,7 +381,6 @@ namespace fury
 
 	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode, const OcTreeNode::Ptr &treeNode, unsigned int depth)
 	{
-		BoxBounds treeBounds = treeNode->GetAABB();
 		BoxBounds nodeBounds = sceneNode->GetWorldAABB();
 
 		if ((depth < m_MaxDepth) && treeNode->IsTwiceSize(nodeBounds))

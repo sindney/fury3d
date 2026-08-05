@@ -11,6 +11,8 @@ namespace fury
 	{
 	public:
 
+		virtual ~TypeComparable() = default;
+
 		virtual std::type_index GetTypeIndex() const = 0;
 	};
 }

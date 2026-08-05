@@ -27,6 +27,8 @@ namespace fury
 
 		typedef std::shared_ptr<Serializable> Ptr;
 
+		virtual ~Serializable() = default;
+
 		// wrapper's type should be rapidjson::Value
 		virtual bool Load(const void* wrapper, bool object = true) = 0;
 

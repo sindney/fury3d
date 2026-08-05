@@ -59,6 +59,16 @@ endif()
 # deprecation noise (vendored third-party; not our code).
 if(MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /utf-8 /bigobj /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_CRT_SECURE_NO_WARNINGS /D_SCL_SECURE_NO_WARNINGS /D_USE_MATH_DEFINES /DWIN32_LEAN_AND_MEAN /DNOMINMAX")
+	# The SYSTEM markers on the ThirdParty include paths below become
+	# /external:I on MSVC, but /external:I alone does NOT lower the warning
+	# level for those headers — it only classifies them. /external:W0 is the
+	# companion flag that actually silences them. Both are non-experimental
+	# only from VS 2019 16.10 (MSVC_VERSION 1929); older toolsets need
+	# /experimental:external and would reject these with D8021, so gate on
+	# the version. UNTESTED on Windows — verified on AppleClang only.
+	if(MSVC_VERSION GREATER_EQUAL 1929)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /external:W0")
+	endif()
 else()
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall -O2 -DNDEBUG")
@@ -122,14 +132,14 @@ list(REMOVE_ITEM LUA_SRC
 	${PROJECT_SOURCE_DIR}/ThirdParty/lua/lua.c
 	${PROJECT_SOURCE_DIR}/ThirdParty/lua/onelua.c)
 add_library(lua STATIC ${LUA_SRC})
-target_include_directories(lua PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/lua)
+target_include_directories(lua SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/lua)
 target_compile_definitions(lua PRIVATE
 	$<$<PLATFORM_ID:Darwin>:LUA_USE_MACOSX>
 	$<$<PLATFORM_ID:Linux>:LUA_USE_LINUX>)
 set_property(TARGET lua PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # sol2 is header-only.
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include)
 
 # meshoptimizer: vendored split-source layout (mirrors the upstream
 # "src/" dir; .cpp files are split per algorithm). MIT licensed.
@@ -138,43 +148,49 @@ include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include)
 # target_link_libraries.
 file(GLOB MESHO_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src/*.cpp)
 add_library(meshoptimizer STATIC ${MESHO_SRC})
-target_include_directories(meshoptimizer PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src)
+target_include_directories(meshoptimizer SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src)
 set_property(TARGET meshoptimizer PROPERTY POSITION_INDEPENDENT_CODE ON)
 
+# The engine's own headers stay a normal -I path: we WANT -Wall to apply to
+# them. Every vendored ThirdParty path below is marked SYSTEM (-isystem on
+# GCC/Clang) so warnings raised inside vendored headers are suppressed without
+# touching the vendored sources or weakening -Wall for engine code. This is
+# what silences rapidjson's std::iterator deprecations, stb_image.h's unused
+# static, and ImReflect's unused type alias.
 include_directories(${PROJECT_SOURCE_DIR})
 
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/rapidjson/include)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/rapidjson/include)
 
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty)
 
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/STB)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/STB)
 
 file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
 # Backends live in their own subdirectory so we glob them separately;
 # both backends (OpenGL3 + the fury-3d-bespoke SFML3) are required whenever
 # GUI_IMP is on. Upstream backend headers `#include "imgui.h"` directly,
 # so the ImGui core directory must be in the search path.
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImGui)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui)
 file(GLOB IMGUI_BACKEND_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/backends/*.cpp)
 list(APPEND IMGUI_SRC ${IMGUI_BACKEND_SRC})
 
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
 file(GLOB LZ4_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4/*.c)
 
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf)
 set(TINYGLTF_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf/tiny_gltf.cc)
 set_source_files_properties(${TINYGLTF_SRC} PROPERTIES COMPILE_DEFINITIONS "TINYGLTF_NO_STB_IMAGE;TINYGLTF_NO_STB_IMAGE_WRITE")
 
 # Editor-only include paths. Applied globally so the editor sources
 # in FURY_EDITOR_SRC resolve their headers, but only furye consumes
 # that source list — fury never sees these symbols.
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImReflect)
-include_directories(${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/ImReflect)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo)
 
 if(OS_MACOSX)
 	find_library(COREFOUNDATION_LIB CoreFoundation)
 	find_package(OpenGL REQUIRED)
-	include_directories(${OPENGL_INCLUDE_DIR})
+	include_directories(SYSTEM ${OPENGL_INCLUDE_DIR})
 endif()
 
 # Engine source split: FURY_CORE_SRC builds for both binaries; FURY_EDITOR_SRC

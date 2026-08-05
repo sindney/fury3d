@@ -1037,7 +1037,7 @@ namespace fury
 			// .gltf/.glb (LoadGltf), .fbx (LoadFbx). Anything else -> nil.
 			// Optional 2nd arg: normal generation mode "smooth" (default) or
 			// "flat" (gltf/fbx only; native scenes ignore it).
-			importer_tbl["LoadScene"] = [&lua, make_import_opts](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
+			importer_tbl["LoadScene"] = [&lua](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
 				auto dot = path.find_last_of('.');
 				std::string ext = (dot == std::string::npos) ? "" : path.substr(dot);
 				std::transform(ext.begin(), ext.end(), ext.begin(),

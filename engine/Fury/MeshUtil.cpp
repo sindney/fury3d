@@ -257,7 +257,7 @@ namespace fury
 			radius = radius / std::cos(avgRadianH * 0.5f);*/
 
 		unsigned int index = 0;
-		auto AddVertex = [&currentRing, &mesh, &index](float x, float y, float z) -> unsigned int
+		auto AddVertex = [&mesh, &index](float x, float y, float z) -> unsigned int
 		{
 			mesh->Positions.Data.insert(mesh->Positions.Data.end(), { x, y, z });
 			return index++;
@@ -359,7 +359,7 @@ namespace fury
 		currentRing.reserve(segV * 3);
 
 		unsigned int index = 0;
-		auto AddVertex = [&currentRing, &mesh, &index](float x, float y, float z) -> unsigned int
+		auto AddVertex = [&mesh, &index](float x, float y, float z) -> unsigned int
 		{
 			mesh->Positions.Data.insert(mesh->Positions.Data.end(), { x, y, z });
 			return index++;
@@ -716,8 +716,6 @@ namespace fury
 				matchIndex = uidx;
 				break;
 			}
-
-			auto &pair = replaceIndices[i];
 
 			// found a replacement vertex among the uniques?
 			if (matchIndex != 0xffffffff)

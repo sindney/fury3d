@@ -14,8 +14,8 @@ namespace fury
 	}
 
 	OcTreeNode::OcTreeNode(OcTree &manager, const OcTreeNode::Ptr &parent, Vector4 min, Vector4 max) :
-		m_TypeIndex(typeid(OcTreeNode)), m_Manager(manager), m_Parent(parent), 
-		m_AABB(min, max), m_IsLeaf(false), m_TotalSceneNodeCount(0)
+		m_TypeIndex(typeid(OcTreeNode)), m_AABB(min, max), m_Manager(manager),
+		m_Parent(parent), m_IsLeaf(false), m_TotalSceneNodeCount(0)
 	{
 
 	}

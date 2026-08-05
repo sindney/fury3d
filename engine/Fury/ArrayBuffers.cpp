@@ -6,9 +6,8 @@ namespace fury
 {
 	template<class DataType>
 	ArrayBuffer<DataType>::ArrayBuffer(const std::string &name, unsigned int bufferTarget, unsigned int bufferUsage)
-		: m_ID(0), m_SizeOld(0), Name(name), 
-		m_BufferTarget(bufferTarget), m_BufferUsage(bufferUsage), 
-		m_TypeIndex(typeid(ArrayBuffer<DataType>))
+		: m_TypeIndex(typeid(ArrayBuffer<DataType>)), m_ID(0), m_SizeOld(0),
+		m_BufferTarget(bufferTarget), m_BufferUsage(bufferUsage), Name(name)
 	{
 
 	}

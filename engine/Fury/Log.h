@@ -138,7 +138,7 @@ namespace fury
 	public:
 
 		Log(LogLevel level, const char* logfile, bool console, const LogFormatter &formatter, bool append)
-			: m_LogLevel(level), m_FileOutput(logfile != nullptr), m_ConsoleOutput(console), m_Formatter(formatter)
+			: m_FileOutput(logfile != nullptr), m_ConsoleOutput(console), m_Formatter(formatter), m_LogLevel(level)
 		{
 			if (m_FileOutput)
 			{

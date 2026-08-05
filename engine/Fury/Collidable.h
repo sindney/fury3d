@@ -15,6 +15,8 @@ namespace fury
 	{
 	public:
 
+		virtual ~Collidable() = default;
+
 		virtual Side IsInside(Vector4 point) const = 0;
 
 		virtual Side IsInside(const BoxBounds &aabb) const = 0;
