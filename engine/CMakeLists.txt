@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 # under WITH_EDITOR; the language is harmless on platforms that don't use it
 # since CMake no-ops the toolchain when no .m sources are present).
 if(APPLE)
-	project(FURY3D LANGUAGES C CXX OBJC)
+	project(FURY3D LANGUAGES C CXX OBJC OBJCXX)
 else()
 	project(FURY3D LANGUAGES C CXX)
 endif()
