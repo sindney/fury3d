@@ -15,7 +15,7 @@ asset in the scene's `EntityManager` alongside `Mesh` / `Material`.
 > Per-frame ticking is each instance's own `Engine::OnUpdate` subscription
 > (the `Animator` pattern), not a `Scene::Update` walk.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: ParticleSystem SHALL be a scene EntityManager asset that owns a CPU-side particle pool
 
@@ -80,10 +80,13 @@ minimum authoring surface required for fire + smoke:
 - `RotationOverLifetimeModule { float angularVelocity; }`
 - `RendererModule { std::string materialName; BlendMode blendMode;
   bool receiveShadows = true; }` where `BlendMode ∈ { ALPHA, ADDITIVE }`.
-  `receiveShadows` dims particles by the first shadow-casting light's shadow
-  map (point cube / single-map directional in v1) with an ambient floor;
-  it applies to ALPHA systems only — ADDITIVE systems are light-emitting
-  by convention and SHALL never be shadowed.
+  `receiveShadows` dims particles by the dominant shadow-casting light's
+  map (point cube / single-map dir / CSM / spot — see `transparent-rendering`
+  shadow spec) with an ambient floor. The pipeline picks ONE dominant
+  casting light per renderer (by `intensity / distance²` to the emitter's
+  world position), so each emitter focuses on its locally dominant
+  shadow source. The flag applies to ALPHA systems only — ADDITIVE systems
+  are light-emitting by convention and SHALL never be shadowed.
 
 Each module SHALL have a `Load/Save` pair that round-trips through the scene
 serializer so emitters survive save → reload. A default-constructed module
@@ -143,11 +146,19 @@ the node AABB — never culls particles that drift beyond the spawn point.
 
 #### Scenario: Smoke dims in shadow, fire does not
 
-- **WHEN** a shadow-casting point light's map has occluders between the
-  light and a SmokePlume (ALPHA, receiveShadows=true)
+- **WHEN** a shadow-casting light's map has occluders between the light
+  and a SmokePlume (ALPHA, receiveShadows=true)
 - **THEN** smoke fragments in the occluded region are dimmed to the
   ambient floor (`u_shadow_floor`)
 - **AND** a FireEmber (ADDITIVE) in the same region keeps full brightness
+
+#### Scenario: Particle shadow narrows to the emitter's dominant local source
+
+- **WHEN** a `ParticleRenderer` sees 5 casting lights (1 dir + 2 spot + 2
+  point) but is closest to only 1 spot
+- **THEN** that spot (or the dir, whichever scores higher per
+  `intensity / distance²`) populates the single shadow slot, and the
+  dimming on the emitter matches its dominant local shadow source
 
 #### Scenario: ParticleRenderer without a ParticleSystem draws nothing
 
