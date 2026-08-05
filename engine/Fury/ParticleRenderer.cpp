@@ -268,7 +268,10 @@ namespace fury
 			return nullptr;
 		}
 
-		auto shader = GetParticleShader();
+		// Shadow-receive systems (ALPHA + module flag) get the SHADOW
+		// variant; everyone else compiles no shadow code at all.
+		auto shader = GetParticleShader(m_BlendMode == ParticleBlend::ALPHA
+			&& system->GetRenderer().receiveShadows);
 		if (!shader) return nullptr;
 
 		// Material resolution: the bound system's RendererModule is the
@@ -329,34 +332,59 @@ namespace fury
 		}
 		shader->BindFloat("u_Tint", tint.r, tint.g, tint.b, tint.a);
 
-
-		// Shadow-receive: ALPHA systems with the module flag sample the
-		// frame's shadow map; ADDITIVE is light-emitting by convention.
-		// Both shadow samplers are ALWAYS bound (real map when active,
-		// dummy otherwise) — core GL rejects glDrawElements when any
-		// declared sampler's texture target mismatches, and an unbound
-		// samplerCube defaults to unit 0's 2D diffuse.
-		float receive = 0.0f;
-		if (shadow && shadow->type > 0 && shadow->texture && system &&
-			m_BlendMode == ParticleBlend::ALPHA && system->GetRenderer().receiveShadows)
+		// Shadow binds — only meaningful on the SHADOW variant picked
+		// in BindForDraw (the plain variant declares no shadow
+		// uniforms; every bind below is a silent no-op there).
+		// anyCaster = some light casts AND has a live map this frame:
+		// without one there's nothing to receive from (stay full
+		// bright); with one but no COVERING source, u_shadow_type 0
+		// makes the shader floor to u_shadow_floor.
+		if (shader == GetParticleShader(true))
 		{
-			receive = 1.0f;
-			shader->BindInt("u_shadow_type", shadow->type);
-			shader->BindFloat("u_shadow_light_pos",
-				shadow->lightPos.x, shadow->lightPos.y, shadow->lightPos.z);
-			shader->BindFloat("u_shadow_light_radius", shadow->lightRadius);
-			if (shadow->type == 2)
+			const float receive = (shadow && shadow->anyCaster) ? 1.0f : 0.0f;
+			int shadowType = 0;
+			Texture::Ptr shadowCube, shadowTex2D, shadowTexCSM;
+			if (receive == 1.0f && shadow->type > 0 && shadow->texture)
+			{
+				shadowType = shadow->type;
+				if (shadowType == 1) shadowCube = shadow->texture;
+				else if (shadowType == 2 || shadowType == 4) shadowTex2D = shadow->texture;
+				else if (shadowType == 3) shadowTexCSM = shadow->texture;
+			}
+			shader->BindInt("u_shadow_type", shadowType);
+			// Always-bind every shadow sampler — dummies must match
+			// the declared sampler TYPE (gl-sampler-target-mismatch-trap).
+			shader->BindTexture("shadow_buffer",
+				shadowCube ? shadowCube : GetDummyCubeTexture());
+			shader->BindTexture("shadow_map",
+				shadowTex2D ? shadowTex2D : GetDummyTexture2D());
+			shader->BindTexture("shadow_buffer_csm",
+				shadowTexCSM ? shadowTexCSM : GetDummyTexture2DArray());
+			// Each compare branch reads only the uniforms its type binds.
+			if (shadowType == 1 || shadowType == 4)
+			{
+				shader->BindFloat("u_shadow_light_pos",
+					shadow->lightPos.x, shadow->lightPos.y, shadow->lightPos.z);
+				shader->BindFloat("u_shadow_light_radius", shadow->lightRadius);
+			}
+			if (shadowType == 4)
+			{
+				shader->BindFloat("u_shadow_light_dir",
+					shadow->lightDir.x, shadow->lightDir.y, shadow->lightDir.z);
+				shader->BindFloat("u_shadow_half_angles",
+					shadow->coneHalfInner, shadow->coneHalfOuter);
+			}
+			if (shadowType == 2 || shadowType == 4)
 				shader->BindMatrix("shadow_matrix", &shadow->matrix.Raw[0]);
+			if (shadowType == 3)
+			{
+				shader->BindMatrices("shadow_matrix_csm", 4, &shadow->csmMatrices[0].Raw[0]);
+				shader->BindFloat("shadow_far",
+					shadow->shadowFar.x, shadow->shadowFar.y,
+					shadow->shadowFar.z, shadow->shadowFar.w);
+			}
+			shader->BindFloat("u_receive_shadows", receive);
 		}
-		else
-		{
-			shader->BindInt("u_shadow_type", 0);
-		}
-		shader->BindTexture("shadow_map",
-			(receive == 1.0f && shadow->type == 2) ? shadow->texture : GetDummyTexture2D());
-		shader->BindTexture("shadow_buffer",
-			(receive == 1.0f && shadow->type == 1) ? shadow->texture : GetDummyCubeTexture());
-		shader->BindFloat("u_receive_shadows", receive);
 
 		glDrawElements(GL_TRIANGLES,
 			static_cast<GLsizei>(m_DynamicMesh->Indices.Data.size()),

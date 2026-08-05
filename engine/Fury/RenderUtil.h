@@ -142,17 +142,17 @@ namespace fury
 
 	// Cached particle billboard shader. v1 samples the bound diffuse
 	// texture (Material::DIFFUSE_TEXTURE) and multiplies by u_Tint.
-	// ParticleRenderer::Draw binds this — see the particle-system spec.
-	std::shared_ptr<Shader> GetParticleShader();
+	// shadow=true returns the SHADOW-define variant (shadow-receive
+	// block compiled in); ParticleRenderer picks per system.
+	std::shared_ptr<Shader> GetParticleShader(bool shadow = false);
 
-	// 1×1 fallback textures for shadow samplers. Core GL rejects a draw
-	// when ANY declared sampler's texture target mismatches (an unbound
-	// samplerCube defaults to unit 0's 2D diffuse → glDrawElements
-	// fails with GL_INVALID_OPERATION), so every shader that declares
-	// shadow_buffer/shadow_map must have them bound to a valid-target
-	// texture even when shadow sampling is off.
+	// 1×1 fallback textures for shadow samplers — core GL kills the draw
+	// if a declared sampler's texture target is unbound/mismatched.
 	std::shared_ptr<Texture> GetDummyCubeTexture();
 	std::shared_ptr<Texture> GetDummyTexture2D();
+
+	// 1×1×4 sampler2DArray dummy (same target-mismatch rule).
+	std::shared_ptr<Texture> GetDummyTexture2DArray();
 
 	// Renders `mesh` into the currently-bound FBO (caller owns FBO + viewport
 	// + clear) with the simple-Lambert shader, using a fixed orbit camera

@@ -529,6 +529,32 @@ void RenderProfilerPerfTab() {
 	ImGui::Text("Mesh: %u", RenderUtil::Instance()->GetMeshCount());
 	ImGui::Text("SkinnedMesh: %u", RenderUtil::Instance()->GetSkinnedMeshCount());
 	ImGui::Text("Light: %u", RenderUtil::Instance()->GetLightCount());
+
+	// Current-camera readout — for matching a co-debugger's view.
+	if (Pipeline::Active && Pipeline::Active->GetCurrentCamera())
+	{
+		auto camNode = Pipeline::Active->GetCurrentCamera();
+		auto wp = camNode->GetWorldPosition();
+		Quaternion q = camNode->GetWorldRoattion();
+		Vector4 eRad = MathUtil::QuatToEulerRad(q);
+		float yawDeg = eRad.x * MathUtil::RadToDeg;
+		float pitchDeg = eRad.y * MathUtil::RadToDeg;
+		float rollDeg = eRad.z * MathUtil::RadToDeg;
+		ImGui::Separator();
+		ImGui::Text("pos %.2f, %.2f, %.2f", wp.x, wp.y, wp.z);
+		ImGui::Text("rot %.1f, %.1f, %.1f", yawDeg, pitchDeg, rollDeg);
+		ImGui::SameLine();
+		if (ImGui::Button("Copy"))
+		{
+			char buf[160];
+			std::snprintf(buf, sizeof(buf),
+				"pos: %.3f %.3f %.3f\n"
+				"rot: %.2f %.2f %.2f",
+				wp.x, wp.y, wp.z,
+				yawDeg, pitchDeg, rollDeg);
+			ImGui::SetClipboardText(buf);
+		}
+	}
 }
 
 void RenderProfilerGBufferTab() {

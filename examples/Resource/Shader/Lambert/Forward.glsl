@@ -87,15 +87,20 @@ uniform float u_ambient = 0.01;
 // 0 = base (ambient/emissive), 1 = directional, 2 = point, 3 = spot.
 uniform int u_light_type = 0;
 
+#ifdef SHADOW
 // Shadow-receive for the per-light additive contribution
-// (u_shadow_type: 0 none, 1 point cube, 2 directional 2D).
-// shadow_matrix: point = camera world (view->world, deferred
-// PointLight.glsl convention); dir = view->shadow UV (deferred
-// SunLight.glsl convention).
+// (u_shadow_type: 0 none, 1 point cube, 2 dir-single 2D,
+// 3 CSM 2DArray, 4 spot 2D). Compiled only into the *_shadow_shader
+// variants (pipeline JSON); DrawUnit picks them when the draw's
+// light casts shadows.
 uniform samplerCube shadow_buffer;
 uniform sampler2D shadow_map;
+uniform sampler2DArray shadow_buffer_csm;
 uniform int u_shadow_type = 0;
 uniform mat4 shadow_matrix;
+uniform mat4 shadow_matrix_csm[4];
+uniform vec4 shadow_far;
+#endif
 
 uniform vec3 light_pos;
 uniform vec3 light_dir;
@@ -211,11 +216,12 @@ void main()
 	vec3 radiance = albedo * light_color * NdotL * attenuation * light_intensity * alpha;
 #endif
 
-	// Shadow-receive: multiply THIS light's contribution by its shadow
-	// factor (ambient/emissive live in the u_light_type == 0 base pass).
-	// Point: radial distance vs cube texel * radius, slope/distance-
-	// scaled bias (deferred PointLight.glsl). Dir: z>1 lit else z<tex
-	// (deferred SunLight.glsl; bias in the caster polygon offset).
+#ifdef SHADOW
+	// Multiply THIS light's contribution by its shadow factor
+	// (ambient/emissive live in the u_light_type == 0 base pass).
+	// Compares mirror the deferred PointLight/SunLight/SpotLight
+	// shaders; bias lives in the caster polygon offset (dir/spot)
+	// or the slope/distance-scaled term (point).
 	if (u_shadow_type == 1)
 	{
 		vec3 worldPos = (shadow_matrix * vec4(vs_pos, 1.0)).xyz;
@@ -233,13 +239,30 @@ void main()
 			radiance *= float(current - bias < closest);
 		}
 	}
-	else if (u_shadow_type == 2)
+	else if (u_shadow_type == 2 || u_shadow_type == 4)
 	{
 		vec4 sc = shadow_matrix * vec4(vs_pos, 1.0);
 		sc = sc / sc.w;
 		float f = sc.z > 1.0 ? 1.0 : float(sc.z < texture(shadow_map, sc.xy).x);
 		radiance *= f;
 	}
+	else if (u_shadow_type == 3)
+	{
+		// CSM: cascade pick on linear view depth; shadow_far holds
+		// NEGATIVE split thresholds, so `vz > shadow_far.i` walks
+		// near -> far (the deferred shader's sign is flipped because
+		// it compares projected clip-z instead).
+		float vz = vs_pos.z;
+		int index = 3;
+		if (vz > shadow_far.x) index = 0;
+		else if (vz > shadow_far.y) index = 1;
+		else if (vz > shadow_far.z) index = 2;
+		vec4 sc = shadow_matrix_csm[index] * vec4(vs_pos, 1.0);
+		sc = sc / sc.w;
+		float f = sc.z > 1.0 ? 1.0 : float(sc.z < texture(shadow_buffer_csm, vec3(sc.xy, float(index))).x);
+		radiance *= f;
+	}
+#endif
 
 	fragment_output = vec4(radiance, alpha);
 }

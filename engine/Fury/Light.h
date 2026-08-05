@@ -27,9 +27,10 @@ namespace fury
 
 		float m_Intensity = 1.0f;
 
-		float m_InnerAngle = 45.0f;
+		// Cone angles are RADIANS (the inspector displays degrees). 45°.
+		float m_InnerAngle = 0.7853982f;
 
-		float m_OutterAngle = 45.0f;
+		float m_OutterAngle = 0.7853982f;
 
 		float m_Falloff = 0.0f;
 

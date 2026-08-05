@@ -279,6 +279,13 @@ set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BI
 function(fury_add_target NAME)
 	add_executable(${NAME} ${ARGN} ${FURY_LAUNCHER_SRC})
 	target_link_libraries(${NAME} PRIVATE ${FURY_PLATFORM_LIBS})
+	# Build-config marker for gating debug-only code (pipeline traces,
+	# verification probes): FURY_BUILD_DEBUG / FURY_BUILD_PROFILE /
+	# FURY_BUILD_RELEASE — exactly one per config.
+	target_compile_definitions(${NAME} PRIVATE
+		$<$<CONFIG:Debug>:FURY_BUILD_DEBUG>
+		$<$<CONFIG:RelWithDebInfo>:FURY_BUILD_PROFILE>
+		$<$<CONFIG:Release>:FURY_BUILD_RELEASE>)
 	set_target_properties(${NAME} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples")
 	if(EXISTS "${FBX2GLTF_SRC_BINARY}")

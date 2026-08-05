@@ -1,10 +1,13 @@
 #include "Fury/Log.h"
 #include "Fury/Light.h"
+#include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Scene.h"
 #include "Fury/EntityManager.h"
+
+#include <algorithm>
 
 namespace fury
 {
@@ -57,6 +60,18 @@ namespace fury
 		LoadMemberValue(wrapper, "falloff", m_Falloff);
 		LoadMemberValue(wrapper, "radius", m_Radius);
 		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
+
+		// Legacy scenes serialized degree values into these radian
+		// fields (old default was 45.0); a spot fov never exceeds π,
+		// so anything larger must be degrees — migrate.
+		if (m_InnerAngle > MathUtil::PI || m_OutterAngle > MathUtil::PI)
+		{
+			FURYW << "Light: inner/outter angle > 180deg stored as degrees ("
+				<< m_InnerAngle << ", " << m_OutterAngle
+				<< ") — converting to radians; re-save the scene to persist.";
+			m_InnerAngle = std::min(m_InnerAngle, 180.0f) * MathUtil::DegToRad;
+			m_OutterAngle = std::min(m_OutterAngle, 180.0f) * MathUtil::DegToRad;
+		}
 
 		CalculateAABB();
 

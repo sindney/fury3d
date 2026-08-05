@@ -14,17 +14,44 @@ namespace fury { class Material; class SceneNode; class Texture; class Shader; c
 
 namespace fury
 {
-	// Shadow-receive inputs for one draw, filled by the pipeline from the
-	// first shadow-casting light with a cached map. `type`: 0 = none,
-	// 1 = point cube map (texture + lightPos/lightRadius), 2 = directional
-	// 2D map (texture + matrix mapping world -> shadow UV).
+	// Shadow-receive inputs for one draw. The pipeline picks the
+	// dominant casting light per-emitter (rankShadowSourcesFor) and
+	// fills a single set of inputs — `type` selects which compare to
+	// run (matches the deferred shader conventions):
+	//   0 = none
+	//   1 = point cube   (texture = cube map, lightPos/lightRadius)
+	//   2 = dir-single   (texture = 2D map, matrix = view->shadow UV)
+	//   3 = CSM          (texture = 2DArray, csmMatrices[4] + shadowFar)
+	//   4 = spot 2D      (texture = 2D map, matrix = spot view-proj,
+	//                     lightPos/lightDir/coneHalfAngles for the
+	//                     per-fragment cone test — Particle.glsl is
+	//                     emissive, so the shadow factor carries the
+	//                     cone falloff the light loop applies elsewhere)
+	// The "single dominant shadow per particle draw" matches the
+	// previous working behavior. Multi-light (4 spot/point + 1 dir)
+	// per draw is on the roadmap; for now it lets each emitter focus
+	// on the single local shadow caster that matters most, while the
+	// mesh transparent additive loop continues to evaluate every
+	// light per unit (multi-light there already).
 	struct ParticleShadowInfo
 	{
 		int type = 0;
 		std::shared_ptr<Texture> texture;
+		// True when any light casts AND has a live map this frame.
+		// Without one the draw must stay full bright (nothing to
+		// receive FROM); with one, type 0 means "no covering source"
+		// and the shader floors to u_shadow_floor.
+		bool anyCaster = false;
 		Vector4 lightPos;
 		float lightRadius = 1.0f;
 		Matrix4 matrix;
+		// Spot (type=4): world forward + (halfInner, halfOuter) rad.
+		Vector4 lightDir = Vector4(0, -1, 0, 0);
+		float coneHalfInner = 0.0f;
+		float coneHalfOuter = 0.0f;
+		// CSM (type=3) — populated but unused for types 1/2/4.
+		Matrix4 csmMatrices[4];
+		Vector4 shadowFar;
 	};
 	// Companion to a ParticleSystem asset. The ParticleSystem lives in
 	// the active Scene's EntityManager (just like Mesh / Material) and

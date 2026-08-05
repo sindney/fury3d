@@ -753,6 +753,15 @@ the same vertex stream but different IBOs.
 Shadows: standard depth-only pass into a 2D / cubemap / CSM array, then
 sampled in step 2. No PCF beyond the default texture filter.
 
+> **Future investigation — shared shadow atlas (URP-style):** each casting
+> light currently gets its own full-size temporary map (1024² 2D/cube,
+> CSM array), so N shadowed lights = N separate targets. Unity's URP
+> instead packs all additional-light shadow maps into ONE atlas (spot =
+> 1 tile, point = 6 cube-face tiles, main directional gets its own
+> cascaded map), downscaling per-light resolution with a warning when
+> the atlas overfills. Worth evaluating if shadow-pass target count or
+> memory ever becomes the bottleneck.
+
 ### 9.6 OpenGL surface area
 
 Aggregate count from the survey: **~200–250 distinct GL entry points**

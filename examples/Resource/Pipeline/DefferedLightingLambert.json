@@ -129,6 +129,19 @@
       ]
     },
     {
+      "name": "forward_shadow_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "diffuse",
+        "shadow"
+      ],
+      "defines": [
+        "STATIC_MESH",
+        "SHADOW"
+      ]
+    },
+    {
       "name": "forward_notexture_shader",
       "path": "Resource/Shader/Lambert/Forward.glsl",
       "type": "static_mesh",
@@ -138,6 +151,20 @@
       "defines": [
         "STATIC_MESH",
         "COLOR_ONLY"
+      ]
+    },
+    {
+      "name": "forward_notexture_shadow_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "static_mesh",
+      "textures": [
+        "color_only",
+        "shadow"
+      ],
+      "defines": [
+        "STATIC_MESH",
+        "COLOR_ONLY",
+        "SHADOW"
       ]
     },
     {
@@ -152,6 +179,19 @@
       ]
     },
     {
+      "name": "forward_skin_shadow_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "diffuse",
+        "shadow"
+      ],
+      "defines": [
+        "SKINNED_MESH",
+        "SHADOW"
+      ]
+    },
+    {
       "name": "forward_notexture_skin_shader",
       "path": "Resource/Shader/Lambert/Forward.glsl",
       "type": "skinned_mesh",
@@ -161,6 +201,20 @@
       "defines": [
         "SKINNED_MESH",
         "COLOR_ONLY"
+      ]
+    },
+    {
+      "name": "forward_notexture_skin_shadow_shader",
+      "path": "Resource/Shader/Lambert/Forward.glsl",
+      "type": "skinned_mesh",
+      "textures": [
+        "color_only",
+        "shadow"
+      ],
+      "defines": [
+        "SKINNED_MESH",
+        "COLOR_ONLY",
+        "SHADOW"
       ]
     },
     {
@@ -321,7 +375,11 @@
         "forward_shader",
         "forward_notexture_shader",
         "forward_skin_shader",
-        "forward_notexture_skin_shader"
+        "forward_notexture_skin_shader",
+        "forward_shadow_shader",
+        "forward_notexture_shadow_shader",
+        "forward_skin_shadow_shader",
+        "forward_notexture_skin_shadow_shader"
       ],
       "index": 3,
       "input": [],

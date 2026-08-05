@@ -158,7 +158,10 @@ namespace fury
 		SPECULAR = 0x0004,
 		NORMAL = 0x0008,
 		// MASK material variant bit — pipeline JSONs pair "alpha_test" texture flag with an ALPHA_TEST define so the discard branch compiles only where needed.
-		ALPHA_TEST = 0x0010
+		ALPHA_TEST = 0x0010,
+		// Shadow-receive variant bit ("shadow" + SHADOW define) — set
+		// per-draw when the light casts shadows, not by the material.
+		SHADOW = 0x0020
 	};
 
 	enum class LineMode : unsigned int

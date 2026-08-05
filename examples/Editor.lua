@@ -70,6 +70,23 @@ local function replace_active_scene(new_scene)
     Editor.SetSelectedSceneNode(nil)
     active:Clear()
     Importer.MergeInto(active, new_scene)
+
+    -- VERIFY_SHADOWS hook: with FURY_SHADOW_DEBUG=1, force
+    -- cast_shadows=true on every light of the opened scene. Mutates the
+    -- in-memory scene (a later save persists it) — debug runs only.
+    if os.getenv("FURY_SHADOW_DEBUG") then
+        local function walk(node, fn)
+            fn(node)
+            for i = 0, node:GetChildCount() - 1 do
+                walk(node:GetChildAt(i), fn)
+            end
+        end
+        walk(active:GetRootNode(), function(node)
+            local l = node:GetLight()
+            if l then l:SetCastShadows(true) end
+        end)
+        print("verify_shadows: cast_shadows=true on every light")
+    end
     -- MergeInto doesn't transfer renderSettings; copy them so
     -- HDR/CSM/chain survive File → Open. CopyChainFrom preserves
     -- per-entry uniform overrides (the old AddEffect loop dropped
@@ -691,6 +708,71 @@ Editor.SetCommandHandler(function(line)
             Editor.Log("info", tostring(result))
         end
     end)
+
+    -- Headless verify hook: FURY_CAM="px,py,pz,yawDeg,pitchDeg" pins the
+    -- viewport camera (matches the Profiler → GBuffer pos/rot readout,
+    -- so a reported view can be reproduced exactly for --screenshot).
+    -- Runs LAST in on_init — the scene-open path's auto-focus reframes
+    -- the camera, so applying earlier gets overwritten.
+    do
+        local cam_env = os.getenv("FURY_CAM")
+        if cam_env then
+            local px, py, pz, yawd, pitchd = cam_env:match(
+                "^%s*([-%d.]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*$")
+            if px then
+                cam_pos = Vector4(tonumber(px), tonumber(py), tonumber(pz), 1.0)
+                yaw     = math.rad(tonumber(yawd))
+                pitch   = math.rad(tonumber(pitchd))
+                cam_node:SetLocalPosition(cam_pos)
+                cam_node:SetLocalRoattion(MathUtil.EulerRadToQuat(yaw, pitch, 0.0))
+                print(string.format("FURY_CAM: pos=(%.2f, %.2f, %.2f) yaw=%.2f pitch=%.2f",
+                    cam_pos.x, cam_pos.y, cam_pos.z, tonumber(yawd), tonumber(pitchd)))
+            else
+                print("FURY_CAM: could not parse '" .. cam_env .. "' (want px,py,pz,yawDeg,pitchDeg)")
+            end
+        end
+    end
+
+    -- Repro hook: FURY_NODE_ROT="NodeName,x,y,z" (euler degrees,
+    -- inspector convention) / FURY_NODE_POS="NodeName,x,y,z" (local
+    -- position) — pins a node's local transform for headless
+    -- light-aim scenarios.
+    do
+        local function find(node, n)
+            if node:GetName() == n then return node end
+            for i = 0, node:GetChildCount() - 1 do
+                local f = find(node:GetChildAt(i), n)
+                if f then return f end
+            end
+        end
+        local rot_env = os.getenv("FURY_NODE_ROT")
+        if rot_env then
+            local name, rx, ry, rz = rot_env:match(
+                "^%s*([^,]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*$")
+            local target = name and find(Scene.GetActive():GetRootNode(), name)
+            if target then
+                target:SetLocalRoattion(MathUtil.EulerRadToQuat(
+                    math.rad(tonumber(rx)), math.rad(tonumber(ry)), math.rad(tonumber(rz))))
+                target:Recompose(true)
+                print(string.format("FURY_NODE_ROT: %s -> (%s, %s, %s) deg", name, rx, ry, rz))
+            else
+                print("FURY_NODE_ROT: bad args or node not found: '" .. rot_env .. "'")
+            end
+        end
+        local pos_env = os.getenv("FURY_NODE_POS")
+        if pos_env then
+            local name, px, py, pz = pos_env:match(
+                "^%s*([^,]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*,%s*([-%d.]+)%s*$")
+            local target = name and find(Scene.GetActive():GetRootNode(), name)
+            if target then
+                target:SetLocalPosition(Vector4(tonumber(px), tonumber(py), tonumber(pz), 1.0))
+                target:Recompose(true)
+                print(string.format("FURY_NODE_POS: %s -> (%s, %s, %s)", name, px, py, pz))
+            else
+                print("FURY_NODE_POS: bad args or node not found: '" .. pos_env .. "'")
+            end
+        end
+    end
 end
 
 -- Forward and right vectors derived from yaw/pitch in the engine's convention.

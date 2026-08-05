@@ -1,6 +1,20 @@
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <unordered_map>
+
+// Debug-build picker trace machinery: rejection strings cost a
+// snprintf per gate, so they exist only in FURY_BUILD_DEBUG builds.
+#ifdef FURY_BUILD_DEBUG
+#define FURY_SHADOW_REJECTF(...) do { \
+	char rejBuf[256]; \
+	std::snprintf(rejBuf, sizeof(rejBuf), __VA_ARGS__); \
+	rejected.push_back(rejBuf); } while (0)
+#else
+#define FURY_SHADOW_REJECTF(...)
+#endif
 
 #include "Fury/Camera.h"
 #include "Fury/Log.h"
@@ -188,38 +202,186 @@ namespace fury
 						camUp = Vector4(cw.Raw[4], cw.Raw[5], cw.Raw[6], 0.0f);
 					}
 
-					// First shadow-casting light with a cached map feeds
-					// the particle shadow-receive path (v1: point cube /
-					// single-map dir; CSM + spot skipped by design).
-					ParticleShadowInfo shadowInfo;
-					for (const auto &lightNode : query->lightNodes)
+					// Picks THE dominant shadow source per emitter (one
+					// per particle draw; mesh transparents evaluate every
+					// light in the additive loop instead). Highest score
+					// wins; dir uses CSM when the switch is on, else
+					// dir-single.
+					auto pickShadowSourceFor =
+						[&](const Vector4 &emitterPos,
+							ParticleShadowInfo &info)
 					{
-						auto light = lightNode->GetComponent<Light>();
-						if (!light || !light->GetCastShadows()) continue;
-						auto it = m_LastShadowTextures.find(lightNode.get());
-						if (it == m_LastShadowTextures.end() || !it->second) continue;
-						if (light->GetType() == LightType::POINT)
+						// Score = light arriving at the emitter: raw
+						// intensity for the directional (NO distance term —
+						// intensity/dist2 reads the sun node's parked
+						// position; a near-origin dim sun outscored every
+						// local light and the spot path never ran),
+						// intensity x linear falloff for point/spot.
+						struct Candidate {
+							SceneNode *node;
+							LightType type;
+							float score;
+						};
+						std::vector<Candidate> cands;
+#ifdef FURY_BUILD_DEBUG
+						std::vector<std::string> rejected;
+#endif
+						for (const auto &lightNode : query->lightNodes)
 						{
-							shadowInfo.type = 1;
-							shadowInfo.texture = it->second;
-							shadowInfo.lightPos = lightNode->GetWorldPosition();
-							shadowInfo.lightRadius = light->GetEffectiveRadius();
-							break;
+							auto light = lightNode->GetComponent<Light>();
+							if (!light || !light->GetCastShadows()) { FURY_SHADOW_REJECTF("noCast: %s", lightNode->GetName().c_str()); continue; }
+							auto it = m_LastShadowTextures.find(lightNode.get());
+							if (it == m_LastShadowTextures.end() || !it->second) { FURY_SHADOW_REJECTF("noShadowTex: %s", lightNode->GetName().c_str()); continue; }
+							info.anyCaster = true;
+							auto wp = lightNode->GetWorldPosition();
+							float dx = wp.x - emitterPos.x;
+							float dy = wp.y - emitterPos.y;
+							float dz = wp.z - emitterPos.z;
+							float dist2 = dx * dx + dy * dy + dz * dz;
+
+							// Influence gate: only lights that REACH
+							// this emitter may be ranked — Particle.glsl
+							// reads an out-of-range source as fully lit.
+							if (light->GetType() == LightType::POINT)
+							{
+								float r = light->GetEffectiveRadius();
+								if (dist2 > r * r) { FURY_SHADOW_REJECTF("radius P: %s", lightNode->GetName().c_str()); continue; }
+							}
+							else if (light->GetType() == LightType::SPOT)
+							{
+								float r = light->GetEffectiveRadius();
+								if (dist2 > r * r)
+								{
+									FURY_SHADOW_REJECTF("radius S r=%.2f: %s",
+										r, lightNode->GetName().c_str());
+									continue;
+								}
+								// Emitter must lie within the outer cone;
+								// dx is emitter→light so the inside test
+								// flips sign: cosTheta < -cosOuter.
+								float dist = std::sqrt(dist2) + 1e-4f;
+								auto lightFwd = lightNode->GetWorldMatrix()
+									.Multiply(Vector4(0, -1, 0, 0)).Normalized();
+								float cosTheta = (dx * lightFwd.x + dy * lightFwd.y + dz * lightFwd.z) / dist;
+								float cosOuter = std::cos(light->GetOutterAngle() * 0.5f);
+								if (cosTheta >= -cosOuter)
+								{
+									FURY_SHADOW_REJECTF(
+										"cone S cosT=%.4f cosOuter=%.4f outAngle=%.2f fwd=(%.3f,%.3f,%.3f): %s",
+										cosTheta, cosOuter, light->GetOutterAngle(),
+										lightFwd.x, lightFwd.y, lightFwd.z,
+										lightNode->GetName().c_str());
+									continue;
+								}
+							}
+
+							float score;
+							if (light->GetType() == LightType::DIRECTIONAL)
+								score = light->GetIntensity();
+							else
+								score = light->GetIntensity()
+									* std::max(0.0f, 1.0f - std::sqrt(dist2)
+										/ light->GetEffectiveRadius());
+							cands.push_back({lightNode.get(), light->GetType(), score});
 						}
-						if (light->GetType() == LightType::DIRECTIONAL &&
-							!IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP))
+						std::sort(cands.begin(), cands.end(),
+							[](const Candidate &a, const Candidate &b)
+							{ return a.score > b.score; });
+
+						auto mit_helper = [&](SceneNode *node)
+							-> const Pipeline::ShadowData *
 						{
-							auto mit = m_LastShadowMatrices.find(lightNode.get());
-							if (mit == m_LastShadowMatrices.end()) continue;
-							// Deferred convention maps view -> shadow UV;
-							// particles have world pos, so append the
-							// camera's view matrix (world -> view).
-							shadowInfo.matrix = mit->second * m_CurrentCamera->GetInvertWorldMatrix();
-							shadowInfo.type = 2;
-							shadowInfo.texture = it->second;
-							break;
+							auto mit = m_LastShadowMatrices.find(node);
+							return (mit != m_LastShadowMatrices.end())
+								? &mit->second : nullptr;
+						};
+						auto populateFrom = [&](SceneNode *node, LightType t)
+						{
+							info.texture = m_LastShadowTextures[node];
+							auto *sd = mit_helper(node);
+							// Cached matrices map camera-view → shadow
+							// UV (deferred convention); particles feed
+							// world pos, so append the camera's
+							// invert-world to chain world→view→shadow UV.
+							const Matrix4 viewFromWorld = m_CurrentCamera
+								? m_CurrentCamera->GetInvertWorldMatrix()
+								: Matrix4();
+							if (t == LightType::POINT)
+							{
+								auto light = node->GetComponent<Light>();
+								auto wp = node->GetWorldPosition();
+								info.type = 1;
+								info.lightPos = Vector4(wp.x, wp.y, wp.z, 0);
+								info.lightRadius = light->GetEffectiveRadius();
+							}
+							else if (t == LightType::SPOT)
+							{
+								auto light = node->GetComponent<Light>();
+								auto wp = node->GetWorldPosition();
+								info.type = 4;
+								info.matrix = sd ? (sd->single * viewFromWorld) : Matrix4();
+								// Cone-test inputs: Particle.glsl is
+								// emissive, so the cone falloff lives in
+								// the shadow factor.
+								info.lightPos = Vector4(wp.x, wp.y, wp.z, 0);
+								info.lightDir = node->GetWorldMatrix()
+									.Multiply(Vector4(0, -1, 0, 0)).Normalized();
+								info.coneHalfInner = light->GetInnerAngle() * 0.5f;
+								info.coneHalfOuter = light->GetOutterAngle() * 0.5f;
+							}
+							else if (t == LightType::DIRECTIONAL)
+							{
+								if (IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP)
+									&& sd && !sd->csm.empty())
+								{
+									info.type = 3;
+									for (int i = 0; i < 4; i++)
+										info.csmMatrices[i] = sd->csm[i] * viewFromWorld;
+									info.shadowFar = sd->shadowFar;
+								}
+								else
+								{
+									info.type = 2;
+									info.matrix = sd ? (sd->single * viewFromWorld) : Matrix4();
+								}
+							}
+						};
+
+						SceneNode *pickedNode = nullptr;
+						LightType pickedType = LightType::POINT;
+						if (!cands.empty())
+						{
+							pickedNode = cands.front().node;
+							pickedType = cands.front().type;
+							populateFrom(pickedNode, pickedType);
 						}
-					}
+
+#ifdef FURY_BUILD_DEBUG
+						// FURY_SHADOW_DEBUG=1 dumps the pick + rejection
+						// reasons (one block per emitter per frame —
+						// headless debugging only).
+						static const bool kShadowDbg =
+							std::getenv("FURY_SHADOW_DEBUG") != nullptr;
+						if (kShadowDbg)
+						{
+							std::fprintf(stderr,
+								"[shadowpick] emitter(%.0f,%.0f,%.0f) -> %s type=%d\n",
+								emitterPos.x, emitterPos.y, emitterPos.z,
+								pickedNode ? pickedNode->GetName().c_str() : "(none)",
+								info.type);
+							if (pickedNode && pickedType == LightType::SPOT)
+							{
+								auto l = pickedNode->GetComponent<Light>();
+								std::fprintf(stderr,
+									"    spot inner=%.4f outter=%.4f rad (%.1f/%.1f deg)\n",
+									l->GetInnerAngle(), l->GetOutterAngle(),
+									l->GetInnerAngle() * 57.2958f, l->GetOutterAngle() * 57.2958f);
+							}
+							for (const auto &r : rejected)
+								std::fprintf(stderr, "    reject %s\n", r.c_str());
+						}
+#endif
+					};
 
 					GLint prevSrc, prevDst;
 					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
@@ -243,6 +405,11 @@ namespace fury
 						// transparent pass convention).
 						glEnable(GL_DEPTH_TEST);
 						glDepthMask(GL_FALSE);
+						// Per-renderer shadow selection — pick the
+						// dominant casting light for THIS emitter.
+						ParticleShadowInfo shadowInfo;
+						auto wp = node->GetWorldPosition();
+						pickShadowSourceFor(wp, shadowInfo);
 						pr->Draw(m_CurrentCamera, &shadowInfo);
 						glDepthMask(GL_TRUE);
 					}
@@ -395,11 +562,21 @@ namespace fury
 			unsigned int textureFlags = material->GetTextureFlags();
 			if (material->GetAlphaMode() == AlphaMode::MASK)
 				textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
+			// Shadow-receive variant when this draw's light casts
+			// (transparent additive loop) — the shadow samplers/compares
+			// compile only into the *_shadow_shader variants.
+			if (lightNode)
+				if (auto light = lightNode->GetComponent<Light>())
+					if (light->GetCastShadows())
+						textureFlags |= (unsigned int)ShaderTexture::SHADOW;
 			shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
 				textureFlags);
 
-			// Fall back to the non-alpha-test variant when the pass
-			// doesn't declare one (e.g. passes that never need it).
+			// Fall back in steps: first without the shadow bit, then
+			// without alpha-test (passes that never declare them).
+			if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::SHADOW))
+				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
+					textureFlags & ~(unsigned int)ShaderTexture::SHADOW);
 			if (shader == nullptr)
 				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
 					material->GetTextureFlags());
@@ -460,43 +637,67 @@ namespace fury
 
 					// Shadow-receive for this light's direct
 					// contribution (matches the deferred path's
-					// behavior for opaques): point -> cube map +
-					// camera-world matrix (view->world); dir ->
-					// 2D map + cached view-space matrix. CSM +
-					// spot are out of v1 scope. Both samplers are
-					// ALWAYS bound (real map when active, dummy
-					// otherwise) — core GL rejects glDrawElements
-					// on any sampler target mismatch.
-					int shadowType = 0;
-					Texture::Ptr shadowTex2D, shadowCube;
-					if (light->GetCastShadows())
+					// behavior for opaques). Only the *_shadow_shader
+					// variants declare the samplers; on any other
+					// shader this block must not even bind dummies.
+					if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::SHADOW)
 					{
-						auto it = m_LastShadowTextures.find(lightNode.get());
-						if (it != m_LastShadowTextures.end() && it->second)
+						int shadowType = 0;
+						Texture::Ptr shadowTex2D, shadowCube, shadowTexCSM;
+						if (light->GetCastShadows())
 						{
-							if (light->GetType() == LightType::POINT)
+							auto it = m_LastShadowTextures.find(lightNode.get());
+							if (it != m_LastShadowTextures.end() && it->second)
 							{
-								shadowType = 1;
-								shadowCube = it->second;
-								Matrix4 camWorld = m_CurrentCamera->GetWorldMatrix();
-								shader->BindMatrix("shadow_matrix", &camWorld.Raw[0]);
-							}
-							else if (light->GetType() == LightType::DIRECTIONAL &&
-								!IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP))
-							{
-								auto mit = m_LastShadowMatrices.find(lightNode.get());
-								if (mit != m_LastShadowMatrices.end())
+								if (light->GetType() == LightType::POINT)
 								{
-									shadowType = 2;
-									shadowTex2D = it->second;
-									shader->BindMatrix("shadow_matrix", &mit->second.Raw[0]);
+									shadowType = 1;
+									shadowCube = it->second;
+									Matrix4 camWorld = m_CurrentCamera->GetWorldMatrix();
+									shader->BindMatrix("shadow_matrix", &camWorld.Raw[0]);
+								}
+								else if (light->GetType() == LightType::DIRECTIONAL &&
+									!IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP))
+								{
+									auto mit = m_LastShadowMatrices.find(lightNode.get());
+									if (mit != m_LastShadowMatrices.end())
+									{
+										shadowType = 2;
+										shadowTex2D = it->second;
+										shader->BindMatrix("shadow_matrix", &mit->second.single.Raw[0]);
+									}
+								}
+								else if (light->GetType() == LightType::DIRECTIONAL)
+								{
+									// CSM (CASCADED_SHADOW_MAP on)
+									auto mit = m_LastShadowMatrices.find(lightNode.get());
+									if (mit != m_LastShadowMatrices.end() && !mit->second.csm.empty())
+									{
+										shadowType = 3;
+										shadowTexCSM = it->second;
+										shader->BindMatrices("shadow_matrix_csm", (int)mit->second.csm.size(), &mit->second.csm[0]);
+										shader->BindFloat("shadow_far",
+											mit->second.shadowFar.x, mit->second.shadowFar.y,
+											mit->second.shadowFar.z, mit->second.shadowFar.w);
+									}
+								}
+								else if (light->GetType() == LightType::SPOT)
+								{
+									auto mit = m_LastShadowMatrices.find(lightNode.get());
+									if (mit != m_LastShadowMatrices.end())
+									{
+										shadowType = 4;
+										shadowTex2D = it->second;
+										shader->BindMatrix("shadow_matrix", &mit->second.single.Raw[0]);
+									}
 								}
 							}
 						}
+						shader->BindTexture("shadow_map", shadowTex2D ? shadowTex2D : GetDummyTexture2D());
+						shader->BindTexture("shadow_buffer", shadowCube ? shadowCube : GetDummyCubeTexture());
+						shader->BindTexture("shadow_buffer_csm", shadowTexCSM ? shadowTexCSM : GetDummyTexture2DArray());
+						shader->BindInt("u_shadow_type", shadowType);
 					}
-					shader->BindTexture("shadow_map", shadowTex2D ? shadowTex2D : GetDummyTexture2D());
-					shader->BindTexture("shadow_buffer", shadowCube ? shadowCube : GetDummyCubeTexture());
-					shader->BindInt("u_shadow_type", shadowType);
 				}
 			}
 			shader->BindInt("u_light_type", lightType);
@@ -642,7 +843,6 @@ namespace fury
 	{
 		auto light = node->GetComponent<Light>();
 		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
-		auto camPos = m_CurrentCamera->GetWorldPosition();
 		auto mesh = light->GetMesh();
 		auto worldMatrix = node->GetWorldMatrix();
 
@@ -719,16 +919,29 @@ namespace fury
 		pass->UnBind();
 
 		// collect used shadow buffer (released at end of Execute);
-		// cache the single-map dir matrix for the transparent pass's
-		// shadow-receive path (CSM stays out of that path in v1)
+		// cache the matrix data for the transparent pass's
+		// shadow-receive path. CSM: the 4 cascade matrices +
+		// shadow_far (linear-quarter-far split, matches the
+		// deferred SunLight.glsl CSM block).
 		if (castShadows)
 		{
-			if (useCascaded)
+			if (useCascaded && cascadedShadowData.first != nullptr)
+			{
 				m_FrameShadowTemps.push_back(cascadedShadowData.first);
-			else
+				ShadowData data;
+				data.csm = cascadedShadowData.second;
+				auto camPtr2 = m_CurrentCamera->GetComponent<Camera>();
+				float base = camPtr2->GetFar() - camPtr2->GetNear();
+				float avg = base / 4.0f;
+				data.shadowFar = Vector4(-avg, -avg * 2, -avg * 3, -avg * 4);
+				m_LastShadowMatrices[node.get()] = std::move(data);
+			}
+			else if (shadowData.first != nullptr)
 			{
 				m_FrameShadowTemps.push_back(shadowData.first);
-				m_LastShadowMatrices[node.get()] = shadowData.second;
+				ShadowData data;
+				data.single = shadowData.second;
+				m_LastShadowMatrices[node.get()] = std::move(data);
 			}
 		}
 	}
@@ -814,9 +1027,16 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer (released at end of Execute)
-		if (castShadows)
+		// collect used shadow buffer (released at end of Execute);
+		// cache the spot view->shadow UV matrix for the transparent
+		// pass + particle block.
+		if (castShadows && shadowData.first != nullptr)
+		{
 			m_FrameShadowTemps.push_back(shadowData.first);
+			ShadowData data;
+			data.single = shadowData.second;
+			m_LastShadowMatrices[node.get()] = std::move(data);
+		}
 	}
 
 	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)

@@ -8,6 +8,7 @@
 
 #include "Fury/Entity.h"
 #include "Fury/Matrix4.h"
+#include "Fury/Vector4.h"
 
 namespace fury
 {
@@ -134,11 +135,26 @@ namespace fury
 		// section per shadow-casting light.
 		std::unordered_map<SceneNode*, std::shared_ptr<Texture>> m_LastShadowTextures;
 
-		// Directional (single-map) shadow matrices, same lifetime as
-		// m_LastShadowTextures. The transparent pass's shadow-receive
-		// path needs the matrix the deferred light draw already composed
-		// (deferred convention: maps camera-view -> shadow UV).
-		std::unordered_map<SceneNode*, Matrix4> m_LastShadowMatrices;
+		// Per-light cached shadow data, same lifetime as
+		// m_LastShadowTextures (cleared at the top of each Execute).
+		// The transparent pass's shadow-receive path needs the
+		// matrices the deferred light draws already composed, in the
+		// conventions their shaders expect:
+		//   - Directional single-map / spot: maps view -> shadow UV
+		//     (one Matrix4 in `single`).
+		//   - CSM: per-cascade view -> shadow UV matrices + the
+		//     split (shadow_far) used by the CSM shader to pick a
+		//     cascade on linear view depth.
+		// Stored for the dir/spot 2D paths (CSM/spot, and dir when
+		// CSM is off) so the transparent pass and the per-emitter
+		// particle block can find the bind inputs.
+		struct ShadowData
+		{
+			Matrix4 single;
+			std::vector<Matrix4> csm;       // size 4 when populated
+			Vector4 shadowFar = Vector4(0,0,0,0);
+		};
+		std::unordered_map<SceneNode*, ShadowData> m_LastShadowMatrices;
 
 		// Shadow-map temporaries held until the END of Execute.
 		// ReleaseTemporary returns the map to a spec-keyed pool for

@@ -400,16 +400,28 @@ namespace fury
 		return tex;
 	}
 
-	std::shared_ptr<Shader> GetParticleShader()
+	std::shared_ptr<Texture> GetDummyTexture2DArray()
+	{
+		// 1x1x4 DEPTH24 — the sampler-target match is what matters.
+		static auto tex = Texture::Create("Dummy2DArray");
+		if (tex->GetID() == 0)
+			tex->CreateEmpty(1, 1, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY, false);
+		return tex;
+	}
+
+	std::shared_ptr<Shader> GetParticleShader(bool shadow)
 	{
 		// Particle billboard shader, loaded from
 		// Resource/Shader/Lambert/Particle.glsl (artists iterate on GLSL
-		// without rebuilding). v1 samples the bound Material's diffuse
-		// texture and multiplies by u_Tint — particles are emissive (no
-		// scene-light sampling). Uniform names follow the engine
-		// convention (world_matrix / invert_view_matrix /
-		// projection_matrix) so Shader::BindCamera + BindMatrix resolve.
-		static auto shader = Shader::Create("ParticleShader", ShaderType::PARTICLE);
+		// without rebuilding). shadow=true adds the SHADOW define — the
+		// shadow-receive block compiles only into that variant.
+		static auto plain = Shader::Create("ParticleShader", ShaderType::PARTICLE);
+		static auto shadowed = [] {
+			auto s = Shader::Create("ParticleShaderShadow", ShaderType::PARTICLE);
+			s->AddDefine("SHADOW");
+			return s;
+		}();
+		auto &shader = shadow ? shadowed : plain;
 		if (shader->GetDirty())
 			shader->LoadAndCompile(
 				FileUtil::GetAbsPath() + "Resource/Shader/Lambert/Particle.glsl", false);
