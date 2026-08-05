@@ -232,6 +232,13 @@ namespace fury
 			float topR = std::tan(m_OutterAngle * 0.5f) * height;
 			m_AABB.SetMinMax(Vector4(-topR, -height, -topR), Vector4(topR, 0.0f, topR));
 		}
+
+		// Sync the owner node's culling bounds + octree placement, so radius/type edits after attach aren't culled with a stale AABB.
+		if (auto owner = m_Owner.lock())
+		{
+			owner->SetModelAABB(m_AABB);
+			owner->Recompose(true);
+		}
 	}
 
 	std::shared_ptr<Mesh> Light::GetMesh()

@@ -131,7 +131,6 @@ If you only built `fury`, the launch is the same (`./fury Editor.lua`) but the I
 ### Controls
 
 * **WASD** / **arrows** — move along the camera's forward / strafe.
-* **Space** / **LControl** — move up / down.
 * **Hold left mouse button + drag** — yaw and pitch.
 * **Mouse wheel** — adjust move speed.
 * **LShift** — 5× speed multiplier.

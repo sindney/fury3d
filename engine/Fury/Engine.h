@@ -27,10 +27,13 @@ namespace fury
 	{
 		// Frame-rate cap applied via sf::Window::setFramerateLimit. 0 disables.
 		int max_fps = 144;
-		// Multiplier passed to ImGuiStyle::ScaleAllSizes.
-		float gui_scale = 1.0f;
-		// Value assigned to ImGuiIO::FontGlobalScale.
-		float gui_font_scale = 1.0f;
+		// ImGuiStyle::ScaleAllSizes multiplier. 0.0 = use system DPI.
+		float gui_scale = 0.0f;
+		// ImGuiStyle::FontScaleMain. 0.0 = follow the resolved gui_scale.
+		float gui_font_scale = 0.0f;
+
+		// When true, the system DPI is multiplied with `gui_scale`.
+		bool dpi_aware_override = false;
 
 		// Screenshot capture (debug). When `screenshot_path` is non-empty,
 		// the engine reads the back-buffer after frame `screenshot_frame`,
@@ -50,7 +53,7 @@ namespace fury
 			LogLevel level = LogLevel::EROR, const char* logfile = nullptr,
 			bool console = true, const LogFormatter &formatter = Formatter::Simple, bool append = false);
 
-		static void HandleEvent(sf::Event &event);
+		static void HandleEvent(sf::Event &event, sf::Window &window);
 
 		static Signal<float>::Ptr OnUpdate;
 
@@ -67,6 +70,9 @@ namespace fury
 		static void Run(sf::Window &window, const EngineCallbacks &cb, const EngineOptions &opts);
 
 		static std::pair<int, int> GetGLVersion();
+
+		// System DPI as a multiplier (1.0 = 96 DPI, 2.0 = 192 DPI).
+		static float GetSystemDPI();
 
 		// Fixed-tick alpha for render interpolation: how far we are between
 		// the last OnFixedUpdate and the next, in [0, 1). Set each frame in

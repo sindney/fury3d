@@ -35,7 +35,7 @@ namespace fury
 		bool m_KeyDown[sf::Keyboard::KeyCount];
 
 	public:
-		
+
 		Signal<sf::Keyboard::Key>::Ptr OnKeyDown = Signal<sf::Keyboard::Key>::Create();
 
 		Signal<sf::Keyboard::Key>::Ptr OnKeyUp = Signal<sf::Keyboard::Key>::Create();
@@ -79,6 +79,9 @@ namespace fury
 		bool GetMouseDown(sf::Mouse::Button btn);
 
 		bool GetKeyDown(sf::Keyboard::Key key);
+
+		// Zero held keys, buttons, wheel, and position.
+		void ResetTransientInputState();
 	};
 }
 

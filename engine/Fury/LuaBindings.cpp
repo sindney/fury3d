@@ -1690,12 +1690,12 @@ namespace fury
 			mb_tbl["Middle"] = static_cast<int>(sf::Mouse::Button::Middle);
 
 			// --- Engine.run ---------------------------------------------------
-			// The launcher injects the active sf::Window into lua["__window"] as
-			// a userdata pointer; we read it back here and dispatch to Engine::Run.
+			// The launcher injects the active sf::Window into lua["__window"];
+			// we read it back and dispatch to Engine::Run.
 			//
 			// Lua signature: Engine.run(callbacks [, options])
 			//   callbacks: { on_init, on_update, on_fixed_update, on_shutdown }
-			//   options:   { max_fps, gui_scale, gui_font_scale }  (all optional)
+			//   options:   { max_fps, gui_scale, gui_font_scale, dpi_aware_override }
 			sol::table engine_tbl = lua.create_named_table("Engine");
 			engine_tbl["run"] = [&lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
@@ -1725,6 +1725,7 @@ namespace fury
 					}
 					opts.gui_scale      = o.get_or("gui_scale", opts.gui_scale);
 					opts.gui_font_scale = o.get_or("gui_font_scale", opts.gui_font_scale);
+					opts.dpi_aware_override = o.get_or("dpi_aware_override", opts.dpi_aware_override);
 				}
 
 				// Layer launcher-supplied options over the script's. Launcher
