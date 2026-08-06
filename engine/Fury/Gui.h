@@ -38,7 +38,7 @@ namespace fury
 
 		// Minimal ImGui forwarders for Lua-driven panels and menus. The
 		// return-the-new-value shape of SliderFloat / Checkbox sidesteps
-		// Lua/C++ pointer marshalling — see openspec changes/
+		// Lua/C++ pointer marshalling -- see openspec changes/
 		// lua-input-bindings-flythrough-cam.
 		// Begin a window with a close button. Returns (still_open, visible):
 		//   still_open = false after the user clicks the X (caller should

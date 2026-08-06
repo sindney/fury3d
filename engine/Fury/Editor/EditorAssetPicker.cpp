@@ -52,7 +52,7 @@ void CollectMeshes(std::vector<PickerEntry>& out) {
 					static_cast<unsigned int>(sm->Indices.Data.size());
 		}
 		char buf[300];
-		std::snprintf(buf, sizeof(buf), "%s    %u v  ·  %u t",
+		std::snprintf(buf, sizeof(buf), "%s    %u v  *  %u t",
 					  m->GetName().c_str(), totalVerts, totalIndices / 3);
 		out.push_back({buf, std::static_pointer_cast<void>(m)});
 		return true;
@@ -97,7 +97,7 @@ void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
 }
 
 // Postprocess effects live in the process-global registry (not the
-// active scene's EntityManager — see PostProcessRegistry::LoadFromDirectory),
+// active scene's EntityManager -- see PostProcessRegistry::LoadFromDirectory),
 // so the picker can't reuse the em->ForEach path. Iterate the registry
 // directly and surface them through the same std::shared_ptr<void> shape
 // the picker expects.
@@ -136,7 +136,7 @@ void CollectByType(std::type_index type,
 		CollectParticleSystems(out);
 	else if (type == typeid(PostProcessEffect))
 		CollectPostProcessEffects(out);
-	// Unknown type: leave out empty — the OK button stays
+	// Unknown type: leave out empty -- the OK button stays
 	// disabled and the user can only Cancel.
 }
 } // namespace
@@ -163,7 +163,7 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 		ImGui::TextUnformatted(title);
 		ImGui::Separator();
 
-		// "Set to None" button — calls onPick(nullptr) so the caller
+		// "Set to None" button -- calls onPick(nullptr) so the caller
 		// can clear the slot. Visible for all types.
 		if (ImGui::Button("Set to None")) {
 			if (onPick)

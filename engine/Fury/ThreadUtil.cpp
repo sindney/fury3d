@@ -10,17 +10,17 @@ namespace fury
 
 	size_t ThreadUtil::m_TaskKey = 0;
 
-	ThreadUtil::ThreadUtil(unsigned int numThreads)
+	ThreadUtil::ThreadUtil(size_t numThreads)
 		: m_Stop(false)
 	{
-		unsigned int maxThreads = std::thread::hardware_concurrency();
+		size_t maxThreads = std::thread::hardware_concurrency();
 		if (numThreads > maxThreads)
 		{
 			numThreads = maxThreads / 2;
 			FURYW << "Hardware supports " << maxThreads << " threads at most!";
 		}
 
-		for (unsigned int i = 0; i < numThreads; i++)
+		for (size_t i = 0; i < numThreads; i++)
 		{
 			m_Workers.emplace_back([this]
 			{

@@ -59,15 +59,12 @@ endif()
 # deprecation noise (vendored third-party; not our code).
 if(MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /utf-8 /bigobj /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_CRT_SECURE_NO_WARNINGS /D_SCL_SECURE_NO_WARNINGS /D_USE_MATH_DEFINES /DWIN32_LEAN_AND_MEAN /DNOMINMAX")
-	# The SYSTEM markers on the ThirdParty include paths below become
-	# /external:I on MSVC, but /external:I alone does NOT lower the warning
-	# level for those headers — it only classifies them. /external:W0 is the
-	# companion flag that actually silences them. Both are non-experimental
-	# only from VS 2019 16.10 (MSVC_VERSION 1929); older toolsets need
-	# /experimental:external and would reject these with D8021, so gate on
-	# the version. UNTESTED on Windows — verified on AppleClang only.
+	# /external:W0 silences vendored-header warnings (MSVC 16.10+); /wd4127
+	# + /wd4245 demote two warnings that leak from vendored .cpp files
+	# compiled directly (ImGuizmo, imgui_impl_opengl3 backends) — neither
+	# fires in engine code.
 	if(MSVC_VERSION GREATER_EQUAL 1929)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /external:W0")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /external:W0 /wd4127 /wd4245")
 	endif()
 else()
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")

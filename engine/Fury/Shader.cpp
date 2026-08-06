@@ -108,13 +108,13 @@ namespace fury
 		EnumUtil::GetShaderTextures(m_TextureFlags, enums);
 
 		SaveKey(wrapper, "textures");
-		SaveArray(wrapper, enums.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(enums.size()), [&](unsigned int index)
 		{
 			SaveValue(wrapper, EnumUtil::ShaderTextureToString(enums[index]));
 		});
 
 		SaveKey(wrapper, "defines");
-		SaveArray(wrapper, m_Defines.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_Defines.size()), [&](unsigned int index)
 		{
 			SaveValue(wrapper, m_Defines[index]);
 		});
@@ -195,7 +195,7 @@ namespace fury
 		// editor-only shader code (#ifdef WITH_EDITOR) is compiled in
 		// only for editor builds. Headless builds skip the branches,
 		// which keeps the runtime shader the same as the production
-		// one — no dead uniform lookups, no driver divergence.
+		// one -- no dead uniform lookups, no driver divergence.
 #ifdef WITH_EDITOR
 		defineStream << "#define WITH_EDITOR\n";
 #endif
@@ -414,7 +414,7 @@ namespace fury
 	void Shader::BindTexture(size_t textureId, TextureType type)
 	{
 		glActiveTexture(m_TextureID);
-		glBindTexture(EnumUtil::TextureTypeToUnit(type), textureId);
+		glBindTexture(EnumUtil::TextureTypeToUnit(type), static_cast<GLuint>(textureId));
 	}
 
 	void Shader::BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture)
@@ -444,8 +444,8 @@ namespace fury
 		if (id != -1)
 		{
 			glActiveTexture(m_TextureID);
-			glBindTexture(EnumUtil::TextureTypeToUnit(type), textureId);
-			glUniform1i(id, m_TextureID - GL_TEXTURE0);
+			glBindTexture(EnumUtil::TextureTypeToUnit(type), static_cast<GLuint>(textureId));
+			glUniform1i(id, static_cast<GLint>(m_TextureID - GL_TEXTURE0));
 
 			m_TextureID++;
 		}
@@ -586,7 +586,7 @@ namespace fury
 				for (int i = 0; i < jointCount; i++)
 				{
 				auto joint = mesh->GetJointAt(i);
-				// Picking can run mid-reimport when a joint slot is null — use identity.
+				// Picking can run mid-reimport when a joint slot is null -- use identity.
 				Matrix4 matrix = joint ? joint->GetFinalMatrix() : Matrix4();
 					int index = i * 16;
 

@@ -146,12 +146,12 @@ namespace fury
 	// block compiled in); ParticleRenderer picks per system.
 	std::shared_ptr<Shader> GetParticleShader(bool shadow = false);
 
-	// 1×1 fallback textures for shadow samplers — core GL kills the draw
+	// 1x1 fallback textures for shadow samplers -- core GL kills the draw
 	// if a declared sampler's texture target is unbound/mismatched.
 	std::shared_ptr<Texture> GetDummyCubeTexture();
 	std::shared_ptr<Texture> GetDummyTexture2D();
 
-	// 1×1×4 sampler2DArray dummy (same target-mismatch rule).
+	// 1x1x4 sampler2DArray dummy (same target-mismatch rule).
 	std::shared_ptr<Texture> GetDummyTexture2DArray();
 
 	// Renders `mesh` into the currently-bound FBO (caller owns FBO + viewport

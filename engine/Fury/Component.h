@@ -27,12 +27,12 @@ namespace fury
 
 		virtual Ptr Clone() const = 0;
 
-		virtual bool Load(const void* wrapper, bool object = true) 
+		virtual bool Load(const void* /*wrapper*/, bool /*object*/ = true)
 		{
 			return true;
 		}
 
-		virtual void Save(void* wrapper, bool object = true) {}
+		virtual void Save(void* /*wrapper*/, bool /*object*/ = true) {}
 
 		bool HasOwner() const;
 

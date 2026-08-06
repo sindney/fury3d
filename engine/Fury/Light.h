@@ -27,7 +27,7 @@ namespace fury
 
 		float m_Intensity = 1.0f;
 
-		// Cone angles are RADIANS (the inspector displays degrees). 45°.
+		// Cone angles are RADIANS (the inspector displays degrees). 45 deg.
 		float m_InnerAngle = 0.7853982f;
 
 		float m_OutterAngle = 0.7853982f;
@@ -82,7 +82,7 @@ namespace fury
 
 		float GetRadius() const;
 
-		// Radius × owner node world scale.
+		// Radius * owner node world scale.
 		float GetEffectiveRadius() const;
 
 		void SetCastShadows(bool cast);

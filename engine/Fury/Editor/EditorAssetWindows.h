@@ -24,7 +24,7 @@ namespace fury
 		// Render every open asset editor window. Called from Editor::Tick.
 		void FURY_API RenderAllOpenAssetEditors();
 
-		// Lookup or allocate a 128×128 thumbnail texture for `mesh`.
+		// Lookup or allocate a 128x128 thumbnail texture for `mesh`.
 		unsigned int FURY_API GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh);
 
 		// Evict thumbnail entries whose BufferId is not in `liveIds`.

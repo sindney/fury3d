@@ -15,7 +15,7 @@ namespace fury
 
 	// Unity-style CPU-driven particle system, treated as a project asset
 	// (registered in the active Scene's EntityManager alongside Mesh /
-	// Material / Texture / AnimationClip) — referenced by name from a
+	// Material / Texture / AnimationClip) -- referenced by name from a
 	// ParticleRenderer component on a SceneNode.
 	//
 	// Mirrors Animator's per-instance Engine::OnUpdate subscription
@@ -41,7 +41,7 @@ namespace fury
 		// Live particle count (slots whose `alive` flag is true).
 		unsigned int GetAliveCount() const;
 
-		// Pool capacity — bounded by FURY_PARTICLE_MAX_PER_SYSTEM.
+		// Pool capacity -- bounded by FURY_PARTICLE_MAX_PER_SYSTEM.
 		unsigned int GetMaxParticles() const { return m_MaxParticles; }
 		void SetMaxParticles(unsigned int cap);
 
@@ -78,14 +78,14 @@ namespace fury
 
 		// Suspends the Engine::OnUpdate tick while an editor preview
 		// drives Update() manually (a particle editor window has this
-		// system open — without it the wall-clock tick double-advances
+		// system open -- without it the wall-clock tick double-advances
 		// the preview and fights the paused/scrub Reset+seek path).
 		// Runtime-only state, never serialized.
 		void SetExternallyDriven(bool driven) { m_ExternallyDriven = driven; }
 		bool IsExternallyDriven() const { return m_ExternallyDriven; }
 
 		// Advance the simulation by `dt` seconds. Connected to
-		// Engine::OnUpdate by Create() — the editor's preview can
+		// Engine::OnUpdate by Create() -- the editor's preview can
 		// also call this directly with a seeked dt when the user
 		// scrubs the timeline.
 		void Update(float dt);
@@ -98,7 +98,7 @@ namespace fury
 		// draw: shape extent + velocity travel over a full lifetime +
 		// the largest quad the size curve can produce. ParticleRenderer
 		// expands its owner node's AABB with this so frustum culling
-		// (which tests the node's AABB) never culls visible particles —
+		// (which tests the node's AABB) never culls visible particles --
 		// the emitter node's authored AABB only covers the spawn point.
 		BoxBounds GetLocalBounds() const;
 

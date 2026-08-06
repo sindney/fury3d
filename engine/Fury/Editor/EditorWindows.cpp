@@ -40,6 +40,9 @@
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
 #include "Fury/Vector4.h"
+
+// imgui.h manages its own pragma push/pop (lines 135/4506) — don't wrap,
+// an outer pop would consume the inner push and trigger C4193.
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
 #include "ImGuizmo.h"
@@ -106,7 +109,7 @@ void RenderSettingsWindow(bool* open) {
 	if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Spacing();
 
-		// Reference grid — persisted editor state (see g_ShowGrid);
+		// Reference grid -- persisted editor state (see g_ShowGrid);
 		// the viewport toolbar's Grid checkbox binds the same global.
 		if (ImGui::Checkbox("Show Grid", &g_ShowGrid)) {
 			ImGui::MarkIniSettingsDirty();
@@ -198,7 +201,7 @@ void RenderSettingsWindow(bool* open) {
 
 	// --- Engine (read-only unit/coord info + CSM toggle) ---------
 	if (ImGui::CollapsingHeader("Engine")) {
-		// Read-only reference info — see Camera.h / docs/ARCHITECTURE.md §5.1.
+		// Read-only reference info -- see Camera.h / docs/ARCHITECTURE.md sec 5.1.
 		ImGui::TextDisabled("Unit:   1 unit = 1 cm");
 		ImGui::TextDisabled("Coords: right-handed, +Y up, -Z front");
 		ImGui::Spacing();
@@ -213,7 +216,7 @@ void RenderSettingsWindow(bool* open) {
 		if (Pipeline::Active && settings) {
 			// HDR toggle. The renderSettings block now carries
 			// HDR / CSM / the postprocess chain, so toggling HDR
-			// is a single click — no Camera-component ceremony
+			// is a single click -- no Camera-component ceremony
 			// required. (Earlier revisions opened an "Add Camera?"
 			// confirm dialog here, but the camera typically lives
 			// in a child node, not the root, so the existence
@@ -229,7 +232,7 @@ void RenderSettingsWindow(bool* open) {
 				// to read, so HDR-on silently disabled postprocessing
 				// (chainReplacesFinal = false). Only swaps when the
 				// current pipeline is one of the two stock JSONs (or
-				// unset) — never stomps a custom pipeline.
+				// unset) -- never stomps a custom pipeline.
 				static const char* kLdrPipeline = "Resource/Pipeline/DefferedLightingLambert.json";
 				static const char* kHdrPipeline = "Resource/Pipeline/DefferedLightingPBR.json";
 				const std::string &cur = settings->GetPipelinePath();
@@ -246,7 +249,7 @@ void RenderSettingsWindow(bool* open) {
 			}
 
 			// CSM toggle. Reads from the scene's renderSettings
-			// (the single source of truth — the pipeline switch is
+			// (the single source of truth -- the pipeline switch is
 			// seeded from it on each frame by
 			// PrelightPipeline::Execute).
 			bool csm = settings->IsCascadedShadowMap();
@@ -261,8 +264,8 @@ void RenderSettingsWindow(bool* open) {
 			ImGui::TextDisabled("Postprocess chain (fixed order)");
 
 			// Chain order is engine-owned: PrelightPipeline runs
-			// effects sorted by (stage, order, name) — pre-tonemap
-			// (SSAO/SSR) → tonemap (ACES, auto with HDR) →
+			// effects sorted by (stage, order, name) -- pre-tonemap
+			// (SSAO/SSR) -> tonemap (ACES, auto with HDR) ->
 			// post-tonemap (FXAA/CRT). Users only toggle effects
 			// on/off here; there is deliberately no reorder UI.
 			// Entry order in the saved scene is ignored at runtime.
@@ -309,7 +312,7 @@ void RenderSettingsWindow(bool* open) {
 				ImGui::SameLine();
 				if (isTonemap) {
 					// Tonemapping is not a user choice: it tracks the
-					// HDR checkbox (HDR on → always tonemapped).
+					// HDR checkbox (HDR on -> always tonemapped).
 					ImGui::BeginDisabled();
 					ImGui::Checkbox("Enabled", &enabled);
 					ImGui::EndDisabled();
@@ -324,7 +327,7 @@ void RenderSettingsWindow(bool* open) {
 				}
 
 				// Edit opens the per-effect settings dialog (uniform
-				// overrides). Toggling isn't required first — an entry
+				// overrides). Toggling isn't required first -- an entry
 				// is created (kept disabled) so e.g. ACES exposure is
 				// editable while the auto flag governs execution.
 				ImGui::SameLine();
@@ -335,7 +338,7 @@ void RenderSettingsWindow(bool* open) {
 						editIdx = static_cast<int>(chain.size()) - 1;
 						Editor::MarkSceneDirty();
 					}
-					// Only record the request here — OpenPopup runs
+					// Only record the request here -- OpenPopup runs
 					// after the loop at matching ID depth.
 					g_EditChainIndex = editIdx;
 				}
@@ -402,10 +405,12 @@ void RenderSettingsWindow(bool* open) {
 
 							float v[4] = {0, 0, 0, 0};
 							int arity = 0;
-							if (auto p = std::dynamic_pointer_cast<Uniform1f>(current)) { v[0] = p->GetDataAt(0); arity = 1; }
-							else if (auto p = std::dynamic_pointer_cast<Uniform2f>(current)) { v[0] = p->GetDataAt(0); v[1] = p->GetDataAt(1); arity = 2; }
-							else if (auto p = std::dynamic_pointer_cast<Uniform3f>(current)) { v[0] = p->GetDataAt(0); v[1] = p->GetDataAt(1); v[2] = p->GetDataAt(2); arity = 3; }
-							else if (auto p = std::dynamic_pointer_cast<Uniform4f>(current)) { v[0] = p->GetDataAt(0); v[1] = p->GetDataAt(1); v[2] = p->GetDataAt(2); v[3] = p->GetDataAt(3); arity = 4; }
+							// p1..p4 (not p) to dodge MSVC C4456 -- the else-if
+							// chain still short-circuits on first match.
+							if (auto p1 = std::dynamic_pointer_cast<Uniform1f>(current)) { v[0] = p1->GetDataAt(0); arity = 1; }
+							else if (auto p2 = std::dynamic_pointer_cast<Uniform2f>(current)) { v[0] = p2->GetDataAt(0); v[1] = p2->GetDataAt(1); arity = 2; }
+							else if (auto p3 = std::dynamic_pointer_cast<Uniform3f>(current)) { v[0] = p3->GetDataAt(0); v[1] = p3->GetDataAt(1); v[2] = p3->GetDataAt(2); arity = 3; }
+							else if (auto p4 = std::dynamic_pointer_cast<Uniform4f>(current)) { v[0] = p4->GetDataAt(0); v[1] = p4->GetDataAt(1); v[2] = p4->GetDataAt(2); v[3] = p4->GetDataAt(3); arity = 4; }
 							if (arity == 0) continue;
 
 							// Descriptor-declared editor metadata:
@@ -530,7 +535,7 @@ void RenderProfilerPerfTab() {
 	ImGui::Text("SkinnedMesh: %u", RenderUtil::Instance()->GetSkinnedMeshCount());
 	ImGui::Text("Light: %u", RenderUtil::Instance()->GetLightCount());
 
-	// Current-camera readout — for matching a co-debugger's view.
+	// Current-camera readout -- for matching a co-debugger's view.
 	if (Pipeline::Active && Pipeline::Active->GetCurrentCamera())
 	{
 		auto camNode = Pipeline::Active->GetCurrentCamera();
@@ -590,7 +595,7 @@ void RenderProfilerGBufferTab() {
 		}
 	}
 
-	// Size previews to match the rendered framebuffer aspect — using the Profiler window itself produces tall-narrow distortion when docked on the side.
+	// Size previews to match the rendered framebuffer aspect -- using the Profiler window itself produces tall-narrow distortion when docked on the side.
 	const float content_w = ImGui::GetContentRegionAvail().x;
 	float img_w = content_w > 0.0f ? content_w : 256.0f;
 	if (img_w > 320.0f) img_w = 320.0f;
@@ -641,7 +646,7 @@ void RenderProfilerGBufferTab() {
 		s_previewShader->BindMesh(MeshUtil::GetUnitQuad());
 		s_previewShader->BindTexture("src", t);
 		s_previewShader->BindInt("u_depth", is_depth ? 1 : 0);
-		glDrawElements(GL_TRIANGLES, MeshUtil::GetUnitQuad()->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(MeshUtil::GetUnitQuad()->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 		s_previewShader->UnBind();
 		s_previewPass->UnBind();
 
@@ -652,10 +657,10 @@ void RenderProfilerGBufferTab() {
 
 	// LDR/HDR auto-switch: the HDR pipeline (DefferedLightingPBR)
 	// names its lighting targets hdr_light / hdr_composite (rgba16f)
-	// and has no gbuffer_light at all — key the list off what the
+	// and has no gbuffer_light at all -- key the list off what the
 	// active pipeline declares rather than the LDR layout, so the
 	// light buffer keeps updating after a pipeline switch. HDR
-	// float sources clamp to white where >1 ("hot" — acceptable
+	// float sources clamp to white where >1 ("hot" -- acceptable
 	// for debug).
 	show("Depth Buffer:", "gbuffer_depth", true);
 	show("Normal Buffer:", "gbuffer_normal", false);
@@ -666,7 +671,7 @@ void RenderProfilerGBufferTab() {
 	} else {
 		show("Light Buffer:", "gbuffer_light", false);
 	}
-	// Buffer debug view (viewport toolbar View SSAO/SSR) — shown
+	// Buffer debug view (viewport toolbar View SSAO/SSR) -- shown
 	// here too when the pipeline produced one this frame.
 	if (Pipeline::Active->GetDebugViewTexture()) {
 		show("Debug View (SSAO/SSR):", "debug_view", false);
@@ -721,7 +726,7 @@ void RenderProfilerShadowsTab() {
 
 	// 2. Light-selector combo. Hidden when only one light (no point
 	//    showing a picker). The dropdown lists individual lights only;
-	//    there is no "All lights" entry — each shadow map is large
+	//    there is no "All lights" entry -- each shadow map is large
 	//    enough that stacking them is not useful.
 	if (shadowLightNodes.size() > 1) {
 		auto selNode = shadowLightNodes[g_SelectedShadowLightIndex];
@@ -997,12 +1002,12 @@ bool IsDescendantOf(SceneNode* ancestor, SceneNode* target) {
 // Adjust node's local TRS so the world transform stays the same after reparenting. Call BEFORE RemoveChild/AddChild.
 void PreserveWorldTransformOnReparent(SceneNode* node, SceneNode* newParent) {
 	if (!node || !newParent) return;
-	// newLocal = newParentWorld^-1 × nodeWorld, decomposed. Piecewise
+	// newLocal = newParentWorld^-1 x nodeWorld, decomposed. Piecewise
 	// GetWorldRoattion / GetWorldScale reads are NOT safe here: under
-	// scaled ancestors (the outdoor scene's ×100 RootNode) they return
+	// scaled ancestors (the outdoor scene's x100 RootNode) they return
 	// scale-polluted non-unit quaternions and translation-contaminated
 	// scales, and writing them back as local TRS compounds the error on
-	// every reparent — the emitter node ballooned ×10⁴ on the first move
+	// every reparent -- the emitter node ballooned x10⁴ on the first move
 	// ("particles gone"), and acos(w>1) NaN'd its world matrix on the
 	// second (OcTree GrowRootToContain nodeCenter=nan).
 	Matrix4 newLocal =
@@ -1010,15 +1015,15 @@ void PreserveWorldTransformOnReparent(SceneNode* node, SceneNode* newParent) {
 	Vector4 newLocalPos, newLocalScl;
 	Quaternion newLocalRot;
 	if (!MathUtil::Decompose(newLocal, newLocalPos, newLocalRot, newLocalScl))
-		return; // singular basis — leave the transform untouched
+		return; // singular basis -- leave the transform untouched
 	node->SetLocalPosition(newLocalPos);
 	node->SetLocalRoattion(newLocalRot);
 	node->SetLocalScale(newLocalScl);
 }
 
 // Pick a sibling-unique name under `parent`. "Node", "Node (1)",
-// "Node (2)", … Mirrors the engine's lack of unique-name enforcement
-// (siblings may legitimately share a name) — we just want
+// "Node (2)", ... Mirrors the engine's lack of unique-name enforcement
+// (siblings may legitimately share a name) -- we just want
 // inspector-generated names to never collide. Delegates to the
 // engine-level `UniqueName` helper (EntityUtil.h) so asset
 // rename/duplicate and node rename share the same suffix scheme.
@@ -1046,7 +1051,7 @@ void DoAddChild(SceneNode* target) {
 void DoDuplicate(SceneNode* target) {
 	if (!target) return;
 	auto parent = target->GetParent();
-	if (!parent) return; // root — caller filters the menu
+	if (!parent) return; // root -- caller filters the menu
 	std::string baseName = target->GetName();
 	if (baseName.empty()) baseName = "Node";
 	std::string copyName = baseName + " (copy)";
@@ -1067,7 +1072,7 @@ void DoDuplicate(SceneNode* target) {
 // selection pointed at the deleted node, clear it.
 void DoDelete(SceneNode* target) {
 	if (!target) return;
-	if (!target->GetParent()) return; // root — caller filters the menu
+	if (!target->GetParent()) return; // root -- caller filters the menu
 	if (g_SelectedSceneNode == target)
 		SetSelectedSceneNode(nullptr);
 	g_RenameStates.erase(target);
@@ -1149,20 +1154,20 @@ void HandleRowInteractions(SceneNode* node, int depth, bool isOpen) {
 			g_HoverExpandStart.erase(it);
 		}
 	} else {
-		// Cursor left the row — reset the dwell timer.
+		// Cursor left the row -- reset the dwell timer.
 		g_HoverExpandStart.erase(node);
 	}
 }
 
 // Shared row renderer used by both the Scene::Active path and the
 // Lua-provided TreeNode path. `node` may be nullptr for synthetic
-// rows supplied by Lua (read-only display only — interactions
+// rows supplied by Lua (read-only display only -- interactions
 // are skipped when node is null).
 void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, bool* outOpen) {
 	const bool isRoot = (depth == 0);
 	// OpenOnArrow (click the triangle) is handled by ImGui. We don't
 	// pass OpenOnDoubleClick because the double-click branch below
-	// flips the storage directly — a reliable, version-agnostic path
+	// flips the storage directly -- a reliable, version-agnostic path
 	// that avoids depending on the ImGui flag firing in this context.
 	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
 	if (isRoot) flags |= ImGuiTreeNodeFlags_DefaultOpen;
@@ -1180,7 +1185,7 @@ void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, b
 	if (rit != g_RenameStates.end() && rit->second.active) {
 		// Render an empty tree node + InputText on the same line.
 		// The Leaf + NoTreePushOnOpen flags prevent the tree node
-		// from opening/closing or pushing onto the ID stack — we
+		// from opening/closing or pushing onto the ID stack -- we
 		// also force `open=false` so the caller's TreePop() is
 		// skipped (ImGui asserts if TreePop has no matching
 		// push). The user can keep editing children visually
@@ -1220,13 +1225,13 @@ void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, b
 
 	// Double-click on any non-root row: request a camera frame AND
 	// toggle expand/collapse. We flip the storage directly instead of
-	// using ImGuiTreeNodeFlags_OpenOnDoubleClick — the flag is unreliable
+	// using ImGuiTreeNodeFlags_OpenOnDoubleClick -- the flag is unreliable
 	// in this layout (its press detection races with our own click
 	// check, and in some ImGui builds the toggle never fires on the
 	// label area). The next frame's TreeNodeEx picks up the flipped
 	// state and the children appear. Leaves can't expand (zero
 	// children), so the frame is the only visible effect for them.
-	// Rename is no longer reachable via double-click — use F2 or the
+	// Rename is no longer reachable via double-click -- use F2 or the
 	// context menu's "Rename" entry instead.
 	if (node && !isRoot && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
 		Editor::FrameSelection(node);
@@ -1273,7 +1278,7 @@ void RenderSceneInspectorWindow(bool* open) {
 	}
 
 	// F2 activates rename on the currently selected node. We only
-	// trigger if the inspector window itself has focus — otherwise
+	// trigger if the inspector window itself has focus -- otherwise
 	// F2 in the viewport or another panel could surprise the user.
 	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_F2) && g_SelectedSceneNode && g_SelectedSceneNode->GetParent() != nullptr) {
 		DoRenameActivate(g_SelectedSceneNode);
@@ -1325,7 +1330,7 @@ void RenderSceneInspectorWindow(bool* open) {
 		if (Scene::Active) {
 			// SetParent's Recompose refreshes already-registered nodes
 			// (UpdateSceneNode), and AddSceneNodeRecursively does NOT
-			// dedupe — together they double-register (a stale entry stays
+			// dedupe -- together they double-register (a stale entry stays
 			// in the old tree node forever). Remove first so the re-add
 			// is idempotent for both registered and fresh subtrees.
 			sp->RemoveFromOcTree(true);
@@ -1399,7 +1404,7 @@ void RenderConsoleWindow(bool* open) {
 		ImGui::PopStyleColor();
 	}
 
-	// Auto-scroll only when the user is already at the bottom — this
+	// Auto-scroll only when the user is already at the bottom -- this
 	// preserves manual scrollback behavior.
 	if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
 		ImGui::SetScrollHereY(1.0f);
@@ -1453,13 +1458,13 @@ namespace {
 static std::optional<std::pair<std::type_index, std::string>> g_RenamingAsset;
 static char g_RenameBuffer[256];
 
-// Right-click → Refresh sets this. No-op since we re-enumerate
+// Right-click -> Refresh sets this. No-op since we re-enumerate
 // every frame, but the menu item exists per spec.
 static bool g_NeedsRefresh = false;
 
 // Display mode for the Content Browser grid. Persisted to
 // imgui.ini via the Settings handler (see Editor.cpp's
-// FuryEditor Settings handler — we piggy-back on the existing
+// FuryEditor Settings handler -- we piggy-back on the existing
 // `ContentBrowser.DisplayMode` ini key).
 enum class DisplayMode { List = 0,
 						 Thumbnail = 1 };
@@ -1626,7 +1631,7 @@ unsigned int CountAssetReferences(std::type_index type,
 						if (mr->GetMaterial(i) == mat) ++count;
 				}
 			}
-			// ParticleRenderers reference their system BY NAME — count
+			// ParticleRenderers reference their system BY NAME -- count
 			// name matches, not pointer identity.
 			if (type == typeid(ParticleSystem)) {
 				if (auto pr = node->GetComponent<ParticleRenderer>()) {
@@ -1642,7 +1647,7 @@ unsigned int CountAssetReferences(std::type_index type,
 }
 
 // Retarget every ParticleRenderer in the scene that references
-// `oldName` to `newName` — renderers reference their system by name,
+// `oldName` to `newName` -- renderers reference their system by name,
 // so a rename must rewrite the name strings or the next resolve
 // (fresh node, scene reload) silently loses the binding.
 void RetargetParticleRenderers(const std::string& oldName,
@@ -1714,15 +1719,15 @@ void CommitAssetRename(const TileEntry& tile, const std::string& name,
 	}
 }
 
-// Helper: ellipsize `name` to fit `width` pixels, appending "…".
+// Helper: ellipsize `name` to fit `width` pixels, appending "...".
 static std::string EllipsizeName(const std::string& name, float width) {
 	ImVec2 ts = ImGui::CalcTextSize(name.c_str());
 	if (ts.x <= width)
 		return name;
-	float ellW = ImGui::CalcTextSize("…").x;
+	float ellW = ImGui::CalcTextSize("...").x;
 	float budget = width - ellW;
 	if (budget <= 0)
-		return "…";
+		return "...";
 	size_t lo = 0, hi = name.size(), best = 0;
 	while (lo <= hi) {
 		size_t mid = (lo + hi) / 2;
@@ -1733,15 +1738,16 @@ static std::string EllipsizeName(const std::string& name, float width) {
 		} else
 			hi = mid - 1;
 	}
-	return name.substr(0, best) + "…";
+	return name.substr(0, best) + "...";
 }
 
 // Render a single asset tile. The whole tile (thumbnail + label)
 // is one Selectable, so the user can click anywhere on the tile
-// to select it — not just on the label text. In Thumbnail mode
-// the tile shows a 96×96 thumbnail + name; in List mode it shows
+// to select it -- not just on the label text. In Thumbnail mode
+// the tile shows a 96x96 thumbnail + name; in List mode it shows
 // just the name as a row.
 void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
+	(void)anyTileScrolled;
 	const std::string& name = tile.name;
 	// ID must be unique across TYPES too: a mesh and a material can
 	// share a name (glTF imports do this constantly) and otherwise
@@ -1773,7 +1779,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		auto mat = std::static_pointer_cast<Material>(tile.ptr);
 		RenderMaterialThumbnail(mat, thumb_min);
 	} else if (tile.type == typeid(Texture)) {
-		// Texture tile — render the texture's own GL image as the
+		// Texture tile -- render the texture's own GL image as the
 		// thumbnail. Textures are first-class assets now, registered
 		// in the EntityManager by Scene::Load and GltfImporter.
 		auto tex = std::static_pointer_cast<Texture>(tile.ptr);
@@ -1782,7 +1788,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 					 ImVec2(kTileThumbnail, kTileThumbnail),
 					 ImVec2(0, 1), ImVec2(1, 0));
 	} else if (tile.type == typeid(AnimationClip)) {
-		// AnimationClip tile — no GPU thumbnail; render a flat
+		// AnimationClip tile -- no GPU thumbnail; render a flat
 		// placeholder rect. The top-left badge (added below) already
 		// labels the tile type, so the rect itself has no text.
 		ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
@@ -1791,7 +1797,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
 												  ImGui::GetColorU32(ImVec4(0.20f, 0.30f, 0.22f, 1.0f)));
 	} else if (tile.type == typeid(ParticleSystem)) {
-		// ParticleSystem tile — same placeholder-rect treatment as
+		// ParticleSystem tile -- same placeholder-rect treatment as
 		// AnimationClip (no GPU thumbnail). MUST be an explicit branch:
 		// the fallthrough `else` below casts tile.ptr to Mesh, which
 		// reinterprets the ParticleSystem and crashes (SIGBUS).
@@ -1860,7 +1866,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			if (g_RenamingAsset)
 				ImGui::SetKeyboardFocusHere(-1);
 		} else {
-			// Plain text label — no Selectable, no hover background.
+			// Plain text label -- no Selectable, no hover background.
 			// Click handling is done by the InvisibleButton over the
 			// thumbnail (##thumb_hit) and the whole-tile InvisibleButton
 			// added below.
@@ -1920,7 +1926,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			if (g_RenamingAsset)
 				ImGui::SetKeyboardFocusHere(-1);
 		} else {
-			// Plain text label — no Selectable, no hover background.
+			// Plain text label -- no Selectable, no hover background.
 			ImGui::TextUnformatted(display.c_str());
 			// InvisibleButton over the row for click handling.
 			ImGui::SetCursorScreenPos(tile_min);
@@ -1955,7 +1961,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	// Right-click context menu (on the whole tile group).
 	std::string ctx_id = "ctx_" + name;
 	if (ImGui::BeginPopupContextItem(ctx_id.c_str())) {
-		// Duplicate supports Mesh + Material + ParticleSystem — the
+		// Duplicate supports Mesh + Material + ParticleSystem -- the
 		// remaining asset types (Texture, AnimationClip) have no typed
 		// clone path here and stay hidden instead of mis-serializing.
 		if ((tile.type == typeid(Mesh) || tile.type == typeid(Material) ||
@@ -1986,7 +1992,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				// Clone() copies every module; the new system starts
 				// with an empty pool (live particles are runtime state,
 				// not authoring data). Renderers keep referencing the
-				// ORIGINAL system name — correct.
+				// ORIGINAL system name -- correct.
 				auto orig = std::static_pointer_cast<ParticleSystem>(tile.ptr);
 				auto copy = orig->Clone();
 				copy->SetName(newName);
@@ -2047,9 +2053,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				Editor::MarkSceneDirty();
 			}
 		}
-		// Refresh (Mesh only) — invalidate the cached thumbnail
+		// Refresh (Mesh only) -- invalidate the cached thumbnail
 		// so the next periodic poll re-hashes and re-renders.
-		// Wired to the disk-cache spec's "right-click → Refresh"
+		// Wired to the disk-cache spec's "right-click -> Refresh"
 		// path. Materials are not thumbnails, so no Refresh item
 		// for them.
 		if (tile.type == typeid(Mesh)) {
@@ -2110,7 +2116,7 @@ void RenderContentBrowserWindow(bool* open) {
 
 	// Build the set of live BufferIds from the current tiles,
 	// then evict stale mesh-thumbnail cache entries (task 7.3).
-	// Uses the UNFILTERED set — filtering the grid must never
+	// Uses the UNFILTERED set -- filtering the grid must never
 	// evict thumbnails of hidden tiles.
 	std::unordered_set<size_t> liveBufferIds;
 	for (const auto& tile : tiles) {
@@ -2127,7 +2133,7 @@ void RenderContentBrowserWindow(bool* open) {
 				 IM_ARRAYSIZE(kFilterTypeNames));
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(-FLT_MIN);
-	ImGui::InputTextWithHint("##cb_search", "Search…", g_FilterText,
+	ImGui::InputTextWithHint("##cb_search", "Search...", g_FilterText,
 							 IM_ARRAYSIZE(g_FilterText));
 	ImGui::Separator();
 
@@ -2141,8 +2147,8 @@ void RenderContentBrowserWindow(bool* open) {
 		return;
 	}
 
-	// Evict the Refresh flag (no-op — we re-enumerate every
-	// frame — but the menu item exists per spec).
+	// Evict the Refresh flag (no-op -- we re-enumerate every
+	// frame -- but the menu item exists per spec).
 	g_NeedsRefresh = false;
 
 	// Wrapping grid. panel_right_x is the screen-space right
@@ -2174,7 +2180,7 @@ void RenderContentBrowserWindow(bool* open) {
 			ImGui::SameLine();
 	}
 
-	// Right-click on empty grid space → Refresh + Display.
+	// Right-click on empty grid space -> Refresh + Display.
 	if (tiles.empty() == false) {
 		ImGui::InvisibleButton("##empty_grid", ImGui::GetContentRegionAvail());
 		if (ImGui::BeginPopupContextItem("ctx_empty")) {
@@ -2196,7 +2202,7 @@ void RenderContentBrowserWindow(bool* open) {
 }
 
 // ----------------------------------------------------------------
-// Viewport window — docks the 3D scene into the editor dockspace.
+// Viewport window -- docks the 3D scene into the editor dockspace.
 // The scene renders to an offscreen RenderTarget (sized to the
 // window's content rect) and is presented via ImGui::Image. The
 // captured content rect (g_ViewportContentMin/Size) is what the
@@ -2204,11 +2210,11 @@ void RenderContentBrowserWindow(bool* open) {
 // ----------------------------------------------------------------
 // Viewport top toolbar: gizmo controls flush-left, the Debug
 // Overlays combo flush-right. Consumes one line of the window's
-// content region — RenderViewportWindow captures the scene rect
+// content region -- RenderViewportWindow captures the scene rect
 // AFTER this runs, so gizmo / picking coordinates stay correct.
 void RenderViewportToolbar() {
 	// --- Left: gizmo mode ----------------------------------------
-	// (Snap toggle lives in Settings → Editor next to the snap step
+	// (Snap toggle lives in Settings -> Editor next to the snap step
 	// sizes; the toolbar stays minimal.)
 	bool changed = false;
 	if (ImGui::RadioButton("Translate", g_GizmoOp == ImGuizmo::TRANSLATE)) {
@@ -2229,7 +2235,7 @@ void RenderViewportToolbar() {
 
 	// --- Right: debug view (single-select) + overlays (multi) ----
 	// Debug views replace the viewport image with a buffer view
-	// (pipeline DrawEffectDebugView) — inherently single-select.
+	// (pipeline DrawEffectDebugView) -- inherently single-select.
 	// Overlays draw on top of the scene and combine freely.
 	static int debug_view = 0; // 0=none, 1=SSAO, 2=SSR
 	static bool draw_light_bounds = false;
@@ -2305,7 +2311,7 @@ void RenderViewportToolbar() {
 		ImGui::EndCombo();
 	}
 	if (overlayState[0] != g_ShowGrid) {
-		// Reference grid toggle (persisted; Settings → Editor → Show
+		// Reference grid toggle (persisted; Settings -> Editor -> Show
 		// Grid binds the same global). Applied per-frame below so
 		// pipeline recreation can't silently reset it.
 		g_ShowGrid = overlayState[0];
@@ -2353,7 +2359,7 @@ void RenderViewportWindow(bool* open) {
 		return;
 	}
 
-	// Top toolbar (gizmo + debug overlays) — consumes one line, so
+	// Top toolbar (gizmo + debug overlays) -- consumes one line, so
 	// the scene rect captured below already excludes the bar.
 	RenderViewportToolbar();
 
@@ -2389,7 +2395,7 @@ void RenderViewportWindow(bool* open) {
 		// scene isn't stretched when the window is resized. FOV /
 		// near / far are preserved. SetAspect (unlike PerspectiveFov)
 		// preserves the frustum's world transform so culling keeps
-		// working — the camera node owns that transform.
+		// working -- the camera node owns that transform.
 		if (auto camNode = Pipeline::Active->GetCurrentCamera()) {
 			if (auto cam = camNode->GetComponent<Camera>()) {
 				const float aspect = static_cast<float>(w) / static_cast<float>(h);
@@ -2399,7 +2405,7 @@ void RenderViewportWindow(bool* open) {
 
 		g_ViewportVisible = true;
 
-		// Present the RT's color texture — or the buffer debug view
+		// Present the RT's color texture -- or the buffer debug view
 		// (SSAO/SSR) while one is active. The texture is sampled
 		// during Gui::Render (after Pipeline::Execute has written
 		// this frame's scene into it), so there's no one-frame lag.

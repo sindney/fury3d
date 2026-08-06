@@ -192,15 +192,15 @@ public:
 
 	void WriteBack(int component, int pointIndex, ImVec2 value)
 	{
-		std::vector<KeyFrame>* bucket = nullptr;
+		std::vector<KeyFrame>* target = nullptr;
 		if (channel)
 		{
-			if (bucket == nullptr && this->bucket == 0) bucket = &channel->positions;
-			else if (this->bucket == 1) bucket = &channel->rotations;
-			else bucket = &channel->scalings;
+			if (target == nullptr && this->bucket == 0) target = &channel->positions;
+			else if (this->bucket == 1) target = &channel->rotations;
+			else target = &channel->scalings;
 		}
-		if (!bucket || pointIndex < 0 || pointIndex >= static_cast<int>(bucket->size())) return;
-		auto &kf = (*bucket)[pointIndex];
+		if (!target || pointIndex < 0 || pointIndex >= static_cast<int>(target->size())) return;
+		auto &kf = (*target)[pointIndex];
 		kf.tick = static_cast<unsigned int>(std::max(0.0f, value.x));
 		if (component == 0) kf.x = value.y;
 		else if (component == 1) kf.y = value.y;
@@ -222,7 +222,7 @@ void RenderAnimationWindow(bool* pOpen)
 	}
 
 	// Gather clips from the active scene (shared enumeration with the
-	// asset-picker modal — Editor::CollectAnimationClips).
+	// asset-picker modal -- Editor::CollectAnimationClips).
 	auto clips = Editor::CollectAnimationClips();
 
 	if (clips.empty())
@@ -248,7 +248,7 @@ void RenderAnimationWindow(bool* pOpen)
 	// Resolve the active Animator. Three sources, in order:
 	// 1. `s_ActiveAnim` (user picked from the dropdown below)
 	// 2. The currently selected node's Animator (treeview pick)
-	// 3. (none) — no fallback; the user must pick explicitly.
+	// 3. (none) -- no fallback; the user must pick explicitly.
 	std::shared_ptr<Animator> anim;
 	std::shared_ptr<AnimationState> animState;
 	std::shared_ptr<SceneNode> animOwner;
@@ -266,7 +266,7 @@ void RenderAnimationWindow(bool* pOpen)
 			if (anim) animOwner = sel->shared_from_this();
 		}
 	}
-	// Mirror the dropdown into the treeview selection — lets the user
+	// Mirror the dropdown into the treeview selection -- lets the user
 	// switch the Animator target by clicking a node in the Scene Inspector.
 	if (animOwner && s_ActiveAnim != anim)
 	{
@@ -278,7 +278,7 @@ void RenderAnimationWindow(bool* pOpen)
 	if (anim)
 		animState = anim->GetState(currentClip->GetName());
 
-	// Animator dropdown — Animators are not registered in the EntityManager
+	// Animator dropdown -- Animators are not registered in the EntityManager
 	// (they're attached as components to SceneNodes), so we walk the active
 	// scene's node tree and collect every node that owns an Animator.
 	std::vector<std::shared_ptr<Animator>> animators;
@@ -372,7 +372,7 @@ void RenderAnimationWindow(bool* pOpen)
 
 	// Mirror the playhead from the Animator's state time when playing.
 	// (Read-only: the Animator's own OnUpdate tick is already posing the
-	// mesh, so we must NOT re-pose here — that would double-tick.)
+	// mesh, so we must NOT re-pose here -- that would double-tick.)
 	const bool playing = anim && animState && anim->IsPlaying(currentClip->GetName());
 	if (playing)
 		s_CurrentFrame = static_cast<int>(animState->GetTickTime());
@@ -391,7 +391,7 @@ void RenderAnimationWindow(bool* pOpen)
 
 	// Scrub ONLY on a user-initiated playhead drag (ImSequencer changed
 	// the frame while not auto-playing). When playing, the Animator's
-	// own tick handles posing — re-posing here would double-advance.
+	// own tick handles posing -- re-posing here would double-advance.
 	bool userDragged = (!playing) && (s_CurrentFrame != frameBeforeSequencer);
 	if (anim && animState && userDragged)
 	{
@@ -455,7 +455,7 @@ static bool ProjectToScreen(const Vector4 &world, const Matrix4 &viewProj,
 	float ndcX = clip.x * invW;
 	float ndcY = clip.y * invW;
 	float ndcZ = clip.z * invW;
-	// NDC → screen.
+	// NDC -> screen.
 	outScreen.x = origin.x + (ndcX * 0.5f + 0.5f) * size.x;
 	outScreen.y = origin.y + (1.0f - (ndcY * 0.5f + 0.5f)) * size.y;
 	outDepth = ndcZ;
@@ -498,7 +498,7 @@ void RenderJointDebugOverlay(const ImVec2 &origin, const ImVec2 &size)
 		// correctness. Iterate every joint by index (the mesh's flat
 		// list) instead of walking the linked tree. Joint world
 		// positions come from each joint's linked SceneNode (wired at
-		// import and re-linked on scene load) — the scene graph already
+		// import and re-linked on scene load) -- the scene graph already
 		// includes ancestors like the skeleton root's parent.
 		std::unordered_map<std::string, Vector4> worldByName;
 		const unsigned int jCount = mesh->GetJointCount();

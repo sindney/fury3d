@@ -181,19 +181,19 @@ namespace fury
 		Entity::Save(wrapper, false);
 
 		SaveKey(wrapper, "shaders");
-		SaveArray(wrapper, m_Shaders.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_Shaders.size()), [&](unsigned int index)
 		{
 			SaveValue(wrapper, m_Shaders[index]->GetName());
 		});
 
 		SaveKey(wrapper, "input");
-		SaveArray(wrapper, m_InputTextures.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_InputTextures.size()), [&](unsigned int index)
 		{
 			SaveValue(wrapper, m_InputTextures[index]->GetName());
 		});
 
 		SaveKey(wrapper, "output");
-		SaveArray(wrapper, m_OutputTextures.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_OutputTextures.size()), [&](unsigned int index)
 		{
 			SaveValue(wrapper, m_OutputTextures[index]->GetName());
 		});
@@ -384,7 +384,7 @@ namespace fury
 
 	unsigned int Pass::GetShaderCount() const
 	{
-		return m_Shaders.size();
+		return static_cast<int>(m_Shaders.size());
 	}
 
 	void Pass::AddTexture(const std::shared_ptr<Texture> &texture, bool input)
@@ -398,7 +398,7 @@ namespace fury
 
 	std::shared_ptr<Texture> Pass::GetTextureAt(unsigned int index, bool input) const
 	{
-		unsigned int size = input ? m_InputTextures.size() : m_OutputTextures.size();
+		unsigned int size = static_cast<unsigned int>(input ? m_InputTextures.size() : m_OutputTextures.size());
 		if (index >= size) return nullptr;
 
 		return input ? m_InputTextures[index] : m_OutputTextures[index];
@@ -452,20 +452,20 @@ namespace fury
 				if (m_OutputTextures[i]->GetName() == name)
 					return i;
 		}
-		return -1;
+		return 0xFFFFFFFFu;
 	}
 
 	std::shared_ptr<Texture> Pass::GetTexture(const std::string &name, bool input) const
 	{
 		unsigned int index = GetTextureIndex(name, input);
-		if (index == -1) return nullptr;
+		if (index == 0xFFFFFFFFu) return nullptr;
 
 		return input ? m_InputTextures[index] : m_OutputTextures[index];
 	}
 
 	unsigned int Pass::GetTextureCount(bool input) const
 	{
-		return input ? m_InputTextures.size() : m_OutputTextures.size();
+		return static_cast<unsigned int>(input ? m_InputTextures.size() : m_OutputTextures.size());
 	}
 
 	unsigned int Pass::GetFBO() const
@@ -674,7 +674,7 @@ namespace fury
 		// framebuffer) renders into the RT instead. This is what lets the
 		// editor's dockable Viewport window capture the 3D scene. Passes
 		// that have their own output textures (GBuffer etc.) are
-		// unaffected — they keep using their dedicated FBOs.
+		// unaffected -- they keep using their dedicated FBOs.
 		unsigned int bindFBO = m_FrameBuffer;
 		if (m_OutputTextures.size() == 0 && Pipeline::Active != nullptr)
 		{
@@ -730,7 +730,7 @@ namespace fury
 		// state never leaks into unrelated draws (a leaked
 		// GL_BLEND+ONE/ONE once made the postprocess chain
 		// accumulate into the editor RT every frame). Depth test
-		// stays enabled — Bind() always enables it and most
+		// stays enabled -- Bind() always enables it and most
 		// free-standing draws assume that.
 		glDepthMask(GL_TRUE);
 		glDepthFunc(GL_LESS);

@@ -16,10 +16,10 @@ namespace fury
 	// asset conversion or asset inspection).
 	//
 	// The CLI uses stable exit codes:
-	//   0 — success
-	//   1 — user error (bad arguments, unsupported input, file not found,
+	//   0 -- success
+	//   1 -- user error (bad arguments, unsupported input, file not found,
 	//       rejected glTF feature)
-	//   2 — internal error (uncaught exception, assertion failure)
+	//   2 -- internal error (uncaught exception, assertion failure)
 	//
 	// Subcommands are documented inline as `kTopHelp` / `kConvertHelp` /
 	// `kInfoHelp` / `kVersionHelp` constants and mirrored in docs/CLI.md.
@@ -42,8 +42,8 @@ namespace fury
 		// reusing the `fury exec` dispatch. Does NOT set Scene::Active.
 		static std::shared_ptr<Scene> LoadSceneForExec(const std::string &path);
 
-		// `fury render-mesh <scene> <mesh_name> <output.png> [--lod N]` — render
-		// a mesh to a 256×256 PNG. Without --lod, renders LOD 0 (the mesh
+		// `fury render-mesh <scene> <mesh_name> <output.png> [--lod N]` -- render
+		// a mesh to a 256x256 PNG. Without --lod, renders LOD 0 (the mesh
 		// itself). With --lod N, renders mesh->GetLodMesh(N). Needs a GL
 		// context (caller sets it up).
 		static int RenderMesh(int argc, char **argv);

@@ -137,15 +137,15 @@ namespace fury
 
 		for (auto channel : m_Channels)
 		{
-			int posCount = channel->positions.size();
+			size_t posCount = channel->positions.size();
 			if (posCount > 0)
 				Try(channel->positions[posCount - 1].tick);
 
-			int rotCount = channel->rotations.size();
+			size_t rotCount = channel->rotations.size();
 			if (rotCount > 0)
 				Try(channel->rotations[rotCount - 1].tick);
 
-			int sclCount = channel->scalings.size();
+			size_t sclCount = channel->scalings.size();
 			if (sclCount > 0)
 				Try(channel->scalings[sclCount - 1].tick);
 		}
@@ -197,7 +197,7 @@ namespace fury
 
 	int AnimationClip::GetChannelCount() const
 	{
-		return m_Channels.size();
+		return static_cast<int>(m_Channels.size());
 	}
 
 	AnimationClip::ChannelPtr AnimationClip::AddChannel(const std::string &name)

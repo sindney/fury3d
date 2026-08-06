@@ -91,7 +91,7 @@ namespace fury
 		LoadMemberValue(wrapper, "texture_flags", m_TextureFlags);
 
 		// alpha mode/cutoff: new files carry them; legacy files only
-		// have "opaque" — derive (opaque→OPAQUE, !opaque→BLEND).
+		// have "opaque" -- derive (opaque->OPAQUE, !opaque->BLEND).
 		std::string alphaMode;
 		if (LoadMemberValue(wrapper, "alpha_mode", alphaMode))
 			SetAlphaMode(EnumUtil::AlphaModeFromString(alphaMode));
@@ -214,7 +214,7 @@ namespace fury
 
 		// save shaders
 		SaveKey(wrapper, "shaders");
-		SaveArray(wrapper, m_Shaders.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_Shaders.size()), [&](unsigned int index)
 		{
 			m_Shaders[index]->Save(wrapper);
 		});
@@ -298,7 +298,7 @@ namespace fury
 		// calculate new matching shaderType
 		// Priority is deterministic (diffuse > specular > normal):
 		// iterating the unordered map and taking the first match made
-		// the flags nondeterministic for multi-texture materials —
+		// the flags nondeterministic for multi-texture materials --
 		// a baseColor+normal glTF import could get NORMAL flags and
 		// then match no pass shader ("shader not found").
 		m_TextureFlags = 0;
@@ -319,7 +319,7 @@ namespace fury
 
 	unsigned int Material::GetTextureCount() const
 	{
-		return m_Textures.size();
+		return static_cast<int>(m_Textures.size());
 	}
 
 	const Material::TextureMap &Material::GetTextures() const
@@ -354,7 +354,7 @@ namespace fury
 
 	unsigned int Material::GetUniformCount() const
 	{
-		return m_Uniforms.size();
+		return static_cast<int>(m_Uniforms.size());
 	}
 
 	void Material::SetShaderForPass(unsigned int index, const std::shared_ptr<Shader> &shader)

@@ -131,7 +131,7 @@ namespace fury
 		// draw passes
 
 		Texture::Ptr finalBuffer = nullptr;
-		unsigned int passCount = m_SortedPasses.size();
+		unsigned int passCount = static_cast<int>(m_SortedPasses.size());
 
 		// The chain replaces the LAST quad pass (the screen write)
 		// but keeps intermediate quad passes (e.g. pass_combine)
@@ -185,13 +185,13 @@ namespace fury
 				// CPU-driven billboard particles. Drawn after
 				// transparent mesh units so they participate in
 				// back-to-front sort order. Particles are emissive
-				// in v1 (no light sampling) — they go between the
+				// in v1 (no light sampling) -- they go between the
 				// base pass and the additive light pass, NOT into
 				// the additive loop (which would double-bright
 				// the smoke/fire).
 				if (!query->particleNodes.empty())
 				{
-					// Camera axes (world space) for billboard baking —
+					// Camera axes (world space) for billboard baking --
 					// columns 0/1 of the camera's world matrix.
 					Vector4 camRight(1.0f, 0.0f, 0.0f, 0.0f);
 					Vector4 camUp(0.0f, 1.0f, 0.0f, 0.0f);
@@ -212,7 +212,7 @@ namespace fury
 							ParticleShadowInfo &info)
 					{
 						// Score = light arriving at the emitter: raw
-						// intensity for the directional (NO distance term —
+						// intensity for the directional (NO distance term --
 						// intensity/dist2 reads the sun node's parked
 						// position; a near-origin dim sun outscored every
 						// local light and the spot path never ran),
@@ -240,7 +240,7 @@ namespace fury
 							float dist2 = dx * dx + dy * dy + dz * dz;
 
 							// Influence gate: only lights that REACH
-							// this emitter may be ranked — Particle.glsl
+							// this emitter may be ranked -- Particle.glsl
 							// reads an out-of-range source as fully lit.
 							if (light->GetType() == LightType::POINT)
 							{
@@ -257,7 +257,7 @@ namespace fury
 									continue;
 								}
 								// Emitter must lie within the outer cone;
-								// dx is emitter→light so the inside test
+								// dx is emitter->light so the inside test
 								// flips sign: cosTheta < -cosOuter.
 								float dist = std::sqrt(dist2) + 1e-4f;
 								auto lightFwd = lightNode->GetWorldMatrix()
@@ -299,10 +299,10 @@ namespace fury
 						{
 							info.texture = m_LastShadowTextures[node];
 							auto *sd = mit_helper(node);
-							// Cached matrices map camera-view → shadow
+							// Cached matrices map camera-view -> shadow
 							// UV (deferred convention); particles feed
 							// world pos, so append the camera's
-							// invert-world to chain world→view→shadow UV.
+							// invert-world to chain world->view->shadow UV.
 							const Matrix4 viewFromWorld = m_CurrentCamera
 								? m_CurrentCamera->GetInvertWorldMatrix()
 								: Matrix4();
@@ -358,7 +358,7 @@ namespace fury
 
 #ifdef FURY_BUILD_DEBUG
 						// FURY_SHADOW_DEBUG=1 dumps the pick + rejection
-						// reasons (one block per emitter per frame —
+						// reasons (one block per emitter per frame --
 						// headless debugging only).
 						static const bool kShadowDbg =
 							std::getenv("FURY_SHADOW_DEBUG") != nullptr;
@@ -395,7 +395,7 @@ namespace fury
 						pr->UpdateMesh(camRight, camUp);
 						// Mirror the renderer's blend mode onto GL
 						// state. Particle renderers don't bind the
-						// pipeline's Pass blend — each emitter has
+						// pipeline's Pass blend -- each emitter has
 						// its own ALPHA/ADDITIVE choice.
 						if (pr->GetBlendMode() == ParticleBlend::ADDITIVE)
 							glBlendFunc(GL_ONE, GL_ONE);
@@ -405,7 +405,7 @@ namespace fury
 						// transparent pass convention).
 						glEnable(GL_DEPTH_TEST);
 						glDepthMask(GL_FALSE);
-						// Per-renderer shadow selection — pick the
+						// Per-renderer shadow selection -- pick the
 						// dominant casting light for THIS emitter.
 						ParticleShadowInfo shadowInfo;
 						auto wp = node->GetWorldPosition();
@@ -417,7 +417,7 @@ namespace fury
 				}
 
 				// One additive (ONE, ONE) draw per light so
-				// transparents pick up direct lighting without light arrays. The forward shader premultiplies diffuse by alpha and leaves specular full-strength (glass highlights); per-light occlusion between transparents is ignored — documented approximation.
+				// transparents pick up direct lighting without light arrays. The forward shader premultiplies diffuse by alpha and leaves specular full-strength (glass highlights); per-light occlusion between transparents is ignored -- documented approximation.
 				if (!query->lightNodes.empty())
 				{
 					// Additive over the pass's declared alpha blend: restore exactly when the loop exits so the deviation doesn't leak.
@@ -542,7 +542,7 @@ namespace fury
 		// screen-coverage of the model's AABB, then draw the picked
 		// mesh. When the MeshRender has no LodGroup bound,
 		// GetActiveMesh() returns the original unit.mesh and
-		// UpdateActiveLod is a no-op — preserving the pre-LOD draw
+		// UpdateActiveLod is a no-op -- preserving the pre-LOD draw
 		// path exactly.
 		auto render = node->GetComponent<MeshRender>();
 		if (render) render->UpdateActiveLod(m_CurrentCamera);
@@ -563,7 +563,7 @@ namespace fury
 			if (material->GetAlphaMode() == AlphaMode::MASK)
 				textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
 			// Shadow-receive variant when this draw's light casts
-			// (transparent additive loop) — the shadow samplers/compares
+			// (transparent additive loop) -- the shadow samplers/compares
 			// compile only into the *_shadow_shader variants.
 			if (lightNode)
 				if (auto light = lightNode->GetComponent<Light>())
@@ -705,7 +705,7 @@ namespace fury
 
 		// glTF-standard skinning: skinned vertices reach world space via
 		// Final = JᵢW * ibm (Joint::GetFinalMatrix), so the mesh node's
-		// own world transform must NOT be applied on top — bind identity.
+		// own world transform must NOT be applied on top -- bind identity.
 		if (mesh->IsSkinnedMesh())
 			shader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
 		else
@@ -717,7 +717,7 @@ namespace fury
 		// Per-instance LOD debug tint. When the LOD_DEBUG_COLORS switch is
 		// on, push the active LOD's deterministic color onto the shader so
 		// the fragment can replace/tint its output. When the switch is off,
-		// we still bind the uniform — but to vec4(0) — because OpenGL
+		// we still bind the uniform -- but to vec4(0) -- because OpenGL
 		// program objects retain their last-set uniform values indefinitely,
 		// so a "do nothing" here would leave the previous frame's green
 		// baked in. The shader's `lod_debug_color.a > 0.0` gate treats
@@ -738,15 +738,15 @@ namespace fury
 		{
 			auto subMesh = mesh->GetSubMeshAt(unit.subMesh);
 			shader->BindSubMesh(mesh, unit.subMesh);
-			glDrawElements(GL_TRIANGLES, subMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
-			RenderUtil::Instance()->IncreaseTriangleCount(subMesh->Indices.Data.size());
+			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 		}
 		else
 		{
-			glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
-			RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
+			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
 
 		//shader->UnBind();
@@ -824,7 +824,7 @@ namespace fury
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 
@@ -833,7 +833,7 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer (released at end of Execute —
+		// collect used shadow buffer (released at end of Execute --
 		// the transparent pass samples it for shadow-receiving)
 		if (castShadows)
 			m_FrameShadowTemps.push_back(shadowData.first);
@@ -888,7 +888,7 @@ namespace fury
 			{
 				shader->BindTexture("shadow_buffer", cascadedShadowData.first);
 				// for cacasded shadow maps
-				shader->BindMatrices("shadow_matrix", cascadedShadowData.second.size(), &cascadedShadowData.second[0]);
+				shader->BindMatrices("shadow_matrix", static_cast<int>(cascadedShadowData.second.size()), &cascadedShadowData.second[0]);
 				float base = camPtr->GetFar() - camPtr->GetNear();
 				float average = base / 4.0f;
 				shader->BindFloat("shadow_far", average, average * 2, average * 3, average * 4);
@@ -909,7 +909,7 @@ namespace fury
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 
@@ -1018,7 +1018,7 @@ namespace fury
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 
@@ -1060,8 +1060,8 @@ namespace fury
 		// lambert shader gamma-encodes its output itself to keep the
 		// viewport from rendering too dark. The default-framebuffer path
 		// leaves this 0 and lets GL_FRAMEBUFFER_SRGB do the encoding.
-		// Only screen-bound passes (no output textures) encode —
-		// intermediate composites (e.g. LDR pass_combine → ldr_composite)
+		// Only screen-bound passes (no output textures) encode --
+		// intermediate composites (e.g. LDR pass_combine -> ldr_composite)
 		// must stay linear.
 		shader->BindInt("u_gamma_correct",
 			(m_RenderTarget != nullptr && pass->GetTextureCount(false) == 0) ? 1 : 0);
@@ -1072,12 +1072,12 @@ namespace fury
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 
 		RenderUtil::Instance()->IncreaseDrawCall();
-		RenderUtil::Instance()->IncreaseTriangleCount(mesh->Indices.Data.size());
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 	}
 
 	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture() const
@@ -1110,7 +1110,7 @@ namespace fury
 		if (!sourceTex)
 		{
 			FURYW << "RunPostProcessChain: no lighting output texture "
-					 "found (gbuffer_light/hdr_composite) — chain skipped";
+					 "found (gbuffer_light/hdr_composite) -- chain skipped";
 			return;
 		}
 
@@ -1121,7 +1121,7 @@ namespace fury
 		const TextureFormat fmt = sourceTex->GetFormat();
 
 		// Ping-pong via the temp pool: fresh temp per intermediate
-		// step, each read texture released after its consuming draw —
+		// step, each read texture released after its consuming draw --
 		// read and write never alias, nothing leaks.
 		Texture::Ptr readTex = sourceTex;
 
@@ -1165,7 +1165,7 @@ namespace fury
 			if (!effect) continue;
 			const bool isLast = (i + 1 == m_ActiveChain.size());
 
-			// Compile shader on first use (cached by path+mode); LDR variants get the `LDR` define via a `|ldr`-suffixed key so effects can branch on HDR-only data — e.g. SSR falls back to u_ldr_roughness when Lambert packs no roughness in normal.a.
+			// Compile shader on first use (cached by path+mode); LDR variants get the `LDR` define via a `|ldr`-suffixed key so effects can branch on HDR-only data -- e.g. SSR falls back to u_ldr_roughness when Lambert packs no roughness in normal.a.
 			std::string shaderKey = effect->GetShaderPath();
 			if (!IsHDRMode())
 				shaderKey += "|ldr";
@@ -1205,7 +1205,7 @@ namespace fury
 					if (!reserved)
 					{
 						FURYW << "RunPostProcessChain: effect '" << effect->GetName()
-							  << "' input '" << inputName << "' not found — effect skipped";
+							  << "' input '" << inputName << "' not found -- effect skipped";
 						missingInput = true;
 						break;
 					}
@@ -1243,13 +1243,13 @@ namespace fury
 			shader->BindMesh(quad);
 			shader->BindCamera(m_CurrentCamera);
 
-			// Chain draws are full-screen REPLACES — never inherit
+			// Chain draws are full-screen REPLACES -- never inherit
 			// pipeline state. Without this, the screen-bound final
 			// effect runs with whatever the last pass left behind:
 			// pass_transparent exits with GL_BLEND + glBlendFunc(ONE,
 			// ONE) from its additive light loop, so a single-effect
 			// chain (e.g. [ACES]) ADDED its output into the render
-			// target every frame — the "disable FXAA → progressive
+			// target every frame -- the "disable FXAA -> progressive
 			// overexposure" bug. Multi-effect chains only looked clean
 			// because the intermediate chainPass->Bind(REPLACE) reset
 			// the blend state before the final draw.
@@ -1288,12 +1288,12 @@ namespace fury
 				}
 			}
 
-			glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 			shader->UnBind();
 
 			RenderUtil::Instance()->IncreaseDrawCall();
-			RenderUtil::Instance()->IncreaseTriangleCount(quad->Indices.Data.size());
+			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(quad->Indices.Data.size()));
 
 			if (!isLast)
 				chainPass->UnBind();
@@ -1311,7 +1311,7 @@ namespace fury
 		// Restore default FB + viewport so subsequent draws (editor
 		// debug overlay, GUI) render against the original target.
 		// Render state goes back to the engine's boring defaults
-		// (depth on, blend off) — DrawDebug and ImGui set their own
+		// (depth on, blend off) -- DrawDebug and ImGui set their own
 		// state on top of this.
 		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
 		glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
@@ -1385,7 +1385,7 @@ namespace fury
 				if (!reserved)
 				{
 					FURYW << "DrawEffectDebugView: effect '" << effect->GetName()
-						  << "' input '" << inputName << "' not found — view skipped";
+						  << "' input '" << inputName << "' not found -- view skipped";
 					SetDebugViewTexture(nullptr);
 					return;
 				}
@@ -1451,7 +1451,7 @@ namespace fury
 			}
 		}
 
-		glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 		debugPass->UnBind();
@@ -1463,7 +1463,7 @@ namespace fury
 		glDisable(GL_BLEND);
 
 		RenderUtil::Instance()->IncreaseDrawCall();
-		RenderUtil::Instance()->IncreaseTriangleCount(quad->Indices.Data.size());
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(quad->Indices.Data.size()));
 
 		SetDebugViewTexture(debugTex);
 	}

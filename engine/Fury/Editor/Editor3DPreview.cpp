@@ -117,6 +117,7 @@ namespace fury
 		ViewProj ComputeViewProj(const OrbitState &orbit,
 			const Vector4 &aabb_center, float aabb_radius, float aspect)
 		{
+			(void)aabb_center;
 			ViewProj out;
 			const float fov = 45.0f * 0.0174532925f;
 			out.proj.PerspectiveFov(fov, aspect,

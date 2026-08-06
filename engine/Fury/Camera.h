@@ -12,8 +12,8 @@ namespace fury
 {
 	class SceneNode;
 
-	// Coordinate system & units (engine-wide convention — see
-	// docs/ARCHITECTURE.md §Coordinate System & Units):
+	// Coordinate system & units (engine-wide convention -- see
+	// docs/ARCHITECTURE.md sec Coordinate System & Units):
 	//   * Handedness: right-handed.
 	//   * Up axis: +Y.
 	//   * Forward: -Z (camera looks down -Z; glTF convention).
@@ -21,8 +21,8 @@ namespace fury
 	//     Khronos sample assets (e.g. Fox) are authored in cm, so the
 	//     engine adopts cm to match. Camera near/far, light radii,
 	//     shadow bounds, and move speeds are all in cm. When importing
-	//     assets authored in metres (1 unit = 1 m), apply a ×100 scale
-	//     at import; FBX2glTF's cm→m models already carry a 100× node
+	//     assets authored in metres (1 unit = 1 m), apply a x100 scale
+	//     at import; FBX2glTF's cm->m models already carry a 100x node
 	//     scale.
 	class FURY_API Camera : public Component, public std::enable_shared_from_this<Camera>
 	{
@@ -59,7 +59,7 @@ namespace fury
 		// preserving FOV / near / far AND the frustum's current world
 		// transform (unlike PerspectiveFov, which resets the frustum
 		// transform to identity). Used by the editor when the Viewport
-		// window is resized — the camera node's world transform stays
+		// window is resized -- the camera node's world transform stays
 		// intact so culling continues to work. No-op for orthographic.
 		void SetAspect(float ratio);
 

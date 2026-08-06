@@ -20,7 +20,7 @@ namespace fury
 	//
 	// uniformOverrides: optional per-instance values replacing the
 	// effect descriptor's declared defaults for matching names
-	// (serialized as "uniforms": [{ "name", "value": [f, ...] }] —
+	// (serialized as "uniforms": [{ "name", "value": [f, ...] }] --
 	// the same shape as PostProcessEffect's descriptor defaults).
 	struct RenderChainEntry
 	{
@@ -33,8 +33,8 @@ namespace fury
 	// the `renderSettings` block in scene JSON. Holds:
 	//   * pipelinePath - which pipeline JSON to load (the LDR
 	//     DefferedLightingLambert.json or the HDR PBR variant).
-	//   * hdr          - true → PBR + float targets + mandatory ACES
-	//     tonemap; false → legacy LDR Lambert.
+	//   * hdr          - true -> PBR + float targets + mandatory ACES
+	//     tonemap; false -> legacy LDR Lambert.
 	//   * cascadedShadowMap - per-scene CSM override (drives the
 	//     Pipeline::CASCADED_SHADOW_MAP switch on scene load).
 	//   * chain        - ordered list of postprocess entries.
@@ -82,7 +82,7 @@ namespace fury
 		void AddEffect(const std::string &effectName, bool enabled = true);
 
 		// Replace the chain with a deep copy of `other`'s (preserves
-		// per-entry uniform overrides; used by the editor's File →
+		// per-entry uniform overrides; used by the editor's File ->
 		// Open path, which previously dropped them via AddEffect).
 		void CopyChainFrom(const RenderSettings &other);
 

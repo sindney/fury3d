@@ -98,7 +98,7 @@ namespace fury
 	{
 		Log<0>::Initialize(std::move(level), std::move(logfile), std::move(console), formatter, std::move(append));
 
-		ThreadUtil::Initialize(std::move(numThreads));
+		ThreadUtil::Initialize(static_cast<size_t>(numThreads));
 		ThreadUtil::Instance()->SetMainThread();
 
 		FURYD << ThreadUtil::Instance()->GetWorkerCount() << " thread launched!";
@@ -115,7 +115,7 @@ namespace fury
 
 		// Bootstrap focus state. Windows does not auto-fire WM_SETFOCUS
 		// for a window shown via CreateWindowW(WS_VISIBLE), and SFML
-		// only maps WM_SETFOCUS / WM_KILLFOCUS — so without this seed
+		// only maps WM_SETFOCUS / WM_KILLFOCUS -- so without this seed
 		// m_WindowFocused stays false on first launch and the editor's
 		// drag gate silently fails. Cross-platform: window.hasFocus()
 		// is a generic SFML call.
@@ -170,8 +170,8 @@ namespace fury
 			// Drop all held keys / mouse buttons. While the window is
 			// unfocused (e.g. a native file dialog is open) SFML won't
 			// deliver release events, so any key held when focus was
-			// lost would read as "down" forever after — the
-			// "camera slides backwards after File → Open" symptom.
+			// lost would read as "down" forever after -- the
+			// "camera slides backwards after File -> Open" symptom.
 			// ResetTransientInputState also flags the focus-gain seed
 			// (see s_NeedsFocusSeed below) so the next FocusGained
 			// re-seeds the cursor position from the live window.
@@ -205,8 +205,9 @@ namespace fury
 			size_t unicode = static_cast<size_t>(text->unicode);
 			inputMgr->OnTextEntered->Emit(std::move(unicode));
 		}
-		else if (const auto* key = event.getIf<sf::Event::KeyPressed>())
+		else if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>())
 		{
+			auto* key = keyPressed;
 #if PLATFORM_WINDOWS
 			// Drop unknown / out-of-range key codes to prevent an OOB
 			// write into m_KeyDown[]. SFML's Win32 backend returns
@@ -223,8 +224,9 @@ namespace fury
 			sf::Keyboard::Key code = key->code;
 			inputMgr->OnKeyDown->Emit(std::move(code));
 		}
-		else if (const auto* key = event.getIf<sf::Event::KeyReleased>())
+		else if (const auto* keyReleased = event.getIf<sf::Event::KeyReleased>())
 		{
+			auto* key = keyReleased;
 #if PLATFORM_WINDOWS
 			if (key->code == sf::Keyboard::Key::Unknown
 				|| static_cast<unsigned int>(key->code) >= sf::Keyboard::KeyCount)
@@ -245,16 +247,18 @@ namespace fury
 			int wy = wheel->position.y;
 			inputMgr->OnMouseWheel->Emit(std::move(delta), std::move(wx), std::move(wy));
 		}
-		else if (const auto* btn = event.getIf<sf::Event::MouseButtonPressed>())
+		else if (const auto* btnPressed = event.getIf<sf::Event::MouseButtonPressed>())
 		{
+			auto* btn = btnPressed;
 			inputMgr->m_MouseDown[static_cast<unsigned int>(btn->button)] = true;
 			sf::Mouse::Button b = btn->button;
 			int bx = btn->position.x;
 			int by = btn->position.y;
 			inputMgr->OnMouseDown->Emit(std::move(b), std::move(bx), std::move(by));
 		}
-		else if (const auto* btn = event.getIf<sf::Event::MouseButtonReleased>())
+		else if (const auto* btnReleased = event.getIf<sf::Event::MouseButtonReleased>())
 		{
+			auto* btn = btnReleased;
 			inputMgr->m_MouseDown[static_cast<unsigned int>(btn->button)] = false;
 			sf::Mouse::Button b = btn->button;
 			int bx = btn->position.x;
@@ -304,7 +308,7 @@ namespace fury
 		// destructor has torn down the GL context. Their destructors
 		// (Mesh::~Mesh, Shader::~Shader, RenderUtil::~RenderUtil's
 		// glDeleteVertexArrays / glDeleteBuffers, etc.) would then call
-		// GL delete functions on a dead context — UB, typically a
+		// GL delete functions on a dead context -- UB, typically a
 		// segfault, plus spurious "Tangent/Normal data dirty" warnings
 		// from a render that runs after the meshes are already destroyed.
 		Scene::Active.reset();
@@ -346,7 +350,7 @@ namespace fury
 		// dpi_aware_override = true to compose the system DPI with an
 		// explicit gui_scale. The effective gui_font_scale follows the
 		// same sentinel so the font density tracks the widget layout
-		// on HiDPI displays — without this, widgets are 2x but text
+		// on HiDPI displays -- without this, widgets are 2x but text
 		// is still 1x and the editor looks "small". See
 		// platform-window-dpi spec.
 		const float systemDpi = GetSystemDPI();
@@ -452,7 +456,7 @@ namespace fury
 
 		// Flush ImGui draw lists to the default framebuffer LAST so the
 		// editor (and any script-side floating windows) composite on top
-		// of the 3D scene — including the Viewport window's ImGui::Image,
+		// of the 3D scene -- including the Viewport window's ImGui::Image,
 		// which samples the scene's offscreen render target. This runs
 		// after TickPostRender so the selection overlay (drawn into the
 		// render target) is visible inside the Viewport window this frame.

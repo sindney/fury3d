@@ -50,13 +50,13 @@ namespace fury
 
 	// Ordered chain of Mesh::Ptr LODs with per-LOD screen-coverage
 	// transition thresholds. LOD 0 is the highest detail. Not an
-	// Entity — lives as a value type on MeshRender. Empty groups are
+	// Entity -- lives as a value type on MeshRender. Empty groups are
 	// invalid and never assigned.
 	//
 	// Inherits from Serializable so the protected save/load helpers
 	// (StartObject, SaveArray, ...) are accessible. The inherited
 	// virtual Save/Load are stubs because the EntityManager-relative
-	// mesh-name resolution needs a manager handle — use the
+	// mesh-name resolution needs a manager handle -- use the
 	// Save/Load overloads below instead.
 	class FURY_API LodGroup : public Serializable
 	{
@@ -72,7 +72,7 @@ namespace fury
 		LodGroup(const std::vector<std::shared_ptr<class Mesh>> &meshes,
 				 const std::vector<float> &thresholds);
 
-		// Serializable stubs — use the manager-aware overloads below
+		// Serializable stubs -- use the manager-aware overloads below
 		// for the actual persistence path. The base virtuals are
 		// declared here so LodGroup is concrete.
 		virtual bool Load(const void* wrapper, bool object = true) override;
@@ -142,7 +142,7 @@ namespace fury
 		bool m_CastShadows = false;
 
 		// Additional LOD meshes (LOD 1..N). LOD 0 is this mesh itself.
-		// Owned by this mesh and serialized inline — they are not
+		// Owned by this mesh and serialized inline -- they are not
 		// registered as separate entities in the EntityManager.
 		std::vector<std::shared_ptr<class Mesh>> m_LodMeshes;
 
@@ -213,7 +213,7 @@ namespace fury
 		void SetCastShadows(bool state);
 
 		// LOD chain. LOD 0 is this mesh itself (highest detail). LODs
-		// 1..N are additional Mesh objects owned by this mesh — they
+		// 1..N are additional Mesh objects owned by this mesh -- they
 		// are saved inline with this mesh's JSON (not as separate
 		// entities in the EntityManager) so a "loded mesh" is one
 		// asset. Thresholds are screen-coverage values, one per
@@ -242,14 +242,14 @@ namespace fury
 	// (raw float bytes) + top-level Indices.Data (raw uint bytes) +
 	// each submesh's Indices.Data (in submesh order). Used by the
 	// editor's thumbnail disk cache to key cached PNGs on the actual
-	// vertex/index content, not on BufferId (which is identity-only —
+	// vertex/index content, not on BufferId (which is identity-only --
 	// in-place vertex edits do not change it). No allocations beyond
 	// the 64-bit accumulator; safe to call from worker threads on a
 	// shared_ptr-stabilized mesh.
 	uint64_t FURY_API MeshContentHash(const class Mesh* mesh);
 
 	// 16-character lowercase hexadecimal representation of a 64-bit
-	// hash, e.g. 0x1a2b3c4d5e6f7a8b → "1a2b3c4d5e6f7a8b". Used to
+	// hash, e.g. 0x1a2b3c4d5e6f7a8b -> "1a2b3c4d5e6f7a8b". Used to
 	// build the on-disk thumbnail filename `furye_<hex>.png`.
 	std::string FURY_API FormatHashHex(uint64_t hash);
 }

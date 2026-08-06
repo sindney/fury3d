@@ -17,7 +17,7 @@ namespace fury
 
 		auto ProcessKeyFrames = [&](std::vector<KeyFrame> &keyframes)
 		{
-			unsigned int count = keyframes.size();
+			size_t count = keyframes.size();
 			if (count < 3)
 				return;
 
@@ -26,7 +26,7 @@ namespace fury
 			tempFrames.reserve(count);
 			tempFrames.push_back(prev);
 
-			for (unsigned int i = 1; i < count - 1; i++)
+			for (size_t i = 1; i < count - 1; i++)
 			{
 				KeyFrame curr = keyframes[i], next = keyframes[i + 1];
 
@@ -54,7 +54,7 @@ namespace fury
 			std::copy(tempFrames.begin(), tempFrames.end(), keyframes.begin());
 		};
 
-		unsigned int oldCount = 0, newCount = 0;
+		size_t oldCount = 0, newCount = 0;
 		for (auto channel : clip->m_Channels)
 		{
 			if (channel->rotations.size() > 0)
@@ -63,14 +63,14 @@ namespace fury
 				ProcessKeyFrames(channel->rotations);
 				newCount += channel->rotations.size();
 			}
-			
+
 			if (channel->positions.size() > 0)
 			{
 				oldCount += channel->positions.size();
 				ProcessKeyFrames(channel->positions);
 				newCount += channel->positions.size();
 			}
-			
+
 			if (channel->scalings.size() > 0)
 			{
 				oldCount += channel->scalings.size();

@@ -14,7 +14,7 @@ namespace fury
 {
 	// Optional per-uniform editor metadata, declared in the effect
 	// JSON next to the default value: "tip" (hover help, shown in
-	// the Edit dialog — include tuning guidance like world units)
+	// the Edit dialog -- include tuning guidance like world units)
 	// plus "min"/"max" (a rough adjustment range: values are clamped
 	// to it in the dialog and the range shows in the tooltip).
 	struct UniformMeta
@@ -60,9 +60,9 @@ namespace fury
 		// input; FXAA / CRT write LDR rgba8. Defaults to RGBA8.
 		TextureFormat m_OutputFormat = TextureFormat::RGBA8;
 
-		// Chain placement (engine-owned order — users toggle on/off
+		// Chain placement (engine-owned order -- users toggle on/off
 		// only, never reorder). PRE_TONEMAP effects run on linear
-		// scene color pre-ACES, TONEMAP is the HDR→LDR pivot (auto
+		// scene color pre-ACES, TONEMAP is the HDR->LDR pivot (auto
 		// injected/stripped with the HDR switch), POST_TONEMAP runs
 		// last on LDR. JSON "stage"; default infers PRE_TONEMAP when
 		// any declared input is $gbuffer_*, else POST_TONEMAP.
@@ -76,7 +76,7 @@ namespace fury
 		// 0 = match the active render target (the screen or the
 		// editor's offscreen RT). Otherwise the effect renders into a
 		// temporary at this size. Currently only the 0 path is wired
-		// up — chain slots share the active target's size via the
+		// up -- chain slots share the active target's size via the
 		// ping-pong Texture::GetTemporary helpers.
 		unsigned int m_OutputWidth = 0;
 		unsigned int m_OutputHeight = 0;

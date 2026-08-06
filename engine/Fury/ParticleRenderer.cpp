@@ -129,7 +129,7 @@ namespace fury
 			m_System = sys;
 
 			// Frustum culling tests the owner node's AABB, which only
-			// covers the spawn point — particles drifting/rising beyond
+			// covers the spawn point -- particles drifting/rising beyond
 			// it vanished when the camera orbited (the "particles
 			// disappear on camera move" symptom). Expand the node's
 			// AABB to the system's conservative extent, once, and
@@ -232,7 +232,7 @@ namespace fury
 		m_DynamicMesh->UVs.SetDirty();
 		m_DynamicMesh->Indices.SetDirty();
 		// Mesh-level dirty flag (inherited Buffer::m_Dirty) is what
-		// actually triggers Shader::BindMesh's UpdateBuffer — without
+		// actually triggers Shader::BindMesh's UpdateBuffer -- without
 		// it, per-buffer flags make BindMesh's post-upload check fail
 		// and the draw silently reuses a stale/zero VAO.
 		m_DynamicMesh->SetDirty();
@@ -332,7 +332,7 @@ namespace fury
 		}
 		shader->BindFloat("u_Tint", tint.r, tint.g, tint.b, tint.a);
 
-		// Shadow binds — only meaningful on the SHADOW variant picked
+		// Shadow binds -- only meaningful on the SHADOW variant picked
 		// in BindForDraw (the plain variant declares no shadow
 		// uniforms; every bind below is a silent no-op there).
 		// anyCaster = some light casts AND has a live map this frame:
@@ -352,7 +352,7 @@ namespace fury
 				else if (shadowType == 3) shadowTexCSM = shadow->texture;
 			}
 			shader->BindInt("u_shadow_type", shadowType);
-			// Always-bind every shadow sampler — dummies must match
+			// Always-bind every shadow sampler -- dummies must match
 			// the declared sampler TYPE (gl-sampler-target-mismatch-trap).
 			shader->BindTexture("shadow_buffer",
 				shadowCube ? shadowCube : GetDummyCubeTexture());
@@ -391,7 +391,7 @@ namespace fury
 			GL_UNSIGNED_INT, 0);
 
 		RenderUtil::Instance()->IncreaseDrawCall();
-		RenderUtil::Instance()->IncreaseTriangleCount(m_DynamicMesh->Indices.Data.size());
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(m_DynamicMesh->Indices.Data.size()));
 
 		shader->UnBind();
 	}

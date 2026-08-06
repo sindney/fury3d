@@ -27,7 +27,7 @@
 	#define PLATFORM_LINUX 1
 	#define PLATFORM_DESKTOP 1
 #else
-	#error "Unsupported platform — add a PLATFORM_* macro for this target in Macros.h"
+	#error "Unsupported platform -- add a PLATFORM_* macro for this target in Macros.h"
 #endif
 
 // Provide a 0 default for any platform macro that was not defined above. This

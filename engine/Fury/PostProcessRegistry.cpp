@@ -73,7 +73,7 @@ namespace fury
 		// Resolve against the engine's CWD (FileUtil's abs path) so
 		// callers can pass either an absolute path or a project-
 		// relative path like "Resource/PostProcess". We deliberately
-		// DON'T prepend the active scene's working dir — the scene
+		// DON'T prepend the active scene's working dir -- the scene
 		// working dir is already scene-relative ("Resource/Scene/"
 		// for example) and would double-prepend on top of a caller-
 		// supplied "Resource/PostProcess". FileUtil::GetAbsPath
