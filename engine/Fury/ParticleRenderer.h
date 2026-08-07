@@ -16,7 +16,7 @@ namespace fury
 {
 	// Shadow-receive inputs for one draw. The pipeline picks the
 	// dominant casting light per-emitter (rankShadowSourcesFor) and
-	// fills a single set of inputs — `type` selects which compare to
+	// fills a single set of inputs -- `type` selects which compare to
 	// run (matches the deferred shader conventions):
 	//   0 = none
 	//   1 = point cube   (texture = cube map, lightPos/lightRadius)
@@ -24,7 +24,7 @@ namespace fury
 	//   3 = CSM          (texture = 2DArray, csmMatrices[4] + shadowFar)
 	//   4 = spot 2D      (texture = 2D map, matrix = spot view-proj,
 	//                     lightPos/lightDir/coneHalfAngles for the
-	//                     per-fragment cone test — Particle.glsl is
+	//                     per-fragment cone test -- Particle.glsl is
 	//                     emissive, so the shadow factor carries the
 	//                     cone falloff the light loop applies elsewhere)
 	// The "single dominant shadow per particle draw" matches the
@@ -49,14 +49,14 @@ namespace fury
 		Vector4 lightDir = Vector4(0, -1, 0, 0);
 		float coneHalfInner = 0.0f;
 		float coneHalfOuter = 0.0f;
-		// CSM (type=3) — populated but unused for types 1/2/4.
+		// CSM (type=3) -- populated but unused for types 1/2/4.
 		Matrix4 csmMatrices[4];
 		Vector4 shadowFar;
 	};
 	// Companion to a ParticleSystem asset. The ParticleSystem lives in
 	// the active Scene's EntityManager (just like Mesh / Material) and
 	// is referenced by name here. The renderer mirrors the
-	// MeshRender ↔ Material pairing — one component per scene node,
+	// MeshRender ↔ Material pairing -- one component per scene node,
 	// resolves the asset by name at Load time.
 	//
 	// Per-particle color is tracked on the CPU side (the editor inspector
@@ -84,7 +84,7 @@ namespace fury
 
 		// Resolved weak_ptr<ParticleSystem> from the active scene's
 		// EntityManager. May be expired (returns nullptr) if the
-		// ParticleSystem asset isn't loaded yet — the renderer's draw
+		// ParticleSystem asset isn't loaded yet -- the renderer's draw
 		// path skips when expired.
 		std::shared_ptr<ParticleSystem> GetSystem() const;
 

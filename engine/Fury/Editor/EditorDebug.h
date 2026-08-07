@@ -8,7 +8,7 @@ namespace fury
 	class Color;
 }
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 namespace fury
 {

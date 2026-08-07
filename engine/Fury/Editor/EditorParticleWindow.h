@@ -12,8 +12,8 @@ namespace fury
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
-		// Open the per-asset particle editor window (idempotent — a
+#if WITH_EDITOR
+		// Open the per-asset particle editor window (idempotent -- a
 		// second Open call for the same system focuses the existing
 		// window rather than opening a duplicate).
 		void FURY_API OpenParticleEditor(const std::shared_ptr<ParticleSystem> &system);

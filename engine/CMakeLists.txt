@@ -59,15 +59,12 @@ endif()
 # deprecation noise (vendored third-party; not our code).
 if(MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /utf-8 /bigobj /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS /D_CRT_SECURE_NO_WARNINGS /D_SCL_SECURE_NO_WARNINGS /D_USE_MATH_DEFINES /DWIN32_LEAN_AND_MEAN /DNOMINMAX")
-	# The SYSTEM markers on the ThirdParty include paths below become
-	# /external:I on MSVC, but /external:I alone does NOT lower the warning
-	# level for those headers — it only classifies them. /external:W0 is the
-	# companion flag that actually silences them. Both are non-experimental
-	# only from VS 2019 16.10 (MSVC_VERSION 1929); older toolsets need
-	# /experimental:external and would reject these with D8021, so gate on
-	# the version. UNTESTED on Windows — verified on AppleClang only.
+	# /external:W0 silences vendored-header warnings (MSVC 16.10+); /wd4127
+	# + /wd4245 demote two warnings that leak from vendored .cpp files
+	# compiled directly (ImGuizmo, imgui_impl_opengl3 backends) — neither
+	# fires in engine code.
 	if(MSVC_VERSION GREATER_EQUAL 1929)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /external:W0")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /external:W0 /wd4127 /wd4245")
 	endif()
 else()
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
@@ -212,7 +209,7 @@ endif()
 
 # Engine source split: FURY_CORE_SRC builds for both binaries; FURY_EDITOR_SRC
 # only feeds furye. The Editor/*.cpp files are themselves wrapped in
-# `#ifdef WITH_EDITOR`, so even if they were accidentally compiled into fury
+# `#if WITH_EDITOR`, so even if they were accidentally compiled into fury
 # they would compile to empty TUs — but splitting them out keeps the build
 # graph honest and the symbol surface of fury small. Sources are listed
 # explicitly (not globbed) so adding/removing a file is a deliberate change.
@@ -342,9 +339,8 @@ if(OS_WINDOWS)
 endif()
 
 if(OS_WINDOWS)
-	# ws2_32 supplies htonl/ntohl used by FileUtil.cpp on Windows
-	# (FileUtil.cpp pulls in <winsock.h> for the ntohl/htonl helpers).
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 lua meshoptimizer Jolt)
+	# ws2_32 (FileUtil ntohl/htonl), comctl32 (SetWindowSubclass).
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 comctl32 lua meshoptimizer Jolt)
 elseif(OS_MACOSX)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt)
 endif()
@@ -450,7 +446,7 @@ if(BUILD_SHARED_LIBS)
 	# always builds both fury and furye.
 	if(WITH_EDITOR_API)
 		add_library(furye SHARED ${FURY_CORE_SRC} ${FURY_EDITOR_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
-		target_compile_definitions(furye PRIVATE WITH_EDITOR)
+		target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 		target_link_libraries(furye PUBLIC ${FURY_PLATFORM_LIBS} nfd::nfd)
 		set_target_properties(furye PROPERTIES
 			BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
@@ -464,10 +460,11 @@ if(BUILD_SHARED_LIBS)
 	endif()
 else()
 	fury_add_target(fury ${FURY_COMMON_SRC})
+	target_compile_definitions(fury PRIVATE WITH_EDITOR=0)
 	install(TARGETS fury DESTINATION bin)
 
 	fury_add_target(furye ${FURY_COMMON_SRC} ${FURY_EDITOR_SRC})
-	target_compile_definitions(furye PRIVATE WITH_EDITOR)
+	target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 	target_link_libraries(furye PRIVATE nfd::nfd)
 	install(TARGETS furye DESTINATION bin)
 endif()

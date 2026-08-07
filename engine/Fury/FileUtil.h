@@ -27,7 +27,7 @@ namespace fury
 
 		static std::string m_AbsPath;
 
-		// RapidJSON's default — full float round-trip precision.
+		// RapidJSON's default -- full float round-trip precision.
 		static constexpr int kMaxDecimalPlaces = 324;
 
 	public:
@@ -55,7 +55,7 @@ namespace fury
 		static bool SaveCompressedFile(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		// Pick the underlying serializer by lowercased extension: .json
-		// → SaveFile, .bin → SaveCompressedFile. Returns false otherwise.
+		// -> SaveFile, .bin -> SaveCompressedFile. Returns false otherwise.
 		static bool SaveByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		// Mirror of SaveByExtension: pick LoadFile (.json) or
@@ -64,7 +64,7 @@ namespace fury
 		static bool LoadByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath);
 
 		// In-memory serialization. Used by CloneTree to round-trip a
-		// node subtree through the engine's existing Save/Load — the
+		// node subtree through the engine's existing Save/Load -- the
 		// single source of truth for "what's in a SceneNode". This
 		// avoids per-component Clone() maintenance: every component
 		// already knows how to serialize itself, and Load resolves

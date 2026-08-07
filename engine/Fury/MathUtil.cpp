@@ -165,7 +165,7 @@ namespace fury
 		if (sx < 1e-6f || sy < 1e-6f || sz < 1e-6f)
 			return false;
 
-		// A negative determinant means the basis is mirrored — fold the
+		// A negative determinant means the basis is mirrored -- fold the
 		// sign onto the X axis (consistent with glm's convention) so the
 		// remaining basis is a proper rotation.
 		Vector4 cross_yz(
@@ -186,7 +186,7 @@ namespace fury
 		Vector4 r1 = col1 * (1.0f / sy);
 		Vector4 r2 = col2 * (1.0f / sz);
 
-		// Build a quaternion from a 3×3 rotation matrix expressed
+		// Build a quaternion from a 3x3 rotation matrix expressed
 		// column-by-column. Standard branch-on-trace recipe (Shoemake).
 		float trace = r0.x + r1.y + r2.z;
 		if (trace > 0.0f)

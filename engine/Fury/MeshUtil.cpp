@@ -198,7 +198,7 @@ namespace fury
 
 		// refine triangles
 		std::vector<unsigned int> newIndices;
-		unsigned int oldSize = mesh->Indices.Data.size();
+		unsigned int oldSize = static_cast<int>(mesh->Indices.Data.size());
 
 		for (int i = 0; i < level; i++)
 		{
@@ -206,7 +206,7 @@ namespace fury
 			newIndices.reserve(oldSize * 4);
 			newIndices.erase(newIndices.begin(), newIndices.end());
 
-			unsigned int numIndices = mesh->Indices.Data.size() / 3;
+			unsigned int numIndices = static_cast<unsigned int>(mesh->Indices.Data.size() / 3);
 			for (unsigned int j = 0; j < numIndices; j++)
 			{
 				unsigned int index1 = mesh->Indices.Data[j * 3];
@@ -220,7 +220,7 @@ namespace fury
 				newIndices.insert(newIndices.end(), { index1, a, c, index2, b, a, index3, c, b, a, b, c });
 			}
 
-			oldSize = newIndices.size();
+			oldSize = static_cast<unsigned int>(newIndices.size());
 			mesh->Indices.Data = newIndices;
 		}
 
@@ -428,7 +428,7 @@ namespace fury
 
 	void MeshUtil::TransformMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &matrix, bool updateBuffer) 
 	{
-		unsigned int count = mesh->Positions.Data.size();
+		unsigned int count = static_cast<int>(mesh->Positions.Data.size());
 		if (count == 0) return;
 
 		count = count / 3;
@@ -549,7 +549,7 @@ namespace fury
 		};
 
 		// read physical data.
-		int verticesCount = mesh->Positions.Data.size() / 3;
+		int verticesCount = static_cast<int>(mesh->Positions.Data.size() / 3);
 
 		std::vector<VtxEntry> entries;
 		entries.reserve(verticesCount);
@@ -734,7 +734,7 @@ namespace fury
 		entries.clear();
 
 		// move data to mesh
-		const int vtxCount = uniqueVertices.size();
+		const int vtxCount = static_cast<int>(uniqueVertices.size());
 		const int vtxCount2 = vtxCount * 2;
 		const int vtxCount3 = vtxCount * 3;
 		const int vtxCount4 = vtxCount * 4;
@@ -826,8 +826,8 @@ namespace fury
 		for (auto &value : mesh->Normals.Data)
 			value = 0.0f;
 
-		unsigned int numTriangles = mesh->Indices.Data.size() / 3;
-		unsigned int numVertices = mesh->Positions.Data.size() / 3;
+		unsigned int numTriangles = static_cast<unsigned int>(mesh->Indices.Data.size() / 3);
+		unsigned int numVertices = static_cast<unsigned int>(mesh->Positions.Data.size() / 3);
 
 		auto GetPositionAt = [&mesh](unsigned int index) -> Vector4
 		{
@@ -892,8 +892,8 @@ namespace fury
 		for (auto &value : mesh->Tangents.Data)
 			value = 0.0f;
 
-		unsigned int numTriangles = mesh->Indices.Data.size() / 3;
-		unsigned int numVertices = mesh->Positions.Data.size() / 3;
+		unsigned int numTriangles = static_cast<unsigned int>(mesh->Indices.Data.size() / 3);
+		unsigned int numVertices = static_cast<unsigned int>(mesh->Positions.Data.size() / 3);
 
 		auto GetPositionAt = [&mesh](unsigned int index) -> Vector4
 		{

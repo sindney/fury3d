@@ -11,7 +11,7 @@ namespace fury
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// Open the per-node BodySetup editor window (idempotent - a
 		// second Open call for the same node focuses the existing
 		// window rather than opening a duplicate).

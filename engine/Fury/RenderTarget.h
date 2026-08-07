@@ -16,7 +16,7 @@ namespace fury
 	//
 	// Lifecycle: lazy-allocated on the first Resize() with a non-zero
 	// size; recreated when the size changes. Call Release() to tear
-	// down the GL objects. Not serialized — owned by the editor at
+	// down the GL objects. Not serialized -- owned by the editor at
 	// runtime.
 	class FURY_API RenderTarget
 	{
@@ -30,7 +30,7 @@ namespace fury
 
 		~RenderTarget();
 
-		// No copy — owns GL resources.
+		// No copy -- owns GL resources.
 		RenderTarget(const RenderTarget&) = delete;
 		RenderTarget& operator=(const RenderTarget&) = delete;
 

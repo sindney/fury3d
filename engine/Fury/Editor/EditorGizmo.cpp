@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorPicking.hpp"
@@ -24,7 +24,7 @@ namespace fury
 	{
 		extern SceneNode* g_SelectedSceneNode;
 
-		// Gizmo state — single source of truth. EditorNodeProperties.cpp
+		// Gizmo state -- single source of truth. EditorNodeProperties.cpp
 		// reads/writes these to drive its Gizmo section UI; the runtime
 		// settings handler in Editor.cpp persists them via imgui.ini.
 		// Defined here as fileless globals so external linkage is explicit.
@@ -66,7 +66,7 @@ namespace fury
 			ImGuizmo::SetRect(central_rect_min.x, central_rect_min.y,
 				central_rect_size.x, central_rect_size.y);
 
-			// Gate on prerequisites — without these, the world matrix has
+			// Gate on prerequisites -- without these, the world matrix has
 			// no meaning and ImGuizmo would render at the origin.
 			if (!Scene::Active) return;
 			if (!Pipeline::Active) return;
@@ -82,7 +82,7 @@ namespace fury
 
 			// Draw into the CURRENT window's draw list. RenderGizmo is
 			// called from inside RenderViewportWindow (after its
-			// ImGui::Image), so this is the Viewport window's draw list —
+			// ImGui::Image), so this is the Viewport window's draw list --
 			// the gizmo composites on top of the viewport image. A
 			// separate floating window would render BEHIND the docked
 			// Viewport window and be invisible.
@@ -115,7 +115,7 @@ namespace fury
 			}
 
 			// Gizmo always operates in WORLD space. Local-axis
-			// manipulation surfaced from the UI was confusing —
+			// manipulation surfaced from the UI was confusing --
 			// SCALE silently forced LOCAL anyway, ROTATE in
 			// LOCAL didn't visibly differ for unrotated nodes,
 			// and TRANSLATE in LOCAL means "drag along the

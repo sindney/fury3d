@@ -91,7 +91,7 @@ namespace fury
 		// Decode and upload an encoded image (JPEG/PNG/BMP) from a
 		// memory buffer. On success the encoded bytes are retained on
 		// the Texture so save-time extraction can write them to disk.
-		// m_FilePath is left empty — IsMemoryBacked() returns true until
+		// m_FilePath is left empty -- IsMemoryBacked() returns true until
 		// FileUtil::SaveFile transitions the texture to file-backed.
 		void CreateFromMemory(const unsigned char *bytes, size_t len, bool srgb, bool mipMap);
 

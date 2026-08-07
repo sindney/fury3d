@@ -87,7 +87,7 @@ namespace fury
 
 		virtual void Save(void* wrapper, bool object = true) override;
 
-		// copies components and translations (leaf-only — does NOT recurse
+		// copies components and translations (leaf-only -- does NOT recurse
 		// into m_Childs). Use CloneTree when the caller needs descendants
 		// copied as well.
 		Ptr Clone(const std::string &name) const;

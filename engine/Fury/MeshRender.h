@@ -31,7 +31,7 @@ namespace fury
 		// Cached active LOD index, updated by UpdateActiveLod() from
 		// the camera's screen-coverage of the model's AABB. The LOD
 		// chain itself lives on the bound Mesh (see Mesh::GetLodCount,
-		// GetLodMesh, etc.) — MeshRender only stores the per-instance
+		// GetLodMesh, etc.) -- MeshRender only stores the per-instance
 		// runtime selection.
 		unsigned int m_ActiveLod = 0;
 
@@ -65,7 +65,7 @@ namespace fury
 		// (multiple MeshRender instances can reference the same mesh),
 		// so a flag on the mesh itself is shared across every tank
 		// that uses it. Storing it on MeshRender makes "Cast Shadows"
-		// genuinely per-instance — toggling it on one tank leaves the
+		// genuinely per-instance -- toggling it on one tank leaves the
 		// other tanks using the same mesh unaffected.
 		bool GetCastShadows() const;
 

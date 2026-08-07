@@ -22,7 +22,7 @@ namespace fury
 			// etc.) don't block headless automation.
 			bool auto_confirm = false;
 			// Frame the camera on the opened scene's content (whole-scene
-			// bounds) after load — same math as the editor's
+			// bounds) after load -- same math as the editor's
 			// frame-selection, applied automatically.
 			bool auto_focus = false;
 			// Sentinel `-1` means the engine never wrote a result. Engine::Run
@@ -38,7 +38,7 @@ namespace fury
 
 		// Register all Demo-driven engine types and free functions on the given
 		// Lua state. Idempotent (sol2 overwrites existing usertypes on re-register
-		// but we don't rely on this — call once per state).
+		// but we don't rely on this -- call once per state).
 		void Register(sol::state_view lua);
 	}
 }

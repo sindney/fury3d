@@ -359,7 +359,7 @@ namespace fury
 
 	void Serializable::SaveKey(void* wrapper, const std::string &key)
 	{
-		static_cast<PrettyWriter<StringBuffer>*>(wrapper)->Key(key.c_str(), key.size());
+		static_cast<PrettyWriter<StringBuffer>*>(wrapper)->Key(key.c_str(), static_cast<rapidjson::SizeType>(key.size()));
 	}
 
 	void Serializable::SaveValue(void* wrapper, bool value)
@@ -384,7 +384,7 @@ namespace fury
 
 	void Serializable::SaveValue(void* wrapper, const std::string &value)
 	{
-		static_cast<PrettyWriter<StringBuffer>*>(wrapper)->String(value.c_str(), value.size());
+		static_cast<PrettyWriter<StringBuffer>*>(wrapper)->String(value.c_str(), static_cast<rapidjson::SizeType>(value.size()));
 	}
 
 	void Serializable::SaveValue(void* wrapper, const char *value)
@@ -454,7 +454,7 @@ namespace fury
 		auto writter = static_cast<PrettyWriter<StringBuffer>*>(wrapper);
 		writter->StartArray();
 
-		auto count = raw.size();
+		auto count = static_cast<unsigned int>(raw.size());
 		for (unsigned int i = 0; i < count; i++)
 			SaveValue(wrapper, raw[i]);
 

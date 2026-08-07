@@ -123,7 +123,7 @@ namespace fury
 
 	unsigned int OcTreeNode::GetSceneNodeCount() const
 	{
-		return m_SceneNodes.size();
+		return static_cast<unsigned int>(m_SceneNodes.size());
 	}
 
 	std::shared_ptr<SceneNode> OcTreeNode::GetSceneNodeAt(unsigned int index) const

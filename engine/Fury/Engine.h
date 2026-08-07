@@ -22,7 +22,7 @@ namespace fury
 	};
 
 	// Runtime options for Engine::Run. Defaults are deliberately conservative
-	// — see openspec changes/fix-demo-fps-profiler-retina for rationale.
+	// -- see openspec changes/fix-demo-fps-profiler-retina for rationale.
 	struct EngineOptions
 	{
 		// Frame-rate cap applied via sf::Window::setFramerateLimit. 0 disables.

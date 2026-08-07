@@ -78,7 +78,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 		return false;
 
 	// Format version gate. Absent = version 1 (pre-versioning files).
-	// A newer file is rejected — silently loading it would drop or
+	// A newer file is rejected -- silently loading it would drop or
 	// misread fields the author depends on.
 	int version = 1;
 	LoadMemberValue(wrapper, "version", version);
@@ -88,7 +88,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 		return false;
 	}
 
-	// load textures (top-level array, if present — new format)
+	// load textures (top-level array, if present -- new format)
 	if (auto texWrapper = FindMember(wrapper, "textures")) {
 		LoadArray(texWrapper, [&](const void* node) -> bool {
 			auto texture = Texture::Create("temp");
@@ -136,7 +136,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 		});
 	}
 
-	// load particle systems (top-level array, if present) — assets
+	// load particle systems (top-level array, if present) -- assets
 	// referenced by name from ParticleRenderer components. See the
 	// particle-system spec.
 	if (auto psWrapper = FindMember(wrapper, "particleSystems")) {
@@ -196,11 +196,11 @@ bool Scene::Load(const void* wrapper, bool object) {
 
 	// Registration pass: iterate every material's textures and
 	// register them in EntityManager. This handles both old scenes
-	// (no top-level "textures" array — textures come from materials)
+	// (no top-level "textures" array -- textures come from materials)
 	// and new scenes (top-level array already loaded, this pass
 	// catches any material-bound textures not in the array).
 	// Add returns false if the texture is already registered (same
-	// UUID) — that's fine, just means it's a duplicate reference.
+	// UUID) -- that's fine, just means it's a duplicate reference.
 	m_EntityManager->ForEach<Material>([&](const Material::Ptr& mat) -> bool {
 		for (const auto& kv : mat->GetTextures()) {
 			if (kv.second)
@@ -212,7 +212,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 	// setup scene manager
 	m_SceneManager->AddSceneNodeRecursively(m_RootNode);
 
-	// renderSettings block is optional — old scenes (pre-this change)
+	// renderSettings block is optional -- old scenes (pre-this change)
 	// load with the LDR + CSM-on + empty chain defaults that
 	// RenderSettings() constructs by default. When present, parse it
 	// and overwrite.
@@ -249,7 +249,7 @@ void Scene::Save(void* wrapper, bool object) {
 	SaveKey(wrapper, "version");
 	SaveValue(wrapper, kFormatVersion);
 
-	// save textures (top-level array — deduped by UUID)
+	// save textures (top-level array -- deduped by UUID)
 	SaveKey(wrapper, "textures");
 	StartArray(wrapper);
 	m_EntityManager->ForEach<Texture>([&](const Texture::Ptr& ptr) -> bool {
@@ -267,7 +267,7 @@ void Scene::Save(void* wrapper, bool object) {
 	});
 	EndArray(wrapper);
 
-	// save meshes — the top-level array holds only LOD-0 (source)
+	// save meshes -- the top-level array holds only LOD-0 (source)
 	// meshes. The LOD chain lives inline on each source mesh's
 	// `lod_meshes` sub-object and is emitted by Mesh::Save itself.
 	// LOD meshes are never added to the EntityManager, so this loop
@@ -309,7 +309,7 @@ void Scene::Save(void* wrapper, bool object) {
 	{
 		SaveKey(wrapper, "renderSettings");
 		// Pass object=true so RenderSettings::Save wraps its
-		// fields in { ... } — Scene::Save has just emitted the
+		// fields in { ... } -- Scene::Save has just emitted the
 		// "renderSettings" key and the writer expects a value
 		// next.
 		m_RenderSettings->Save(wrapper, true);

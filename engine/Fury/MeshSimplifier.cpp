@@ -170,6 +170,7 @@ namespace fury
 			auto pack = [&](const std::vector<float> &src, size_t components,
 							std::vector<float> &dst, const char *name)
 			{
+				(void)name;
 				if (src.size() < vertex_count * components)
 				{
 					// Source is missing this attribute; emit a default
@@ -192,7 +193,7 @@ namespace fury
 
 			// 4. Reorder the simplified indices through the remap so
 			// they point into the new packed buffer. Pre-size the
-			// output buffer — meshopt_remapIndexBuffer writes into
+			// output buffer -- meshopt_remapIndexBuffer writes into
 			// the destination without growing it.
 			out_indices.assign(simplified_count, 0u);
 			meshopt_remapIndexBuffer(
@@ -244,7 +245,7 @@ namespace fury
 		const float target_error = std::max(0.0f, opts.target_error);
 		const unsigned int options = opts.lock_borders
 										 ? meshopt_SimplifyLockBorder : 0u;
-		// Dispatch on the requested simplification method — see
+		// Dispatch on the requested simplification method -- see
 		// MeshSimplifyOptions::Method. Quadric is the default;
 		// Sloppy uses the grid-based variant; QuadricLegacy skips
 		// the border-lock flag.
@@ -307,7 +308,7 @@ namespace fury
 				size_t new_vertex_count = 0;
 				if (sub_count == 0)
 				{
-					// Mesh has no submeshes — simplify the parent
+					// Mesh has no submeshes -- simplify the parent
 					// index buffer directly. Build a temporary
 					// "submesh" view that uses source->Indices.
 					std::vector<unsigned int> simplified_indices(source->Indices.Data.size());
@@ -427,13 +428,13 @@ namespace fury
 		for (size_t i = 0; i < result.lod_meshes.size(); ++i)
 		{
 			const auto &m = result.lod_meshes[i];
-			// Sum triangles across all submeshes — the parent
+			// Sum triangles across all submeshes -- the parent
 			// mesh's flat Indices buffer is empty for our LOD meshes.
 			size_t tri = 0;
 			for (unsigned int s = 0; s < m->GetSubMeshCount(); ++s)
 				if (auto sm = m->GetSubMeshAt(s))
 					tri += sm->Indices.Data.size() / 3;
-			FURYI << "  " << m->GetName() << " — verts=" << (m->Positions.Data.size() / 3)
+			FURYI << "  " << m->GetName() << " -- verts=" << (m->Positions.Data.size() / 3)
 				  << ", tris=" << tri << ", threshold=" << result.thresholds[i]
 				  << ", target_tri=" << (target_indices_per_level[i] / 3);
 		}

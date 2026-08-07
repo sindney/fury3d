@@ -49,7 +49,7 @@ namespace fury
 		// meshopt_simplify without border-locking.
 		enum class Method { Quadric, Sloppy, QuadricLegacy };
 
-		// Default to the border-preserving quadric — it is the
+		// Default to the border-preserving quadric -- it is the
 		// least aggressive of the three and preserves UV seams.
 		Method method = Method::Quadric;
 	};

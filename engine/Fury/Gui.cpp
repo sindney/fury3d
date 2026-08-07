@@ -1,6 +1,10 @@
 #include <cstring>
 #include <vector>
 
+// imgui.h has its own #pragma warning(push/pop) (lines 135/4506), so
+// don't wrap — a surrounding push/pop would be consumed by imgui's
+// inner pop and trigger C4193. Escape warnings are silenced via
+// /wd4127 in CMakeLists.txt.
 #include "ImGui/imconfig.h"
 #include "ImGui/imgui.h"
 #include "ImGui/backends/imgui_impl_opengl3.h"
@@ -48,7 +52,7 @@ namespace fury
 
 			ImGuiStyle& style = ImGui::GetStyle();
 			ImGui::StyleColorsDark(&style);
-			// ImGui 1.92 renamed io.FontGlobalScale → style.FontScaleMain.
+			// ImGui 1.92 renamed io.FontGlobalScale -> style.FontScaleMain.
 			style.FontScaleMain = fontScale;
 			style.ScaleAllSizes(scale);
 
@@ -192,7 +196,7 @@ namespace fury
 
 		void ShowDefault(float /*dt*/)
 		{
-#ifndef WITH_EDITOR
+#if !WITH_EDITOR
 			// Editor-less builds keep a minimal main menu bar that only
 			// hosts the script-emitted menus (e.g. Camera). With the editor
 			// compiled in, Editor::Tick() owns the menu bar end-to-end.

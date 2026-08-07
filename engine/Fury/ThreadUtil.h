@@ -16,6 +16,13 @@
 
 namespace fury
 {
+	// C4251: STL members (std::thread::id, std::unordered_map, std::thread, ...)
+	// in a __declspec(dllexport) class. The dll-interface warning is informational
+	// -- our consumers (fury + furye) all build against the same STL vendor and
+	// version, so the layout matches across the boundary. Suppress locally; the
+	// rest of the engine stays at /W4.
+#pragma warning(push)
+#pragma warning(disable: 4251)
 	class FURY_API ThreadUtil : public Singleton<ThreadUtil, size_t>
 	{
 	public:
@@ -64,7 +71,7 @@ namespace fury
 
 	public:
 
-		ThreadUtil(unsigned int numThreads);
+		ThreadUtil(size_t numThreads);
 
 		~ThreadUtil();
 		
@@ -107,6 +114,7 @@ namespace fury
 
 		bool IsMainThread();
 	};
+#pragma warning(pop)
 }
 
 #endif // _FURY_THREAD_UTIL_H_

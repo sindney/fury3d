@@ -1,6 +1,6 @@
 #include "Fury/Editor/EditorBodySetupWindow.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include <algorithm>
 #include <cmath>

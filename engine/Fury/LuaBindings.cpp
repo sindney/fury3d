@@ -57,7 +57,7 @@
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 // nativefiledialog-extended backs the Editor.OpenDialog / Editor.SaveDialog
 // Lua bindings. Lives under engine/ThirdParty/nfd as a git submodule; its
 // CMake target nfd::nfd is linked into `fury` only on WITH_EDITOR=ON.
@@ -72,7 +72,7 @@ namespace fury
 {
 	namespace LuaBindings
 	{
-		// Launcher options — populated by main.cpp before the script runs.
+		// Launcher options -- populated by main.cpp before the script runs.
 		// Engine.run reads these (and writes back the exit code).
 		static LauncherEngineOptions *s_launcher_options = nullptr;
 
@@ -183,7 +183,7 @@ namespace fury
 				sol::no_constructor,  // abstract; produced via OcTree::Create
 				"AddSceneNodeRecursively", &SceneManager::AddSceneNodeRecursively);
 
-			// --- Serializable (base — needed so FileUtil::Load* can accept Scene/Pipeline) -
+			// --- Serializable (base -- needed so FileUtil::Load* can accept Scene/Pipeline) -
 			lua.new_usertype<Serializable>("Serializable",
 				sol::no_constructor);
 
@@ -197,7 +197,7 @@ namespace fury
 			// the lambda form, sol2 returns a raw `std::shared_ptr<OcTree>`
 			// from the lambda's auto-deduced return type and never registers
 			// the upcast registry that lets `sol::bases<SceneManager>` map
-			// `shared_ptr<OcTree>` → `shared_ptr<SceneManager>` — Scene.Create
+			// `shared_ptr<OcTree>` -> `shared_ptr<SceneManager>` -- Scene.Create
 			// then rejects the userdata with "unrecognized userdata".
 			lua.new_usertype<OcTree>("OcTree",
 				sol::no_constructor,
@@ -214,7 +214,7 @@ namespace fury
 			// holds) and explicitly upcast in C++. Going through
 			// `&Scene::Create` directly relies on sol2's
 			// `sol::bases<SceneManager>` upcast registry to translate the
-			// OcTree userdata into a `shared_ptr<SceneManager>` — which
+			// OcTree userdata into a `shared_ptr<SceneManager>` -- which
 			// fails at runtime with "unrecognized userdata" against the
 			// vendored sol2 we ship. The explicit upcast restores the
 			// `Scene.Create(name, dir, octree)` call shape lua expects.
@@ -241,7 +241,7 @@ namespace fury
 				"AddMesh", [](Scene &s, const Mesh::Ptr &m) {
 					if (auto em = s.GetEntityManager()) em->Add(m);
 				},
-				// Name lookup for particle system assets — smoke tests and
+				// Name lookup for particle system assets -- smoke tests and
 				// automation assert against these (there is no generic
 				// EntityManager.Get exposed to Lua).
 				"GetParticleSystem", [](Scene &s, const std::string &name) -> ParticleSystem::Ptr {
@@ -265,7 +265,7 @@ namespace fury
 				// for serialization and applies it to the live PhysicsWorld.
 				"GetPhysicsGravity", &Scene::GetPhysicsGravity,
 				"SetPhysicsGravity", &Scene::SetPhysicsGravity,
-				// Union of every mesh-bearing node's world AABB — the
+				// Union of every mesh-bearing node's world AABB -- the
 				// editor's import unit-scale detection reads this. Returns
 				// `min, max` (Vector4) or nil when the scene has no finite
 				// mesh bounds (empty / lights-only).
@@ -295,7 +295,7 @@ namespace fury
 					return std::make_tuple(sol::make_object(lua, total.GetMin()),
 										   sol::make_object(lua, total.GetMax()));
 				});
-			// Scene::Active static property — same convention as Pipeline.Active.
+			// Scene::Active static property -- same convention as Pipeline.Active.
 			lua["Scene"]["GetActive"] = []() -> Scene::Ptr { return Scene::Active; };
 			lua["Scene"]["SetActive"] = [](Scene::Ptr p) { Scene::Active = p; };
 			// Convenience alias: matches the existing
@@ -311,14 +311,14 @@ namespace fury
 				return FileUtil::LoadByExtension(Scene::Active, path);
 			};
 
-			// Iteration helpers — wrap the existing EntityManager::ForEach<T>
+			// Iteration helpers -- wrap the existing EntityManager::ForEach<T>
 			// and add a recursive node walk. A non-nil return from the Lua
 			// callback short-circuits (matches EntityManager::ForEach's
 			// convention). `Scene.ForEachNode` walks pre-order from the root
 			// so a parent's name always appears before its children's.
 			//
 			// Return semantics: the C++ EntityManager::ForEach takes a
-			// `std::function<bool(...)>` — return `false` from the closure
+			// `std::function<bool(...)>` -- return `false` from the closure
 			// to break out of the loop. We map the Lua side as follows:
 			//   nil / no return value   -> continue iterating
 			//   anything else (true, a  -> short-circuit (stop iterating)
@@ -653,7 +653,7 @@ namespace fury
 				"GetName",         &ParticleRenderer::GetName,
 				"SetName",         &ParticleRenderer::SetName,
 				// Name-based system reference (resolved lazily against
-				// the active scene's EntityManager — GetSystem triggers
+				// the active scene's EntityManager -- GetSystem triggers
 				// the resolve).
 				"GetSystemName",   &ParticleRenderer::GetSystemName,
 				"SetSystemName",   &ParticleRenderer::SetSystemName,
@@ -747,7 +747,7 @@ namespace fury
 			// --- SceneNode -----------------------------------------------------
 			// AddComponent is overloaded per-derived-type so sol2 doesn't
 			// have to upcast the lua userdata into `shared_ptr<Component>`
-			// itself — it returns "unrecognized userdata" against the
+			// itself -- it returns "unrecognized userdata" against the
 			// vendored sol2 we ship even though `sol::bases<Component>` is
 			// declared on each derived. Same workaround pattern as the
 			// `Scene.Create(name, dir, octree)` binding above. RemoveComponent
@@ -830,6 +830,7 @@ namespace fury
 						// shared_ptr to the actual derived component, or nil.
 						// Return type is sol::object so a nil for "not present"
 						// round-trips cleanly.
+						(void)n;
 						(void)t;
 						return sol::nil;
 					}),
@@ -862,14 +863,14 @@ namespace fury
 
 			// --- Pipeline ------------------------------------------------------
 			// `Execute` takes `shared_ptr<SceneManager>`; lua passes the
-			// concrete `OcTree::Ptr`. Wrap to upcast in C++ — same sol2
+			// concrete `OcTree::Ptr`. Wrap to upcast in C++ -- same sol2
 			// upcast workaround as Scene.Create / SceneNode:AddComponent /
 			// Pipeline.SetActive.
 			lua.new_usertype<Pipeline>("Pipeline",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
 				"SetCurrentCamera", &Pipeline::SetCurrentCamera,
-				// Switches take the PipelineSwitch ordinal (int) — e.g.
+				// Switches take the PipelineSwitch ordinal (int) -- e.g.
 				// CASCADED_SHADOW_MAP=0 ... EDITOR_GRID=6.
 				"SetSwitch", [](Pipeline &p, int sw, bool v) { p.SetSwitch(static_cast<PipelineSwitch>(sw), v); },
 				"IsSwitchOn", [](Pipeline &p, int sw) -> bool { return p.IsSwitchOn(static_cast<PipelineSwitch>(sw)); },
@@ -878,12 +879,12 @@ namespace fury
 					[](Pipeline &p, OcTree::Ptr octree) {
 						p.Execute(std::static_pointer_cast<SceneManager>(octree));
 					}));
-			// Static property — Lua scripts read/write Pipeline.Active. Use
+			// Static property -- Lua scripts read/write Pipeline.Active. Use
 			// explicit getter/setter functions because sol::property on the
 			// usertype's class table doesn't reliably round-trip in sol2 v3.5.
 			lua["Pipeline"]["GetActive"] = []() -> Pipeline::Ptr { return Pipeline::Active; };
 			// Take the concrete `PrelightPipeline::Ptr` (the only Pipeline
-			// derivative lua produces) and upcast in C++ — sol2 fails to
+			// derivative lua produces) and upcast in C++ -- sol2 fails to
 			// unwrap `shared_ptr<PrelightPipeline>` into `shared_ptr<Pipeline>`
 			// even with `sol::bases<Pipeline>` declared. Same workaround as
 			// Scene.Create / SceneNode.AddComponent above.
@@ -1019,7 +1020,7 @@ namespace fury
 				return FileUtil::SaveCompressedFile(s, p);
 			};
 			// Pick the underlying serializer by lowercased path
-			// extension (.json → SaveFile, .bin → SaveCompressedFile).
+			// extension (.json -> SaveFile, .bin -> SaveCompressedFile).
 			// The single dispatch point used by the editor and the CLI.
 			fu_tbl["SaveByExtension"] = [](const std::shared_ptr<Scene> &s, const std::string &p) {
 				return FileUtil::SaveByExtension(s, p);
@@ -1246,7 +1247,7 @@ namespace fury
 				source_em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip> &c) -> bool {
 					target_em->Add(c); return true;
 				});
-				// ParticleSystem is a top-level asset like AnimationClip —
+				// ParticleSystem is a top-level asset like AnimationClip --
 				// skipping it here would strand the systems in the discarded
 				// source scene (content browser misses them, renderers can't
 				// resolve, and a re-save drops particleSystems[]).
@@ -1308,7 +1309,7 @@ namespace fury
 			// When off (no -DWITH_EDITOR), every Editor.* call is a safe no-op
 			// so the same script runs unchanged in both build modes.
 			sol::table editor_tbl = lua.create_named_table("Editor");
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 			editor_tbl["SetSceneIO"] = [](sol::table tbl) {
 				Editor::SceneIO io;
 				if (auto v = tbl["on_new"]; v.valid() && v.get_type() == sol::type::function)
@@ -1613,7 +1614,7 @@ namespace fury
 			editor_tbl["GetImportFlag"]       = sol::overload(
 				[](const std::string& name) -> bool { return Editor::GetImportFlag(name.c_str(), false); },
 				[](const std::string& name, bool d) -> bool { return Editor::GetImportFlag(name.c_str(), d); });
-			// Queued Yes/No modal (EditorConfirmDialog.h) — the Lua
+			// Queued Yes/No modal (EditorConfirmDialog.h) -- the Lua
 			// callback fires exactly once with true (Yes) / false (No/Esc).
 			editor_tbl["RequestConfirmDialog"] = [](const std::string& title, const std::string& message,
 													sol::protected_function cb) {
@@ -1641,7 +1642,7 @@ namespace fury
 			editor_tbl["MarkSceneDirty"]      = []() { Editor::MarkSceneDirty(); };
 			editor_tbl["ClearSceneDirty"]     = []() { Editor::ClearSceneDirty(); };
 
-			// Gizmo controls — optional power-user surface; the editor
+			// Gizmo controls -- optional power-user surface; the editor
 			// works without scripts touching these. Unknown name strings
 			// are silently ignored at the C++ layer.
 			editor_tbl["SetGizmoMode"]        = [](const std::string& name) { Editor::SetGizmoMode(name.c_str()); };
@@ -1652,7 +1653,7 @@ namespace fury
 			editor_tbl["GetSnapEnabled"]      = []() -> bool { return Editor::GetSnapEnabled(); };
 
 			// Automation hooks: open per-asset editor windows by asset
-			// name — verification scripts use these to screenshot the
+			// name -- verification scripts use these to screenshot the
 			// editors headlessly (no window-picker plumbing needed).
 			editor_tbl["OpenParticleEditor"]  = [](const std::string& name) {
 				if (!Scene::Active) return;
@@ -1835,7 +1836,7 @@ namespace fury
 				if (opt_table)
 				{
 					sol::table o = *opt_table;
-					// max_fps: accept number, or boolean false → 0.
+					// max_fps: accept number, or boolean false -> 0.
 					sol::object mf = o["max_fps"];
 					if (mf.valid())
 					{
@@ -1866,7 +1867,7 @@ namespace fury
 				// the bound sol::protected_function holds a Lua-state ref that
 				// would dangle otherwise.
 				Gui::SetMenuBarCallback({});
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 				// Same hazard for Editor's Lua-captured callbacks.
 				Editor::ClearSceneIO();
 				Editor::ClearSceneTreeProvider();
@@ -1895,7 +1896,7 @@ namespace fury
 				"SetCastShadows", &Mesh::SetCastShadows,
 				// Submesh accessors.
 				"GetSubmeshCount", &Mesh::GetSubMeshCount,
-				// LOD chain accessors — direct mirror of Mesh.h:227-236.
+				// LOD chain accessors -- direct mirror of Mesh.h:227-236.
 				"GetLodCount", &Mesh::GetLodCount,
 				"GetLodMesh",  &Mesh::GetLodMesh,
 				"ClearLodChain", &Mesh::ClearLodChain);
@@ -2013,7 +2014,7 @@ namespace fury
 			};
 			// LOD chain setter: accepts parallel arrays (meshes, thresholds).
 			// Mirrors Mesh::SetLodMeshes' validation: sizes must match and
-			// thresholds must be non-increasing — the C++ side enforces and
+			// thresholds must be non-increasing -- the C++ side enforces and
 			// logs FURYE on mismatch, so we forward and trust.
 			lua["Mesh"]["SetLodMeshes"] = [](Mesh &m, sol::table meshes_tbl, sol::table thresholds_tbl) {
 				std::vector<std::shared_ptr<Mesh>> meshes;
@@ -2041,7 +2042,7 @@ namespace fury
 			// shape: number -> Uniform1f, integer-valued number -> Uniform1ui,
 			// 3-element table -> Uniform3f, 4-element table -> Uniform4f.
 			lua.new_usertype<Material>("Material",
-				// Material.Create(name) — for scripts that build test/demo
+				// Material.Create(name) -- for scripts that build test/demo
 				// content programmatically (scene imports own materials
 				// otherwise).
 				"Create", &Material::Create,

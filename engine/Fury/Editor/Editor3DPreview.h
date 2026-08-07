@@ -10,7 +10,7 @@
 
 namespace fury { class Texture; }
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 struct ImGuiIO;
 
@@ -21,7 +21,7 @@ namespace fury
 		// Per-editor orbit-camera state. Keyed by popup ID ("MeshEditor:<name>"
 		// / "ParticleEditor:<name>") so multiple editors side-by-side
 		// have independent cameras. Originally defined in
-		// EditorAssetWindows.cpp — extracted into this helper so the
+		// EditorAssetWindows.cpp -- extracted into this helper so the
 		// particle editor can share the same mesh-editor preview
 		// pipeline (see asset-editor-windows delta spec).
 		struct FURY_API OrbitState
@@ -32,7 +32,7 @@ namespace fury
 			float yaw = 30.0f * 0.0174532925f;
 			float pitch = 20.0f * 0.0174532925f;
 			int preview_lod_override = -1;
-			void *framed_mesh = nullptr; // Mesh* cast — owned externally
+			void *framed_mesh = nullptr; // Mesh* cast -- owned externally
 			bool initialized = false;
 		};
 
@@ -57,7 +57,7 @@ namespace fury
 		// and resizing on width/height change. The caller binds it
 		// (BindFramebuffer), draws into it, then binds framebuffer 0
 		// again. `out_resized` (optional) is set true when this call
-		// (re)allocated — callers reframe their orbit on it.
+		// (re)allocated -- callers reframe their orbit on it.
 		FURY_API PreviewRT &EnsureRT(const std::string &popup_id, int w, int h,
 			bool *out_resized = nullptr);
 

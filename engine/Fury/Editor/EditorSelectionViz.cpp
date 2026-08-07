@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Editor/Editor.h"
 
@@ -96,7 +96,7 @@ namespace fury
 				const LightType lt = light->GetType();
 				if (lt == LightType::POINT)
 				{
-					// Unit ico-sphere scaled by radius — mirrors
+					// Unit ico-sphere scaled by radius -- mirrors
 					// Pipeline::DrawDebug's POINT-light path.
 					Matrix4 world = node->GetWorldMatrix();
 					world.AppendScale(Vector4(light->GetRadius(), 0.0f));
@@ -107,12 +107,12 @@ namespace fury
 				else if (lt == LightType::SPOT)
 				{
 					// Cone is pre-shaped by EvaluateVolume (radius + outer
-					// angle) — no extra scaling needed.
+					// angle) -- no extra scaling needed.
 					renderUtil->BeginDrawMeshs(cameraNode);
 					renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), kSelectionColor);
 					renderUtil->EndDrawMeshes();
 				}
-				// DIRECTIONAL: infinite bounds — skip.
+				// DIRECTIONAL: infinite bounds -- skip.
 			}
 			else if (auto cam = node->GetComponent<Camera>())
 			{

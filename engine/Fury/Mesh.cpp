@@ -120,13 +120,13 @@ namespace fury
 		LoadArray(wrapper, "tangents", Tangents.Data);
 		LoadArray(wrapper, "uvs", UVs.Data);
 
-		// Per-vertex skin data — optional. Absent on static meshes; present (with the
+		// Per-vertex skin data -- optional. Absent on static meshes; present (with the
 		// joints array below) on skinned meshes. Each vertex carries 4 bone indices
 		// and 3 explicit weights; the 4th weight is implicit (1 - sum of the first 3).
 		LoadArray(wrapper, "bone_ids", IDs.Data);
 		LoadArray(wrapper, "bone_weights", Weights.Data);
 
-		// Joint tree — flat array; parent links rebuilt below from explicit indices.
+		// Joint tree -- flat array; parent links rebuilt below from explicit indices.
 		// Tree shape (first-child / sibling pointers) is reconstructed from parent indices.
 		std::vector<Joint::Ptr> loaded_joints;
 		LoadArray(wrapper, "joints", [&](const void* node) -> bool
@@ -147,7 +147,7 @@ namespace fury
 			m_JointMap[joint_name] = joint;
 			return true;
 		});
-		// Second pass: wire parent → first_child / sibling links by index.
+		// Second pass: wire parent -> first_child / sibling links by index.
 		// LoadArray<callback> doesn't expose the index, so we re-scan in parallel with
 		// loaded_joints to read each entry's parent and link it back.
 		{
@@ -205,7 +205,7 @@ namespace fury
 			return false;
 		}
 
-		// LOD chain (LOD 1..N). Optional — pre-LOD scene files don't
+		// LOD chain (LOD 1..N). Optional -- pre-LOD scene files don't
 		// have it. Each entry in `lod_meshes` is a full Mesh JSON
 		// object; `lod_thresholds` is the parallel screen-coverage
 		// array.
@@ -270,14 +270,14 @@ namespace fury
 		}
 		if (!m_Joints.empty())
 		{
-			// Build name→index map so joint.parent can be saved as an integer index
+			// Build name->index map so joint.parent can be saved as an integer index
 			// (matching the rebuild-on-load contract above).
 			std::unordered_map<std::string, int> name_to_index;
 			for (unsigned int i = 0; i < m_Joints.size(); ++i)
 				name_to_index[m_Joints[i]->GetName()] = static_cast<int>(i);
 
 			SaveKey(wrapper, "joints");
-			SaveArray(wrapper, m_Joints.size(), [&](unsigned int index)
+			SaveArray(wrapper, static_cast<unsigned int>(m_Joints.size()), [&](unsigned int index)
 			{
 				const auto &joint = m_Joints[index];
 				StartObject(wrapper);
@@ -317,7 +317,7 @@ namespace fury
 		SaveArray(wrapper, Indices.Data);
 
 		SaveKey(wrapper, "submeshes");
-		SaveArray(wrapper, m_SubMeshes.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_SubMeshes.size()), [&](unsigned int index)
 		{
 			SaveArray(wrapper, m_SubMeshes[index]->Indices.Data);
 		});
@@ -331,7 +331,7 @@ namespace fury
 		if (!m_LodMeshes.empty())
 		{
 			SaveKey(wrapper, "lod_meshes");
-			SaveArray(wrapper, m_LodMeshes.size(), [&](unsigned int index)
+			SaveArray(wrapper, static_cast<unsigned int>(m_LodMeshes.size()), [&](unsigned int index)
 			{
 				m_LodMeshes[index]->Save(wrapper, true);
 			});
@@ -358,7 +358,7 @@ namespace fury
 
 	unsigned int Mesh::GetSubMeshCount() const
 	{
-		return m_SubMeshes.size();
+		return static_cast<int>(m_SubMeshes.size());
 	}
 
 	bool Mesh::IsSkinnedMesh() const
@@ -384,7 +384,7 @@ namespace fury
 
 	unsigned int Mesh::GetJointCount() const
 	{
-		return m_Joints.size();
+		return static_cast<int>(m_Joints.size());
 	}
 
 	std::shared_ptr<Joint> Mesh::GetRootJoint() const
@@ -413,7 +413,7 @@ namespace fury
 		Indices.UpdateBuffer();
 
 		// For meshes with submeshes, the parent Indices buffer is
-		// unused — each submesh carries its own index data. Flipping
+		// unused -- each submesh carries its own index data. Flipping
 		// the mesh dirty just because the (empty) parent Indices is
 		// dirty would make Shader::BindMesh / BindSubMesh early-return
 		// and the LOD preview / submeshed mesh would render nothing.
@@ -475,7 +475,7 @@ namespace fury
 
 		if (IsSkinnedMesh())
 		{
-			unsigned int numTriangles = Indices.Data.size() / 3;
+			unsigned int numTriangles = static_cast<unsigned int>(Indices.Data.size() / 3);
 
 			for (unsigned int i = 0; i < numTriangles; i++)
 			{
@@ -669,7 +669,7 @@ namespace fury
 
 	void LodGroup::Save(void* wrapper, bool object)
 	{
-		// Serializable stub — the MeshRender Save path calls
+		// Serializable stub -- the MeshRender Save path calls
 		// SaveMeshData (non-virtual) directly to write the
 		// sub-object. This virtual exists only to make LodGroup
 		// concrete; it should not be invoked in production paths.
@@ -678,7 +678,7 @@ namespace fury
 
 	bool LodGroup::Load(const void* wrapper, bool object)
 	{
-		// Same as Save — exists only to satisfy the Serializable
+		// Same as Save -- exists only to satisfy the Serializable
 		// abstract. Use LoadFromManager from MeshRender::Load.
 		(void)wrapper; (void)object;
 		FURYE << "LodGroup::Load called without a manager; use LoadFromManager";
@@ -750,7 +750,7 @@ namespace fury
 		return true;
 	}
 
-	// MeshContentHash — FNV-1a 64-bit over positions + top-level indices
+	// MeshContentHash -- FNV-1a 64-bit over positions + top-level indices
 	// + each submesh's indices. See header for rationale. Returns 0 on
 	// a null mesh so callers can short-circuit without dereferencing.
 	// We iterate the underlying std::vector<byte> rather than the typed

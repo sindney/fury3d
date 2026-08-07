@@ -29,7 +29,7 @@ namespace fury
 
 		// The diffuse slot carries the smoke/fire PNG for CPU-driven
 		// billboard particles (see particle-system spec). ParticleRenderer
-		// reads the same key — no separate particle material class.
+		// reads the same key -- no separate particle material class.
 		static const std::string DIFFUSE_TEXTURE;
 
 		static const std::string SPECULAR_TEXTURE;
@@ -60,7 +60,7 @@ namespace fury
 		// Populated by GltfImporter when the active pipeline is HDR.
 		// The HDR pipeline's lighting shaders (added in the same
 		// change) read these to drive the PBR BRDF. LDR pipelines
-		// ignore them — the legacy Lambert shader chain doesn't bind
+		// ignore them -- the legacy Lambert shader chain doesn't bind
 		// them.
 		static const std::string METALLIC_FACTOR;
 

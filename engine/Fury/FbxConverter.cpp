@@ -1,4 +1,4 @@
-// FbxConverter.cpp — invoke the vendored FBX2glTF binary as a subprocess.
+// FbxConverter.cpp -- invoke the vendored FBX2glTF binary as a subprocess.
 //
 // Platform layout:
 //   macOS:   posix_spawn + pipes  (binary: FBX2glTF-darwin-x64)
@@ -34,7 +34,9 @@
 	extern char **environ;
 	#define FURY_FBX2GLTF_BINARY "FBX2glTF-linux-x64"
 #elif defined(_WIN32)
+	#ifndef WIN32_LEAN_AND_MEAN
 	#define WIN32_LEAN_AND_MEAN
+	#endif
 	#include <windows.h>
 	#define FURY_FBX2GLTF_BINARY "FBX2glTF-windows-x64.exe"
 #else
@@ -89,8 +91,8 @@ namespace fury
 		if (!exedir.empty())
 		{
 			// Walk up to a few likely roots: build-engine/, examples/bin/,
-			// other build directories. We don't try infinitely — just two
-			// levels up — because anything deeper indicates the layout has
+			// other build directories. We don't try infinitely -- just two
+			// levels up -- because anything deeper indicates the layout has
 			// drifted and we should fail visibly.
 			const std::vector<std::string> tries = {
 				exedir + "/../engine/ThirdParty/FBX2glTF/" + FURY_FBX2GLTF_BINARY,

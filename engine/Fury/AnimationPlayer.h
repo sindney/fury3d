@@ -23,7 +23,7 @@ namespace fury
 
 	// Unity-legacy-style animation component. Attaches to a SceneNode and
 	// drives playback of registered AnimationClips. Channels resolve to
-	// the owning Mesh's Joint tree (skinned — each Joint mirrors a
+	// the owning Mesh's Joint tree (skinned -- each Joint mirrors a
 	// SceneNode, driven via its Transform) first, else to descendant
 	// SceneNodes (node-level).
 	//

@@ -140,7 +140,7 @@ namespace fury
 
 		m_ProjectionMatrix.PerspectiveOffCenter(left, right, bot, top, near, far);
 
-		// Frustum::Setup resets the world transform to identity — save it
+		// Frustum::Setup resets the world transform to identity -- save it
 		// here and re-apply so the camera's view transform survives the
 		// aspect change. (PerspectiveFov doesn't do this because it's a
 		// full re-init, typically called before the camera is attached to

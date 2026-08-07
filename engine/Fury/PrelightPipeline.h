@@ -62,7 +62,7 @@ namespace fury
 		// current gbuffer + composite and stores the result in the
 		// "debug_view" texture (presented by the editor viewport /
 		// Profiler instead of the scene). The effect does NOT need to
-		// be enabled in the chain — the view recomputes it standalone.
+		// be enabled in the chain -- the view recomputes it standalone.
 		void DrawEffectDebugView(const std::string &effectName);
 
 		// Chain/debug-view shared input: the lighting output texture

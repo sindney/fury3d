@@ -106,7 +106,7 @@ namespace fury
 		std::make_tuple(TextureFormat::SRGB, "srgb", GL_SRGB, GL_RGB),
 		std::make_tuple(TextureFormat::SRGB8, "srgb8", GL_SRGB8, GL_RGB),
 		// Order MUST match the TextureFormat enum (SRGB_ALPHA before
-		// SRGB8_ALPHA8). A prior swap broke CreateEmpty(SRGB8_ALPHA8) —
+		// SRGB8_ALPHA8). A prior swap broke CreateEmpty(SRGB8_ALPHA8) --
 		// it resolved to GL_SRGB_ALPHA (a non-sized format), which
 		// glTexStorage2D rejects, producing incomplete FBOs.
 		std::make_tuple(TextureFormat::SRGB_ALPHA, "srgba", GL_SRGB_ALPHA, GL_RGBA),
@@ -196,7 +196,7 @@ namespace fury
 		std::make_pair(ShaderTexture::SPECULAR, "specular"),
 		std::make_pair(ShaderTexture::NORMAL, "normal"),
 		std::make_pair(ShaderTexture::ALPHA_TEST, "alpha_test"),
-		// Shadow-receive variant bit — pipeline JSONs pair "shadow"
+		// Shadow-receive variant bit -- pipeline JSONs pair "shadow"
 		// with a SHADOW define so the shadow block compiles only in
 		// the *_shadow_shader variants (see Forward.glsl).
 		std::make_pair(ShaderTexture::SHADOW, "shadow")

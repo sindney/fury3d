@@ -27,13 +27,13 @@ namespace fury
 	template<class DataType>
 	void ArrayBuffer<DataType>::UpdateBuffer()
 	{
-		int sizeNew = Data.size();
+		size_t sizeNew = Data.size();
 		bool sizeChanged = false;
 		bool isNewBuffer = false;
 
 		if (sizeNew != m_SizeOld)
 		{
-			m_SizeOld = sizeNew;
+			m_SizeOld = static_cast<unsigned int>(sizeNew);
 			sizeChanged = true;
 		}
 

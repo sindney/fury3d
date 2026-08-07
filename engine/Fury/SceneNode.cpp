@@ -187,7 +187,7 @@ namespace fury
 		SaveKey(wrapper, "childs");
 		// Editor-only children are excluded from the serialized array -
 		// this is what keeps the editor camera out of saved scenes.
-		size_t savedChildCount = 0;
+		unsigned int savedChildCount = 0;
 		for (const auto &child : m_Childs)
 			if (!child->IsEditorOnly())
 				++savedChildCount;
@@ -466,7 +466,7 @@ namespace fury
 
 	void SceneNode::RemoveChild(const SceneNode::Ptr &node)
 	{
-		unsigned int childCount = m_Childs.size();
+		unsigned int childCount = static_cast<int>(m_Childs.size());
 		unsigned int i = 0;
 
 		SceneNode::Ptr child = nullptr;
@@ -583,7 +583,7 @@ namespace fury
 
 	SceneNode::Ptr SceneNode::FindChild(size_t hashcode) const
 	{
-		unsigned int childCount = m_Childs.size();
+		unsigned int childCount = static_cast<int>(m_Childs.size());
 		unsigned int i = 0;
 
 		SceneNode::Ptr child = nullptr;
@@ -601,7 +601,7 @@ namespace fury
 	SceneNode::Ptr SceneNode::FindChildRecursively(size_t hashcode) const
 	{
 		std::vector<Ptr> nodeWithChilds;
-		unsigned int childCount = m_Childs.size();
+		unsigned int childCount = static_cast<int>(m_Childs.size());
 		unsigned int i, j;
 
 		SceneNode::Ptr child = nullptr, currentNode = nullptr;
@@ -639,7 +639,7 @@ namespace fury
 
 	unsigned int SceneNode::GetChildCount() const
 	{
-		return m_Childs.size();
+		return static_cast<int>(m_Childs.size());
 	}
 
 	SceneNode::Ptr SceneNode::GetChildAt(unsigned int index) const

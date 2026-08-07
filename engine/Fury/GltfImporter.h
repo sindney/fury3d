@@ -58,7 +58,7 @@ namespace fury
 			// When true, PBR fields (metallic, roughness, normal,
 			// occlusion) are mapped onto the engine's PBR material
 			// slots instead of being discarded. Default false to
-			// keep existing scenes untouched — callers that target
+			// keep existing scenes untouched -- callers that target
 			// the HDR pipeline set this from
 			// Pipeline::IsHDRMode() at import time.
 			bool hdr_target;

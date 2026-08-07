@@ -29,7 +29,7 @@ namespace fury
 
 		std::string GetName() const;
 
-		// UUID — persistent unique identifier. Used as the
+		// UUID -- persistent unique identifier. Used as the
 		// EntityManager lookup key (via GetHashCode). Auto-generated
 		// on construction; loaded from JSON if present.
 		std::string GetUUID() const;
@@ -40,7 +40,7 @@ namespace fury
 
 		size_t GetHashCode() const;
 
-		// SetName updates m_Name only — it does NOT update m_HashCode
+		// SetName updates m_Name only -- it does NOT update m_HashCode
 		// (which is now derived from m_UUID). Use SetUUID to change
 		// the identity / hash.
 		size_t SetName(const std::string &name);
