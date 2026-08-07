@@ -53,14 +53,15 @@ namespace fury
 
 		Component::Ptr Clone() const override;
 
+		// Persists projection params + shadow settings.
+		bool Load(const void* wrapper, bool object = true) override;
+
+		void Save(void* wrapper, bool object = true) override;
+
 		void PerspectiveFov(float fov, float ratio, float near, float far);
 
-		// Update only the aspect ratio of a perspective projection,
-		// preserving FOV / near / far AND the frustum's current world
-		// transform (unlike PerspectiveFov, which resets the frustum
-		// transform to identity). Used by the editor when the Viewport
-		// window is resized — the camera node's world transform stays
-		// intact so culling continues to work. No-op for orthographic.
+		// Update the aspect ratio of a perspective projection, keeping the
+		// frustum's world transform (PerspectiveFov resets it). No-op for ortho.
 		void SetAspect(float ratio);
 
 		void PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far);

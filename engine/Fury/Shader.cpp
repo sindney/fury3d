@@ -421,7 +421,9 @@ namespace fury
 	{
 		if (texture->GetDirty())
 		{
-			FURYW << "Binding dirty texture!";
+			FURYW << "Binding dirty texture '" << texture->GetName()
+				<< "' (path='" << texture->GetFilePath() << "', id=" << texture->GetID()
+				<< ") for uniform '" << name << "'!";
 			return;
 		}
 

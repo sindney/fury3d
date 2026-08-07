@@ -115,6 +115,9 @@ endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/nfd/CMakeLists.txt")
 	message(FATAL_ERROR "nfd submodule missing — run: git submodule update --init --recursive")
 endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/JoltPhysics/Jolt/Jolt.h")
+	message(FATAL_ERROR "JoltPhysics submodule missing - run: git submodule update --init --recursive")
+endif()
 
 # SFML 3.1: build only the modules we actually need
 set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
@@ -150,6 +153,20 @@ file(GLOB MESHO_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src/*.cpp)
 add_library(meshoptimizer STATIC ${MESHO_SRC})
 target_include_directories(meshoptimizer SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src)
 set_property(TARGET meshoptimizer PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+# JoltPhysics: vendored submodule (v5.6.0), built via its own Build/CMakeLists.txt
+# (the SFML/nfd add_subdirectory precedent). When embedded like this, Jolt's
+# cmake auto-disables its unit tests / samples / viewer targets (guarded by
+# CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR) - only the Jolt static
+# lib is produced. ENABLE_ALL_WARNINGS OFF keeps Jolt's warnings-as-errors
+# away from our toolchain; FLOATING_POINT_EXCEPTIONS OFF because we embed Jolt
+# in a process that also runs GL/ImGui code; ENABLE_INSTALL OFF keeps our
+# install() surface unchanged. The Jolt target exports its include dir +
+# config defines (JPH_*) PUBLIC, so consumers just link `Jolt`.
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/JoltPhysics/Build)
 
 # The engine's own headers stay a normal -I path: we WANT -Wall to apply to
 # them. Every vendored ThirdParty path below is marked SYSTEM (-isystem on
@@ -205,10 +222,12 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/AnimationState.cpp
 	${PROJECT_SOURCE_DIR}/Fury/AnimationUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ArrayBuffers.cpp
+	${PROJECT_SOURCE_DIR}/Fury/BodySetup.cpp
 	${PROJECT_SOURCE_DIR}/Fury/BoxBounds.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Buffer.cpp
 	${PROJECT_SOURCE_DIR}/Fury/BufferManager.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Camera.cpp
+	${PROJECT_SOURCE_DIR}/Fury/CharacterController.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Cli.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Color.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Component.cpp
@@ -238,8 +257,10 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/ParticleModules.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ParticleRenderer.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ParticleSystem.cpp
+	${PROJECT_SOURCE_DIR}/Fury/PhysicsWorld.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Pipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Plane.cpp
+	${PROJECT_SOURCE_DIR}/Fury/PlayerController.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessEffect.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessRegistry.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PrelightPipeline.cpp
@@ -265,6 +286,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAnimationWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetPicker.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetWindows.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorBodySetupWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorConfirmDialog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorDebug.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
@@ -322,9 +344,9 @@ endif()
 if(OS_WINDOWS)
 	# ws2_32 supplies htonl/ntohl used by FileUtil.cpp on Windows
 	# (FileUtil.cpp pulls in <winsock.h> for the ntohl/htonl helpers).
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 lua meshoptimizer)
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 lua meshoptimizer Jolt)
 elseif(OS_MACOSX)
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt)
 endif()
 
 # Path to the host-platform FBX2glTF binary copied next to each executable.

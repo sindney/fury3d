@@ -72,6 +72,9 @@ namespace fury
 		static std::string SerializeToString(const std::shared_ptr<Serializable> &source, int maxDecimalPlaces = kMaxDecimalPlaces);
 
 		static bool DeserializeFromString(const std::shared_ptr<Serializable> &target, const std::string &json);
+
+		// Absolute path of the running executable ("" on failure).
+		static std::string GetExecutablePath();
 	};
 }
 

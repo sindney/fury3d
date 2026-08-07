@@ -23,6 +23,7 @@
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/Editor3DPreview.h"
 #include "Fury/Editor/EditorParticleWindow.h"
+#include "Fury/Editor/EditorBodySetupWindow.h"
 #include "ImGui/imgui.h"
 #include "ImGuizmo.h"
 #include "stb_image_write.h"
@@ -1246,6 +1247,9 @@ void RenderAllOpenAssetEditors() {
 
 	// Particle editor windows (separate map; same RenderAll loop).
 	RenderAllOpenParticleEditors();
+
+	// BodySetup editor windows (node-keyed map; same RenderAll loop).
+	RenderAllOpenBodySetupEditors();
 }
 } // namespace Editor
 } // namespace fury

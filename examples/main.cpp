@@ -39,6 +39,7 @@
 #include <Fury/Fury.h>
 #include <Fury/Gui.h>
 #include <Fury/LuaBindings.h>
+#include <Fury/PhysicsWorld.h>
 
 #undef near
 #undef far
@@ -188,6 +189,12 @@ int main(int argc, char *argv[])
 		std::cerr << "Engine::Initialize failed" << std::endl;
 		return 1;
 	}
+
+	// Play-mode gate: the plain runtime simulates physics; the editor never
+	// does (it launches a fury child process for play sessions instead).
+#ifndef WITH_EDITOR
+	fury::PhysicsWorld::Instance()->SetSimulationEnabled(true);
+#endif
 
 	int exit_code = 0;
 	{

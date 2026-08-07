@@ -146,9 +146,12 @@ namespace fury
 			}
 			simplified_indices.resize(simplified_count);
 
-			// 2. Generate a remap table: for each output vertex, the
-			// source-vertex index it should pull attributes from. The
-			// returned remap is sized to the new vertex count.
+			// 2. Generate a remap table: for each SOURCE vertex, the
+			// output index it packs to (or ~0u when unreferenced).
+			// meshopt fills `vertex_count` entries - do NOT resize to
+			// new_vertex_count: PackAttribute and meshopt_remapIndexBuffer
+			// both index this table by SOURCE vertex id (shrinking it
+			// reads out of bounds - ASAN container-overflow).
 			std::vector<unsigned int> remap(vertex_count);
 			const size_t new_vertex_count = meshopt_generateVertexRemap(
 				remap.data(),
@@ -159,7 +162,6 @@ namespace fury
 				FURYE << "MeshSimplifier: meshopt_generateVertexRemap returned 0";
 				return false;
 			}
-			remap.resize(new_vertex_count);
 
 			// 3. Pack each attribute. meshopt_remapVertexBuffer can do
 			// this in one call per attribute; the manual PackAttribute
@@ -338,6 +340,9 @@ namespace fury
 					}
 					simplified_indices.resize(simplified_count);
 
+					// Same contract as SimplifySubMesh: meshopt fills one
+					// remap entry per SOURCE vertex - never shrink the
+					// table to new_vertex_count (out-of-bounds reads).
 					std::vector<unsigned int> remap(source->Positions.Data.size() / 3);
 					new_vertex_count = meshopt_generateVertexRemap(
 						remap.data(),
@@ -345,7 +350,6 @@ namespace fury
 						source->Positions.Data.data(), source->Positions.Data.size() / 3,
 						sizeof(float) * 3);
 					if (new_vertex_count == 0) return result;
-					remap.resize(new_vertex_count);
 
 					auto pack = [&](const std::vector<float> &src, size_t components,
 									std::vector<float> &dst)

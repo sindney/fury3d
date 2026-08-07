@@ -1,11 +1,14 @@
 #include "Fury/MathUtil.h"
+#include "Fury/BodySetup.h"
 #include "Fury/Camera.h"
+#include "Fury/CharacterController.h"
 #include "Fury/Component.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Log.h"
 #include "Fury/Light.h"
 #include "Fury/OcTreeNode.h"
 #include "Fury/OcTree.h"
+#include "Fury/PlayerController.h"
 #include "Fury/SceneNode.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Scene.h"
@@ -25,7 +28,10 @@ namespace fury
 		{ "Camera",           []() -> Component::Ptr { return Camera::Create(); } },
 		{ "Transform",        []() -> Component::Ptr { return Transform::Create(); } },
 		{ "Animator",         []() -> Component::Ptr { return Animator::Create(); } },
-		{ "ParticleRenderer", []() -> Component::Ptr { return ParticleRenderer::Create(); } }
+		{ "ParticleRenderer", []() -> Component::Ptr { return ParticleRenderer::Create(); } },
+		{ "BodySetup",        []() -> Component::Ptr { return BodySetup::Create(); } },
+		{ "FreeFlyController", []() -> Component::Ptr { return FreeFlyController::Create(); } },
+		{ "CharacterController", []() -> Component::Ptr { return CharacterController::Create(); } }
 	};
 
 	SceneNode::Ptr SceneNode::Create(const std::string &name)
@@ -150,6 +156,11 @@ namespace fury
 
 	void SceneNode::Save(void* wrapper, bool object)
 	{
+		// Editor-only subtrees never serialize (the parent's childs walk
+		// already filters them; this guards direct Save calls).
+		if (m_EditorOnly)
+			return;
+
 		if (object)
 			StartObject(wrapper);
 
@@ -174,9 +185,25 @@ namespace fury
 		EndArray(wrapper);
 
 		SaveKey(wrapper, "childs");
-		SaveArray(wrapper, m_Childs.size(), [&](unsigned int index)
+		// Editor-only children are excluded from the serialized array -
+		// this is what keeps the editor camera out of saved scenes.
+		size_t savedChildCount = 0;
+		for (const auto &child : m_Childs)
+			if (!child->IsEditorOnly())
+				++savedChildCount;
+		SaveArray(wrapper, savedChildCount, [&](unsigned int index)
 		{
-			m_Childs[index]->Save(wrapper);
+			size_t seen = 0;
+			for (const auto &child : m_Childs)
+			{
+				if (child->IsEditorOnly())
+					continue;
+				if (seen++ == index)
+				{
+					child->Save(wrapper);
+					return;
+				}
+			}
 		});
 
 		if (object)
@@ -508,14 +535,50 @@ namespace fury
 		}
 	}
 
-	SceneNode::Ptr SceneNode::FindChild(const std::string &name) const 
+	SceneNode::Ptr SceneNode::FindChild(const std::string &name) const
 	{
-		return FindChild(std::hash<std::string>()(name));
+		// Compare names directly; GetHashCode() hashes the UUID, so the
+		// hashcode overloads keep their own (EntityManager-key) semantics.
+		for (const auto &child : m_Childs)
+		{
+			if (child->GetName() == name)
+				return child;
+		}
+
+		return nullptr;
 	}
 
 	SceneNode::Ptr SceneNode::FindChildRecursively(const std::string &name) const
 	{
-		return FindChildRecursively(std::hash<std::string>()(name));
+		std::vector<Ptr> nodeWithChilds;
+
+		for (const auto &child : m_Childs)
+		{
+			if (child->GetName() == name)
+				return child;
+
+			if (child->GetChildCount() > 0)
+				nodeWithChilds.push_back(child);
+		}
+
+		while (!nodeWithChilds.empty())
+		{
+			auto currentNode = nodeWithChilds.back();
+			nodeWithChilds.pop_back();
+
+			const unsigned int j = currentNode->GetChildCount();
+			for (unsigned int i = 0; i < j; i++)
+			{
+				auto child = currentNode->GetChildAt(i);
+				if (child->GetName() == name)
+					return child;
+
+				if (child->GetChildCount() > 0)
+					nodeWithChilds.push_back(child);
+			}
+		}
+
+		return nullptr;
 	}
 
 	SceneNode::Ptr SceneNode::FindChild(size_t hashcode) const

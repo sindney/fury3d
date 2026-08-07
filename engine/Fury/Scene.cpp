@@ -11,6 +11,7 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/OcTree.h"
+#include "Fury/PhysicsWorld.h"
 #include "Fury/PostProcessRegistry.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/SceneNode.h"
@@ -222,6 +223,18 @@ bool Scene::Load(const void* wrapper, bool object) {
 		m_RenderSettings->Load(rsNode, false);
 	}
 
+	// physics block is optional; absent = cm-unit defaults (0,-981,0).
+	if (auto physNode = FindMember(wrapper, "physics"))
+	{
+		m_HasPhysicsSettings = true;
+		LoadMemberValue(physNode, "gravity", m_PhysicsGravity);
+	}
+
+	// Push gravity into the live physics world when there is one (the CLI
+	// exec path skips Engine::Initialize, so no world exists there).
+	if (PhysicsWorld::Exists())
+		PhysicsWorld::Instance()->SetGravity(m_PhysicsGravity);
+
 	return true;
 }
 
@@ -302,6 +315,18 @@ void Scene::Save(void* wrapper, bool object) {
 		m_RenderSettings->Save(wrapper, true);
 	}
 
+	// physics block is only emitted when the scene actually has physics
+	// settings (loaded with one, or SetPhysicsGravity was called) - old
+	// scenes keep their files unchanged.
+	if (m_HasPhysicsSettings)
+	{
+		SaveKey(wrapper, "physics");
+		StartObject(wrapper);
+		SaveKey(wrapper, "gravity");
+		SaveValue(wrapper, m_PhysicsGravity);
+		EndObject(wrapper);
+	}
+
 	if (object)
 		EndObject(wrapper);
 }
@@ -328,5 +353,12 @@ void Scene::SetWorkingDir(const std::string& path) {
 
 std::shared_ptr<RenderSettings> Scene::GetRenderSettings() const {
 	return m_RenderSettings;
+}
+
+void Scene::SetPhysicsGravity(const Vector4 &gravity) {
+	m_PhysicsGravity = gravity;
+	m_HasPhysicsSettings = true;
+	if (PhysicsWorld::Exists())
+		PhysicsWorld::Instance()->SetGravity(gravity);
 }
 } // namespace fury

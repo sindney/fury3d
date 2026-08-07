@@ -37,6 +37,11 @@ namespace fury
 			sizeChanged = true;
 		}
 
+		// An empty channel has nothing to upload; treat it as clean so
+		// meshes without UVs (MeshUtil primitives) don't warn every frame.
+		if (m_Dirty && sizeNew == 0)
+			m_Dirty = false;
+
 		if (m_Dirty && sizeNew > 0)
 		{
 			m_Dirty = false;

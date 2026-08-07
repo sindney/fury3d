@@ -15,6 +15,11 @@
 
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
+#include <mach-o/dyld.h> // _NSGetExecutablePath (GetExecutablePath)
+#endif
+
+#if defined(_WIN32)
+#include <windows.h> // GetModuleFileNameA (GetExecutablePath)
 #endif
 
 #include <rapidjson/document.h>
@@ -600,6 +605,29 @@ bool FileUtil::DeserializeFromString(const std::shared_ptr<Serializable>& target
 		return false;
 	}
 	return true;
+}
+
+std::string FileUtil::GetExecutablePath()
+{
+#if defined(__APPLE__)
+	char buf[1024];
+	uint32_t size = sizeof(buf);
+	if (_NSGetExecutablePath(buf, &size) == 0) return std::string(buf);
+	return {};
+#elif defined(__linux__)
+	char buf[1024];
+	ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+	if (n <= 0) return {};
+	buf[n] = '\0';
+	return std::string(buf);
+#elif defined(_WIN32)
+	char buf[MAX_PATH];
+	DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
+	if (n == 0) return {};
+	return std::string(buf, n);
+#else
+	return {};
+#endif
 }
 
 } // namespace fury

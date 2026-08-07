@@ -14,6 +14,7 @@
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
 #include "Fury/MeshUtil.h"
+#include "Fury/PhysicsWorld.h"
 #include "Fury/Pipeline.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -86,9 +87,9 @@ namespace fury
 	{
 #if PLATFORM_WINDOWS
 		return static_cast<float>(GetDpiForSystem()) / 96.0f;
-#elif PLATFORM_MACOS
-		return furyGetMacOSBackingScale();
 #else
+		// 1.0 on macOS/Linux: the OS already scales for Retina; applying
+		// the backing factor here double-sizes the UI.
 		return 1.0f;
 #endif
 	}
@@ -132,6 +133,9 @@ namespace fury
 		RenderUtil::Initialize();
 
 		BufferManager::Initialize();
+
+		PhysicsWorld::Initialize();
+		PhysicsWorld::Instance()->Subscribe();
 
 		if (flag == 1)
 			return true;
@@ -296,21 +300,17 @@ namespace fury
 
 	void Engine::Shutdown()
 	{
-		// Release GL resources NOW, while the GL context is still alive.
-		// Anything held by a static shared_ptr (Scene::Active,
-		// Pipeline::Active, MeshUtil's primitive caches) or a singleton
-		// (RenderUtil) would otherwise survive until the C runtime's
-		// static-cleanup phase, which runs AFTER `sf::Window`'s
-		// destructor has torn down the GL context. Their destructors
-		// (Mesh::~Mesh, Shader::~Shader, RenderUtil::~RenderUtil's
-		// glDeleteVertexArrays / glDeleteBuffers, etc.) would then call
-		// GL delete functions on a dead context — UB, typically a
-		// segfault, plus spurious "Tangent/Normal data dirty" warnings
-		// from a render that runs after the meshes are already destroyed.
+		// Release GL resources while the context is still alive; statics
+		// and singletons would otherwise destruct after it is gone.
 		Scene::Active.reset();
 		Pipeline::Active.reset();
 		MeshUtil::Reset();
 		RenderUtil::Instance().reset();
+
+		// After Scene::Active: component detach destroys Jolt bodies,
+		// which needs the physics world still alive.
+		if (PhysicsWorld::Exists())
+			PhysicsWorld::Instance().reset();
 
 		Editor::Shutdown();
 		Gui::Shutdown();

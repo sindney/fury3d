@@ -7,6 +7,7 @@
 #include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorAssetPicker.h"
 #include "Fury/Editor/EditorParticleWindow.h"
+#include "Fury/Editor/EditorBodySetupWindow.h"
 #include "Fury/Editor/EditorReflect.hpp"
 #include "Fury/EnumUtil.h"
 #include "Fury/Light.h"
@@ -14,8 +15,11 @@
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/BodySetup.h"
+#include "Fury/CharacterController.h"
 #include "Fury/ParticleRenderer.h"
 #include "Fury/ParticleSystem.h"
+#include "Fury/PlayerController.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
@@ -602,6 +606,211 @@ void RenderAnimatorBody(SceneNode* node, Animator* anim) {
 	}
 }
 
+// BodySetup collision authoring. Shape/motion combos, per-shape dims,
+// dynamic-body params, collision-mesh asset row, and the entry point
+// into the BodySetup editor window (mesh-editor-style popup).
+void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
+	if (!body) return;
+
+	static const char* kShapeNames[] = { "Mesh", "Box", "Sphere" };
+	int shapeIdx = static_cast<int>(body->GetShapeType());
+	if (ImGui::Combo("Shape", &shapeIdx, kShapeNames, 3)) {
+		body->SetShapeType(static_cast<BodySetup::ShapeType>(shapeIdx));
+		Editor::MarkSceneDirty();
+	}
+
+	static const char* kMotionNames[] = { "Static", "Dynamic" };
+	int motionIdx = static_cast<int>(body->GetMotionType());
+	if (ImGui::Combo("Motion", &motionIdx, kMotionNames, 2)) {
+		body->SetMotionType(static_cast<BodySetup::MotionType>(motionIdx));
+		Editor::MarkSceneDirty();
+	}
+
+	if (body->GetShapeType() == BodySetup::ShapeType::Mesh) {
+		// Collision mesh row - same Change/jump/clear pattern as the particle
+		// system row. Empty means "use the sibling MeshRender's mesh".
+		const bool hasMesh = !body->GetCollisionMeshName().empty();
+		if (ImGui::Button("Change"))
+			ImGui::OpenPopup("CollisionMeshPicker");
+		ImGui::SameLine();
+		if (!hasMesh) ImGui::BeginDisabled();
+		if (ImGui::Button("→"))
+			Editor::SelectAssetInBrowser(typeid(Mesh), body->GetCollisionMeshName());
+		if (!hasMesh) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (!hasMesh) ImGui::BeginDisabled();
+		if (ImGui::Button("×"))
+			body->SetCollisionMeshName("");
+		if (!hasMesh) ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::TextUnformatted("Collision Mesh:");
+		ImGui::SameLine();
+		if (hasMesh)
+			ImGui::TextUnformatted(body->GetCollisionMeshName().c_str());
+		else
+			ImGui::TextDisabled("(render mesh)");
+
+		RenderAssetPickerModal("CollisionMeshPicker", "Pick Collision Mesh",
+			typeid(Mesh),
+			[body](std::shared_ptr<void> p) {
+				auto mesh = std::static_pointer_cast<Mesh>(p);
+				body->SetCollisionMeshName(mesh ? mesh->GetName() : "");
+			});
+	}
+	else if (body->GetShapeType() == BodySetup::ShapeType::Box) {
+		Vector4 he = body->GetHalfExtents();
+		if (ImReflect::Input("Half Extents", he).get<Vector4>().is_changed()) {
+			body->SetHalfExtents(he);
+			Editor::MarkSceneDirty();
+		}
+		if (ImGui::Button("Auto-Fit From Mesh")) {
+			body->AutoFitFromMesh();
+			Editor::MarkSceneDirty();
+		}
+	}
+	else {
+		float radius = body->GetRadius();
+		if (ImGui::DragFloat("Radius", &radius, 0.5f, 0.5f, 100000.0f)) {
+			body->SetRadius(radius);
+			Editor::MarkSceneDirty();
+		}
+		if (ImGui::Button("Auto-Fit From Mesh")) {
+			body->AutoFitFromMesh();
+			Editor::MarkSceneDirty();
+		}
+	}
+
+	if (body->GetMotionType() == BodySetup::MotionType::Dynamic) {
+		float mass = body->GetMass();
+		if (ImGui::DragFloat("Mass", &mass, 0.1f, 0.001f, 100000.0f)) {
+			body->SetMass(mass);
+			Editor::MarkSceneDirty();
+		}
+	}
+	float friction = body->GetFriction();
+	if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) {
+		body->SetFriction(friction);
+		Editor::MarkSceneDirty();
+	}
+	float restitution = body->GetRestitution();
+	if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) {
+		body->SetRestitution(restitution);
+		Editor::MarkSceneDirty();
+	}
+
+	if (ImGui::Button("Open Body Setup Editor…"))
+		Editor::OpenBodySetupEditor(node->shared_from_this());
+}
+
+void RenderFreeFlyControllerBody(SceneNode* node, FreeFlyController* ctrl) {
+	if (!ctrl) return;
+	bool enabled = ctrl->IsEnabled();
+	if (ImGui::Checkbox("Enabled", &enabled)) {
+		ctrl->SetEnabled(enabled);
+		Editor::MarkSceneDirty();
+	}
+
+	char buf[256];
+	strncpy(buf, ctrl->GetCameraNodeName().c_str(), sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+	if (ImGui::InputText("Camera Node", buf, sizeof(buf))) {
+		ctrl->SetCameraNodeName(buf);
+		Editor::MarkSceneDirty();
+	}
+	if (ctrl->GetCameraNodeName().empty())
+		ImGui::TextDisabled("(empty = drive the owning node)");
+
+	float speed = ctrl->GetMoveSpeed();
+	if (ImGui::DragFloat("Move Speed (cm/s)", &speed, 1.0f, 1.0f, 100000.0f)) {
+		ctrl->SetMoveSpeed(speed);
+		Editor::MarkSceneDirty();
+	}
+	float sens = ctrl->GetMouseSensitivity();
+	if (ImGui::DragFloat("Mouse Sensitivity", &sens, 0.0001f, 0.0001f, 0.1f, "%.4f")) {
+		ctrl->SetMouseSensitivity(sens);
+		Editor::MarkSceneDirty();
+	}
+}
+
+void RenderCharacterControllerBody(SceneNode* node, CharacterController* ctrl) {
+	if (!ctrl) return;
+	bool enabled = ctrl->IsEnabled();
+	if (ImGui::Checkbox("Enabled", &enabled)) {
+		ctrl->SetEnabled(enabled);
+		Editor::MarkSceneDirty();
+	}
+
+	char buf[256];
+	strncpy(buf, ctrl->GetCameraNodeName().c_str(), sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+	if (ImGui::InputText("Camera Node", buf, sizeof(buf))) {
+		ctrl->SetCameraNodeName(buf);
+		Editor::MarkSceneDirty();
+	}
+
+	float height = ctrl->GetHeight();
+	if (ImGui::DragFloat("Capsule Height", &height, 1.0f, 1.0f, 100000.0f)) {
+		ctrl->SetHeight(height);
+		Editor::MarkSceneDirty();
+	}
+	float radius = ctrl->GetRadius();
+	if (ImGui::DragFloat("Capsule Radius", &radius, 0.5f, 0.5f, 100000.0f)) {
+		ctrl->SetRadius(radius);
+		Editor::MarkSceneDirty();
+	}
+	if (ImGui::Button("Auto-Fit From Node Bounds")) {
+		ctrl->AutoFitFromNode();
+		Editor::MarkSceneDirty();
+	}
+
+	float walk = ctrl->GetWalkSpeed();
+	if (ImGui::DragFloat("Walk Speed", &walk, 1.0f, 1.0f, 100000.0f)) {
+		ctrl->SetWalkSpeed(walk);
+		Editor::MarkSceneDirty();
+	}
+	float run = ctrl->GetRunSpeed();
+	if (ImGui::DragFloat("Run Speed", &run, 1.0f, 1.0f, 100000.0f)) {
+		ctrl->SetRunSpeed(run);
+		Editor::MarkSceneDirty();
+	}
+	float jump = ctrl->GetJumpSpeed();
+	if (ImGui::DragFloat("Jump Speed", &jump, 1.0f, 1.0f, 100000.0f)) {
+		ctrl->SetJumpSpeed(jump);
+		Editor::MarkSceneDirty();
+	}
+
+	float camDist = ctrl->GetCameraDistance();
+	if (ImGui::DragFloat("Camera Distance", &camDist, 1.0f, 0.0f, 100000.0f)) {
+		ctrl->SetCameraDistance(camDist);
+		Editor::MarkSceneDirty();
+	}
+	float camHeight = ctrl->GetCameraHeight();
+	if (ImGui::DragFloat("Camera Height", &camHeight, 1.0f, 0.0f, 100000.0f)) {
+		ctrl->SetCameraHeight(camHeight);
+		Editor::MarkSceneDirty();
+	}
+	float yawOffset = ctrl->GetModelYawOffset();
+	if (ImGui::DragFloat("Model Yaw Offset (deg)", &yawOffset, 0.5f, -180.0f, 180.0f)) {
+		ctrl->SetModelYawOffset(yawOffset);
+		Editor::MarkSceneDirty();
+	}
+
+	auto clipRow = [ctrl](const char* label, const char* current, void(CharacterController::*setter)(const std::string&)) {
+		char cbuf[256];
+		strncpy(cbuf, current, sizeof(cbuf) - 1);
+		cbuf[sizeof(cbuf) - 1] = '\0';
+		if (ImGui::InputText(label, cbuf, sizeof(cbuf))) {
+			(ctrl->*setter)(cbuf);
+			Editor::MarkSceneDirty();
+		}
+	};
+	clipRow("Idle Clip", ctrl->GetIdleClip().c_str(), &CharacterController::SetIdleClip);
+	clipRow("Walk Clip", ctrl->GetWalkClip().c_str(), &CharacterController::SetWalkClip);
+	clipRow("Run Clip", ctrl->GetRunClip().c_str(), &CharacterController::SetRunClip);
+	clipRow("Jump Clip (air)", ctrl->GetJumpClip().c_str(), &CharacterController::SetJumpClip);
+	ImGui::TextDisabled("Empty jump clip = no airborne anim. Crouch/interact/attack come with the data-driven action table.");
+}
+
 static const std::vector<ComponentEntry>& ComponentRenderTable() {
 	static const std::vector<ComponentEntry> table = {
 		{"Transform", typeid(Transform), false, [](SceneNode* n, Component* c) { RenderTransformBody(n, static_cast<Transform*>(c)); }},
@@ -610,6 +819,9 @@ static const std::vector<ComponentEntry>& ComponentRenderTable() {
 		{"MeshRender", typeid(MeshRender), true, [](SceneNode* n, Component* c) { RenderMeshRenderBody(n, static_cast<MeshRender*>(c)); }},
 		{"Animator", typeid(Animator), true, [](SceneNode* n, Component* c) { RenderAnimatorBody(n, static_cast<Animator*>(c)); }},
 		{"ParticleRenderer", typeid(ParticleRenderer), true, [](SceneNode* n, Component* c) { RenderParticleRendererBody(n, static_cast<ParticleRenderer*>(c)); }},
+		{"BodySetup", typeid(BodySetup), true, [](SceneNode* n, Component* c) { RenderBodySetupBody(n, static_cast<BodySetup*>(c)); }},
+		{"FreeFlyController", typeid(FreeFlyController), true, [](SceneNode* n, Component* c) { RenderFreeFlyControllerBody(n, static_cast<FreeFlyController*>(c)); }},
+		{"CharacterController", typeid(CharacterController), true, [](SceneNode* n, Component* c) { RenderCharacterControllerBody(n, static_cast<CharacterController*>(c)); }},
 	};
 	return table;
 }

@@ -10,6 +10,7 @@
 // doesn't care which OS is hosting.
 
 #include "Fury/FbxConverter.h"
+#include "Fury/FileUtil.h"
 #include "Fury/Log.h"
 
 #include <cerrno>
@@ -68,34 +69,11 @@ namespace fury
 			auto dot = base.find_last_of('.');
 			return (dot == std::string::npos) ? base : base.substr(0, dot);
 		}
-
-		std::string GetExecutablePath()
-		{
-#if defined(__APPLE__)
-			char buf[1024];
-			uint32_t size = sizeof(buf);
-			if (_NSGetExecutablePath(buf, &size) == 0) return std::string(buf);
-			return {};
-#elif defined(__linux__)
-			char buf[1024];
-			ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-			if (n <= 0) return {};
-			buf[n] = '\0';
-			return std::string(buf);
-#elif defined(_WIN32)
-			char buf[MAX_PATH];
-			DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
-			if (n == 0) return {};
-			return std::string(buf, n);
-#else
-			return {};
-#endif
-		}
 	}
 
 	std::string FbxConverter::LocateBinary()
 	{
-		const std::string exe = GetExecutablePath();
+		const std::string exe = FileUtil::GetExecutablePath();
 		const std::string exedir = exe.empty() ? "" : DirOf(exe);
 
 		// 1. Adjacent to the running executable (post-build copy).

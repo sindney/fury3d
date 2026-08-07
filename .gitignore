@@ -92,3 +92,9 @@ examples/Projects/*/*.json
 !examples/Projects/tank/scene-hdr-noshadowsun.json
 !examples/Projects/tank/scene-ldr.json
 !examples/Projects/sponza/metadata.json
+
+# Play-mode temp scenes (editor Play writes <scene dir>/.play_<name>.tmp.bin)
+.play_*.tmp.bin
+
+# ASAN scratch build dir
+/build-asan/

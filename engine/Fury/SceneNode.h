@@ -52,6 +52,9 @@ namespace fury
 
 		bool m_TransformDirty;
 
+		// Skipped by Save (with its whole subtree); editor tooling state.
+		bool m_EditorOnly = false;
+
 		Vector4 m_WorldPosition;
 
 		Vector4 m_WorldScale;
@@ -97,6 +100,10 @@ namespace fury
 		// remove this sceneNode from attached ocTree.
 		// set recursively to true will call this on child nodes.
 		void RemoveFromOcTree(bool recursively = false);
+
+		void SetEditorOnly(bool value) { m_EditorOnly = value; }
+
+		bool IsEditorOnly() const { return m_EditorOnly; }
 
 		void SetModelAABB(const BoxBounds &aabb);
 

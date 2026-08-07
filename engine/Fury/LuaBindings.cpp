@@ -11,6 +11,7 @@
 #include "Fury/Component.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAssetWindows.h"
+#include "Fury/Editor/EditorBodySetupWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Engine.h"
@@ -27,6 +28,8 @@
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Joint.h"
+#include "Fury/BodySetup.h"
+#include "Fury/CharacterController.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
@@ -38,7 +41,9 @@
 #include "Fury/MeshSimplifier.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/OcTree.h"
+#include "Fury/PhysicsWorld.h"
 #include "Fury/Pipeline.h"
+#include "Fury/PlayerController.h"
 #include "Fury/PrelightPipeline.h"
 #include "Fury/Quaternion.h"
 #include "Fury/RenderUtil.h"
@@ -243,12 +248,23 @@ namespace fury
 					if (auto em = s.GetEntityManager()) return em->Get<ParticleSystem>(name);
 					return nullptr;
 				},
+				// Name lookup for texture assets - lets setup scripts
+				// retarget broken texture paths (e.g. imports merged into a
+				// scene with a different working dir) before saving.
+				"GetTexture", [](Scene &s, const std::string &name) -> Texture::Ptr {
+					if (auto em = s.GetEntityManager()) return em->Get<Texture>(name);
+					return nullptr;
+				},
 				"AddParticleSystem", [](Scene &s, const ParticleSystem::Ptr &p) {
 					if (auto em = s.GetEntityManager()) em->Add(p);
 				},
 				"GetRenderSettings", &Scene::GetRenderSettings,
 				"GetWorkingDir", &Scene::GetWorkingDir,
 				"SetWorkingDir", &Scene::SetWorkingDir,
+				// Per-scene physics block: writing gravity marks the block
+				// for serialization and applies it to the live PhysicsWorld.
+				"GetPhysicsGravity", &Scene::GetPhysicsGravity,
+				"SetPhysicsGravity", &Scene::SetPhysicsGravity,
 				// Union of every mesh-bearing node's world AABB — the
 				// editor's import unit-scale detection reads this. Returns
 				// `min, max` (Vector4) or nil when the scene has no finite
@@ -652,6 +668,82 @@ namespace fury
 				AnimationUtil::OptimizeAnimClip(clip, quality);
 			};
 
+			// --- BodySetup -------------------------------------------------
+			// Shape/motion enums cross as ints: shape 0=mesh 1=box 2=sphere,
+			// motion 0=static 1=dynamic.
+			lua.new_usertype<BodySetup>("BodySetup",
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", &BodySetup::Create,
+				"GetShapeType", [](BodySetup &b) { return static_cast<int>(b.GetShapeType()); },
+				"SetShapeType", [](BodySetup &b, int t) { b.SetShapeType(static_cast<BodySetup::ShapeType>(t)); },
+				"GetMotionType", [](BodySetup &b) { return static_cast<int>(b.GetMotionType()); },
+				"SetMotionType", [](BodySetup &b, int t) { b.SetMotionType(static_cast<BodySetup::MotionType>(t)); },
+				"GetCollisionMeshName", &BodySetup::GetCollisionMeshName,
+				"SetCollisionMeshName", &BodySetup::SetCollisionMeshName,
+				"GetHalfExtents", &BodySetup::GetHalfExtents,
+				"SetHalfExtents", &BodySetup::SetHalfExtents,
+				"GetRadius", &BodySetup::GetRadius,
+				"SetRadius", &BodySetup::SetRadius,
+				"GetMass", &BodySetup::GetMass,
+				"SetMass", &BodySetup::SetMass,
+				"GetFriction", &BodySetup::GetFriction,
+				"SetFriction", &BodySetup::SetFriction,
+				"GetRestitution", &BodySetup::GetRestitution,
+				"SetRestitution", &BodySetup::SetRestitution,
+				"AutoFitFromMesh", &BodySetup::AutoFitFromMesh,
+				"HasBody", &BodySetup::HasBody);
+
+			// --- PlayerController (statics) / FreeFlyController ------------
+			lua.new_usertype<PlayerController>("PlayerController",
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"FindFirstEnabled", &PlayerController::FindFirstEnabled,
+				"ActivateFirst", &PlayerController::ActivateFirst,
+				"IsEnabled", &PlayerController::IsEnabled,
+				"SetEnabled", &PlayerController::SetEnabled,
+				"GetCameraNodeName", &PlayerController::GetCameraNodeName,
+				"SetCameraNodeName", &PlayerController::SetCameraNodeName);
+
+			lua.new_usertype<FreeFlyController>("FreeFlyController",
+				sol::base_classes, sol::bases<PlayerController, Component, Serializable>(),
+				"Create", &FreeFlyController::Create,
+				"IsEnabled", &FreeFlyController::IsEnabled,
+				"SetEnabled", &FreeFlyController::SetEnabled,
+				"GetCameraNodeName", &FreeFlyController::GetCameraNodeName,
+				"SetCameraNodeName", &FreeFlyController::SetCameraNodeName,
+				"GetMoveSpeed", &FreeFlyController::GetMoveSpeed,
+				"SetMoveSpeed", &FreeFlyController::SetMoveSpeed,
+				"GetMouseSensitivity", &FreeFlyController::GetMouseSensitivity,
+				"SetMouseSensitivity", &FreeFlyController::SetMouseSensitivity);
+
+			lua.new_usertype<CharacterController>("CharacterController",
+				sol::base_classes, sol::bases<PlayerController, Component, Serializable>(),
+				"Create", &CharacterController::Create,
+				"IsEnabled", &CharacterController::IsEnabled,
+				"SetEnabled", &CharacterController::SetEnabled,
+				"GetCameraNodeName", &CharacterController::GetCameraNodeName,
+				"SetCameraNodeName", &CharacterController::SetCameraNodeName,
+				"GetHeight", &CharacterController::GetHeight,
+				"SetHeight", &CharacterController::SetHeight,
+				"GetRadius", &CharacterController::GetRadius,
+				"SetRadius", &CharacterController::SetRadius,
+				"GetWalkSpeed", &CharacterController::GetWalkSpeed,
+				"SetWalkSpeed", &CharacterController::SetWalkSpeed,
+				"GetRunSpeed", &CharacterController::GetRunSpeed,
+				"SetRunSpeed", &CharacterController::SetRunSpeed,
+				"GetJumpSpeed", &CharacterController::GetJumpSpeed,
+				"SetJumpSpeed", &CharacterController::SetJumpSpeed,
+				"GetCameraDistance", &CharacterController::GetCameraDistance,
+				"SetCameraDistance", &CharacterController::SetCameraDistance,
+				"GetCameraHeight", &CharacterController::GetCameraHeight,
+				"SetCameraHeight", &CharacterController::SetCameraHeight,
+				"GetModelYawOffset", &CharacterController::GetModelYawOffset,
+				"SetModelYawOffset", &CharacterController::SetModelYawOffset,
+				"SetIdleClip", &CharacterController::SetIdleClip,
+				"SetWalkClip", &CharacterController::SetWalkClip,
+				"SetRunClip", &CharacterController::SetRunClip,
+				"SetJumpClip", &CharacterController::SetJumpClip,
+				"AutoFitFromNode", &CharacterController::AutoFitFromNode);
+
 			// --- SceneNode -----------------------------------------------------
 			// AddComponent is overloaded per-derived-type so sol2 doesn't
 			// have to upcast the lua userdata into `shared_ptr<Component>`
@@ -697,13 +789,25 @@ namespace fury
 					},
 					[](SceneNode &n, Animator::Ptr c) {
 						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, BodySetup::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, FreeFlyController::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, CharacterController::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
 					}),
 				"RemoveComponent", sol::overload(
 					[](SceneNode &n, Transform::Ptr) { return n.RemoveComponent(typeid(Transform)); },
 					[](SceneNode &n, Camera::Ptr)    { return n.RemoveComponent(typeid(Camera)); },
 					[](SceneNode &n, Light::Ptr)     { return n.RemoveComponent(typeid(Light)); },
 					[](SceneNode &n, MeshRender::Ptr){ return n.RemoveComponent(typeid(MeshRender)); },
-					[](SceneNode &n, Animator::Ptr)  { return n.RemoveComponent(typeid(Animator)); }),
+					[](SceneNode &n, Animator::Ptr)  { return n.RemoveComponent(typeid(Animator)); },
+					[](SceneNode &n, BodySetup::Ptr) { return n.RemoveComponent(typeid(BodySetup)); },
+					[](SceneNode &n, FreeFlyController::Ptr) { return n.RemoveComponent(typeid(FreeFlyController)); },
+					[](SceneNode &n, CharacterController::Ptr) { return n.RemoveComponent(typeid(CharacterController)); }),
 				"GetComponent", sol::overload(
 					// Typed overloads FIRST so a Lua-side
 					// `n:GetComponent(ParticleSystem)` resolves to the
@@ -715,6 +819,9 @@ namespace fury
 					[](SceneNode &n, MeshRender::Ptr)-> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
 					[](SceneNode &n, Animator::Ptr)  -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); },
 					[](SceneNode &n, ParticleRenderer::Ptr) -> std::shared_ptr<ParticleRenderer> { return n.GetComponent<ParticleRenderer>(); },
+					[](SceneNode &n, BodySetup::Ptr) -> std::shared_ptr<BodySetup> { return n.GetComponent<BodySetup>(); },
+					[](SceneNode &n, FreeFlyController::Ptr) -> std::shared_ptr<FreeFlyController> { return n.GetComponent<FreeFlyController>(); },
+					[](SceneNode &n, CharacterController::Ptr) -> std::shared_ptr<CharacterController> { return n.GetComponent<CharacterController>(); },
 					[](SceneNode &n, sol::type t) -> sol::object {
 						// Forward a Lua-side `GetComponent(SceneNode.Light)`-style
 						// call (when registered as a table) by name lookup. This
@@ -732,9 +839,15 @@ namespace fury
 				"GetMeshRender",[](SceneNode &n) -> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
 				"GetAnimator",  [](SceneNode &n) -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); },
 				"GetParticleRenderer", [](SceneNode &n) -> std::shared_ptr<ParticleRenderer> { return n.GetComponent<ParticleRenderer>(); },
+				"GetBodySetup", [](SceneNode &n) -> std::shared_ptr<BodySetup> { return n.GetComponent<BodySetup>(); },
+				"GetFreeFlyController", [](SceneNode &n) -> std::shared_ptr<FreeFlyController> { return n.GetComponent<FreeFlyController>(); },
+				"GetCharacterController", [](SceneNode &n) -> std::shared_ptr<CharacterController> { return n.GetComponent<CharacterController>(); },
 				"AddChild", &SceneNode::AddChild,
 				"RemoveChild", &SceneNode::RemoveChild,
 				"RemoveFromParent", &SceneNode::RemoveFromParent,
+				"FindChildRecursively", static_cast<SceneNode::Ptr(SceneNode::*)(const std::string &) const>(&SceneNode::FindChildRecursively),
+				"SetEditorOnly", &SceneNode::SetEditorOnly,
+				"IsEditorOnly", &SceneNode::IsEditorOnly,
 				"GetChildCount", &SceneNode::GetChildCount,
 				"GetChildAt", &SceneNode::GetChildAt,
 				"GetParent", &SceneNode::GetParent,
@@ -1553,6 +1666,14 @@ namespace fury
 					if (auto mesh = em->Get<Mesh>(name))
 						Editor::OpenMeshEditor(mesh);
 			};
+			// Open the per-node BodySetup editor by node name - automation/
+			// verification scripts use this to open the window without
+			// driving the inspector button.
+			editor_tbl["OpenBodySetupEditor"] = [](const std::string& nodeName) {
+				if (!Scene::Active || !Scene::Active->GetRootNode()) return;
+				if (auto node = Scene::Active->GetRootNode()->FindChildRecursively(nodeName))
+					Editor::OpenBodySetupEditor(node);
+			};
 #else
 			// No-op stubs so user scripts that reference Editor.* compose
 			// with both build modes. Each accepts and discards arguments.
@@ -1765,7 +1886,9 @@ namespace fury
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
 				"GetName", &Mesh::GetName,
-				"SetName", &Mesh::SetName,
+				// Entity::SetName returns size_t (the unchanged UUID hash)
+				// which sol2 refuses to marshal - wrap and discard it.
+				"SetName", [](Mesh &m, const std::string &name) { m.SetName(name); },
 				"GetAABB", &Mesh::GetAABB,
 				"IsSkinnedMesh", &Mesh::IsSkinnedMesh,
 				"GetCastShadows", &Mesh::GetCastShadows,
@@ -1903,6 +2026,14 @@ namespace fury
 					thresholds.push_back(thresholds_tbl.get<float>(i));
 				m.SetLodMeshes(meshes, thresholds);
 			};
+
+			// --- Texture ---------------------------------------------------
+			lua.new_usertype<Texture>("Texture",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"GetName", &Texture::GetName,
+				"GetFilePath", &Texture::GetFilePath,
+				"SetFilePathAndSRGB", &Texture::SetFilePathAndSRGB);
 
 			// --- Material ----------------------------------------------------
 			// GetUniform returns number/table/nil based on the underlying
@@ -2054,7 +2185,40 @@ namespace fury
 				MeshUtil::CalculateTangent(mesh);
 			};
 
-			// --- MeshSimplifier namespace table ------------------------------
+			// --- Physics namespace table -------------------------------------
+		// PhysicsWorld gate + helpers. SetEnabled builds/destroys bodies for
+		// the loaded scene; Step(n) runs n fixed ticks synchronously (for
+		// headless `fury exec` tests - no window, no Run loop). The exec
+		// path skips Engine::Initialize, so enabling lazily creates the
+		// world there (pure Jolt - no GL dependency).
+		sol::table physics_tbl = lua.create_named_table("Physics");
+		physics_tbl["SetEnabled"] = [](bool enabled) {
+			if (enabled && !PhysicsWorld::Exists())
+				PhysicsWorld::Initialize();
+			if (PhysicsWorld::Exists())
+				PhysicsWorld::Instance()->SetSimulationEnabled(enabled);
+		};
+		physics_tbl["GetEnabled"] = []() -> bool {
+			return PhysicsWorld::Exists() && PhysicsWorld::Instance()->IsSimulationEnabled();
+		};
+		physics_tbl["Step"] = [](sol::object n_obj) {
+			int n = 1;
+			if (n_obj.valid() && n_obj.is<int>())
+				n = n_obj.as<int>();
+			if (PhysicsWorld::Exists())
+				PhysicsWorld::Instance()->Step(n);
+		};
+		physics_tbl["SetGravity"] = [](const Vector4 &gravity) {
+			if (PhysicsWorld::Exists())
+				PhysicsWorld::Instance()->SetGravity(gravity);
+		};
+		physics_tbl["GetGravity"] = []() -> Vector4 {
+			return PhysicsWorld::Exists()
+				? PhysicsWorld::Instance()->GetGravity()
+				: Vector4(0.0f, -981.0f, 0.0f, 0.0f);
+		};
+
+		// --- MeshSimplifier namespace table ------------------------------
 			// Single entry point: SimplifyMesh(mesh, opts). `opts` is a
 			// plain Lua table with optional lod_count / reduction_ratio /
 			// target_error / lock_borders; nil/omitted means use defaults.

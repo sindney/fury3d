@@ -25,6 +25,14 @@
 #include <unordered_map>
 #include <vector>
 
+#if defined(_WIN32)
+	#include <windows.h>
+#else
+	#include <spawn.h>
+	#include <signal.h>
+	extern char **environ;
+#endif
+
 namespace fury {
 namespace Editor {
 // Forward declarations of window-rendering functions (defined in
@@ -410,6 +418,116 @@ void TriggerOpen() {
 	}
 }
 
+// Spawn `fury` detached (no pipe capture, no wait): POSIX posix_spawn with
+// SIGCHLD ignored so the child auto-reaps; Windows CreateProcess with the
+// handle closed. The editor stays interactive; closing the fury window
+// ends the play session.
+bool LaunchDetached(const std::string &exePath, const std::vector<std::string> &args) {
+#if defined(_WIN32)
+	std::string cmdline = "\"" + exePath + "\"";
+	for (const auto &a : args)
+		cmdline += " \"" + a + "\"";
+
+	STARTUPINFOA si{};
+	si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	const BOOL ok = CreateProcessA(nullptr, cmdline.data(), nullptr, nullptr,
+		FALSE, CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS, nullptr, nullptr, &si, &pi);
+	if (!ok)
+		return false;
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	return true;
+#else
+	// Auto-reap children so a closed play window never leaves a zombie.
+	static bool s_SigchldIgnored = false;
+	if (!s_SigchldIgnored) {
+		signal(SIGCHLD, SIG_IGN);
+		s_SigchldIgnored = true;
+	}
+
+	std::vector<char *> argv;
+	argv.push_back(const_cast<char *>(exePath.c_str()));
+	for (const auto &a : args)
+		argv.push_back(const_cast<char *>(a.c_str()));
+	argv.push_back(nullptr);
+
+	pid_t pid = 0;
+	const int rc = posix_spawn(&pid, exePath.c_str(), nullptr, nullptr,
+		argv.data(), environ);
+	return rc == 0;
+#endif
+}
+
+// Play (F5 / menu-bar button): save the active scene to a temp file next to
+// the original (never touching it - editor-only nodes are skipped by the
+// serializer), then launch `fury Player.lua <temp>` detached.
+void TriggerPlay() {
+	if (Scene::Active == nullptr) return;
+
+	std::string dir;
+	std::string stem = "untitled";
+	if (!g_CurrentScenePath.empty()) {
+		const std::filesystem::path p(g_CurrentScenePath);
+		dir = p.parent_path().generic_string();
+		stem = p.stem().generic_string();
+	} else {
+		// Never-saved scene: system temp. Relative asset paths (textures
+		// next to the scene) won't resolve - warn loudly.
+		dir = std::filesystem::temp_directory_path().generic_string();
+		FURYW << "Play: scene has no file yet; saving temp scene to " << dir
+			<< " - relative asset paths may not resolve. Save the scene first for best results.";
+	}
+
+	// Clean stale play temps from previous sessions (they're per-scene,
+	// so they only ever land in this directory).
+	std::error_code ec;
+	for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+		const std::string name = entry.path().filename().generic_string();
+		if (name.rfind(".play_", 0) == 0 && name.size() > 8 &&
+			name.compare(name.size() - 8, 8, ".tmp.bin") == 0)
+		{
+			std::filesystem::remove(entry.path(), ec);
+		}
+	}
+
+	const std::string tmpPath = dir + "/.play_" + stem + ".tmp.bin";
+	if (!FileUtil::SaveCompressedFile(Scene::Active, tmpPath)) {
+		FURYE << "Play: failed to write temp scene " << tmpPath;
+		return;
+	}
+
+	const std::string exePath = FileUtil::GetExecutablePath();
+	if (exePath.empty()) {
+		FURYE << "Play: cannot locate the running executable.";
+		return;
+	}
+	const std::string exeDir = std::filesystem::path(exePath).parent_path().generic_string();
+#if defined(_WIN32)
+	const std::string furyPath = exeDir + "/fury.exe";
+#else
+	const std::string furyPath = exeDir + "/fury";
+#endif
+	if (!FileUtil::FileExist(furyPath)) {
+		FURYE << "Play: fury binary not found at " << furyPath
+			<< " - build the `fury` target next to furye.";
+		return;
+	}
+
+	const std::string playerScript = exeDir + "/Player.lua";
+	if (!FileUtil::FileExist(playerScript)) {
+		FURYE << "Play: Player.lua not found at " << playerScript;
+		return;
+	}
+
+	if (LaunchDetached(furyPath, { playerScript, tmpPath })) {
+		FURYI << "Play: launched fury on " << tmpPath;
+	} else {
+		FURYE << "Play: failed to launch " << furyPath;
+	}
+}
+
+
 // Filename portion of the tracked scene path, or empty when no
 // scene is tracked. Used by the menu-bar status and by the Lua-side
 // save_as callback's default-name seed.
@@ -538,11 +656,29 @@ void RenderMenuBar() {
 			status = "[imported] " + base;
 		}
 
+		// Play button sits right-aligned with the status: save-to-temp +
+		// launch fury on the temp scene (see TriggerPlay).
+		const char* play_label = "Play";
+		const float play_w = ImGui::CalcTextSize(play_label).x +
+			ImGui::GetStyle().FramePadding.x * 2.0f;
 		const float text_w = ImGui::CalcTextSize(status.c_str()).x;
 		const float avail = ImGui::GetContentRegionAvail().x;
-		if (avail > text_w + 8.0f) {
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - text_w - 8.0f));
+		const float total_w = play_w + 8.0f + text_w + 8.0f;
+		if (avail > total_w) {
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - total_w));
 		}
+
+		const bool can_play = (Scene::Active != nullptr);
+		if (!can_play) ImGui::BeginDisabled();
+		if (ImGui::SmallButton(play_label)) {
+			TriggerPlay();
+		}
+		if (!can_play) ImGui::EndDisabled();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+			ImGui::SetTooltip("Play in fury (F5) - saves the scene to a temp file first");
+		}
+		ImGui::SameLine(0.0f, 8.0f);
+
 		ImGui::TextDisabled("%s", status.c_str());
 		if (!g_CurrentScenePath.empty() && ImGui::IsItemHovered()) {
 			ImGui::SetTooltip("%s", g_CurrentScenePath.c_str());
@@ -574,6 +710,9 @@ void HandleShortcuts() {
 	}
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, route)) {
 		Gui::CloseWindow();
+	}
+	if (ImGui::Shortcut(ImGuiKey_F5, route)) {
+		TriggerPlay();
 	}
 }
 } // namespace

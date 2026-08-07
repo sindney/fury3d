@@ -125,7 +125,22 @@ local function replace_active_scene(new_scene)
     end
     -- active:Clear() destroyed the old editor camera; create a
     -- fresh one and point the pipeline at it.
+    -- First purge stale EditorCamera nodes loaded from the file (pre-
+    -- editorOnly scenes carry one leaked copy per past save). The fresh
+    -- camera below is flagged editor-only so future saves skip it.
+    local root = active:GetRootNode()
+    local stale = {}
+    for i = 0, root:GetChildCount() - 1 do
+        local child = root:GetChildAt(i)
+        if child:GetName() == "EditorCamera" then
+            stale[#stale + 1] = child
+        end
+    end
+    for _, node in ipairs(stale) do
+        root:RemoveChild(node)
+    end
     local editor_cam = SceneNode.Create("EditorCamera")
+    editor_cam:SetEditorOnly(true)
     editor_cam:SetLocalPosition(Vector4(0.0, 170.0, 400.0, 1.0))
     editor_cam:SetLocalRoattion(MathUtil.EulerRadToQuat(yaw, pitch, 0.0))
     editor_cam:Recompose(false)
@@ -535,6 +550,7 @@ local function on_init()
     cam_pos  = Vector4(0.0, 170.0, 400.0, 1.0)
 
     cam_node = SceneNode.Create("camNode")
+    cam_node:SetEditorOnly(true) -- never serialize the editor camera (see replace_active_scene)
     cam_node:SetLocalPosition(cam_pos)
     cam_node:SetLocalRoattion(MathUtil.EulerRadToQuat(yaw, pitch, 0.0))
     cam_node:Recompose(false)

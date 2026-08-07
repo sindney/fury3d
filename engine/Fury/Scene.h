@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "Fury/Entity.h"
+#include "Fury/Vector4.h"
 
 namespace fury
 {
@@ -52,6 +53,12 @@ namespace fury
 		// postprocess chain). Always non-null.
 		std::shared_ptr<RenderSettings> m_RenderSettings;
 
+		// Optional per-scene physics settings ("physics" block). Only
+		// serialized when the block was present at load or set at runtime.
+		Vector4 m_PhysicsGravity = Vector4(0.0f, -981.0f, 0.0f, 0.0f);
+
+		bool m_HasPhysicsSettings = false;
+
 	public:
 
 		Scene(const std::string &name, const std::string &workingDir, const std::shared_ptr<SceneManager> &sceneManager = nullptr);
@@ -78,6 +85,13 @@ namespace fury
 		// Per-scene render settings; the editor writes through this.
 		// Mark the scene dirty after edits.
 		std::shared_ptr<RenderSettings> GetRenderSettings() const;
+
+		// Per-scene physics gravity (cm/s^2, default (0,-981,0)). Setting it
+		// marks the physics block for serialization and applies it to the
+		// PhysicsWorld when one exists.
+		Vector4 GetPhysicsGravity() const { return m_PhysicsGravity; }
+		void SetPhysicsGravity(const Vector4 &gravity);
+		bool HasPhysicsSettings() const { return m_HasPhysicsSettings; }
 	};
 }
 

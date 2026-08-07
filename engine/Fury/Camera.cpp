@@ -1,4 +1,5 @@
 #include "Fury/Camera.h"
+#include "Fury/Log.h"
 #include "Fury/Plane.h"
 #include "Fury/SceneNode.h"
 
@@ -25,7 +26,82 @@ namespace fury
 		ptr->m_ProjectionMatrix = m_ProjectionMatrix;
 		ptr->m_Frustum = m_Frustum;
 		ptr->m_ShadowAABB = m_ShadowAABB;
+		ptr->m_ShadowFar = m_ShadowFar;
 		return ptr;
+	}
+
+	bool Camera::Load(const void* wrapper, bool object)
+	{
+		if (object && !IsObject(wrapper))
+		{
+			FURYE << "Camera: json node is not an object!";
+			return false;
+		}
+
+		std::string str;
+		if (!LoadMemberValue(wrapper, "type", str) || str != "Camera")
+		{
+			FURYE << "Camera: invalid type " << str << "!";
+			return false;
+		}
+
+		LoadMemberValue(wrapper, "perspective", m_Perspective);
+
+		// left, right, bottom, top, near, far - then rebuild the
+		// projection through the OffCenter setters (keeps matrix +
+		// frustum consistent).
+		float p[6] = { 0, 0, 0, 0, 0, 0 };
+		bool haveParams = false;
+		const char *keys[6] = { "left", "right", "bottom", "top", "near", "far" };
+		for (int i = 0; i < 6; ++i)
+			haveParams = LoadMemberValue(wrapper, keys[i], p[i]) || haveParams;
+
+		if (haveParams)
+		{
+			if (m_Perspective)
+				PerspectiveOffCenter(p[0], p[1], p[2], p[3], p[4], p[5]);
+			else
+				OrthoOffCenter(p[0], p[1], p[2], p[3], p[4], p[5]);
+		}
+
+		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
+
+		Vector4 bmin, bmax;
+		if (LoadMemberValue(wrapper, "shadow_min", bmin) && LoadMemberValue(wrapper, "shadow_max", bmax))
+			SetShadowBounds(bmin, bmax);
+
+		return true;
+	}
+
+	void Camera::Save(void* wrapper, bool object)
+	{
+		if (object)
+			StartObject(wrapper);
+
+		SaveKey(wrapper, "type");
+		SaveValue(wrapper, "Camera");
+
+		SaveKey(wrapper, "perspective");
+		SaveValue(wrapper, m_Perspective);
+
+		const char *keys[6] = { "left", "right", "bottom", "top", "near", "far" };
+		for (int i = 0; i < 6; ++i)
+		{
+			SaveKey(wrapper, keys[i]);
+			SaveValue(wrapper, m_ProjectionParams[i]);
+		}
+
+		SaveKey(wrapper, "shadow_far");
+		SaveValue(wrapper, m_ShadowFar);
+
+		const BoxBounds bounds = GetShadowBounds(false);
+		SaveKey(wrapper, "shadow_min");
+		SaveValue(wrapper, bounds.GetMin());
+		SaveKey(wrapper, "shadow_max");
+		SaveValue(wrapper, bounds.GetMax());
+
+		if (object)
+			EndObject(wrapper);
 	}
 
 	void Camera::PerspectiveFov(float fov, float ratio, float near, float far)

@@ -114,6 +114,14 @@ namespace fury
 				}
 				// DIRECTIONAL: infinite bounds — skip.
 			}
+			else if (auto cam = node->GetComponent<Camera>())
+			{
+				// Camera frustum (far capped so it stays readable).
+				const float cappedFar = std::min(cam->GetFar(), 1000.0f);
+				renderUtil->BeginDrawLines(cameraNode);
+				renderUtil->DrawFrustum(cam->GetFrustum(cam->GetNear(), cappedFar), kSelectionColor);
+				renderUtil->EndDrawLines();
+			}
 			else
 			{
 				// Mesh / other: world AABB wireframe. Skip infinite or
