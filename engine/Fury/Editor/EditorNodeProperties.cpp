@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Camera.h"
 #include "Fury/Component.h"
@@ -120,6 +120,7 @@ void RenderSceneNodeSection(SceneNode* node) {
 // component pointer. They are dispatched from the generic loop
 // in RenderNodePropertiesWindow below.
 void RenderTransformBody(SceneNode* node, Transform* t) {
+	(void)node;
 	Vector4 pos = t->GetPosition();
 	if (ImReflect::Input("Position", pos).get<Vector4>().is_changed()) {
 		t->SetPreTransforms(pos, t->GetRotation(), t->GetScale());
@@ -135,6 +136,7 @@ void RenderTransformBody(SceneNode* node, Transform* t) {
 }
 
 void RenderLightBody(SceneNode* node, Light* light) {
+	(void)node;
 	bool aabb_dirty = false;
 
 	LightType lt = light->GetType();
@@ -193,6 +195,7 @@ void RenderLightBody(SceneNode* node, Light* light) {
 // GetAspect-ish behavior by tracking the user's last value
 // across edits.
 void RenderCameraBody(SceneNode* node, Camera* cam) {
+	(void)node;
 	static float s_Aspect = 16.0f / 9.0f;
 	float fov = cam->GetFov();
 	if (ImGui::DragFloat("FOV (deg)", &fov, 0.5f, 1.0f, 179.0f, "%.1f")) {
@@ -230,11 +233,12 @@ void RenderCameraBody(SceneNode* node, Camera* cam) {
 // Buttons are placed at the front of the line so the action cluster
 // is consistent across rows.
 void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
+	(void)node;
 	auto mesh = mr->GetMesh();
 
 	// Cast Shadows is a per-MeshRender flag now, not a per-Mesh
 	// one. The mesh is a shared resource, so the knob lives on
-	// the instance — toggling one tank's shadow leaves the
+	// the instance -- toggling one tank's shadow leaves the
 	// others that share the mesh alone.
 	bool cast = mr->GetCastShadows();
 	if (ImGui::Checkbox("Cast Shadows", &cast)) {
@@ -250,17 +254,17 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 	}
 	ImGui::SameLine();
 
-	// → jump-to-asset button (disabled when no mesh).
+	// -> jump-to-asset button (disabled when no mesh).
 	if (!mesh) ImGui::BeginDisabled();
-	if (ImGui::Button("→")) {
+	if (ImGui::Button("->")) {
 		if (mesh)
 			Editor::SelectAssetInBrowser(typeid(Mesh), mesh->GetName());
 	}
 	if (!mesh) ImGui::EndDisabled();
 	ImGui::SameLine();
 
-	// × remove button — unbinds the mesh from this MeshRender.
-	if (ImGui::Button("×")) {
+	// x remove button -- unbinds the mesh from this MeshRender.
+	if (ImGui::Button("x")) {
 		mr->SetMesh(nullptr);
 	}
 	ImGui::SameLine();
@@ -308,17 +312,17 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 		}
 		ImGui::SameLine();
 
-		// → jump-to-asset button (disabled when slot is null).
+		// -> jump-to-asset button (disabled when slot is null).
 		if (!mat) ImGui::BeginDisabled();
-		if (ImGui::Button("→")) {
+		if (ImGui::Button("->")) {
 			if (mat)
 				Editor::SelectAssetInBrowser(typeid(Material), mat->GetName());
 		}
 		if (!mat) ImGui::EndDisabled();
 		ImGui::SameLine();
 
-		// × remove-slot button — sets the slot to null weak_ptr.
-		if (ImGui::Button("×")) {
+		// x remove-slot button -- sets the slot to null weak_ptr.
+		if (ImGui::Button("x")) {
 			mr->SetMaterial(nullptr, i);
 		}
 		ImGui::SameLine();
@@ -368,10 +372,11 @@ static const char* kAnimWrapModeNames[] = {"Default", "Once", "Loop", "ClampFore
 static int kAnimWrapModeCount = 5;
 
 // ParticleRenderer node-properties body. The system row mirrors the
-// MeshRender mesh row: Change (asset picker) / → (jump to asset) /
-// × (unbind). Authoring of modules lives in the ParticleSystem asset
+// MeshRender mesh row: Change (asset picker) / -> (jump to asset) /
+// x (unbind). Authoring of modules lives in the ParticleSystem asset
 // (particle editor); the component only references it by name.
 void RenderParticleRendererBody(SceneNode* node, ParticleRenderer* pr) {
+	(void)node;
 	if (!pr) return;
 	auto system = pr->GetSystem();
 
@@ -382,11 +387,11 @@ void RenderParticleRendererBody(SceneNode* node, ParticleRenderer* pr) {
 	ImGui::SameLine();
 	const bool hasSystem = !pr->GetSystemName().empty();
 	if (!hasSystem) ImGui::BeginDisabled();
-	if (ImGui::Button("→"))
+	if (ImGui::Button("->"))
 		Editor::SelectAssetInBrowser(typeid(ParticleSystem), pr->GetSystemName());
 	if (!hasSystem) ImGui::EndDisabled();
 	ImGui::SameLine();
-	if (ImGui::Button("×"))
+	if (ImGui::Button("x"))
 		pr->SetSystemName("");
 	ImGui::SameLine();
 	ImGui::TextUnformatted("System:");
@@ -409,11 +414,12 @@ void RenderParticleRendererBody(SceneNode* node, ParticleRenderer* pr) {
 		pr->GetBlendMode() == ParticleBlend::ADDITIVE ? "ADDITIVE" : "ALPHA");
 	ImGui::TextDisabled("Material: %s",
 		(pr->GetMaterial() ? pr->GetMaterial()->GetName().c_str() : "(none)"));
-	if (system && ImGui::Button("Open Particle Editor…"))
+	if (system && ImGui::Button("Open Particle Editor..."))
 		Editor::OpenParticleEditor(system);
 }
 
 void RenderAnimatorBody(SceneNode* node, Animator* anim) {
+	(void)node;
 	bool phys = anim->GetAnimatePhysics();
 	if (ImGui::Checkbox("Animate Physics", &phys)) {
 		anim->SetAnimatePhysics(phys);
@@ -426,7 +432,7 @@ void RenderAnimatorBody(SceneNode* node, Animator* anim) {
 		Editor::MarkSceneDirty();
 	}
 
-	// Skeleton debug overlay — draws each joint's world position and
+	// Skeleton debug overlay -- draws each joint's world position and
 	// parent link on top of the viewport. Helps diagnose mangled
 	// skin deformation by showing the runtime joint TRS vs. the
 	// bind pose the mesh was authored against.
@@ -508,7 +514,7 @@ void RenderAnimatorBody(SceneNode* node, Animator* anim) {
 			Editor::MarkSceneDirty();
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("× Remove")) {
+		if (ImGui::Button("x Remove")) {
 			anim->RemoveClip(state->GetName());
 			Editor::MarkSceneDirty();
 			ImGui::TreePop();
@@ -547,7 +553,7 @@ void RenderAnimatorBody(SceneNode* node, Animator* anim) {
 
 	// "Bind Clip" uses the shared asset-picker modal (same component as
 	// the mesh/material/texture pickers). Re-binding an already-bound
-	// clip name just overwrites — harmless.
+	// clip name just overwrites -- harmless.
 	RenderAssetPickerModal("AnimatorBindClipPopup", "Bind Clip", typeid(AnimationClip),
 		[anim](std::shared_ptr<void> p) {
 			auto c = std::static_pointer_cast<AnimationClip>(p);
@@ -666,7 +672,7 @@ void RenderAddComponentButton(SceneNode* node) {
 } // namespace
 
 // Render a material texture row. The thumbnail itself is
-// clickable — clicking it opens the texture picker. For
+// clickable -- clicking it opens the texture picker. For
 // slots with no texture, render a pure black rect that is
 // also clickable (opens the picker so the user can assign
 // one).
@@ -675,7 +681,7 @@ void RenderMaterialTextureRow(Material* mat, const std::string& key) {
 	auto tex = mat->GetTexture(key);
 
 	// Clickable thumbnail area. We render an InvisibleButton
-	// over the 48×48 thumbnail rect so clicking it opens the
+	// over the 48x48 thumbnail rect so clicking it opens the
 	// texture picker. For null textures, we draw a black rect
 	// first so the user sees a clickable target.
 	ImVec2 thumb_min = ImGui::GetCursorScreenPos();
@@ -702,7 +708,7 @@ void RenderMaterialTextureRow(Material* mat, const std::string& key) {
 	ImGui::BeginGroup();
 	ImGui::Text("%s", key.c_str());
 	if (tex) {
-		ImGui::Text("%s  %d × %d  %s  %s",
+		ImGui::Text("%s  %d x %d  %s  %s",
 					tex->GetName().empty() ? "(unnamed)" : tex->GetName().c_str(),
 					tex->GetWidth(), tex->GetHeight(),
 					EnumUtil::TextureFormatToString(tex->GetFormat()).c_str(),
@@ -729,7 +735,7 @@ void RenderNodePropertiesWindow(bool* open) {
 		return;
 	}
 
-	// Header: which scene file is being edited. Empty path → "(no
+	// Header: which scene file is being edited. Empty path -> "(no
 	// scene)" hint. Non-native source ("[imported] tank.fbx") tells
 	// the user Save will route to Save As. Hover for full path.
 	{

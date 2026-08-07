@@ -63,7 +63,7 @@ namespace fury
 				if (auto uniformsNode = FindMember(node, "uniforms"))
 					LoadArray(uniformsNode, [&](const void* unode) -> bool
 					{
-						// {"name","value":[...]} — same shape as
+						// {"name","value":[...]} -- same shape as
 						// PostProcessEffect descriptor defaults.
 						if (!IsObject(unode)) return true;
 						std::string uname;

@@ -9,7 +9,7 @@
 namespace fury {
 // UUID v4 generator (random, 8-4-4-4-12 hex). Uses a per-process
 // MT19937-64 seeded by std::random_device. Uniqueness is
-// statistically guaranteed — collisions are astronomically
+// statistically guaranteed -- collisions are astronomically
 // unlikely (2^122 possible UUIDs).
 static std::string GenerateUUID() {
 	static std::random_device rd;
@@ -53,7 +53,7 @@ bool Entity::Load(const void* wrapper, bool object) {
 		return false;
 	}
 
-	// Load UUID (optional — auto-generate if absent for old
+	// Load UUID (optional -- auto-generate if absent for old
 	// scenes that don't have a "uuid" field).
 	LoadMemberValue(wrapper, "uuid", m_UUID);
 	if (m_UUID.empty())
@@ -96,7 +96,7 @@ size_t Entity::GetHashCode() const {
 
 size_t Entity::SetName(const std::string& name) {
 	m_Name = name;
-	// m_HashCode unchanged — stays hash of UUID.
+	// m_HashCode unchanged -- stays hash of UUID.
 	return m_HashCode;
 }
 } // namespace fury

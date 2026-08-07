@@ -1,8 +1,8 @@
-// GltfImporter.cpp — tinygltf::Model -> engine Scene translator.
+// GltfImporter.cpp -- tinygltf::Model -> engine Scene translator.
 //
 // This file grows across implementation groups 2-9 (skeleton, rejection,
 // material, texture, mesh, skin, scene-node, animation). The first cut just
-// handles top-level Load and rejection of unsupported features — enough for
+// handles top-level Load and rejection of unsupported features -- enough for
 // `fury convert gltf` to refuse bad inputs cleanly while the asset-translation
 // passes are written.
 
@@ -34,7 +34,7 @@
 
 // tinygltf pulls in its own JSON header; we suppress its stb_image to avoid
 // ODR collision with the engine's STB. These defines MUST be in effect at
-// every tiny_gltf.h include site — they affect inline default initializers
+// every tiny_gltf.h include site -- they affect inline default initializers
 // for the TinyGLTF class. Without them this TU references undefined
 // tinygltf::LoadImageData / WriteImageData at link time.
 #define TINYGLTF_NO_STB_IMAGE
@@ -67,24 +67,24 @@ bool HasUnsupportedFeatures(const tinygltf::Model& model, const std::string& inp
 	if (!model.extensionsRequired.empty()) {
 		std::string names;
 		for (const auto& n : model.extensionsRequired) names += " " + n;
-		FURYE << "gltf-importer: rejected — extensionsRequired (" << names
+		FURYE << "gltf-importer: rejected -- extensionsRequired (" << names
 			  << ") not supported in v1 (input: " << input_path
-			  << "; see docs/CLI.md §Limitations)";
+			  << "; see docs/CLI.md sec Limitations)";
 		return true;
 	}
 
 	for (size_t bv_i = 0; bv_i < model.bufferViews.size(); ++bv_i) {
 		// byteStride != 0 (interleaved vertex buffers, e.g. the Khronos
-		// Fox sample) IS supported — the accessor readers below use
+		// Fox sample) IS supported -- the accessor readers below use
 		// bv.byteStride as the element pitch when non-zero. No rejection.
 		(void)model.bufferViews[bv_i].byteStride;
 	}
 
 	for (size_t a_i = 0; a_i < model.accessors.size(); ++a_i) {
 		if (model.accessors[a_i].sparse.isSparse) {
-			FURYE << "gltf-importer: rejected — accessors[" << a_i
+			FURYE << "gltf-importer: rejected -- accessors[" << a_i
 				  << "] is sparse, not supported in v1 (input: " << input_path
-				  << "; see docs/CLI.md §Limitations)";
+				  << "; see docs/CLI.md sec Limitations)";
 			return true;
 		}
 	}
@@ -94,14 +94,14 @@ bool HasUnsupportedFeatures(const tinygltf::Model& model, const std::string& inp
 		for (size_t p_i = 0; p_i < mesh.primitives.size(); ++p_i) {
 			const auto& prim = mesh.primitives[p_i];
 			if (!prim.targets.empty()) {
-				FURYE << "gltf-importer: rejected — meshes[" << m_i
+				FURYE << "gltf-importer: rejected -- meshes[" << m_i
 					  << "].primitives[" << p_i << "] has " << prim.targets.size()
 					  << " morph target(s), not supported in v1 (input: " << input_path
-					  << "; see docs/CLI.md §Limitations)";
+					  << "; see docs/CLI.md sec Limitations)";
 				return true;
 			}
 			if (prim.mode != TINYGLTF_MODE_TRIANGLES) {
-				FURYE << "gltf-importer: rejected — meshes[" << m_i
+				FURYE << "gltf-importer: rejected -- meshes[" << m_i
 					  << "].primitives[" << p_i << "].mode=" << prim.mode
 					  << " (only TINYGLTF_MODE_TRIANGLES=4 supported in v1; input: "
 					  << input_path << ")";
@@ -235,7 +235,7 @@ Texture::Ptr CreateEngineTexture(
 // emissive_color, alphaMode -> opaque flag. Other PBR fields are read
 // but discarded with a one-shot warning per material.
 //
-// HDR mode: when hdr is true, PBR fields are NOT discarded — they are
+// HDR mode: when hdr is true, PBR fields are NOT discarded -- they are
 // mapped onto the engine's PBR material slots (METALLIC_FACTOR,
 // ROUGHNESS_FACTOR, METALLIC_ROUGHNESS_TEXTURE, OCCLUSION_TEXTURE,
 // normal slot reused for normalTexture). The Lambert defaults are
@@ -272,7 +272,7 @@ Material::Ptr TranslateMaterial(
 	material->SetUniform(Material::DIFFUSE_COLOR, Uniform3f::Create({r, g, b}));
 	material->SetUniform(Material::TRANSPARENCY, Uniform1f::Create({1.0f - a}));
 
-	// KHR_materials_transmission fallback: no refraction support —
+	// KHR_materials_transmission fallback: no refraction support --
 	// approximate as BLEND glass with alpha = 1 - transmissionFactor.
 	// Explicit alphaMode=BLEND wins over the extension.
 	if (gm.alphaMode != "BLEND") {
@@ -365,14 +365,14 @@ Material::Ptr TranslateMaterial(
 		if (gm.pbrMetallicRoughness.roughnessFactor != 1.0) sig += "roughnessFactor,";
 		if (!sig.empty() && already_warned.insert(sig).second) {
 			FURYW << "gltf-importer: material '" << name
-				  << "' — discarded PBR fields: " << sig
+				  << "' -- discarded PBR fields: " << sig
 				  << " (engine pipeline is Lambert in v1; HDR/PBR pipeline deferred)";
 		}
 	}
 
 	// Material::SetTexture recomputes m_TextureFlags. If we never
 	// added a texture (no baseColorTexture), flags are still 0 from
-	// the default constructor — and Pass::GetShader treats `flags == 0`
+	// the default constructor -- and Pass::GetShader treats `flags == 0`
 	// as "first shader of this type", which picks `gbuffer_shader`
 	// (the with-texture variant) over `gbuffer_notexture_shader`.
 	// Result: the gbuffer fragment shader samples an unbound
@@ -382,7 +382,7 @@ Material::Ptr TranslateMaterial(
 	// Force a flag recompute by calling SetTexture(diffuse, nullptr)
 	// when no diffuse texture is registered. With a real diffuse
 	// texture present, an unconditional SetTexture(name, nullptr)
-	// would erase it — so check first.
+	// would erase it -- so check first.
 	if (!material->GetTexture(Material::DIFFUSE_TEXTURE))
 		material->SetTexture(Material::DIFFUSE_TEXTURE, nullptr);
 
@@ -425,7 +425,7 @@ bool ReadFloatAccessor(
 }
 
 // Read indices into uint32 (glTF allows UNSIGNED_BYTE / UNSIGNED_SHORT /
-// UNSIGNED_INT). offset_to_add is applied to each value — used when we
+// UNSIGNED_INT). offset_to_add is applied to each value -- used when we
 // renumber primitive-local indices into a combined per-mesh vertex
 // buffer.
 bool ReadIndexAccessor(
@@ -526,7 +526,7 @@ Matrix4 NodeLocalMatrix(const tinygltf::Node& node) {
 	}
 	// glTF node local = T * R * S (column-major, M*v). The engine's
 	// SceneNode::Recompose / Transform compose in the same order
-	// (AppendTranslation → AppendRotation → AppendScale). Reversed S*R*T
+	// (AppendTranslation -> AppendRotation -> AppendScale). Reversed S*R*T
 	// was a latent bug that mangles any joint with both non-trivial
 	// rotation and translation.
 	Matrix4 m;
@@ -553,7 +553,7 @@ Matrix4 NodeLocalMatrix(const tinygltf::Node& node) {
 
 //
 // The submesh_materials out-parameter is parallel to engine
-// Mesh::m_SubMeshes — each entry is the glTF material index for that
+// Mesh::m_SubMeshes -- each entry is the glTF material index for that
 // submesh, or -1 if none. The node-walking pass uses this to populate
 // the corresponding MeshRender's material list.
 std::shared_ptr<Mesh> TranslateMesh(
@@ -632,7 +632,7 @@ std::shared_ptr<Mesh> TranslateMesh(
 		if (prim.indices >= 0) {
 			ReadIndexAccessor(model, prim.indices, vertex_base, sub->Indices.Data);
 		} else {
-			// Non-indexed primitive — synthesize a linear index range.
+			// Non-indexed primitive -- synthesize a linear index range.
 			for (unsigned int v = 0; v < verts_added; ++v)
 				sub->Indices.Data.push_back(vertex_base + v);
 		}
@@ -647,9 +647,9 @@ std::shared_ptr<Mesh> TranslateMesh(
 
 		// glTF spec: a primitive without NORMAL should get normals
 		// generated by the loader. Smooth mode (the default) accumulates
-		// area-weighted face normals per POSITION — welding vertices with
+		// area-weighted face normals per POSITION -- welding vertices with
 		// bit-identical positions first, so exporter-split meshes (per-face
-		// vertices, e.g. the Khronos Fox) still shade smooth — then
+		// vertices, e.g. the Khronos Fox) still shade smooth -- then
 		// normalizes. Flat mode assigns each triangle's normalized face
 		// normal to its corners. Without either, Normals stays empty, its
 		// buffer stays dirty, and Shader::BindMeshData warns + the mesh
@@ -659,7 +659,7 @@ std::shared_ptr<Mesh> TranslateMesh(
 			std::vector<float> nx(verts_added, 0.0f), ny(verts_added, 0.0f), nz(verts_added, 0.0f);
 			const auto& idx = sub->Indices.Data;
 
-			// Position-weld map for smooth mode (exact float match —
+			// Position-weld map for smooth mode (exact float match --
 			// exporter duplicates are bit-identical).
 			struct PosKey {
 				float x, y, z;
@@ -828,7 +828,7 @@ bool TranslateSkin(
 			parent->SetFirstChild(child);
 		}
 	}
-	// (intentionally no per-joint debug log here — joint structure is
+	// (intentionally no per-joint debug log here -- joint structure is
 	// verified through the visualization overlay)
 
 	// Determine root: prefer skin.skeleton (a node index) if it's in
@@ -841,7 +841,7 @@ bool TranslateSkin(
 	if (!root && !joints.empty()) root = joints[0];
 
 	// Attach to mesh: the m_Joints / m_JointMap / m_RootJoint fields
-	// are protected — we use the Mesh's friend-class trick? No,
+	// are protected -- we use the Mesh's friend-class trick? No,
 	// they're not accessible from a helper. We'll need to add a
 	// public setter or befriend GltfImporter. The cleanest path is
 	// a small public setter pair on Mesh.
@@ -880,7 +880,7 @@ bool TranslateSkin(
 //
 // Unknown types fall back to POINT with a one-line warning (no abort).
 // kDefaultPointSpotRadius is the engine-units (cm) stand-in for glTF
-// range==0 (infinite per spec) — see BuildLightPrototypes' comment.
+// range==0 (infinite per spec) -- see BuildLightPrototypes' comment.
 constexpr float kDefaultPointSpotRadius = 10.0f;
 void BuildLightPrototypes(
 	const tinygltf::Model& model,
@@ -940,7 +940,7 @@ void BuildLightPrototypes(
 // submesh.
 //
 // gltf_node_to_scene_node out-parameter maps glTF node indices to the
-// engine SceneNodes we created — used by the animation pass to look
+// engine SceneNodes we created -- used by the animation pass to look
 // up channel targets.
 void WalkNode(
 	const tinygltf::Model& model,
@@ -973,7 +973,7 @@ void WalkNode(
 		// even if a matrix is also set (glTF spec: only one form is
 		// allowed per node anyway).
 		FURYW << "gltf-importer: node '" << nname
-			  << "' uses raw 4x4 matrix; v1 supports TRS-decomposed transforms only — "
+			  << "' uses raw 4x4 matrix; v1 supports TRS-decomposed transforms only -- "
 			  << "transform may be incorrect. Re-export with TRS or use a glTF tool to decompose.";
 	}
 	if (node.translation.size() == 3)
@@ -993,7 +993,7 @@ void WalkNode(
 			static_cast<float>(node.scale[1]),
 			static_cast<float>(node.scale[2]), 1.0f));
 
-	// Transform component first (engine convention — even though TRS
+	// Transform component first (engine convention -- even though TRS
 	// is also tracked directly on SceneNode, the Transform component
 	// participates in the interpolation pipeline).
 	sn->AddComponent(Transform::Create());
@@ -1044,7 +1044,7 @@ void WalkNode(
 				// produces a volume mesh thousands of units wide
 				// which gets z-clipped against the camera far plane
 				// and contributes no fragments. Light-only nodes
-				// have no geometry, so the scale is parasitic —
+				// have no geometry, so the scale is parasitic --
 				// reset it to 1 so the volume mesh renders at a
 				// sensible size.
 				sn->SetLocalScale(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -1052,9 +1052,9 @@ void WalkNode(
 				// Units: glTF light range is in METRES (spec), the
 				// engine is 1 unit = 1 cm, so radius = range x 100.
 				// The range==0 stand-in (kDefaultPointSpotRadius) is
-				// already engine units — no conversion. The volume
+				// already engine units -- no conversion. The volume
 				// scales by the node's world scale, so divide it
-				// back out — after the strip above the world scale
+				// back out -- after the strip above the world scale
 				// is the parent's. Keeps the world-space volume
 				// correct for FBX-rooted scenes (parent ~100x) and
 				// pure glTFs (parent 1x) alike.
@@ -1177,7 +1177,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	tinygltf::TinyGLTF loader;
 	// We build with TINYGLTF_NO_STB_IMAGE (the engine vendors its own stb;
 	// having two copies linked is an ODR violation). Tell tinygltf not to
-	// decode image bytes — we keep the raw encoded bytes in the bufferView
+	// decode image bytes -- we keep the raw encoded bytes in the bufferView
 	// and copy them out later for embedded-image extraction.
 	loader.SetImagesAsIs(true);
 	// SetImagesAsIs flags the load_image_option but tinygltf still requires
@@ -1221,7 +1221,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	// "<stem>_image<i>.<ext>" original-filename hints when the embedded
 	// glTF image lacks an `image.name` (which FBX2glTF normally fills in).
 	std::string input_stem;
-	std::string input_dir; // directory of the .gltf/.glb, with trailing slash — for resolving relative image URIs.
+	std::string input_dir; // directory of the .gltf/.glb, with trailing slash -- for resolving relative image URIs.
 	{
 		auto slash = input_path.find_last_of("/\\");
 		std::string base = (slash == std::string::npos)
@@ -1249,7 +1249,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 		// Register the material's textures as first-class assets so
 		// the picker can find them via em->ForEach<Texture>. Add
 		// returns false if the texture is already registered (same
-		// UUID) — that's fine, just means it's a duplicate reference.
+		// UUID) -- that's fine, just means it's a duplicate reference.
 		for (const auto& kv : mat->GetTextures()) {
 			if (kv.second)
 				entities->Add(kv.second);
@@ -1286,7 +1286,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 			FURYE << "gltf-importer: mesh '" << meshes[node.mesh]->GetName()
 				  << "' is referenced by nodes using different skins ("
 				  << existing << " and " << node.skin
-				  << ") — v1 supports one skin per mesh, rejecting";
+				  << ") -- v1 supports one skin per mesh, rejecting";
 			return nullptr;
 		}
 		mesh_to_skin[node.mesh] = node.skin;
@@ -1314,7 +1314,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 
 	if (lights_attached == 0 && model.lights.empty()) {
 		FURYW << "gltf-importer: '" << input_path
-			  << "' has no lights — viewport will render black under deferred Lambert pipeline";
+			  << "' has no lights -- viewport will render black under deferred Lambert pipeline";
 	}
 
 	// glTF-standard skinning: each Joint mirrors its glTF joint node's
@@ -1324,7 +1324,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	// the skeleton root's parent), and the skin shader uses an identity
 	// model matrix. The glb inverseBindMatrices (already loaded onto
 	// each Joint as m_OffsetMatrix by TranslateSkin) are used verbatim.
-	// This is the glTF spec formula: v_world = Σ wᵢ·(JᵢW·ibmᵢ)·v.
+	// This is the glTF spec formula: v_world = Σ wᵢ*(JᵢW*ibmᵢ)*v.
 	if (!meshes.empty()) {
 		for (size_t mi = 0; mi < meshes.size(); ++mi) {
 			if (mesh_to_skin[mi] < 0) continue;
@@ -1480,7 +1480,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 				thresholds.push_back(last > 0 ? (1.0f - static_cast<float>(i) / static_cast<float>(last)) : 0.0f);
 			}
 						// Attach the chain to the highest-detail mesh (LOD 0).
-			// The chain lives on the Mesh itself — any MeshRender
+			// The chain lives on the Mesh itself -- any MeshRender
 			// referencing this mesh automatically sees the new LODs
 			// without further wiring. Skip if this mesh is already
 			// part of a chain.
@@ -1500,7 +1500,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 
 	// Self-register the imported hierarchy with the scene's scene
 	// manager so the returned scene renders as-is (Scene.SetActive +
-	// Execute) without a MergeInto round-trip — SceneNode::AddChild
+	// Execute) without a MergeInto round-trip -- SceneNode::AddChild
 	// does NOT register. MergeInto stays safe: it removes nodes from
 	// this tree before re-registering them into the target's.
 	scene->GetSceneManager()->AddSceneNodeRecursively(scene->GetRootNode());

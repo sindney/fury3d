@@ -156,7 +156,7 @@ namespace fury
 	Component::Ptr MeshRender::Clone() const
 	{
 		auto clone = MeshRender::Create(nullptr, m_Mesh.lock());
-		unsigned int materialCount = m_Materials.size();
+		unsigned int materialCount = static_cast<int>(m_Materials.size());
 
 		for (unsigned int i = 0; i < materialCount; i++)
 		{
@@ -185,7 +185,7 @@ namespace fury
 
 	unsigned int MeshRender::GetMaterialCount() const
 	{
-		return m_Materials.size();
+		return static_cast<int>(m_Materials.size());
 	}
 
 	void MeshRender::SetMesh(const std::shared_ptr<Mesh> &mesh)

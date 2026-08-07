@@ -22,7 +22,7 @@ protected:
 	std::weak_ptr<Mesh> m_Mesh;
 
 	// glTF-standard skinning: the joint's world matrix comes from the
-	// scene graph (this SceneNode — the glTF joint node — includes
+	// scene graph (this SceneNode -- the glTF joint node -- includes
 	// ancestors like the skeleton root's parent). GetFinalMatrix()
 	// returns sceneNodeWorld * m_OffsetMatrix.
 	std::weak_ptr<SceneNode> m_SceneNode;

@@ -152,7 +152,7 @@ namespace fury
 		{
 			auto render = sceneNode->GetComponent<MeshRender>();
 			// Per-instance shadow casting. MeshRender::GetCastShadows is
-			// the source of truth now — the mesh's own flag is the
+			// the source of truth now -- the mesh's own flag is the
 			// asset-level default that's seeded into MeshRender on load
 			// but doesn't override per-instance toggles.
 			if (render != nullptr && render->GetRenderable() && render->GetCastShadows())

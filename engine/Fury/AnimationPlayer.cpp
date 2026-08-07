@@ -130,6 +130,7 @@ namespace fury
 
 	void Animator::OnOwnerDestructing(SceneNode &node)
 	{
+		(void)node;
 		Unsubscribe();
 	}
 
@@ -517,7 +518,7 @@ namespace fury
 				// Joint::GetFinalMatrix pairs with the ibm. SceneNode refs
 				// are wired at import (GltfImporter) and re-linked on scene
 				// load (Scene::Load); a missing ref means a stale/legacy
-				// joint — warn and skip rather than fall back to a tree-walk.
+				// joint -- warn and skip rather than fall back to a tree-walk.
 				auto jointNode = joint->GetSceneNode();
 				if (jointNode)
 				{
@@ -583,7 +584,7 @@ namespace fury
 
 		// Initialize to the target's current (bind) TRS so that
 		// channels with an empty track for a component (common in
-		// FBX2glTF-baked clips — e.g. joints that only rotate have
+		// FBX2glTF-baked clips -- e.g. joints that only rotate have
 		// no position/scale track) preserve the bind value instead
 		// of collapsing to Vector4()/identity. SampleVectorTrack /
 		// SampleRotationTrack leave `out` untouched on empty input.
@@ -631,7 +632,7 @@ namespace fury
 			return;
 
 		// Advance time on all enabled states (so non-dominant ones stay
-		// in sync for crossfade handoffs). dt==0 means scrub — no advance.
+		// in sync for crossfade handoffs). dt==0 means scrub -- no advance.
 		if (dt != 0.0f)
 		{
 			for (const auto &s : m_States)
@@ -722,7 +723,7 @@ namespace fury
 		// Interpolate the per-target TRS pairs by render alpha. Skinned
 		// joints are driven through their linked SceneNode's Transform
 		// (the scene graph's Recompose produces JᵢW, which
-		// Joint::GetFinalMatrix pairs with the ibm) — no parallel joint
+		// Joint::GetFinalMatrix pairs with the ibm) -- no parallel joint
 		// tree-walk is needed.
 		int channelCount = clip->GetChannelCount();
 		for (int i = 0; i < channelCount && i < static_cast<int>(targets.size()); ++i)
@@ -741,7 +742,7 @@ namespace fury
 		if (!owner) return;
 
 		// The pose applied this frame can carry a skinned mesh outside
-		// its bind-pose AABB — refresh bounds from the deformed pose so
+		// its bind-pose AABB -- refresh bounds from the deformed pose so
 		// culling / LOD / shadows see where the mesh actually is. The
 		// skinned branch of Mesh::CalculateAABB blends vertices by
 		// Joint::GetFinalMatrix() (world space), so convert back to the

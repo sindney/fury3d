@@ -40,7 +40,22 @@
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
 #include "lz4.h"
+
+// stb_image.h is a single-header library: every inline definition is parsed in
+// the surrounding translation unit, so /external:W0 + /external:I don't reach
+// it (template-instantiation context, not header parse). Silence the specific
+// level-4 warnings it emits locally; the rest of the engine stays at /W4.
+#if PLATFORM_WINDOWS
+#pragma warning(push)
+#pragma warning(disable: 4100)  // unreferenced formal parameter
+#pragma warning(disable: 4312)  // conversion from int to larger pointer
+#pragma warning(disable: 4456)  // declaration hides previous local
+#pragma warning(disable: 4505)  // unreferenced local function
+#endif
 #include "stb_image.h"
+#if PLATFORM_WINDOWS
+#pragma warning(pop)
+#endif
 
 #undef far
 #undef near
@@ -52,7 +67,7 @@ std::string FileUtil::m_AbsPath = "";
 std::string FileUtil::GetAbsPath() {
 #if defined(__APPLE__)
 	// CWD-based resolution. The legacy CFBundle path (kept commented
-	// out below) returns the .app's Resources directory — convenient
+	// out below) returns the .app's Resources directory -- convenient
 	// for app-bundle distributions, awkward for the editor workflow
 	// because it forces every asset to live inside the bundle. With
 	// CWD resolution, `cd examples && ./bin/fury` finds Resource/
@@ -67,7 +82,7 @@ std::string FileUtil::GetAbsPath() {
 		}
 	}
 
-	// Legacy CFBundle resolution — restore by uncommenting if you
+	// Legacy CFBundle resolution -- restore by uncommenting if you
 	// ever ship the engine inside a .app bundle.
 	// if (m_AbsPath.size() == 0)
 	// {
@@ -226,7 +241,7 @@ bool ExtractMemoryBackedTextures(
 			// while the scene's working dir already points at
 			// "Resource/Scene/", producing a double-prepended lookup),
 			// fall back to the basename joined against the scene's
-			// working dir — which is the actual sibling location.
+			// working dir -- which is the actual sibling location.
 			std::filesystem::path source_path =
 				std::filesystem::path(scene->GetWorkingDir()) / file_path;
 			std::error_code ec_src;
@@ -250,7 +265,7 @@ bool ExtractMemoryBackedTextures(
 			std::string filename = std::filesystem::path(file_path).filename().string();
 			if (filename.empty()) return true;
 
-			// Collision handling — shared with the memory-backed branch.
+			// Collision handling -- shared with the memory-backed branch.
 			std::string final_name = filename;
 			if (used_filenames.count(final_name)) {
 				auto dot = filename.find_last_of('.');
@@ -306,7 +321,7 @@ bool ExtractMemoryBackedTextures(
 
 		const auto& bytes = tex->GetEncodedBytes();
 		std::string filename = tex->GetOriginalFilename();
-		// Take just the basename — original-filename hints can
+		// Take just the basename -- original-filename hints can
 		// arrive as a path on some glTF tools.
 		if (!filename.empty()) {
 			auto slash = filename.find_last_of("/\\");
@@ -361,7 +376,7 @@ bool ExtractMemoryBackedTextures(
 		}
 
 		// Transition to file-backed. m_FilePath is the bare
-		// filename (no directory) — load-time resolution joins
+		// filename (no directory) -- load-time resolution joins
 		// it against the active scene's working_dir.
 		tex->SetFilePathAndSRGB(final_name, tex->IsSRGB());
 		return true;
@@ -512,7 +527,7 @@ bool FileUtil::SaveCompressedFile(const std::shared_ptr<Serializable>& source, c
 		source->Save(&writer);
 
 		const char* src = sb.GetString();
-		uint32_t srcSize = sb.GetSize();
+		uint32_t srcSize = static_cast<uint32_t>(sb.GetSize());
 
 		uint32_t bufferSize = LZ4_compressBound(srcSize);
 		char* buffer = new char[bufferSize];

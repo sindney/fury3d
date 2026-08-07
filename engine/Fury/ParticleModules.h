@@ -15,7 +15,7 @@
 
 namespace fury
 {
-	// Shape primitives the emitter spawns from. BOX/SPHERE/CONE — the v1 set
+	// Shape primitives the emitter spawns from. BOX/SPHERE/CONE -- the v1 set
 	// the wood-pile scene needs (cone for the fire column, sphere fallback
 	// for smoke). New shapes add a case in ParticleSystem::Spawn.
 	enum class ParticleShape : unsigned int
@@ -25,8 +25,8 @@ namespace fury
 		CONE
 	};
 
-	// Particle renderer blend mode. ALPHA → SRC_ALPHA/ONE_MINUS_SRC_ALPHA,
-	// ADDITIVE → ONE/ONE. TASK 1.4: respected by ParticleShader + Pass state.
+	// Particle renderer blend mode. ALPHA -> SRC_ALPHA/ONE_MINUS_SRC_ALPHA,
+	// ADDITIVE -> ONE/ONE. TASK 1.4: respected by ParticleShader + Pass state.
 	enum class ParticleBlend : unsigned int
 	{
 		ALPHA = 0,
@@ -166,7 +166,7 @@ namespace fury
 		std::string materialName;
 		ParticleBlend blendMode = ParticleBlend::ALPHA;
 		// Sample the first shadow-casting light's shadow map and dim the
-		// particles by it (ALPHA blend only — ADDITIVE is light-emitting
+		// particles by it (ALPHA blend only -- ADDITIVE is light-emitting
 		// by convention and never shadowed).
 		bool receiveShadows = true;
 

@@ -1,4 +1,4 @@
-// Cli.cpp — argv parsing, subcommand dispatch, and per-subcommand handlers.
+// Cli.cpp -- argv parsing, subcommand dispatch, and per-subcommand handlers.
 //
 // Single binary architecture: the same `fury` executable hosts both the Lua
 // launcher (runtime path) and the CLI (offline asset workflows). examples/main.cpp
@@ -39,12 +39,12 @@
 
 #include <sol/sol.hpp>
 
-// tinygltf — same #define dance as GltfImporter.cpp (see comment there).
+// tinygltf -- same #define dance as GltfImporter.cpp (see comment there).
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #include <tiny_gltf.h>
 
-// stb_image_write — implementation lives in Engine.cpp; we just
+// stb_image_write -- implementation lives in Engine.cpp; we just
 // need the prototype for `fury render-mesh` PNG output.
 #include <stb_image_write.h>
 
@@ -65,7 +65,7 @@ namespace fury
 	namespace
 	{
 		constexpr const char *kTopHelp =
-			"fury — engine launcher and asset CLI\n"
+			"fury -- engine launcher and asset CLI\n"
 			"\n"
 			"USAGE\n"
 			"  fury                            run Demo.lua (default)\n"
@@ -89,7 +89,7 @@ namespace fury
 			"See docs/CLI.md for full reference.\n";
 
 		constexpr const char *kConvertHelp =
-			"fury convert — convert an asset to the engine's runtime scene format\n"
+			"fury convert -- convert an asset to the engine's runtime scene format\n"
 			"\n"
 			"USAGE\n"
 			"  fury convert gltf  <input.gltf|.glb>  <output.json|.bin> [scale opts]\n"
@@ -134,7 +134,7 @@ namespace fury
 			"EXIT CODES: 0 success, 1 user error, 2 internal error.\n";
 
 		constexpr const char *kInfoHelp =
-			"fury info — print a CPU-side summary of an asset file\n"
+			"fury info -- print a CPU-side summary of an asset file\n"
 			"\n"
 			"USAGE\n"
 			"  fury info <path>\n"
@@ -157,13 +157,13 @@ namespace fury
 			"submesh-per-material).\n";
 
 		constexpr const char *kVersionHelp =
-			"fury version — print engine version\n"
+			"fury version -- print engine version\n"
 			"\n"
 			"USAGE\n"
 			"  fury version\n";
 
 		constexpr const char *kExecHelp =
-			"fury exec — load a scene and run a Lua script against it (headless)\n"
+			"fury exec -- load a scene and run a Lua script against it (headless)\n"
 			"\n"
 			"USAGE\n"
 			"  fury exec <scene> <script.lua> [args...]\n"
@@ -178,7 +178,7 @@ namespace fury
 			"INVARIANTS\n"
 			"  No SFML window is opened. No Engine::Initialize is called. No\n"
 			"  OpenGL context is created. The script runs to completion and the\n"
-			"  process exits — this is a one-shot batch path, not a frame loop.\n"
+			"  process exits -- this is a one-shot batch path, not a frame loop.\n"
 			"\n"
 			"SCRIPT ARGS\n"
 			"  arg[0]    = <script.lua> path\n"
@@ -343,7 +343,7 @@ namespace fury
 		// Scene::Ptr or nullptr on failure (error already logged). Mirrors the
 		// dispatch shape used by DoConvert / DoInfo. The engine scene loaders
 		// (FileUtil::LoadFile / LoadCompressedFile) require Scene::Active to
-		// be the loading target, so we set / restore it locally — same
+		// be the loading target, so we set / restore it locally -- same
 		// pattern as Importer.LoadScene in LuaBindings.cpp. Renamed to
 		// `LoadSceneForExecImpl` so the public Cli::LoadSceneForExec
 		// (defined outside the anonymous namespace) can delegate here
@@ -402,7 +402,7 @@ namespace fury
 			return nullptr;
 		}
 
-		// `fury exec` — load a scene, run a Lua script against it, exit. Headless:
+		// `fury exec` -- load a scene, run a Lua script against it, exit. Headless:
 		// no SFML window, no Engine::Initialize, no OpenGL context, no MeshUtil
 		// static primitive teardown (none of those are touched on this path).
 		// `Scene::Active` is swapped for the script's lifetime and reset on
@@ -440,7 +440,7 @@ namespace fury
 				return 1;
 			}
 
-			// Verify the script file exists before we load the scene — a
+			// Verify the script file exists before we load the scene -- a
 			// typo'd script is the more common user mistake and we'd rather
 			// not load + throw away a scene for it.
 			if (!FileUtil::FileExist(script_path))
@@ -768,7 +768,7 @@ namespace fury
 				}
 				// .gltf request when FBX2glTF gave us a .glb: we'd need to
 				// re-export. Since we always pass --binary, --output .gltf
-				// would mismatch — reject with a clear message.
+				// would mismatch -- reject with a clear message.
 				if (out_ext == ".gltf")
 				{
 					std::cerr << "fury convert fbx: .gltf output not supported in v1 "
@@ -983,8 +983,8 @@ namespace fury
 		return LoadSceneForExecImpl(path);
 	}
 
-	// `fury render-mesh <scene> <mesh_name> <output.png> [--lod N]` — render a
-	// mesh to a 256×256 PNG. Shares the camera + shader with the editor's
+	// `fury render-mesh <scene> <mesh_name> <output.png> [--lod N]` -- render a
+	// mesh to a 256x256 PNG. Shares the camera + shader with the editor's
 	// thumbnail via RenderMeshLambert. The launcher (main.cpp) owns the GL
 	// context.
 	int Cli::RenderMesh(int argc, char **argv)
@@ -1137,7 +1137,7 @@ namespace fury
 		// macros assume Log<0> is up. Bring it up here at WARN level
 		// (console-only, no file) so importer warnings appear on stderr but
 		// debug chatter doesn't drown the user.
-		// ThreadUtil must be up before Log<0> — Formatter::Simple calls
+		// ThreadUtil must be up before Log<0> -- Formatter::Simple calls
 		// ThreadUtil::Instance()->IsMainThread() while emitting each log
 		// record, so any log after Initialize would crash on the missing
 		// singleton. Pass 0 workers; the CLI doesn't enqueue tasks.
@@ -1146,7 +1146,7 @@ namespace fury
 		Log<0>::Initialize(LogLevel::WARN, nullptr, /*console=*/true,
 			Formatter::Simple, /*append=*/false);
 		// Texture::Create calls BufferManager::Instance()->Add even on the
-		// CPU-only path — the converter creates Texture records as a
+		// CPU-only path -- the converter creates Texture records as a
 		// serializable shape (path + sRGB + filter/wrap) without GPU upload,
 		// but the manager add-call still needs the singleton to exist.
 		BufferManager::Initialize();

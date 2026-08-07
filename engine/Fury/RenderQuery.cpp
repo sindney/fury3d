@@ -71,7 +71,7 @@ namespace fury
 		});
 
 		// Particles sort back-to-front by emitter center (not per-
-		// particle — single draw call per emitter is the v1 budget).
+		// particle -- single draw call per emitter is the v1 budget).
 		std::sort(particleNodes.begin(), particleNodes.end(), [&camPos](const std::shared_ptr<SceneNode> &a, const std::shared_ptr<SceneNode> &b) -> bool
 		{
 			return a->GetWorldPosition().Distance(camPos) > b->GetWorldPosition().Distance(camPos);

@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/Editor.h"
@@ -28,7 +28,7 @@ namespace fury
 	{
 		// Defined in Editor.cpp; we write through it when a pick resolves.
 		// SetSelectedSceneNode (declared in Editor.h) emits the
-		// OnSelectionChanged signal — picking uses it so subscribers hear
+		// OnSelectionChanged signal -- picking uses it so subscribers hear
 		// about viewport-driven selection changes.
 		extern SceneNode* g_SelectedSceneNode;
 
@@ -124,7 +124,7 @@ namespace fury
 
 				// Lazily allocate or resize the offscreen R32UI / DEPTH24
 				// FBO. The Texture::CreateEmpty path takes care of the GL
-				// internalformat mapping (R32UI → GL_R32UI etc.).
+				// internalformat mapping (R32UI -> GL_R32UI etc.).
 				bool EnsureFBO(int w, int h)
 				{
 					if (w <= 0 || h <= 0) return false;
@@ -178,7 +178,7 @@ namespace fury
 				// Draw all renderable nodes into the picking FBO. Each node's
 				// 1-based ID is written to the R32UI color attachment via
 				// node_id. After this returns, glReadPixels can resolve a
-				// 1×1 region back to the topmost node ID.
+				// 1x1 region back to the topmost node ID.
 				void DoIdPass(const std::shared_ptr<SceneNode>& cameraNode)
 				{
 					EnsureShaders();
@@ -238,13 +238,13 @@ namespace fury
 							{
 								auto sub = mesh->GetSubMeshAt(s);
 								shader->BindSubMesh(mesh, s);
-								glDrawElements(GL_TRIANGLES, sub->Indices.Data.size(),
+								glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sub->Indices.Data.size()),
 									GL_UNSIGNED_INT, 0);
 							}
 						}
 						else
 						{
-							glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(),
+							glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()),
 								GL_UNSIGNED_INT, 0);
 						}
 
@@ -281,13 +281,13 @@ namespace fury
 				}
 
 				if (id - 1 >= g_IdTable.size())
-					return; // out of range — id_table changed; leave selection alone
+					return; // out of range -- id_table changed; leave selection alone
 
 				if (auto locked = g_IdTable[id - 1].lock())
 				{
 					SetSelectedSceneNode(locked.get());
 				}
-					// else: node was destroyed between request and readback — silently no-op.
+					// else: node was destroyed between request and readback -- silently no-op.
 				}
 			} // namespace
 
@@ -328,7 +328,7 @@ namespace fury
 			{
 				// Size the picking FBO to the Viewport window's content
 				// rect (not the full SFML window). When the viewport is
-				// hidden / collapsed, discard the pick — there's nothing
+				// hidden / collapsed, discard the pick -- there's nothing
 				// on screen to pick.
 				if (!g_ViewportVisible)
 				{

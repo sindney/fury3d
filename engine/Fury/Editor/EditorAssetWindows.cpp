@@ -40,8 +40,8 @@
 #include <vector>
 
 // Defined in EditorNodeProperties.cpp (lifted out of the file-local
-// anonymous namespace so this TU can call it). Renders a 48×48
-// material texture row with a Browse… button.
+// anonymous namespace so this TU can call it). Renders a 48x48
+// material texture row with a Browse... button.
 namespace fury {
 namespace Editor {
 void RenderMaterialTextureRow(Material* mat, const std::string& key);
@@ -129,7 +129,7 @@ namespace
 
 	// Walk the cache directory once and add every furye_*.png
 	// filename to the in-memory index. Wrapped in try/catch so
-	// a missing directory is not an error — it just means the
+	// a missing directory is not an error -- it just means the
 	// index starts empty and warms as the user opens scenes.
 	void WarmDiskCacheIndexImpl()
 	{
@@ -198,7 +198,7 @@ namespace
 			{
 				// On success, add the filename to the in-memory
 				// index so the next IsCached query hits. Even on
-				// failure this is safe — the index lookup is
+				// failure this is safe -- the index lookup is
 				// advisory (we re-stat the directory at startup
 				// for the authoritative answer).
 				if (!path.empty())
@@ -211,7 +211,7 @@ namespace
 	}
 } // namespace ThumbnailDiskCache helpers
 
-// Render `mesh` into the 128×128 thumbnail FBO. Allocates the FBO + RTs on
+// Render `mesh` into the 128x128 thumbnail FBO. Allocates the FBO + RTs on
 // first call; reuses them after. Camera + shader live in RenderMeshLambert
 // (shared with the `fury render-mesh` CLI).
 void RenderMeshToThumbnail(const std::shared_ptr<Mesh>& mesh,
@@ -394,7 +394,7 @@ void RenderMaterialEditorBody(const std::shared_ptr<Material>& mat) {
 //
 // `popup_id` ties per-window state (LOD selection) to a particular
 // mesh editor instance. The LOD dropdown is shown only when at
-// least one MeshRender referencing `mesh` has a LodGroup — the
+// least one MeshRender referencing `mesh` has a LodGroup -- the
 // first such group is shown (we don't merge multiple groups). The
 // per-window selection lives in a static keyed by popup_id so
 // closing and re-opening the window resets to LOD 0.
@@ -505,7 +505,7 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 		}
 	}
 
-	// "Generate LODs..." button — opens a modal that drives the
+	// "Generate LODs..." button -- opens a modal that drives the
 	// meshopt_simplify wrapper. Available whether or not a chain
 	// already exists (lets the user re-generate).
 	if (ImGui::Button("Generate LODs..."))
@@ -556,7 +556,7 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 			ImGui::Combo("Method", &opts.method, method_labels,
 						 IM_ARRAYSIZE(method_labels));
 			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Simplification algorithm.\nQuadric (default) — preserves UV seams / borders.\nSloppy — grid-based, ignores borders (most aggressive).\nQuadric (legacy) — quadric without border locking.");
+				ImGui::SetTooltip("Simplification algorithm.\nQuadric (default) -- preserves UV seams / borders.\nSloppy -- grid-based, ignores borders (most aggressive).\nQuadric (legacy) -- quadric without border locking.");
 			ImGui::Separator();
 
 			if (ImGui::Button("Generate"))
@@ -739,7 +739,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	OrbitState& os = OrbitFor(popup_id);
 	// Re-frame on first appearance, on FBO resize (aspect changes), or
 	// when the displayed mesh switches (e.g. user picks a different LOD
-	// in the dropdown — each LOD has its own AABB and the previous
+	// in the dropdown -- each LOD has its own AABB and the previous
 	// orbit's target / distance would frame the wrong geometry).
 	const bool mesh_changed = (os.framed_mesh != render_mesh.get());
 	if (!os.initialized || rt_resized || mesh_changed) {
@@ -941,7 +941,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 		if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 			os.yaw   += io.MouseDelta.x * 0.01f;
 			os.pitch += io.MouseDelta.y * 0.01f;
-			// Use the explicit constant rather than M_PI_2 — MSVC's <cmath>
+			// Use the explicit constant rather than M_PI_2 -- MSVC's <cmath>
 			// gates M_PI_2 behind _USE_MATH_DEFINES, which isn't set globally.
 			const float lim = 1.57079632679489661923f - 0.01f;
 			if (os.pitch >  lim) os.pitch =  lim;
@@ -1066,7 +1066,7 @@ void OpenMaterialEditor(const std::shared_ptr<Material>& mat) {
 	g_OpenMaterialEditors.insert(popup);
 }
 
-// Lookup or allocate a 128×128 thumbnail for `mesh`; returns the color RT's GL
+// Lookup or allocate a 128x128 thumbnail for `mesh`; returns the color RT's GL
 // texture ID (0 until populated). Enqueues an async content hash on dirty
 // transitions and warms from the disk cache on a hit.
 unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
@@ -1076,12 +1076,12 @@ unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 	entry.bufferId = bufferId;
 
 	// Slow path A: dirty-transition. The mesh was just re-uploaded
-	// to the GPU (true→false), so the content may have changed. Re-hash
+	// to the GPU (true->false), so the content may have changed. Re-hash
 	// synchronously on the main thread.
 	//
 	// NOTE: this used to be an off-thread hash via ThreadUtil::Enqueue,
 	// but that raced with active:Clear() tearing down the old scene's
-	// meshes — the worker read Positions.Data / m_SubMeshes while the
+	// meshes -- the worker read Positions.Data / m_SubMeshes while the
 	// main thread freed them, segfaulting in MeshContentHash. The hash
 	// is FNV-1a over vertex/index bytes (sub-ms for typical meshes), so
 	// running it on the main thread is an acceptable editor-tool cost
@@ -1103,7 +1103,7 @@ unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 		}
 	}
 
-	// Slow path B: first time seeing this mesh — hash synchronously.
+	// Slow path B: first time seeing this mesh -- hash synchronously.
 	if (entry.contentHash == 0) {
 		entry.contentHash = MeshContentHash(mesh.get());
 		entry.diskLoaded = false;

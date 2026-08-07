@@ -238,7 +238,7 @@ namespace fury
 
 		// Chain resolution. Entry order in the scene file is IGNORED
 		// by design: effects run in the engine-owned canonical order
-		// (stage, order, name — see PostProcessRegistry::GetSortedAll),
+		// (stage, order, name -- see PostProcessRegistry::GetSortedAll),
 		// users only toggle them on/off. Tonemapping is not a user
 		// choice either: exactly one tonemap-stage effect runs in HDR
 		// (auto-injected when missing, duplicates dropped) and none in
@@ -314,7 +314,7 @@ namespace fury
 				if (!warnedOnce)
 				{
 					FURYW << "Pipeline::ApplyRenderSettings: HDR is on but no ACES "
-						 "effect is registered — output will not be tonemapped!";
+						 "effect is registered -- output will not be tonemapped!";
 					warnedOnce = true;
 				}
 			}
@@ -471,8 +471,8 @@ namespace fury
 
 		for (auto caster : casters)
 		{
-			auto corners = caster->GetWorldAABB().GetCorners();
-			for (auto corner : corners)
+			auto casterCorners = caster->GetWorldAABB().GetCorners();
+			for (auto corner : casterCorners)
 			{
 				pos = lightMatrix.Multiply(corner);
 				if (pos.z > maxZ) maxZ = pos.z;
@@ -524,6 +524,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		(void)pass;
 		const int numSplit = 4;
 
 		// get pointers
@@ -631,10 +632,10 @@ namespace fury
 						shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
 					}
 
-					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
 
-					RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
+					RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 				}
 			}
 
@@ -654,6 +655,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawDirLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		(void)pass;
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
@@ -729,10 +731,10 @@ namespace fury
 					shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
 				}
 
-				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseDrawCall();
 
-				RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
+				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
@@ -747,6 +749,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		(void)pass;
 		auto depth_shader = GetShaderByName("cube_depth_shader");
 		auto depth_skin_shader = GetShaderByName("cube_depth_skin_shader");
 		auto depth_buffer = Texture::GetTemporary(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
@@ -838,10 +841,10 @@ namespace fury
 						shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
 					}
 
-					glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
 
-					RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
+					RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 				}
 			}
 
@@ -857,6 +860,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		(void)pass;
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
@@ -933,10 +937,10 @@ namespace fury
 					shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
 				}
 
-				glDrawElements(GL_TRIANGLES, casterMesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseDrawCall();
 
-				RenderUtil::Instance()->IncreaseTriangleCount(casterMesh->Indices.Data.size());
+				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1100,7 +1104,7 @@ namespace fury
 		gridShader->BindTexture("gbuffer_depth", depth);
 		gridShader->BindFloat("u_rt_size", (float)vp[2], (float)vp[3]);
 		// NOTE: BindCamera's "invert_view_matrix" is the VIEW matrix
-		// (world->view) in this engine's naming, not view->world — the
+		// (world->view) in this engine's naming, not view->world -- the
 		// world ray needs the camera's world matrix, bound explicitly.
 		gridShader->BindMatrix("camera_world_matrix", m_CurrentCamera->GetWorldMatrix());
 
@@ -1109,7 +1113,7 @@ namespace fury
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		glDrawElements(GL_TRIANGLES, quad->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		glDisable(GL_BLEND);
 		glDepthMask(GL_TRUE);
@@ -1118,6 +1122,6 @@ namespace fury
 		gridShader->UnBind();
 
 		RenderUtil::Instance()->IncreaseDrawCall();
-		RenderUtil::Instance()->IncreaseTriangleCount(quad->Indices.Data.size());
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(quad->Indices.Data.size()));
 	}
 }

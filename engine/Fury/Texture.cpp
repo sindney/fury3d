@@ -10,7 +10,21 @@
 #include "Fury/Texture.h"
 #include "Fury/EnumUtil.h"
 
+// stb_image.h is a single-header library: every inline definition is parsed in
+// the surrounding translation unit, so /external:W0 + /external:I don't reach
+// it (template-instantiation context, not header parse). Silence the specific
+// level-4 warnings it emits locally; the rest of the engine stays at /W4.
+#if PLATFORM_WINDOWS
+#pragma warning(push)
+#pragma warning(disable: 4100)  // unreferenced formal parameter
+#pragma warning(disable: 4312)  // conversion from int to larger pointer
+#pragma warning(disable: 4456)  // declaration hides previous local
+#pragma warning(disable: 4505)  // unreferenced local function
+#endif
 #include "stb_image.h"
+#if PLATFORM_WINDOWS
+#pragma warning(pop)
+#endif
 
 namespace fury
 {
@@ -141,7 +155,7 @@ namespace fury
 				str = EnumUtil::TextureTypeToString(TextureType::TEXTURE_2D);
 			auto type = EnumUtil::TextureTypeFromString(str);
 
-			int width, height;
+			int width = 0, height = 0;
 			if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
 			{
 				FURYE << "Texture param 'width/height' not found!";
@@ -315,13 +329,13 @@ namespace fury
 
 		// CLI / no-GL-context path: store bytes for later save extraction
 		// and set the serialization shape, but skip the GPU upload. Detect
-		// via the engine's GL function-pointer loader — when LoadGLFunctions
+		// via the engine's GL function-pointer loader -- when LoadGLFunctions
 		// hasn't run, the function pointer is null.
 		if (_ptrc_glGenTextures == nullptr)
 		{
 			DeleteBuffer();
 			// Quick image header probe to set width/height. stbi can read
-			// these without decoding the full image — but its public API
+			// these without decoding the full image -- but its public API
 			// doesn't expose that; we accept a small wasted decode here so
 			// the serialized texture record's width/height are non-zero.
 			int width = 0, height = 0, channels = 0;
@@ -525,7 +539,7 @@ namespace fury
 		m_FilePath = filePath;
 		// Use the sRGB-encoding family so Texture::Save emits "srgb": true.
 		// 3 vs 4 channels gets fixed up later by CreateFromImage on the
-		// first runtime load — for serialization the family is what matters.
+		// first runtime load -- for serialization the family is what matters.
 		m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
 	}
 
@@ -631,8 +645,8 @@ namespace fury
 			{
 				glBindTexture(m_TypeUint, m_ID);
 
-				float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-				glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
+				float border[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
+				glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, border);
 
 				glBindTexture(m_TypeUint, 0);
 			}

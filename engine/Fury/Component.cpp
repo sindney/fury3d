@@ -36,11 +36,13 @@ namespace fury
 
 	void Component::OnDetaching(const std::shared_ptr<SceneNode> &node)
 	{
+		(void)node;
 		m_Owner.reset();
 	}
 
 	void Component::OnOwnerDestructing(SceneNode &node)
 	{
+		(void)node;
 		m_Owner.reset();
 	}
 }

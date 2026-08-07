@@ -174,7 +174,7 @@ namespace fury
 		EndArray(wrapper);
 
 		SaveKey(wrapper, "childs");
-		SaveArray(wrapper, m_Childs.size(), [&](unsigned int index)
+		SaveArray(wrapper, static_cast<unsigned int>(m_Childs.size()), [&](unsigned int index)
 		{
 			m_Childs[index]->Save(wrapper);
 		});
@@ -439,7 +439,7 @@ namespace fury
 
 	void SceneNode::RemoveChild(const SceneNode::Ptr &node)
 	{
-		unsigned int childCount = m_Childs.size();
+		unsigned int childCount = static_cast<int>(m_Childs.size());
 		unsigned int i = 0;
 
 		SceneNode::Ptr child = nullptr;
@@ -520,7 +520,7 @@ namespace fury
 
 	SceneNode::Ptr SceneNode::FindChild(size_t hashcode) const
 	{
-		unsigned int childCount = m_Childs.size();
+		unsigned int childCount = static_cast<int>(m_Childs.size());
 		unsigned int i = 0;
 
 		SceneNode::Ptr child = nullptr;
@@ -538,7 +538,7 @@ namespace fury
 	SceneNode::Ptr SceneNode::FindChildRecursively(size_t hashcode) const
 	{
 		std::vector<Ptr> nodeWithChilds;
-		unsigned int childCount = m_Childs.size();
+		unsigned int childCount = static_cast<int>(m_Childs.size());
 		unsigned int i, j;
 
 		SceneNode::Ptr child = nullptr, currentNode = nullptr;
@@ -576,7 +576,7 @@ namespace fury
 
 	unsigned int SceneNode::GetChildCount() const
 	{
-		return m_Childs.size();
+		return static_cast<int>(m_Childs.size());
 	}
 
 	SceneNode::Ptr SceneNode::GetChildAt(unsigned int index) const

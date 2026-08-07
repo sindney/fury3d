@@ -15,7 +15,7 @@ namespace fury
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// Render a modal asset picker. Opens a BeginPopupModal with popup
 		// ID `popup_id` and title `title`, listing every asset of the
 		// requested `type` (Mesh / Material / Texture / AnimationClip)
@@ -27,7 +27,7 @@ namespace fury
 		// (Editor.cpp:373-438).
 		//
 		// The caller is responsible for opening the popup (e.g.
-		// `ImGui::OpenPopup("MeshPicker")` from a Browse… button handler)
+		// `ImGui::OpenPopup("MeshPicker")` from a Browse... button handler)
 		// before calling this function. Per-popup-id selection state is
 		// kept internally so multiple pickers (mesh / per-slot material
 		// / texture / clip) can be open simultaneously without aliasing.

@@ -125,7 +125,7 @@ namespace fury
 		shader->BindTexture(src);
 		shader->BindMesh(MeshUtil::GetUnitQuad());
 
-		glDrawElements(GL_TRIANGLES, MeshUtil::GetUnitQuad()->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(MeshUtil::GetUnitQuad()->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 
@@ -198,7 +198,7 @@ namespace fury
 			lines.push_back(cornor.z);
 		}
 
-		DrawLines(&lines[0], lines.size(), color);
+		DrawLines(&lines[0], static_cast<unsigned int>(lines.size()), color);
 	}
 
 	void RenderUtil::DrawFrustum(const Frustum &frustum, Color color)
@@ -216,7 +216,7 @@ namespace fury
 			lines.push_back(cornor.z);
 		}
 
-		DrawLines(&lines[0], lines.size(), color);
+		DrawLines(&lines[0], static_cast<unsigned int>(lines.size()), color);
 	}
 
 	void RenderUtil::EndDrawLines()
@@ -251,7 +251,7 @@ namespace fury
 		m_DebugShader->BindMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
 		m_DebugShader->BindMesh(mesh);
 
-		glDrawElements(GL_TRIANGLES, mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		m_DrawCall++;
 	}
@@ -349,7 +349,7 @@ namespace fury
 				"in vec3 vertex_normal;"
 				// Referenced (via a zero uniform) so the linker keeps
 				// the attributes and skinned meshes don't trip the
-				// "Can't find bone_ids/bone_weights" bind warnings —
+				// "Can't find bone_ids/bone_weights" bind warnings --
 				// thumbnails render the bind pose.
 				"in ivec4 bone_ids;"
 				"in vec3 bone_weights;"
@@ -402,7 +402,7 @@ namespace fury
 
 	std::shared_ptr<Texture> GetDummyTexture2DArray()
 	{
-		// 1x1x4 DEPTH24 — the sampler-target match is what matters.
+		// 1x1x4 DEPTH24 -- the sampler-target match is what matters.
 		static auto tex = Texture::Create("Dummy2DArray");
 		if (tex->GetID() == 0)
 			tex->CreateEmpty(1, 1, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY, false);
@@ -413,7 +413,7 @@ namespace fury
 	{
 		// Particle billboard shader, loaded from
 		// Resource/Shader/Lambert/Particle.glsl (artists iterate on GLSL
-		// without rebuilding). shadow=true adds the SHADOW define — the
+		// without rebuilding). shadow=true adds the SHADOW define -- the
 		// shadow-receive block compiles only into that variant.
 		static auto plain = Shader::Create("ParticleShader", ShaderType::PARTICLE);
 		static auto shadowed = [] {

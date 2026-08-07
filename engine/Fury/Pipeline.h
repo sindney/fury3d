@@ -201,7 +201,7 @@ namespace fury
 
 		// Seed HDR mode, CSM switch, and the resolved chain from
 		// RenderSettings. The chain runs in the engine-owned canonical
-		// order (stage, order, name — saved entry order is ignored),
+		// order (stage, order, name -- saved entry order is ignored),
 		// and tonemapping follows the HDR switch: exactly one
 		// tonemap-stage effect (ACES) is auto-injected in HDR and all
 		// tonemap entries are stripped in LDR. Unresolved names are
@@ -245,7 +245,7 @@ namespace fury
 		RenderTarget* GetRenderTarget() const;
 
 		// Buffer debug-view texture (see m_DebugViewTexture). Null when
-		// no debug view is active — the editor presents the scene RT.
+		// no debug view is active -- the editor presents the scene RT.
 		void SetDebugViewTexture(const std::shared_ptr<Texture> &ptr);
 
 		std::shared_ptr<Texture> GetDebugViewTexture() const;

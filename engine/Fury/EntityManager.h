@@ -61,7 +61,7 @@ public:
 		if (it->second != hashcode &&
 			m_DupWarned.insert(std::make_pair(type, name)).second) {
 			FURYW << "EntityManager: duplicate entity name '" << name
-				  << "' (" << type.name() << "') — Get(name) keeps the first registered";
+				  << "' (" << type.name() << "') -- Get(name) keeps the first registered";
 		}
 	}
 
@@ -84,7 +84,7 @@ public:
 		return std::static_pointer_cast<ObjectType>(ptr);
 	}
 
-	// Name-based remove — iterates the map (like Get<T>(name)).
+	// Name-based remove -- iterates the map (like Get<T>(name)).
 	template<class ObjectType>
 	std::shared_ptr<ObjectType> Remove(const std::string& name) {
 		std::type_index key0 = typeid(ObjectType);
@@ -169,7 +169,7 @@ public:
 				if (ptr->GetName() == name)
 					return ptr;
 			}
-			idx.erase(itN); // stale entry — fall through to scan
+			idx.erase(itN); // stale entry -- fall through to scan
 		}
 
 		for (const auto& kv : it0->second) {
@@ -227,7 +227,7 @@ private:
 	// that name, per type. Maintained by Add/Get (self-healing).
 	std::unordered_map<std::type_index, std::unordered_map<std::string, size_t>> m_NameIndex;
 
-	// (type, name) pairs already warned about — one-shot spam guard.
+	// (type, name) pairs already warned about -- one-shot spam guard.
 	std::set<std::pair<std::type_index, std::string>> m_DupWarned;
 };
 } // namespace fury

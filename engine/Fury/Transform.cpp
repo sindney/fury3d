@@ -41,7 +41,7 @@ namespace fury
 
 	void Transform::SetDeltaTime(float dt)
 	{
-		// TODO: 优化dt未改变 或 0 或 1 的情况
+		// TODO: optimize the case when dt is unchanged, or 0, or 1
 		if (!m_Dirty && m_Dt == dt)
 			return;
 

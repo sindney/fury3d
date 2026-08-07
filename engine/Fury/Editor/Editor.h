@@ -9,13 +9,15 @@
 #include "Fury/Macros.h"
 #include "Fury/Signal.h"
 
+namespace sf { class Window; }
+
 namespace fury
 {
 	class SceneNode;
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// ----- lifecycle ---------------------------------------------------
 		void FURY_API Initialize();
 
@@ -42,7 +44,7 @@ namespace fury
 		void FURY_API SetSelectedSceneNode(SceneNode* node);
 
 		// ----- Edit-menu actions on the currently selected node -----
-		// Backing for File → Edit menu items (and their keyboard
+		// Backing for File -> Edit menu items (and their keyboard
 		// shortcuts). No-op when nothing is selected; the scene-graph
 		// mutations (add / delete / duplicate / reparent) happen via
 		// the same deferred queue as the Scene Inspector's right-click
@@ -71,7 +73,7 @@ namespace fury
 		bool FURY_API IsViewportHovered();
 
 		// True only when the cursor is inside the Viewport window's content
-		// rect — NOT the title bar or resize borders. Use this for camera-
+		// rect -- NOT the title bar or resize borders. Use this for camera-
 		// input gating (drag-to-look, WASD-to-move) so dragging the window
 		// chrome doesn't also rotate the camera, and so the camera only
 		// responds when the user is actually pointing at the scene.
@@ -114,7 +116,7 @@ namespace fury
 
 		// ----- import flags -----------------------------------------------
 		// Project-supplied import flag (e.g. "auto_default_sun") backing the
-		// Settings → Import section. Editor.lua reads these in import_scene
+		// Settings -> Import section. Editor.lua reads these in import_scene
 		// to honor the user's toggle.
 		void FURY_API SetImportFlag(const char* name, bool value);
 
@@ -144,7 +146,7 @@ namespace fury
 		// otherwise the absolute path to "Resource/Scene/".
 		std::string FURY_API GetSceneDir();
 
-		// Track which file the user is currently editing so File → Save can
+		// Track which file the user is currently editing so File -> Save can
 		// route to in-place save (native .json/.bin) or fall through to Save
 		// As (non-native: .gltf/.glb/.fbx, or no path tracked).
 		void FURY_API SetCurrentScene(const std::string& path, bool is_native);
@@ -160,7 +162,7 @@ namespace fury
 		// editor knows the on-disk scene file is out of sync. The Save
 		// menu / Cmd+S handler reads IsSceneDirty to decide between
 		// in-place save (native .json/.bin) and Save As (non-native
-		// .fbx/.gltf — we'd otherwise silently overwrite the imported
+		// .fbx/.gltf -- we'd otherwise silently overwrite the imported
 		// asset). ClearSceneDirty is called by the save path on success.
 		void FURY_API MarkSceneDirty();
 
@@ -213,6 +215,11 @@ namespace fury
 		void FURY_API SetCameraControls(std::vector<CameraControl> controls);
 		void FURY_API ClearCameraControls();
 
+		bool FURY_API GetPersistedWindowSize(int &width, int &height,
+			int &posX, int &posY);
+
+		void FURY_API SetWindowForPersistence(sf::Window *window);
+
 #else
 		// Stubs so call sites compile cleanly with WITH_EDITOR=OFF. The
 		// linker has nothing to resolve.
@@ -249,6 +256,8 @@ namespace fury
 		inline void ClearSceneDirty() {}
 		inline void SetFrameSelectionHandler(std::function<void(SceneNode*)>) {}
 		inline void FrameSelection(SceneNode*) {}
+		inline bool GetPersistedWindowSize(int &, int &, int &, int &) { return false; }
+		inline void SetWindowForPersistence(sf::Window *) {}
 #endif
 	}
 }

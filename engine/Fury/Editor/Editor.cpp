@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Editor/Editor.h"
 
@@ -14,6 +14,11 @@
 #include "Fury/Pipeline.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+
+#include <SFML/Window.hpp>
+
+// imgui.h manages its own pragma push/pop (lines 135/4506) — don't wrap,
+// an outer pop would consume the inner push and trigger C4193.
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
 #include "ImGuizmo.h"
@@ -22,6 +27,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -79,7 +86,7 @@ extern bool g_ViewportVisible;
 extern std::string g_CurrentScenePath;
 extern bool g_CurrentSceneIsNative;
 
-// Defined in EditorWindows.cpp — set by SelectAssetInBrowser,
+// Defined in EditorWindows.cpp -- set by SelectAssetInBrowser,
 // read by RenderContentBrowserWindow.
 extern std::optional<std::pair<std::type_index, std::string>> g_SelectedAsset;
 extern std::optional<std::string> g_PendingScrollToAsset;
@@ -99,21 +106,21 @@ std::function<void(SceneNode*)> g_FrameSelectionHandler;
 std::unordered_map<std::string, bool> g_ImportFlags;
 SceneNode* g_SelectedSceneNode = nullptr;
 bool g_ShowSettings = false;
-// Hidden by default — opened on demand via the Window menu. (It was
+// Hidden by default -- opened on demand via the Window menu. (It was
 // briefly default-ON for dock persistence; the [FuryEditor] ini
 // handler now persists visibility either way, so the default layout
 // stays clean.)
-bool g_ShowProfiler = false; // hidden by default — opened on demand
-bool g_ShowSceneInspector = true; // visible by default — docked left
-bool g_ShowNodeProperties = true; // visible by default — docked right
-bool g_ShowConsole = true;		  // visible by default — bottom dock
-bool g_ShowContentBrowser = true; // visible by default — bottom dock
-bool g_ShowViewport = true;		  // visible by default — docked center
-bool g_ShowAnimation = false;	  // hidden by default — opened on demand
+bool g_ShowProfiler = false; // hidden by default -- opened on demand
+bool g_ShowSceneInspector = true; // visible by default -- docked left
+bool g_ShowNodeProperties = true; // visible by default -- docked right
+bool g_ShowConsole = true;		  // visible by default -- bottom dock
+bool g_ShowContentBrowser = true; // visible by default -- bottom dock
+bool g_ShowViewport = true;		  // visible by default -- docked center
+bool g_ShowAnimation = false;	  // hidden by default -- opened on demand
 // Captured each frame by RenderViewportWindow so the gizmo and
 // picking operate in viewport-content-rect space (not full-window
 // space). When the Viewport window is hidden/collapsed, size is
-// zero and g_ViewportVisible is false — gizmo + picking no-op.
+// zero and g_ViewportVisible is false -- gizmo + picking no-op.
 ImVec2 g_ViewportContentMin(0, 0);
 ImVec2 g_ViewportContentSize(0, 0);
 bool g_ViewportHovered = false;
@@ -140,6 +147,8 @@ bool s_HadIniOnStartup = false;
 // layouts.
 const int kCurrentLayoutVersion = 3;
 int s_LoadedLayoutVersion = 0;
+
+sf::Window *g_WindowForPersistence = nullptr;
 
 // Click-vs-drag state machine for viewport picking. A pick
 // fires only on a true click: LMB press + release at (approx)
@@ -171,11 +180,11 @@ void UnhookEngineLog() {
 	}
 }
 
-// imgui.ini settings handler — persists the active theme index
+// imgui.ini settings handler -- persists the active theme index
 // alongside ImGui's window layout state. Single key under
 // [FuryEditor][Editor]: `Theme=N`.
 void* SettingsHandler_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char* /*name*/) {
-	return (void*)1; // non-null sentinel — we have a single entry
+	return (void*)1; // non-null sentinel -- we have a single entry
 }
 
 void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const char* line) {
@@ -197,8 +206,8 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
-	// Import flags — one line per flag: ImportFlag=<name>=<0|1>.
-	// Persisted so toggles in Settings → Import survive a restart.
+	// Import flags -- one line per flag: ImportFlag=<name>=<0|1>.
+	// Persisted so toggles in Settings -> Import survive a restart.
 	char flagname[128];
 	int flagval = -1;
 	if (std::sscanf(line, "ImportFlag=%127[^=]=%d", flagname, &flagval) == 2
@@ -227,7 +236,7 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
-	// Window visibility — one line per window: Show=<name>=<0|1>.
+	// Window visibility -- one line per window: Show=<name>=<0|1>.
 	// Restoring these BEFORE the first frame means each visible
 	// window is Begin()'d every frame, which is what lets ImGui
 	// record + restore its [Window][<name>] dock/pos entry (the
@@ -275,7 +284,7 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Theme=%d\n", GetCurrentThemeIndex());
 	buf->appendf("Layout=%d\n", kCurrentLayoutVersion);
 	buf->appendf("ShowGrid=%d\n", g_ShowGrid ? 1 : 0);
-	// Import flags — one line per flag so adding/removing flags
+	// Import flags -- one line per flag so adding/removing flags
 	// doesn't break the format.
 	for (const auto& kv : g_ImportFlags)
 		buf->appendf("ImportFlag=%s=%d\n", kv.first.c_str(), kv.second ? 1 : 0);
@@ -286,7 +295,7 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Gizmo=%d,%d,%d,%.6f,%.6f,%.6f\n",
 				 op_idx, space_idx, g_SnapEnabled ? 1 : 0,
 				 g_SnapTranslate, g_SnapRotate, g_SnapScale);
-	// Window visibility — restoring these pre-first-frame keeps every
+	// Window visibility -- restoring these pre-first-frame keeps every
 	// window Begin()'d, so ImGui can persist/restore its dock entry.
 	buf->appendf("Show=Settings=%d\n", g_ShowSettings ? 1 : 0);
 	buf->appendf("Show=Profiler=%d\n", g_ShowProfiler ? 1 : 0);
@@ -296,6 +305,17 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Show=ContentBrowser=%d\n", g_ShowContentBrowser ? 1 : 0);
 	buf->appendf("Show=Viewport=%d\n", g_ShowViewport ? 1 : 0);
 	buf->appendf("Show=Animation=%d\n", g_ShowAnimation ? 1 : 0);
+
+	if (g_WindowForPersistence != nullptr)
+	{
+		const sf::Vector2u sz = g_WindowForPersistence->getSize();
+		const sf::Vector2i pos = g_WindowForPersistence->getPosition();
+		if (sz.x > 0 && sz.y > 0)
+			buf->appendf("Window=%u,%u,%d,%d\n",
+				static_cast<unsigned int>(sz.x),
+				static_cast<unsigned int>(sz.y),
+				pos.x, pos.y);
+	}
 	buf->append("\n");
 }
 
@@ -315,7 +335,7 @@ void BuildDefaultLayout(ImGuiID dockspace_id) {
 	ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
 	ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
-	// Split order: left → right → bottom. The bottom region then
+	// Split order: left -> right -> bottom. The bottom region then
 	// spans the central area between the two side panels (Unity /
 	// Godot convention). The center node hosts the Viewport window.
 	ImGuiID center = dockspace_id;
@@ -348,7 +368,7 @@ void TriggerNew() {
 	SetSelectedSceneNode(nullptr);
 }
 
-// Forward declaration — TriggerSave falls through to TriggerSaveAs when
+// Forward declaration -- TriggerSave falls through to TriggerSaveAs when
 // the current scene has no native path (defined below).
 void TriggerSaveAs();
 
@@ -357,7 +377,7 @@ void TriggerSave() {
 	// In-place save is only available when we have a tracked
 	// native (.json / .bin) path. The dirty flag tracks whether
 	// the in-memory scene has diverged from the on-disk file,
-	// but does NOT gate Save — the user can always save when
+	// but does NOT gate Save -- the user can always save when
 	// they want. Non-native paths (FBX, glTF) always go
 	// through Save As since the engine can't write those formats.
 	const bool path_ok = !g_CurrentScenePath.empty() && g_CurrentSceneIsNative;
@@ -370,10 +390,10 @@ void TriggerSave() {
 	}
 }
 
-// File → Save As / Ctrl+Shift+S entry point. Defers entirely to the
+// File -> Save As / Ctrl+Shift+S entry point. Defers entirely to the
 // Lua-registered on_save_as callback, which now drives a native
 // Editor.SaveDialog (replacing the retired ImGui "Save Scene As"
-// modal). The empty path argument is unused by Lua — it's preserved
+// modal). The empty path argument is unused by Lua -- it's preserved
 // only for the std::function<void(const std::string&)> signature.
 void TriggerSaveAs() {
 	if (Scene::Active == nullptr) return;
@@ -384,9 +404,9 @@ void TriggerSaveAs() {
 	}
 }
 
-// File → Import... / Ctrl+Shift+I entry point. Passes an empty string
+// File -> Import... / Ctrl+Shift+I entry point. Passes an empty string
 // to on_import as the signal for "drive the native multi-select
-// Editor.OpenDialog" — the File → Import ▸ <file> submenu still
+// Editor.OpenDialog" -- the File -> Import ▸ <file> submenu still
 // passes a bare filename, which on_import routes to the existing
 // Resource/Scene/ load path. Replaces the retired ImGui "Import Scene"
 // modal.
@@ -398,10 +418,10 @@ void TriggerImport() {
 	}
 }
 
-// File → Open... / Ctrl+O entry point. Mirrors TriggerImport/TriggerSaveAs:
+// File -> Open... / Ctrl+O entry point. Mirrors TriggerImport/TriggerSaveAs:
 // the empty-string signal to on_open drives a native single-select
 // Editor.OpenDialog (replacing the retired ImGui "Open Scene" modal).
-// The File → Open ▸ <file> submenu still passes a bare filename.
+// The File -> Open ▸ <file> submenu still passes a bare filename.
 void TriggerOpen() {
 	if (g_SceneIO.on_open) {
 		try {
@@ -521,8 +541,8 @@ void RenderMenuBar() {
 	// (currently empty) built-ins, matching today's contract.
 	Gui::InvokeMenuBarCallback();
 
-	// Right-aligned current-scene status — what the user is
-	// editing right now. Empty path → "(no scene)" hint so the
+	// Right-aligned current-scene status -- what the user is
+	// editing right now. Empty path -> "(no scene)" hint so the
 	// header is never blank. Hover reveals the full absolute
 	// path for paste / disambiguation.
 	{
@@ -553,7 +573,7 @@ void RenderMenuBar() {
 }
 
 void HandleShortcuts() {
-	// Unconditional global routing — works whether the menu is open or
+	// Unconditional global routing -- works whether the menu is open or
 	// not. ImGui's text-input fields take focus priority and won't
 	// fire these.
 	const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
@@ -593,7 +613,7 @@ void Initialize() {
 	// platform backend (AppKit on macOS, Win32 on Windows); the
 	// Editor.OpenDialog / Editor.SaveDialog Lua bindings call into
 	// nfd on demand. NFD_Quit is paired in Shutdown. Failure here is
-	// non-fatal — the dialog bindings will log "NFD_* error" and
+	// non-fatal -- the dialog bindings will log "NFD_* error" and
 	// return nil if a backend isn't available.
 	if (NFD_Init() != NFD_OKAY) {
 		FURYE << "NFD_Init failed: "
@@ -619,10 +639,10 @@ void Tick() {
 	s_FirstFrame = false;
 
 	// The "Open Scene" ImGui modal was retired in favor of the native
-	// single-select Editor.OpenDialog flow driven by TriggerOpen →
+	// single-select Editor.OpenDialog flow driven by TriggerOpen ->
 	// SceneIO.on_open("") (see Editor.lua on_open).
 	// (The "Import Scene" modal was likewise retired in favor of
-	// TriggerImport → SceneIO.on_import("").)
+	// TriggerImport -> SceneIO.on_import("").)
 
 	if (g_ShowSettings) RenderSettingsWindow(&g_ShowSettings);
 	if (g_ShowProfiler) RenderProfilerWindow(&g_ShowProfiler);
@@ -665,7 +685,7 @@ void Tick() {
 	}
 
 	// If the Viewport window is hidden, the editor has no offscreen
-	// render target — tell the pipeline to render to the default
+	// render target -- tell the pipeline to render to the default
 	// framebuffer so the 3D scene doesn't silently keep rendering into
 	// a stale RT. RenderViewportWindow sets the RT when visible.
 	if (!g_ShowViewport && Pipeline::Active)
@@ -690,7 +710,7 @@ void Tick() {
 	//
 	// NOTE: we deliberately do NOT gate on io.WantCaptureMouse here.
 	// The Viewport window is a real ImGui window now, so hovering it
-	// sets WantCaptureMouse=true — but that's exactly when we WANT
+	// sets WantCaptureMouse=true -- but that's exactly when we WANT
 	// picking to work. g_ViewportHovered (IsWindowHovered on the
 	// Viewport window) is the correct gate: it's true only over the
 	// viewport, false over docked panels.
@@ -727,7 +747,7 @@ void Tick() {
 		ImVec2 mp = io.MousePos;
 		const bool release_in_vp = cursor_in_viewport(mp);
 		if (!s_PickIsDrag && release_in_vp && !gizmo_busy) {
-			// True click — schedule a pick. Coordinates are relative to
+			// True click -- schedule a pick. Coordinates are relative to
 			// the viewport content rect (the picking FBO's space).
 			Picking::RequestPickAt(ImVec2(mp.x - vp_min.x, mp.y - vp_min.y));
 		}
@@ -748,6 +768,36 @@ void Shutdown() {
 	NFD_Quit();
 }
 
+bool GetPersistedWindowSize(int &width, int &height, int &posX, int &posY) {
+	std::ifstream in("imgui.ini");
+	if (!in.good()) return false;
+
+	std::string line;
+	bool in_section = false;
+	while (std::getline(in, line))
+	{
+		if (line.rfind("[FuryEditor][Editor]", 0) == 0) { in_section = true; continue; }
+		if (!in_section) continue;
+		if (!line.empty() && line[0] == '[') break;
+
+		int pw = 0, ph = 0, px2 = 0, py2 = 0;
+		if (std::sscanf(line.c_str(), "Window=%d,%d,%d,%d",
+				&pw, &ph, &px2, &py2) == 4 && pw > 0 && ph > 0)
+		{
+			width = pw;
+			height = ph;
+			posX = px2;
+			posY = py2;
+			return true;
+		}
+	}
+	return false;
+}
+
+void SetWindowForPersistence(sf::Window *window) {
+	g_WindowForPersistence = window;
+}
+
 SceneNode* GetSelectedSceneNode() {
 	return g_SelectedSceneNode;
 }
@@ -765,7 +815,7 @@ void SelectAssetInBrowser(std::type_index type, const std::string& name) {
 	// and flags a scroll-to-selection for the next frame. This is
 	// the "jump to asset" mechanism used by the Node Properties
 	// inspector's mesh / material / texture rows. No-op if the
-	// asset doesn't actually exist in the EntityManager — the
+	// asset doesn't actually exist in the EntityManager -- the
 	// grid just won't find a matching tile and the scroll flag
 	// clears next frame.
 	g_SelectedAsset = std::make_pair(type, name);
@@ -943,7 +993,7 @@ void FrameSelection(SceneNode* node) {
 	try {
 		g_FrameSelectionHandler(node);
 	} catch (...) {
-		// Handler errors must not propagate into the editor's tick —
+		// Handler errors must not propagate into the editor's tick --
 		// the Lua binding layer already traps protected_function errors
 		// and logs via FURYE, but defense in depth.
 	}

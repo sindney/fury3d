@@ -172,12 +172,25 @@ int main(int argc, char *argv[])
 	settings.majorVersion = 3;
 	settings.minorVersion = 3;
 
+	sf::Vector2u window_size{1280, 720};
+	sf::Vector2i window_pos{-1, -1};
+	int pw = 0, ph = 0, px2 = 0, py2 = 0;
+	if (fury::Editor::GetPersistedWindowSize(pw, ph, px2, py2))
+	{
+		window_size.x = static_cast<unsigned int>(pw);
+		window_size.y = static_cast<unsigned int>(ph);
+		window_pos.x = px2;
+		window_pos.y = py2;
+	}
+
 	sf::Window window(
-		sf::VideoMode({1280, 720}),
+		sf::VideoMode(window_size),
 		"Fury3d",
 		sf::Style::Titlebar | sf::Style::Resize | sf::Style::Close,
 		sf::State::Windowed,
 		settings);
+	if (window_pos.x >= 0 && window_pos.y >= 0)
+		window.setPosition(window_pos);
 	window.setKeyRepeatEnabled(true);
 	window.setVerticalSyncEnabled(false);
 	(void)window.setActive();

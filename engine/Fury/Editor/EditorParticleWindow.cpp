@@ -1,6 +1,6 @@
 #include "Fury/Editor/EditorParticleWindow.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include <algorithm>
 #include <cmath>
@@ -41,7 +41,7 @@ namespace fury
 			std::unordered_set<std::string> g_OpenParticleEditors;
 
 			// Per-window preview state. Manual time slider + play
-			// toggle — decoupled from the scene clock so the
+			// toggle -- decoupled from the scene clock so the
 			// artist can scrub lifetime curves without playing.
 			struct PreviewState
 			{
@@ -97,7 +97,7 @@ namespace fury
 
 				OrbitState &os = OrbitFor(popup_id);
 				// Reframe on first show or when the bound renderer
-				// switches — NOT every frame (a per-frame reframe
+				// switches -- NOT every frame (a per-frame reframe
 				// resets the user's wheel zoom to the initial distance).
 				const bool mesh_changed =
 					(os.framed_mesh != nullptr && os.framed_mesh != renderer.get());
@@ -234,7 +234,7 @@ namespace fury
 				if (ImGui::CollapsingHeader("Color Over Lifetime"))
 				{
 					auto &g = system->GetColorOverLifetime().color;
-					ImGui::TextDisabled("(gradient — %zu keys)", g.keys.size());
+					ImGui::TextDisabled("(gradient -- %zu keys)", g.keys.size());
 					for (size_t i = 0; i < g.keys.size(); ++i)
 					{
 						ImGui::PushID(static_cast<int>(i));
@@ -256,7 +256,7 @@ namespace fury
 				if (ImGui::CollapsingHeader("Size Over Lifetime"))
 				{
 					auto &c = system->GetSizeOverLifetime().size;
-					ImGui::TextDisabled("(curve — %zu keys)", c.keys.size());
+					ImGui::TextDisabled("(curve -- %zu keys)", c.keys.size());
 					for (size_t i = 0; i < c.keys.size(); ++i)
 					{
 						ImGui::PushID(1000 + static_cast<int>(i));
@@ -346,7 +346,7 @@ namespace fury
 			const float viewer_w = std::max(120.0f, avail.x - inspector_w - 8.0f);
 
 			// Bound ParticleRenderer: find one anywhere in the scene that
-			// references this system (by name) — drives the preview's
+			// references this system (by name) -- drives the preview's
 			// material binding + blend mode.
 			auto renderer = std::shared_ptr<ParticleRenderer>();
 			if (Scene::Active)
@@ -386,7 +386,7 @@ namespace fury
 			// Drive the simulation in-place: when playing, advance by
 			// wall-clock dt; otherwise stay frozen at the slider's
 			// timestamp (the user can scrub curves).
-			const float now = ImGui::GetTime();
+			const float now = static_cast<float>(ImGui::GetTime());
 			if (ps.lastWallClock == 0.0f) ps.lastWallClock = now;
 			const float wallDt = static_cast<float>(now - ps.lastWallClock);
 			ps.lastWallClock = now;
@@ -400,7 +400,7 @@ namespace fury
 				// Reset to t=0 + substep up to the slider's preview
 				// time. One giant Update(t) would leave every particle
 				// at age 0 (spawning happens at the end of Update), so
-				// the seek integrates in fixed 1/30 steps — bounded,
+				// the seek integrates in fixed 1/30 steps -- bounded,
 				// deterministic, cheap at the 4096 cap.
 				system->Reset();
 				const float h = 1.0f / 30.0f;
@@ -429,7 +429,7 @@ namespace fury
 			if (!system) return;
 			std::string popup = "ParticleEditor:" + system->GetName();
 			g_OpenParticleEditors.insert(popup);
-			// The preview drives Update() manually from here on —
+			// The preview drives Update() manually from here on --
 			// suspend the wall-clock tick until the window closes.
 			system->SetExternallyDriven(true);
 		}
@@ -443,7 +443,7 @@ namespace fury
 				auto pos = popup.find(':');
 				std::string name = (pos != std::string::npos)
 					? popup.substr(pos + 1) : popup;
-				// ParticleSystem is a top-level asset — resolve via
+				// ParticleSystem is a top-level asset -- resolve via
 				// the active scene's EntityManager.
 				std::shared_ptr<ParticleSystem> system;
 				if (Scene::Active)
