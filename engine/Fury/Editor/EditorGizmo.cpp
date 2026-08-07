@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorPicking.hpp"

@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Camera.h"
 #include "Fury/Component.h"

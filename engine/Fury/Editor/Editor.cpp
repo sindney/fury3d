@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Editor/Editor.h"
 
@@ -15,6 +15,8 @@
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 
+#include <SFML/Window.hpp>
+
 // imgui.h manages its own pragma push/pop (lines 135/4506) — don't wrap,
 // an outer pop would consume the inner push and trigger C4193.
 #include "ImGui/imgui.h"
@@ -25,6 +27,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -143,6 +147,8 @@ bool s_HadIniOnStartup = false;
 // layouts.
 const int kCurrentLayoutVersion = 3;
 int s_LoadedLayoutVersion = 0;
+
+sf::Window *g_WindowForPersistence = nullptr;
 
 // Click-vs-drag state machine for viewport picking. A pick
 // fires only on a true click: LMB press + release at (approx)
@@ -299,6 +305,17 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Show=ContentBrowser=%d\n", g_ShowContentBrowser ? 1 : 0);
 	buf->appendf("Show=Viewport=%d\n", g_ShowViewport ? 1 : 0);
 	buf->appendf("Show=Animation=%d\n", g_ShowAnimation ? 1 : 0);
+
+	if (g_WindowForPersistence != nullptr)
+	{
+		const sf::Vector2u sz = g_WindowForPersistence->getSize();
+		const sf::Vector2i pos = g_WindowForPersistence->getPosition();
+		if (sz.x > 0 && sz.y > 0)
+			buf->appendf("Window=%u,%u,%d,%d\n",
+				static_cast<unsigned int>(sz.x),
+				static_cast<unsigned int>(sz.y),
+				pos.x, pos.y);
+	}
 	buf->append("\n");
 }
 
@@ -749,6 +766,36 @@ void Shutdown() {
 	ClearCurrentScene();
 	SetSelectedSceneNode(nullptr);
 	NFD_Quit();
+}
+
+bool GetPersistedWindowSize(int &width, int &height, int &posX, int &posY) {
+	std::ifstream in("imgui.ini");
+	if (!in.good()) return false;
+
+	std::string line;
+	bool in_section = false;
+	while (std::getline(in, line))
+	{
+		if (line.rfind("[FuryEditor][Editor]", 0) == 0) { in_section = true; continue; }
+		if (!in_section) continue;
+		if (!line.empty() && line[0] == '[') break;
+
+		int pw = 0, ph = 0, px2 = 0, py2 = 0;
+		if (std::sscanf(line.c_str(), "Window=%d,%d,%d,%d",
+				&pw, &ph, &px2, &py2) == 4 && pw > 0 && ph > 0)
+		{
+			width = pw;
+			height = ph;
+			posX = px2;
+			posY = py2;
+			return true;
+		}
+	}
+	return false;
+}
+
+void SetWindowForPersistence(sf::Window *window) {
+	g_WindowForPersistence = window;
 }
 
 SceneNode* GetSelectedSceneNode() {

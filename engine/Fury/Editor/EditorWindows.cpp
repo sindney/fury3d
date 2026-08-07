@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/BufferManager.h"
 #include "Fury/AnimationClip.h"

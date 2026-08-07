@@ -10,7 +10,7 @@
 
 namespace fury { class Texture; }
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 struct ImGuiIO;
 

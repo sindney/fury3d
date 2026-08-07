@@ -1,4 +1,4 @@
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/AnimationClip.h"
 #include "Fury/AnimationPlayer.h"

@@ -196,7 +196,7 @@ namespace fury
 
 		void ShowDefault(float /*dt*/)
 		{
-#ifndef WITH_EDITOR
+#if !WITH_EDITOR
 			// Editor-less builds keep a minimal main menu bar that only
 			// hosts the script-emitted menus (e.g. Camera). With the editor
 			// compiled in, Editor::Tick() owns the menu bar end-to-end.

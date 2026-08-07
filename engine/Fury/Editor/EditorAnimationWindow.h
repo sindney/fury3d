@@ -3,7 +3,7 @@
 
 #include "Fury/Macros.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 struct ImVec2;
 

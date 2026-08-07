@@ -1,7 +1,7 @@
 #ifndef _FURY_EDITOR_PICKING_HPP_
 #define _FURY_EDITOR_PICKING_HPP_
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "ImGui/imgui.h"
 

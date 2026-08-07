@@ -10,7 +10,7 @@ namespace fury
 {
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// Queue a Yes/No confirm dialog. On the next editor tick (if no
 		// dialog is currently open), this opens a BeginPopupModal titled
 		// `title`, renders `message` as body text, and presents Yes / No

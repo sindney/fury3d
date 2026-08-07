@@ -14,7 +14,7 @@ namespace fury
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// Open the per-asset mesh editor window (idempotent).
 		void FURY_API OpenMeshEditor(const std::shared_ptr<Mesh>& mesh);
 

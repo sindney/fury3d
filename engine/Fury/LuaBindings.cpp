@@ -52,7 +52,7 @@
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 // nativefiledialog-extended backs the Editor.OpenDialog / Editor.SaveDialog
 // Lua bindings. Lives under engine/ThirdParty/nfd as a git submodule; its
 // CMake target nfd::nfd is linked into `fury` only on WITH_EDITOR=ON.
@@ -1196,7 +1196,7 @@ namespace fury
 			// When off (no -DWITH_EDITOR), every Editor.* call is a safe no-op
 			// so the same script runs unchanged in both build modes.
 			sol::table editor_tbl = lua.create_named_table("Editor");
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 			editor_tbl["SetSceneIO"] = [](sol::table tbl) {
 				Editor::SceneIO io;
 				if (auto v = tbl["on_new"]; v.valid() && v.get_type() == sol::type::function)
@@ -1746,7 +1746,7 @@ namespace fury
 				// the bound sol::protected_function holds a Lua-state ref that
 				// would dangle otherwise.
 				Gui::SetMenuBarCallback({});
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 				// Same hazard for Editor's Lua-captured callbacks.
 				Editor::ClearSceneIO();
 				Editor::ClearSceneTreeProvider();

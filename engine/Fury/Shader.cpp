@@ -196,7 +196,7 @@ namespace fury
 		// only for editor builds. Headless builds skip the branches,
 		// which keeps the runtime shader the same as the production
 		// one -- no dead uniform lookups, no driver divergence.
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		defineStream << "#define WITH_EDITOR\n";
 #endif
 		for (auto define : m_Defines)

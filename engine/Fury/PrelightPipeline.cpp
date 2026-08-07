@@ -46,7 +46,7 @@
 #include "Fury/SphereBounds.h"
 #include "Fury/Texture.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 #include "Fury/Editor/EditorDebug.h"
 #endif
 
@@ -722,7 +722,7 @@ namespace fury
 		// so a "do nothing" here would leave the previous frame's green
 		// baked in. The shader's `lod_debug_color.a > 0.0` gate treats
 		// alpha = 0 as "no override" and passes the diffuse through.
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		if (m_Switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
 		{
 			Color lodColor = GetLodDebugColor(render->GetActiveLod());

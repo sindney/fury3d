@@ -9,13 +9,15 @@
 #include "Fury/Macros.h"
 #include "Fury/Signal.h"
 
+namespace sf { class Window; }
+
 namespace fury
 {
 	class SceneNode;
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// ----- lifecycle ---------------------------------------------------
 		void FURY_API Initialize();
 
@@ -213,6 +215,11 @@ namespace fury
 		void FURY_API SetCameraControls(std::vector<CameraControl> controls);
 		void FURY_API ClearCameraControls();
 
+		bool FURY_API GetPersistedWindowSize(int &width, int &height,
+			int &posX, int &posY);
+
+		void FURY_API SetWindowForPersistence(sf::Window *window);
+
 #else
 		// Stubs so call sites compile cleanly with WITH_EDITOR=OFF. The
 		// linker has nothing to resolve.
@@ -249,6 +256,8 @@ namespace fury
 		inline void ClearSceneDirty() {}
 		inline void SetFrameSelectionHandler(std::function<void(SceneNode*)>) {}
 		inline void FrameSelection(SceneNode*) {}
+		inline bool GetPersistedWindowSize(int &, int &, int &, int &) { return false; }
+		inline void SetWindowForPersistence(sf::Window *) {}
 #endif
 	}
 }

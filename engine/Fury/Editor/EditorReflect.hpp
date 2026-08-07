@@ -9,7 +9,7 @@
 // Properties panel can call ImReflect::Input(label, value) without a parallel
 // reflected facade struct.
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include "Fury/Color.h"
 #include "Fury/EnumUtil.h"

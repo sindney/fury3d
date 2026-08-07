@@ -23,6 +23,58 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#if PLATFORM_WINDOWS
+#include <commctrl.h>
+#include <windowsx.h>
+#include "ImGui/imgui.h"
+namespace
+{
+	HWND s_FurySubclassHwnd = nullptr;
+
+	LRESULT CALLBACK FurySubclassProc(
+		HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+		UINT_PTR /*subclassId*/, DWORD_PTR /*refData*/)
+	{
+		if (msg == WM_SETCURSOR)
+		{
+			const WORD hit = LOWORD(lParam);
+			if (hit != HTCLIENT)
+			{
+				if (ImGui::GetCurrentContext() != nullptr)
+					ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+				DefWindowProcW(hwnd, WM_SETCURSOR, wParam, lParam);
+				return TRUE;
+			}
+			if (ImGui::GetCurrentContext() != nullptr)
+				ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+		}
+		return DefSubclassProc(hwnd, msg, wParam, lParam);
+	}
+
+	void InstallResizeCursorHook(sf::Window &window)
+	{
+		if (s_FurySubclassHwnd != nullptr) return;
+		const sf::WindowHandle hwnd = window.getNativeHandle();
+		if (hwnd == nullptr) return;
+		SetWindowSubclass(hwnd, FurySubclassProc, 1, 0);
+		s_FurySubclassHwnd = hwnd;
+	}
+
+	void RemoveResizeCursorHook()
+	{
+		if (s_FurySubclassHwnd == nullptr) return;
+		RemoveWindowSubclass(s_FurySubclassHwnd, FurySubclassProc, 1);
+		s_FurySubclassHwnd = nullptr;
+	}
+}
+#else // !PLATFORM_WINDOWS
+namespace
+{
+	void InstallResizeCursorHook(sf::Window &) {}
+	void RemoveResizeCursorHook() {}
+}
+#endif // PLATFORM_WINDOWS
+
 namespace fury
 {
 #if PLATFORM_MACOS
@@ -112,6 +164,8 @@ namespace fury
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
+
+		Editor::SetWindowForPersistence(&window);
 
 		// Bootstrap focus state. Windows does not auto-fire WM_SETFOCUS
 		// for a window shown via CreateWindowW(WS_VISIBLE), and SFML
@@ -300,6 +354,10 @@ namespace fury
 
 	void Engine::Shutdown()
 	{
+#if PLATFORM_WINDOWS
+		RemoveResizeCursorHook();
+#endif
+
 		// Release GL resources NOW, while the GL context is still alive.
 		// Anything held by a static shared_ptr (Scene::Active,
 		// Pipeline::Active, MeshUtil's primitive caches) or a singleton
@@ -318,6 +376,7 @@ namespace fury
 
 		Editor::Shutdown();
 		Gui::Shutdown();
+		Editor::SetWindowForPersistence(nullptr);
 	}
 
 	std::pair<int, int> Engine::GetGLVersion()
@@ -373,6 +432,10 @@ namespace fury
 #ifdef _FURY_GUI_IMP_
 		Gui::Initialize(&window, effectiveScale, effectiveFontScale);
 		Editor::Initialize();
+#endif
+
+#if PLATFORM_WINDOWS
+		InstallResizeCursorHook(window);
 #endif
 
 		window.setFramerateLimit(opts.max_fps < 0 ? 0u : static_cast<unsigned int>(opts.max_fps));

@@ -317,9 +317,8 @@ if(OS_WINDOWS)
 endif()
 
 if(OS_WINDOWS)
-	# ws2_32 supplies htonl/ntohl used by FileUtil.cpp on Windows
-	# (FileUtil.cpp pulls in <winsock.h> for the ntohl/htonl helpers).
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 lua meshoptimizer)
+	# ws2_32 (FileUtil ntohl/htonl), comctl32 (SetWindowSubclass).
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 comctl32 lua meshoptimizer)
 elseif(OS_MACOSX)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer)
 endif()
@@ -425,7 +424,7 @@ if(BUILD_SHARED_LIBS)
 	# always builds both fury and furye.
 	if(WITH_EDITOR_API)
 		add_library(furye SHARED ${FURY_CORE_SRC} ${FURY_EDITOR_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
-		target_compile_definitions(furye PRIVATE WITH_EDITOR)
+		target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 		target_link_libraries(furye PUBLIC ${FURY_PLATFORM_LIBS} nfd::nfd)
 		set_target_properties(furye PROPERTIES
 			BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
@@ -439,10 +438,11 @@ if(BUILD_SHARED_LIBS)
 	endif()
 else()
 	fury_add_target(fury ${FURY_COMMON_SRC})
+	target_compile_definitions(fury PRIVATE WITH_EDITOR=0)
 	install(TARGETS fury DESTINATION bin)
 
 	fury_add_target(furye ${FURY_COMMON_SRC} ${FURY_EDITOR_SRC})
-	target_compile_definitions(furye PRIVATE WITH_EDITOR)
+	target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 	target_link_libraries(furye PRIVATE nfd::nfd)
 	install(TARGETS furye DESTINATION bin)
 endif()

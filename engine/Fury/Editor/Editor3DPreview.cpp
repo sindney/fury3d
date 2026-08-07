@@ -1,6 +1,6 @@
 #include "Fury/Editor/Editor3DPreview.h"
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 
 #include <cmath>
 #include <unordered_map>

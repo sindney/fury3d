@@ -15,7 +15,7 @@ namespace fury
 
 	namespace Editor
 	{
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 		// Render a modal asset picker. Opens a BeginPopupModal with popup
 		// ID `popup_id` and title `title`, listing every asset of the
 		// requested `type` (Mesh / Material / Texture / AnimationClip)
