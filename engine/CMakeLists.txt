@@ -376,7 +376,18 @@ function(fury_add_target NAME)
 		$<$<CONFIG:RelWithDebInfo>:FURY_BUILD_PROFILE>
 		$<$<CONFIG:Release>:FURY_BUILD_RELEASE>)
 	set_target_properties(${NAME} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples")
+		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples"
+		# Multi-Config generators (Visual Studio / Xcode / Ninja Multi-Config)
+		# append $(Configuration) to RUNTIME_OUTPUT_DIRECTORY by default,
+		# dropping binaries into examples/Debug/, examples/Release/, etc.
+		# Single-config generators (Ninja, Unix Makefiles) ignore these
+		# per-config overrides -- harmless there. Forcing the same path
+		# across every config keeps `cd examples && ./furye Editor.lua`
+		# working regardless of which generator built the engine.
+		RUNTIME_OUTPUT_DIRECTORY_DEBUG          "${PROJECT_SOURCE_DIR}/../examples"
+		RUNTIME_OUTPUT_DIRECTORY_RELEASE        "${PROJECT_SOURCE_DIR}/../examples"
+		RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${PROJECT_SOURCE_DIR}/../examples"
+		RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     "${PROJECT_SOURCE_DIR}/../examples")
 	# Windows-only V2 DPI awareness manifest (see platform-window-dpi
 	# spec). The manifest linker flag is defined at the top of the
 	# static-binary section (gated by if(OS_WINDOWS)). We also disable
