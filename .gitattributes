@@ -1,0 +1,42 @@
+*               text=auto eol=lf
+
+# Generated / vendored sources we never edit by hand stay at the
+# upstream EOL convention; the engine's own Lua + GLSL shaders use LF
+# to match `* text=auto eol=lf` above.
+*.lua            text eol=lf
+*.glsl          text eol=lf
+*.vert          text eol=lf
+*.frag          text eol=lf
+*.geom          text eol=lf
+*.comp          text eol=lf
+*.cmake         text eol=lf
+CMakeLists.txt  text eol=lf
+
+# Markdown keeps CRLF on Windows checkouts for Notepad friendliness;
+# commit as LF (per `* text=auto eol=lf`).
+*.md            text eol=lf
+
+# Binary types: force git to leave bytes alone even if the heuristic
+# mis-classifies them. Match the extensions the editor + CLI already
+# produce so a future stray import never sneaks through.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.zip           binary
+*.gz            binary
+*.7z            binary
+*.dll           binary
+*.exe           binary
+*.pdb           binary
+*.lib           binary
+*.exp           binary
+*.so            binary
+*.dylib         binary
+*.a             binary
+*.bin           binary
+*.fbx           binary
+*.gltf          binary
+*.glb           binary
