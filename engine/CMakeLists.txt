@@ -163,6 +163,13 @@ set_property(TARGET meshoptimizer PROPERTY POSITION_INDEPENDENT_CODE ON)
 set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
 set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+# Jolt defaults its MSVC runtime library to static (/MT) via the
+# USE_STATIC_MSVC_RUNTIME_LIBRARY option. The rest of fury3d links against
+# the dynamic CRT (/MD); mixing static-CRT Jolt into our MDd objects
+# produces LNK2038 /RuntimeLibrary mismatches and LNK2005 duplicate
+# symbol errors at link time (MSVCP140D is already linked from the rest
+# of the project). Disable Jolt's static CRT so it inherits /MD.
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/JoltPhysics/Build)
 
 # The engine's own headers stay a normal -I path: we WANT -Wall to apply to

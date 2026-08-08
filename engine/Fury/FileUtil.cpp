@@ -20,6 +20,7 @@
 
 #if defined(_WIN32)
 #include <windows.h> // GetModuleFileNameA (GetExecutablePath)
+#include <direct.h>  // _getcwd (GetAbsPath)
 #endif
 
 #include <rapidjson/document.h>
@@ -70,7 +71,7 @@ namespace fury {
 std::string FileUtil::m_AbsPath = "";
 
 std::string FileUtil::GetAbsPath() {
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
 	// CWD-based resolution. The legacy CFBundle path (kept commented
 	// out below) returns the .app's Resources directory -- convenient
 	// for app-bundle distributions, awkward for the editor workflow
@@ -80,7 +81,11 @@ std::string FileUtil::GetAbsPath() {
 	// the launcher script rather than being copied into bin/.
 	if (m_AbsPath.size() == 0) {
 		char cwd_path[1024];
+#if defined(_WIN32)
+		if (_getcwd(cwd_path, sizeof(cwd_path)) != nullptr) {
+#else
 		if (getcwd(cwd_path, sizeof(cwd_path)) != nullptr) {
+#endif
 			m_AbsPath = std::string(cwd_path) + '/';
 		} else {
 			FURYE << "getcwd failed; absolute path resolution may misbehave";

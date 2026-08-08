@@ -70,6 +70,8 @@ local function replace_active_scene(new_scene)
     Editor.SetSelectedSceneNode(nil)
     active:Clear()
     Importer.MergeInto(active, new_scene)
+    -- Inherit the imported scene's working_dir so file-backed textures resolve.
+    active:SetWorkingDir(new_scene:GetWorkingDir())
 
     -- VERIFY_SHADOWS hook: with FURY_SHADOW_DEBUG=1, force
     -- cast_shadows=true on every light of the opened scene. Mutates the

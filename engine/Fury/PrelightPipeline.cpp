@@ -22,6 +22,7 @@
 #include "Fury/Frustum.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
+#include "Fury/InputUtil.h"
 #include "Fury/Light.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Material.h"
@@ -1154,8 +1155,11 @@ namespace fury
 			}
 			else
 			{
+				// Final blit: track the live window, not the source's 1280x720.
 				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glViewport(0, 0, W, H);
+				int winW, winH;
+				InputUtil::Instance()->GetWindowSize(winW, winH);
+				glViewport(0, 0, winW > 0 ? winW : W, winH > 0 ? winH : H);
 			}
 		};
 
@@ -1226,8 +1230,19 @@ namespace fury
 			if (isLast)
 			{
 				bindScreenFBO();
-				writeW = toRT ? m_RenderTarget->GetWidth() : W;
-				writeH = toRT ? m_RenderTarget->GetHeight() : H;
+				if (toRT)
+				{
+					writeW = m_RenderTarget->GetWidth();
+					writeH = m_RenderTarget->GetHeight();
+				}
+				else
+				{
+					// u_rt_size mirrors the live viewport (FXAA/CRT need it).
+					int winW, winH;
+					InputUtil::Instance()->GetWindowSize(winW, winH);
+					writeW = winW > 0 ? winW : W;
+					writeH = winH > 0 ? winH : H;
+				}
 			}
 			else
 			{

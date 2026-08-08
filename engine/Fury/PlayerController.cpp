@@ -1,5 +1,7 @@
 #include "Fury/PlayerController.h"
 
+#include <algorithm>
+
 #include "Fury/Camera.h"
 #include "Fury/CharacterController.h"
 #include "Fury/Engine.h"

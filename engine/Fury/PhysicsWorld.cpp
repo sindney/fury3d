@@ -1,5 +1,8 @@
 #include "Fury/PhysicsWorld.h"
 
+#include <cstdarg>
+#include <cstdio>
+
 #include <Jolt/Jolt.h>
 
 JPH_SUPPRESS_WARNINGS
