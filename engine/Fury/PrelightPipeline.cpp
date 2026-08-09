@@ -705,7 +705,7 @@ namespace fury
 		}
 
 		// glTF-standard skinning: skinned vertices reach world space via
-		// Final = JᵢW * ibm (Joint::GetFinalMatrix), so the mesh node's
+		// Final = J_i W * ibm (Joint::GetFinalMatrix), so the mesh node's
 		// own world transform must NOT be applied on top -- bind identity.
 		if (mesh->IsSkinnedMesh())
 			shader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());

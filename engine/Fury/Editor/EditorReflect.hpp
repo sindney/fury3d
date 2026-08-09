@@ -21,7 +21,7 @@
 
 namespace fury
 {
-	// Vector4 — edit X/Y/Z as a draggable 3-tuple. The w component is left
+	// Vector4 -- edit X/Y/Z as a draggable 3-tuple. The w component is left
 	// untouched so callers can pass position/scale vectors unchanged.
 	inline void tag_invoke(ImReflect::ImInput_t,
 		const char* label,
@@ -41,7 +41,7 @@ namespace fury
 		ImReflect::Detail::check_input_states(r);
 	}
 
-	// Color — RGBA picker. Color stores floats in 0..1 already.
+	// Color -- RGBA picker. Color stores floats in 0..1 already.
 	inline void tag_invoke(ImReflect::ImInput_t,
 		const char* label,
 		Color& value,
@@ -61,7 +61,7 @@ namespace fury
 		ImReflect::Detail::check_input_states(r);
 	}
 
-	// Quaternion — render as Euler XYZ in degrees, store back as Quaternion.
+	// Quaternion -- render as Euler XYZ in degrees, store back as Quaternion.
 	// Internal representation rebuilt from the Quaternion every frame so
 	// successive edit sessions stay consistent.
 	inline void tag_invoke(ImReflect::ImInput_t,
@@ -87,7 +87,7 @@ namespace fury
 		ImReflect::Detail::check_input_states(r);
 	}
 
-	// LightType enum — combo using EnumUtil::LightTypeToString for labels.
+	// LightType enum -- combo using EnumUtil::LightTypeToString for labels.
 	inline void tag_invoke(ImReflect::ImInput_t,
 		const char* label,
 		LightType& value,

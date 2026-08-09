@@ -77,7 +77,7 @@ namespace fury
 
 	Matrix4 Joint::GetFinalMatrix()
 	{
-		// glTF-standard skinning: Final = JᵢW * ibm, where JᵢW is the
+		// glTF-standard skinning: Final = J_i W * ibm, where J_i W is the
 		// joint's scene-graph world matrix (computed by Recompose,
 		// including ancestors like the skeleton root's parent) and ibm
 		// is the glb inverseBindMatrix (stored as m_OffsetMatrix). The

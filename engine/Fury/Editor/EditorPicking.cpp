@@ -222,7 +222,7 @@ namespace fury
 						auto& shader = mesh->IsSkinnedMesh() ? g_IdShaderSkinned : g_IdShaderStatic;
 						shader->Bind();
 						shader->BindCamera(cameraNode);
-						// Skinned vertices reach world space via Final = JᵢW * ibm;
+						// Skinned vertices reach world space via Final = J_i W * ibm;
 						// identity world_matrix so the mesh node transform isn't
 						// double-applied (matches the gbuffer skin path).
 						if (mesh->IsSkinnedMesh())

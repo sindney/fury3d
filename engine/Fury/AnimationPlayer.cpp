@@ -514,7 +514,7 @@ namespace fury
 			if (joint)
 			{
 				// glTF skin: the joint mirrors a scene-graph node. Drive
-				// that node's Transform so Recompose produces JᵢW, which
+				// that node's Transform so Recompose produces J_i W, which
 				// Joint::GetFinalMatrix pairs with the ibm. SceneNode refs
 				// are wired at import (GltfImporter) and re-linked on scene
 				// load (Scene::Load); a missing ref means a stale/legacy
@@ -722,7 +722,7 @@ namespace fury
 
 		// Interpolate the per-target TRS pairs by render alpha. Skinned
 		// joints are driven through their linked SceneNode's Transform
-		// (the scene graph's Recompose produces JᵢW, which
+		// (the scene graph's Recompose produces J_i W, which
 		// Joint::GetFinalMatrix pairs with the ibm) -- no parallel joint
 		// tree-walk is needed.
 		int channelCount = clip->GetChannelCount();

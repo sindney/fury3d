@@ -17,7 +17,7 @@
 
 #include <SFML/Window.hpp>
 
-// imgui.h manages its own pragma push/pop (lines 135/4506) — don't wrap,
+// imgui.h manages its own pragma push/pop (lines 135/4506) -- don't wrap,
 // an outer pop would consume the inner push and trigger C4193.
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
@@ -414,7 +414,7 @@ void TriggerSaveAs() {
 
 // File -> Import... / Ctrl+Shift+I entry point. Passes an empty string
 // to on_import as the signal for "drive the native multi-select
-// Editor.OpenDialog" -- the File -> Import ▸ <file> submenu still
+// Editor.OpenDialog" -- the File -> Import > <file> submenu still
 // passes a bare filename, which on_import routes to the existing
 // Resource/Scene/ load path. Replaces the retired ImGui "Import Scene"
 // modal.
@@ -429,7 +429,7 @@ void TriggerImport() {
 // File -> Open... / Ctrl+O entry point. Mirrors TriggerImport/TriggerSaveAs:
 // the empty-string signal to on_open drives a native single-select
 // Editor.OpenDialog (replacing the retired ImGui "Open Scene" modal).
-// The File -> Open ▸ <file> submenu still passes a bare filename.
+// The File -> Open > <file> submenu still passes a bare filename.
 void TriggerOpen() {
 	if (g_SceneIO.on_open) {
 		try {

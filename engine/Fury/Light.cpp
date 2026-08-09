@@ -62,7 +62,7 @@ namespace fury
 		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
 
 		// Legacy scenes serialized degree values into these radian
-		// fields (old default was 45.0); a spot fov never exceeds π,
+		// fields (old default was 45.0); a spot fov never exceeds pi,
 		// so anything larger must be degrees -- migrate.
 		if (m_InnerAngle > MathUtil::PI || m_OutterAngle > MathUtil::PI)
 		{

@@ -386,7 +386,7 @@ namespace fury
 						ImGui::TextDisabled("(render mesh)");
 					else
 						ImGui::TextUnformatted(body->GetCollisionMeshName().c_str());
-					if (ImGui::Button("Simplify Collision Mesh…"))
+					if (ImGui::Button("Simplify Collision Mesh..."))
 						ImGui::OpenPopup("Simplify Collision Mesh");
 				}
 				else if (body->GetShapeType() == BodySetup::ShapeType::Box)

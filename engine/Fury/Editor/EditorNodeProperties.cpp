@@ -640,12 +640,12 @@ void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
 			ImGui::OpenPopup("CollisionMeshPicker");
 		ImGui::SameLine();
 		if (!hasMesh) ImGui::BeginDisabled();
-		if (ImGui::Button("→"))
+		if (ImGui::Button("->"))
 			Editor::SelectAssetInBrowser(typeid(Mesh), body->GetCollisionMeshName());
 		if (!hasMesh) ImGui::EndDisabled();
 		ImGui::SameLine();
 		if (!hasMesh) ImGui::BeginDisabled();
-		if (ImGui::Button("×"))
+		if (ImGui::Button("x"))
 			body->SetCollisionMeshName("");
 		if (!hasMesh) ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -704,7 +704,7 @@ void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
 		Editor::MarkSceneDirty();
 	}
 
-	if (ImGui::Button("Open Body Setup Editor…"))
+	if (ImGui::Button("Open Body Setup Editor..."))
 		Editor::OpenBodySetupEditor(node->shared_from_this());
 }
 

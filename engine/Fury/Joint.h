@@ -58,7 +58,7 @@ public:
 	Matrix4 GetFinalMatrix();
 
 	// glTF skin: the SceneNode this joint mirrors (its world matrix is
-	// JᵢW in the Final = JᵢW * ibm formula).
+	// J_i W in the Final = J_i W * ibm formula).
 	std::shared_ptr<SceneNode> GetSceneNode() const;
 	void SetSceneNode(const std::shared_ptr<SceneNode>& node);
 

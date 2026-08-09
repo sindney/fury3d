@@ -1324,7 +1324,7 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	// the skeleton root's parent), and the skin shader uses an identity
 	// model matrix. The glb inverseBindMatrices (already loaded onto
 	// each Joint as m_OffsetMatrix by TranslateSkin) are used verbatim.
-	// This is the glTF spec formula: v_world = Σ wᵢ*(JᵢW*ibmᵢ)*v.
+	// This is the glTF spec formula: v_world = Sum w_i * (J_i W * ibm_i) * v.
 	if (!meshes.empty()) {
 		for (size_t mi = 0; mi < meshes.size(); ++mi) {
 			if (mesh_to_skin[mi] < 0) continue;

@@ -2,7 +2,7 @@
 #include <vector>
 
 // imgui.h has its own #pragma warning(push/pop) (lines 135/4506), so
-// don't wrap — a surrounding push/pop would be consumed by imgui's
+// don't wrap -- a surrounding push/pop would be consumed by imgui's
 // inner pop and trigger C4193. Escape warnings are silenced via
 // /wd4127 in CMakeLists.txt.
 #include "ImGui/imconfig.h"

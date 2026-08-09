@@ -56,7 +56,7 @@ namespace fury
 	// Companion to a ParticleSystem asset. The ParticleSystem lives in
 	// the active Scene's EntityManager (just like Mesh / Material) and
 	// is referenced by name here. The renderer mirrors the
-	// MeshRender ↔ Material pairing -- one component per scene node,
+	// MeshRender <-> Material pairing -- one component per scene node,
 	// resolves the asset by name at Load time.
 	//
 	// Per-particle color is tracked on the CPU side (the editor inspector

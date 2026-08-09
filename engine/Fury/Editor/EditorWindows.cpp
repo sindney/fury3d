@@ -41,7 +41,7 @@
 #include "Fury/Uniform.h"
 #include "Fury/Vector4.h"
 
-// imgui.h manages its own pragma push/pop (lines 135/4506) — don't wrap,
+// imgui.h manages its own pragma push/pop (lines 135/4506) -- don't wrap,
 // an outer pop would consume the inner push and trigger C4193.
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
@@ -1007,7 +1007,7 @@ void PreserveWorldTransformOnReparent(SceneNode* node, SceneNode* newParent) {
 	// scaled ancestors (the outdoor scene's x100 RootNode) they return
 	// scale-polluted non-unit quaternions and translation-contaminated
 	// scales, and writing them back as local TRS compounds the error on
-	// every reparent -- the emitter node ballooned x10⁴ on the first move
+	// every reparent -- the emitter node ballooned x10^4 on the first move
 	// ("particles gone"), and acos(w>1) NaN'd its world matrix on the
 	// second (OcTree GrowRootToContain nodeCenter=nan).
 	Matrix4 newLocal =
