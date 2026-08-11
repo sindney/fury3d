@@ -180,7 +180,10 @@ void main()
 	vec4 shadowCoord = shadow_matrix[index] * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
 	vec3 crood = vec3(shadowCoord.x, shadowCoord.y, float(index));
-	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z < texture(shadow_buffer, crood).x);
+	// slope-scaled depth bias: grazing angles need more (hillside acne)
+	float ndl_csm = max(0.0, dot(normalize(vs_normal), normalize(vs_dir)));
+	float b_csm = bias * (1.0 + 4.0 * (1.0 - ndl_csm));
+	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z - b_csm < texture(shadow_buffer, crood).x);
 
 #endif
 
@@ -188,7 +191,9 @@ void main()
 
 	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
-	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z < texture(shadow_buffer, shadowCoord.xy).x);
+	float ndl_sh = max(0.0, dot(normalize(vs_normal), normalize(vs_dir)));
+	float b_sh = 0.002 * (1.0 + 4.0 * (1.0 - ndl_sh));
+	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z - b_sh < texture(shadow_buffer, shadowCoord.xy).x);
 
 #endif
 }
