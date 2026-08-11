@@ -59,6 +59,15 @@ local function on_init()
         Pipeline.ApplyRenderSettings(pl, rs)
     end
 
+    -- FURY_TOD=hours: override the scene sky's time-of-day (screenshot
+    -- matrix hook; no-op on scenes without a Sky node).
+    local tod_env = os.getenv("FURY_TOD")
+    if tod_env then
+        local sky_node = scene:GetRootNode():FindChildRecursively("Sky")
+        local sky = sky_node and sky_node:GetSkyAtmosphere()
+        if sky then sky:SetTimeHours(tonumber(tod_env)) end
+    end
+
     -- First enabled controller wins; its bound camera becomes the render
     -- camera (Activate does Pipeline.SetCurrentCamera).
     -- Headless verify hook: FURY_CAM="px,py,pz,yawDeg,pitchDeg" skips

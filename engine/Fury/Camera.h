@@ -41,6 +41,8 @@ namespace fury
 
 		float m_ShadowFar = 0.0f;
 
+		float m_CsmSplitBlend = 0.0f;
+
 		size_t m_SignalKey = 0;
 
 	public:
@@ -88,6 +90,18 @@ namespace fury
 		float GetShadowFar() const;
 
 		void SetShadowFar(float far);
+
+		// CSM split blend: 0 = linear (legacy), 1 = logarithmic, in-between
+		// blends the two (practical CSM). Log puts more cascade resolution
+		// near the camera for long shadow ranges.
+		float GetCsmSplitBlend() const;
+
+		void SetCsmSplitBlend(float blend);
+
+		// The 4 cascade far distances (cm view depth), honoring shadow far
+		// and the split blend. Both the shadow-map render and the light
+		// shader's cascade picker MUST use these same values.
+		void GetCsmSplits(float *outSplits4) const;
 
 		BoxBounds GetShadowBounds(bool worldSpace = true) const;
 

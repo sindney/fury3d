@@ -38,6 +38,7 @@
 #include "Fury/PrelightPipeline.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/RenderTarget.h"
+#include "Fury/SkyAtmosphere.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -440,6 +441,13 @@ namespace fury
 			{
 				pass->Bind();
 				DrawQuad(pass);
+			}
+			else if (drawMode == DrawMode::SKY)
+			{
+				// DrawSky owns the bind: LUT updates render into their
+				// own FBOs first, then pass_sky binds (no clear -- it
+				// would wipe hdr_composite).
+				DrawSky(pass);
 			}
 			else if (drawMode == DrawMode::LIGHT)
 			{
@@ -890,9 +898,14 @@ namespace fury
 				shader->BindTexture("shadow_buffer", cascadedShadowData.first);
 				// for cacasded shadow maps
 				shader->BindMatrices("shadow_matrix", static_cast<int>(cascadedShadowData.second.size()), &cascadedShadowData.second[0]);
-				float base = camPtr->GetFar() - camPtr->GetNear();
-				float average = base / 4.0f;
-				shader->BindFloat("shadow_far", average, average * 2, average * 3, average * 4);
+				// split distances from the same source the map render used
+				float splits[4];
+				if (Scene::Active && Scene::Active->GetRenderSettings())
+					Scene::Active->GetRenderSettings()->ComputeCsmSplits(camPtr->GetNear(), camPtr->GetFar(), splits);
+				else
+					for (int i = 0; i < 4; i++)
+						splits[i] = camPtr->GetNear() + (camPtr->GetFar() - camPtr->GetNear()) * (i + 1) / 4.0f;
+				shader->BindFloat("shadow_far", splits[0], splits[1], splits[2], splits[3]);
 			}
 			else if (shadowData.first != nullptr)
 			{
@@ -1073,12 +1086,84 @@ namespace fury
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
+		// Aerial-perspective bindings for the combine pass (no-ops on
+		// shaders without these uniforms). Sampler always bound: dummy 3D
+		// when no sky is active.
+		if (auto sky = IsHDRMode() ? SkyAtmosphere::GetActive() : nullptr;
+			sky != nullptr && sky->GetEnabled() && sky->GetCameraVolume() != nullptr)
+		{
+			shader->BindInt("u_atmosphere_enabled", 1);
+			shader->BindFloat("u_ap_range", sky->GetApRangeKm());
+			shader->BindTexture("u_ap_volume", sky->GetCameraVolume());
+			// small sky-ambient lift while a sky drives the scene: keeps
+			// away-facing slopes from crushing to pure black (no IBL)
+			shader->BindFloat("u_ambient", 0.03f + 0.05f * sky->GetDaylight());
+		}
+		else
+		{
+			shader->BindInt("u_atmosphere_enabled", 0);
+			shader->BindTexture("u_ap_volume", GetDummyTexture3D());
+		}
+
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
 
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
+	}
+
+	void PrelightPipeline::DrawSky(const std::shared_ptr<Pass> &pass)
+	{
+		// HDR-only feature; no sky -> no draw, hdr_composite untouched.
+		if (!IsHDRMode())
+			return;
+		auto sky = SkyAtmosphere::GetActive();
+		if (sky == nullptr || !sky->GetEnabled())
+			return;
+		auto shader = m_CurrentShader != nullptr ? m_CurrentShader : pass->GetFirstShader();
+		if (shader == nullptr || m_CurrentCamera == nullptr)
+			return;
+
+		// LUT/volume/cloud renders bind their own FBOs, so this runs before
+		// the pass bind.
+		sky->EnsureLuts(m_CurrentCamera);
+
+		pass->Bind(false);   // never clear: hdr_composite holds the scene
+		shader->Bind();
+
+		auto mesh = MeshUtil::GetUnitQuad();
+		shader->BindMesh(mesh);
+		shader->BindCamera(m_CurrentCamera);
+		sky->BindAtmosphereUniforms(shader);
+
+		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+		{
+			auto ptr = pass->GetTextureAt(i, true);
+			shader->BindTexture(ptr->GetName(), ptr);
+		}
+
+		shader->BindTexture("u_skyview_lut", sky->GetSkyViewLut());
+		shader->BindTexture("u_transmittance_lut", sky->GetTransmittanceLut());
+		shader->BindTexture("u_cloud_tex", sky->GetCloudsEnabled()
+			? sky->GetCloudTarget() : GetDummyTexture2D());
+		shader->BindTexture("u_moon_tex", sky->GetMoonTexture()
+			? sky->GetMoonTexture() : GetDummyTexture2D());
+
+		shader->BindFloat("u_sun_ang_cos", cosf(sky->GetSunAngularRadius()));
+		shader->BindFloat("u_sun_disc_intensity", sky->GetSunDiscIntensity());
+		shader->BindFloat("u_moon_dir", sky->GetMoonDirection().x, sky->GetMoonDirection().y, sky->GetMoonDirection().z);
+		shader->BindFloat("u_moon_ang_cos", cosf(sky->GetMoonAngularRadius()));
+		shader->BindFloat("u_moon_frame_scale", 1.0f / tanf(sky->GetMoonAngularRadius()));
+		shader->BindFloat("u_moon_intensity", sky->GetMoonIntensity());
+		shader->BindInt("u_moon_enabled", sky->GetMoonEnabled() && sky->GetMoonTexture() ? 1 : 0);
+		shader->BindInt("u_clouds_enabled", sky->GetCloudsEnabled() ? 1 : 0);
+
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+
+		shader->UnBind();
+
+		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
 	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture() const

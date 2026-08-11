@@ -154,7 +154,8 @@ namespace fury
 		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D),
 		std::make_tuple(TextureType::TEXTURE_2D, "2d", GL_TEXTURE_2D),
 		std::make_tuple(TextureType::TEXTURE_2D_ARRAY, "2d_array", GL_TEXTURE_2D_ARRAY),
-		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP)
+		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP),
+		std::make_tuple(TextureType::TEXTURE_3D, "3d", GL_TEXTURE_3D)
 	};
 
 	const std::vector<std::tuple<FilterMode, unsigned int, std::string>> EnumUtil::m_FilterMode =
@@ -341,6 +342,8 @@ namespace fury
 			return "transparent";
 		case DrawMode::LIGHT:
 			return "light";
+		case DrawMode::SKY:
+			return "sky";
 		case DrawMode::QUAD:
 		default:
 			return "quad";
@@ -355,6 +358,8 @@ namespace fury
 			return DrawMode::TRANSPARENT;
 		else if (name == "light")
 			return DrawMode::LIGHT;
+		else if (name == "sky")
+			return DrawMode::SKY;
 		else
 			return DrawMode::QUAD;
 	}

@@ -12,8 +12,83 @@
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
 
+#include <algorithm>
+#include <sstream>
+#include <vector>
+
 namespace fury
 {
+	namespace
+	{
+		// Inline quoted relative includes: `#include "Name.glsl"` resolves
+		// against the including file's directory, recursively. Included
+		// files must not carry a #version line (stripped here). Cycles and
+		// deep nesting fail with a logged error, never a hang.
+		bool ResolveShaderIncludes(const std::string &src, const std::string &dir,
+			std::vector<std::string> &stack, int depth, std::string &out)
+		{
+			if (depth > 8)
+			{
+				FURYE << "Shader include depth exceeded at " << dir;
+				return false;
+			}
+
+			std::stringstream stream(src);
+			std::string line;
+			while (std::getline(stream, line))
+			{
+				auto start = line.find_first_not_of(" \t");
+				if (start != std::string::npos && line.compare(start, 8, "#include") == 0)
+				{
+					auto open = line.find('"', start + 8);
+					auto close = open == std::string::npos ? std::string::npos : line.find('"', open + 1);
+					if (open == std::string::npos || close == std::string::npos)
+					{
+						FURYE << "Malformed shader include (only quoted relative paths): " << line;
+						return false;
+					}
+
+					std::string path = dir + line.substr(open + 1, close - open - 1);
+					if (std::find(stack.begin(), stack.end(), path) != stack.end())
+					{
+						FURYE << "Shader include cycle: " << stack.back() << " <-> " << path;
+						return false;
+					}
+
+					std::string incSrc;
+					if (!FileUtil::LoadString(path, incSrc))
+					{
+						FURYE << "Shader include not found: " << path;
+						return false;
+					}
+
+					stack.push_back(path);
+					std::string childDir = path.substr(0, path.find_last_of('/') + 1);
+					std::string resolved;
+					if (!ResolveShaderIncludes(incSrc, childDir, stack, depth + 1, resolved))
+						return false;
+					stack.pop_back();
+
+					std::stringstream incStream(resolved);
+					std::string incLine;
+					while (std::getline(incStream, incLine))
+					{
+						auto v = incLine.find_first_not_of(" \t");
+						if (v != std::string::npos && incLine.compare(v, 8, "#version") == 0)
+							continue;
+						out += incLine;
+						out += '\n';
+					}
+					continue;
+				}
+
+				out += line;
+				out += '\n';
+			}
+			return true;
+		}
+	}
+
 	Shader::Ptr Shader::Create(const std::string &name, ShaderType type, unsigned int textureFlags)
 	{
 		return std::make_shared<Shader>(name, type, textureFlags);
@@ -174,8 +249,20 @@ namespace fury
 		std::string dataStr;
 		if (FileUtil::LoadString(shaderPath, dataStr))
 		{
+			auto slash = shaderPath.find_last_of('/');
+			std::string dir = slash == std::string::npos ? "" : shaderPath.substr(0, slash + 1);
+
+			std::vector<std::string> stack;
+			stack.push_back(shaderPath);
+			std::string resolved;
+			if (!ResolveShaderIncludes(dataStr, dir, stack, 0, resolved))
+			{
+				FURYE << m_Name << " include resolution failed for " << shaderPath;
+				return false;
+			}
+
 			m_FilePath = shaderPath;
-			return Compile(dataStr, dataStr, m_UseGeomShader ? dataStr : "");
+			return Compile(resolved, resolved, m_UseGeomShader ? resolved : "");
 		}
 		else
 		{

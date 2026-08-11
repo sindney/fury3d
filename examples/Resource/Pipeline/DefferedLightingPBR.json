@@ -107,6 +107,10 @@
       "path": "Resource/Shader/Lambert/PbrCombine.glsl"
     },
     {
+      "name": "sky_raymarch_shader",
+      "path": "Resource/Shader/Atmosphere/SkyRayMarch.glsl"
+    },
+    {
       "name": "pbr_final_shader",
       "path": "Resource/Shader/Lambert/PbrFinal.glsl"
     },
@@ -390,13 +394,32 @@
       "index": 2,
       "input": [
         "hdr_light",
-        "gbuffer_diffuse"
+        "gbuffer_diffuse",
+        "gbuffer_depth"
       ],
       "output": [
         "hdr_composite"
       ],
       "blendMode": "replace",
       "drawMode": "quad"
+    },
+    {
+      "name": "pass_sky",
+      "camera": "camNode",
+      "shaders": [
+        "sky_raymarch_shader"
+      ],
+      "index": 3,
+      "input": [
+        "gbuffer_depth"
+      ],
+      "output": [
+        "hdr_composite"
+      ],
+      "blendMode": "replace",
+      "clearMode": "none",
+      "depth_write": false,
+      "drawMode": "sky"
     },
     {
       "name": "pass_transparent",
@@ -411,7 +434,7 @@
         "forward_skin_shadow_shader",
         "forward_notexture_skin_shadow_shader"
       ],
-      "index": 3,
+      "index": 4,
       "input": [],
       "output": [
         "gbuffer_depth",
@@ -429,7 +452,7 @@
       "shaders": [
         "pbr_final_shader"
       ],
-      "index": 4,
+      "index": 5,
       "input": [
         "hdr_composite"
       ],

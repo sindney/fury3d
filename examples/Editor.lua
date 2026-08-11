@@ -612,8 +612,20 @@ local function on_init()
                 Editor.OpenParticleEditor(name)
             elseif kind == "mesh" and Editor.OpenMeshEditor then
                 Editor.OpenMeshEditor(name)
+            elseif kind == "terrain" and Editor.OpenTerrainEditor then
+                Editor.OpenTerrainEditor(name)
+            elseif kind == "sky" and Editor.OpenSkyEditor then
+                Editor.OpenSkyEditor(name)
             end
         end
+    end
+
+    -- FURY_SELECT=name (automation): select a node after the startup scene
+    -- settles, so screenshot runs can show its inspector sections.
+    local sel = os.getenv("FURY_SELECT")
+    if sel and sel ~= "" then
+        local n = Scene.GetActive():GetRootNode():FindChildRecursively(sel)
+        if n then Editor.SetSelectedSceneNode(n) end
     end
 
     -- Reflect the currently-loaded pipeline back into renderSettings.

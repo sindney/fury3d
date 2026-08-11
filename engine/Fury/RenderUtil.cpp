@@ -409,6 +409,15 @@ namespace fury
 		return tex;
 	}
 
+	std::shared_ptr<Texture> GetDummyTexture3D()
+	{
+		// 1x1x1 RGBA8 -- the sampler-target match is what matters.
+		static auto tex = Texture::Create("Dummy3D");
+		if (tex->GetID() == 0)
+			tex->CreateEmpty(1, 1, 1, TextureFormat::RGBA8, TextureType::TEXTURE_3D, false);
+		return tex;
+	}
+
 	std::shared_ptr<Shader> GetParticleShader(bool shadow)
 	{
 		// Particle billboard shader, loaded from

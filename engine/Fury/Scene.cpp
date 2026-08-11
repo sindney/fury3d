@@ -5,6 +5,7 @@
 
 #include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
+#include "Fury/Heightmap.h"
 #include "Fury/Joint.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/Log.h"
@@ -145,6 +146,18 @@ bool Scene::Load(const void* wrapper, bool object) {
 			if (!ps->Load(node))
 				return false;
 			m_EntityManager->Add(ps);
+			return true;
+		});
+	}
+
+	// load heightmaps (top-level array, if present) -- assets referenced
+	// by name from Terrain components. Optional; absent in old scenes.
+	if (auto hmWrapper = FindMember(wrapper, "heightmaps")) {
+		LoadArray(hmWrapper, [&](const void* node) -> bool {
+			auto hm = Heightmap::Create("temp");
+			if (!hm->Load(node))
+				return false;
+			m_EntityManager->Add(hm);
 			return true;
 		});
 	}
@@ -294,6 +307,15 @@ void Scene::Save(void* wrapper, bool object) {
 	SaveKey(wrapper, "particleSystems");
 	StartArray(wrapper);
 	m_EntityManager->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr& ptr) -> bool {
+		ptr->Save(wrapper);
+		return true;
+	});
+	EndArray(wrapper);
+
+	// save heightmaps (assets referenced by name from Terrain components).
+	SaveKey(wrapper, "heightmaps");
+	StartArray(wrapper);
+	m_EntityManager->ForEach<Heightmap>([&](const Heightmap::Ptr& ptr) -> bool {
 		ptr->Save(wrapper);
 		return true;
 	});

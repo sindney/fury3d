@@ -13,6 +13,8 @@ namespace fury
 {
 	class AnimationClip;
 
+	class Texture;
+
 	namespace Editor
 	{
 #if WITH_EDITOR
@@ -40,6 +42,14 @@ namespace fury
 		// Animation window's clip sidebar so the collection logic lives
 		// in one place.
 		std::vector<std::shared_ptr<AnimationClip>> FURY_API CollectAnimationClips();
+
+		// Clickable texture row for component asset slots (Terrain layers,
+		// sky textures): 48x48 thumbnail (black slot when empty), label +
+		// current path; click opens the scene-texture picker. onPick gets
+		// the chosen texture (nullptr for "Set to None").
+		void FURY_API RenderLinkedTextureRow(const char* label, const char* pickerId,
+			const std::string& currentPath, const std::shared_ptr<Texture>& current,
+			std::function<void(std::shared_ptr<Texture>)> onPick);
 #else
 		inline void RenderAssetPickerModal(const char*, const char*,
 			std::type_index, std::function<void(std::shared_ptr<void>)>) {}

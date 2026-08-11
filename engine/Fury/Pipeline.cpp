@@ -530,29 +530,38 @@ namespace fury
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
 		auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
-		auto depth_buffer = Texture::GetTemporary(1024, 1024, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
+		auto camera = m_CurrentCamera->GetComponent<Camera>();
+
+		// map size from the scene's render settings (default 1024)
+		int csmSize = 1024;
+		if (Scene::Active && Scene::Active->GetRenderSettings())
+			csmSize = Scene::Active->GetRenderSettings()->GetCsmMapSize();
+
+		auto depth_buffer = Texture::GetTemporary(csmSize, csmSize, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
 		// for debug
 		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
-		auto camera = m_CurrentCamera->GetComponent<Camera>();
-
 		Matrix4 lightMatrix;
 		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
 		lightMatrix = lightMatrix * node->GetInvertWorldMatrix();
 
-		// build frustums
+		// build frustums (splits from render settings: shadow far range +
+		// linear/log blend; the light shader's cascade picker matches)
 		std::array<Frustum, numSplit> frustums;
-		float average = (camera->GetFar() - camera->GetNear()) / (float)numSplit;
+		float splits[numSplit];
+		if (Scene::Active && Scene::Active->GetRenderSettings())
+			Scene::Active->GetRenderSettings()->ComputeCsmSplits(camera->GetNear(), camera->GetFar(), splits);
+		else
+			for (int i = 0; i < numSplit; i++)
+				splits[i] = camera->GetNear() + (camera->GetFar() - camera->GetNear()) * (i + 1) / numSplit;
 		float curNear = camera->GetNear();
-		float curFar = curNear;
 		for (int i = 0; i < numSplit; i++)
 		{
-			curFar += average;
-			frustums[i] = camera->GetFrustum(curNear, curFar);
-			curNear += average;
+			frustums[i] = camera->GetFrustum(curNear, splits[i]);
+			curNear = splits[i];
 		}
 
 		// find shadow casters

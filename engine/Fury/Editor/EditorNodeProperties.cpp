@@ -8,8 +8,11 @@
 #include "Fury/Editor/EditorAssetPicker.h"
 #include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Editor/EditorBodySetupWindow.h"
+#include "Fury/Editor/EditorSkyWindow.h"
+#include "Fury/Editor/EditorTerrainWindow.h"
 #include "Fury/Editor/EditorReflect.hpp"
 #include "Fury/EnumUtil.h"
+#include "Fury/Heightmap.h"
 #include "Fury/Light.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
@@ -23,6 +26,8 @@
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
+#include "Fury/SkyAtmosphere.h"
+#include "Fury/Terrain.h"
 #include "Fury/Texture.h"
 #include "Fury/Transform.h"
 #include "Fury/Uniform.h"
@@ -216,10 +221,7 @@ void RenderCameraBody(SceneNode* node, Camera* cam) {
 	if (ImGui::DragFloat("Aspect", &s_Aspect, 0.01f, 0.1f, 10.0f, "%.2f")) {
 		cam->SetAspect(s_Aspect);
 	}
-	float shadow_far = cam->GetShadowFar();
-	if (ImGui::DragFloat("Shadow Far", &shadow_far, 1.0f, 1.0f, 1000.0f)) {
-		cam->SetShadowFar(shadow_far);
-	}
+	// shadow range/distribution live in Render Settings (scene-wide)
 	BoxBounds sb = cam->GetShadowBounds(false);
 	Vector4 mn = sb.GetMin();
 	Vector4 mx = sb.GetMax();
@@ -618,11 +620,18 @@ void RenderAnimatorBody(SceneNode* node, Animator* anim) {
 void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
 	if (!body) return;
 
-	static const char* kShapeNames[] = { "Mesh", "Box", "Sphere" };
+	static const char* kShapeNames[] = { "Mesh", "Box", "Sphere", "HeightField" };
 	int shapeIdx = static_cast<int>(body->GetShapeType());
-	if (ImGui::Combo("Shape", &shapeIdx, kShapeNames, 3)) {
+	if (ImGui::Combo("Shape", &shapeIdx, kShapeNames, 4)) {
 		body->SetShapeType(static_cast<BodySetup::ShapeType>(shapeIdx));
 		Editor::MarkSceneDirty();
+	}
+	if (body->GetShapeType() == BodySetup::ShapeType::HeightField) {
+		bool hasTerrain = node && node->GetComponent<Terrain>() != nullptr;
+		if (hasTerrain)
+			ImGui::TextDisabled("Heightfield from sibling Terrain heights");
+		else
+			ImGui::TextDisabled("Needs a sibling Terrain component!");
 	}
 
 	static const char* kMotionNames[] = { "Static", "Dynamic" };
@@ -817,6 +826,119 @@ void RenderCharacterControllerBody(SceneNode* node, CharacterController* ctrl) {
 	ImGui::TextDisabled("Empty jump clip = no airborne anim. Crouch/interact/attack come with the data-driven action table.");
 }
 
+// SkyAtmosphere: TOD slider + sun binding + cloud/atmosphere params.
+void RenderSkyAtmosphereBody(SceneNode* node, SkyAtmosphere* sky) {
+	if (!sky) return;
+
+	bool enabled = sky->GetEnabled();
+	if (ImGui::Checkbox("Enabled", &enabled)) {
+		sky->SetEnabled(enabled);
+		Editor::MarkSceneDirty();
+	}
+
+	float hours = sky->GetTimeHours();
+	if (ImGui::SliderFloat("Time of Day", &hours, 0.0f, 24.0f, "%.2f h")) {
+		sky->SetTimeHours(hours);
+		Editor::MarkSceneDirty();
+	}
+
+	float dayLen = sky->GetDayLengthMinutes();
+	if (ImGui::DragFloat("Day Length (min)", &dayLen, 0.1f, 0.1f, 240.0f)) {
+		sky->SetDayLengthMinutes(dayLen);
+		Editor::MarkSceneDirty();
+	}
+
+	bool autoAdv = sky->GetAutoAdvance();
+	if (ImGui::Checkbox("Auto Advance", &autoAdv)) {
+		sky->SetAutoAdvance(autoAdv);
+		Editor::MarkSceneDirty();
+	}
+
+	bool fromTod = sky->GetSunFromTod();
+	if (ImGui::Checkbox("Sun from TOD", &fromTod)) {
+		sky->SetSunFromTod(fromTod);
+		Editor::MarkSceneDirty();
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("(off: sky follows the light)");
+
+	char sunName[128];
+	std::strncpy(sunName, sky->GetSunLightName().c_str(), sizeof(sunName) - 1);
+	sunName[sizeof(sunName) - 1] = '\0';
+	// compact row: short label so the Auto-Detect button fits
+	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+	if (ImGui::InputText("Sun Node", sunName, sizeof(sunName))) {
+		sky->SetSunLightName(sunName);
+		Editor::MarkSceneDirty();
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Auto-Detect")) {
+		if (sky->AutoSelectSunLight())
+			Editor::MarkSceneDirty();
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Bind the scene's first directional light as the sun");
+
+	// detail settings (clouds/moon/atmosphere coefficients) live in the
+	// separate sky editor window
+	if (node && ImGui::Button("Open Sky Editor...",
+							  ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
+		Editor::OpenSkyEditor(node->shared_from_this());
+	}
+}
+
+// Terrain: heightmap asset, splat + 4 layers, chunk/LOD counts, rebuild.
+void RenderTerrainBody(SceneNode* node, Terrain* terrain) {
+	if (!terrain) return;
+
+	// Heightmap asset row - same Change/jump/clear pattern as the mesh rows.
+	const bool hasHm = !terrain->GetHeightmapName().empty();
+	if (ImGui::Button("Change##heightmap"))
+		ImGui::OpenPopup("TerrainHeightmapPicker");
+	ImGui::SameLine();
+	if (!hasHm) ImGui::BeginDisabled();
+	if (ImGui::Button("->##heightmap"))
+		Editor::SelectAssetInBrowser(typeid(Heightmap), terrain->GetHeightmapName());
+	if (!hasHm) ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (!hasHm) ImGui::BeginDisabled();
+	if (ImGui::Button("x##heightmap")) {
+		terrain->SetHeightmapName("");
+		Editor::MarkSceneDirty();
+	}
+	if (!hasHm) ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Heightmap:");
+	ImGui::SameLine();
+	if (hasHm)
+		ImGui::TextUnformatted(terrain->GetHeightmapName().c_str());
+	else
+		ImGui::TextDisabled("(none)");
+
+	RenderAssetPickerModal("TerrainHeightmapPicker", "Pick Heightmap",
+		typeid(Heightmap),
+		[terrain](std::shared_ptr<void> p) {
+			auto hm = std::static_pointer_cast<Heightmap>(p);
+			terrain->SetHeightmapName(hm ? hm->GetName() : "");
+			terrain->Rebuild();
+			Editor::MarkSceneDirty();
+		});
+
+	if (terrain->HasHeights()) {
+		ImGui::TextDisabled("%d x %d, %.0f x %.0f cm",
+			terrain->GetResolution(), terrain->GetResolution(),
+			terrain->GetWorldSizeX(), terrain->GetWorldSizeZ());
+	} else {
+		ImGui::TextDisabled("No heights loaded");
+	}
+
+	// layers / chunk+LOD / rebuild / probes live in the terrain editor window
+	if (node && ImGui::Button("Open Terrain Editor...",
+							  ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
+		Editor::OpenTerrainEditor(node->shared_from_this());
+	}
+}
+
 static const std::vector<ComponentEntry>& ComponentRenderTable() {
 	static const std::vector<ComponentEntry> table = {
 		{"Transform", typeid(Transform), false, [](SceneNode* n, Component* c) { RenderTransformBody(n, static_cast<Transform*>(c)); }},
@@ -828,6 +950,8 @@ static const std::vector<ComponentEntry>& ComponentRenderTable() {
 		{"BodySetup", typeid(BodySetup), true, [](SceneNode* n, Component* c) { RenderBodySetupBody(n, static_cast<BodySetup*>(c)); }},
 		{"FreeFlyController", typeid(FreeFlyController), true, [](SceneNode* n, Component* c) { RenderFreeFlyControllerBody(n, static_cast<FreeFlyController*>(c)); }},
 		{"CharacterController", typeid(CharacterController), true, [](SceneNode* n, Component* c) { RenderCharacterControllerBody(n, static_cast<CharacterController*>(c)); }},
+		{"SkyAtmosphere", typeid(SkyAtmosphere), true, [](SceneNode* n, Component* c) { RenderSkyAtmosphereBody(n, static_cast<SkyAtmosphere*>(c)); }},
+		{"Terrain", typeid(Terrain), true, [](SceneNode* n, Component* c) { RenderTerrainBody(n, static_cast<Terrain*>(c)); }},
 	};
 	return table;
 }

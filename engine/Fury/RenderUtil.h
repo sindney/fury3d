@@ -154,6 +154,9 @@ namespace fury
 	// 1x1x4 sampler2DArray dummy (same target-mismatch rule).
 	std::shared_ptr<Texture> GetDummyTexture2DArray();
 
+	// 1x1x1 sampler3D dummy (same target-mismatch rule).
+	std::shared_ptr<Texture> GetDummyTexture3D();
+
 	// Renders `mesh` into the currently-bound FBO (caller owns FBO + viewport
 	// + clear) with the simple-Lambert shader, using a fixed orbit camera
 	// framed on the mesh's local AABB. Returns the bounding-sphere radius.

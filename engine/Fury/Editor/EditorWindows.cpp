@@ -15,6 +15,7 @@
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/EntityManager.h"
+#include "Fury/Heightmap.h"
 #include "Fury/Light.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
@@ -257,6 +258,33 @@ void RenderSettingsWindow(bool* open) {
 				settings->SetCascadedShadowMap(csm);
 				Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, csm);
 				Editor::MarkSceneDirty();
+			}
+
+			// cascade map resolution (bigger = finer shadows, more memory)
+			{
+				static const char* kSizes[] = { "512", "1024", "2048", "4096" };
+				static const int kValues[] = { 512, 1024, 2048, 4096 };
+				int cur = 1;
+				for (int i = 0; i < 4; i++)
+					if (kValues[i] == settings->GetCsmMapSize()) cur = i;
+				if (ImGui::Combo("CSM Map Size", &cur, kSizes, 4)) {
+					settings->SetCsmMapSize(kValues[cur]);
+					Editor::MarkSceneDirty();
+				}
+			}
+
+			// cascade range + split distribution (scene-wide, both cameras)
+			{
+				float shadowFar = settings->GetShadowFar();
+				if (ImGui::DragFloat("Shadow Far (0 = camera far)", &shadowFar, 100.0f, 0.0f, 500000.0f)) {
+					settings->SetShadowFar(shadowFar);
+					Editor::MarkSceneDirty();
+				}
+				float blend = settings->GetCsmSplitBlend();
+				if (ImGui::SliderFloat("CSM Split Blend", &blend, 0.0f, 1.0f, "%.2f (lin/log)")) {
+					settings->SetCsmSplitBlend(blend);
+					Editor::MarkSceneDirty();
+				}
 			}
 
 			ImGui::Spacing();
@@ -1490,7 +1518,7 @@ struct TileEntry {
 static int g_FilterType = 0;
 static char g_FilterText[128] = "";
 constexpr const char* kFilterTypeNames[] = {
-	"All", "Mesh", "Material", "Texture", "AnimationClip", "ParticleSystem"};
+	"All", "Mesh", "Material", "Texture", "AnimationClip", "ParticleSystem", "Heightmap"};
 
 // Case-insensitive subsequence: every char of `pattern` appears in
 // `text` in order ("spz" matches "Sponza").
@@ -1514,6 +1542,7 @@ bool TilePassesFilter(const TileEntry& tile) {
 		case 3: want = &typeid(Texture); break;
 		case 4: want = &typeid(AnimationClip); break;
 		case 5: want = &typeid(ParticleSystem); break;
+		case 6: want = &typeid(Heightmap); break;
 		}
 		if (want && tile.type != *want) return false;
 	}
@@ -1549,6 +1578,11 @@ void CollectTiles(std::vector<TileEntry>& tiles) {
 	em->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr& p) {
 		tiles.push_back({typeid(ParticleSystem), p->GetName(),
 						 std::static_pointer_cast<void>(p)});
+		return true;
+	});
+	em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap>& h) {
+		tiles.push_back({typeid(Heightmap), h->GetName(),
+						 std::static_pointer_cast<void>(h)});
 		return true;
 	});
 }
@@ -1806,6 +1840,14 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		ImVec2 p1 = ImGui::GetItemRectMax();
 		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
 												  ImGui::GetColorU32(ImVec4(0.42f, 0.26f, 0.13f, 1.0f)));
+	} else if (tile.type == typeid(Heightmap)) {
+		// Heightmap tile -- placeholder rect (same SIGBUS reason as
+		// ParticleSystem: the fallthrough casts to Mesh).
+		ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
+		ImVec2 p0 = ImGui::GetItemRectMin();
+		ImVec2 p1 = ImGui::GetItemRectMax();
+		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
+												  ImGui::GetColorU32(ImVec4(0.23f, 0.32f, 0.42f, 1.0f)));
 	} else // Mesh
 	{
 			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
@@ -1824,12 +1866,13 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			}
 		}
 
-	// Type badge (M / Mat / T / Anim / PS) in the top-left corner.
+	// Type badge (M / Mat / T / Anim / PS / HM) in the top-left corner.
 	const char* badge =
 		(tile.type == typeid(Mesh)) ? "M" :
 		(tile.type == typeid(Material)) ? "Mat" :
 		(tile.type == typeid(AnimationClip)) ? "Anim" :
-		(tile.type == typeid(ParticleSystem)) ? "PS" : "T";
+		(tile.type == typeid(ParticleSystem)) ? "PS" :
+		(tile.type == typeid(Heightmap)) ? "HM" : "T";
 		ImGui::GetWindowDrawList()->AddText(thumb_min,
 											ImGui::GetColorU32(ImVec4(1, 1, 0, 0.9f)), badge);
 
@@ -1880,7 +1923,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 					Editor::SetWindowVisible("Animation", true);
 				else if (tile.type == typeid(ParticleSystem))
 					Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
-				else
+				else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture)) {
+					// no per-asset editor for these (double-click no-op)
+				} else
 					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 			}
 		}
@@ -1898,7 +1943,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
 			else if (tile.type == typeid(ParticleSystem))
 				Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
-			else
+			else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture)) {
+				// no per-asset editor for these (double-click no-op)
+			} else
 				OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 		}
 

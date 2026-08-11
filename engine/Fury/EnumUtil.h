@@ -63,7 +63,9 @@ namespace fury
 		OPAQUE,
 		TRANSPARENT,
 		LIGHT,
-		QUAD
+		QUAD,
+		// fullscreen sky draw (atmosphere LUTs bound from C++)
+		SKY
 	};
 
 	// glTF alphaMode: OPAQUE solid, MASK alpha-tested, BLEND transparent. Material::m_Opaque = (mode != BLEND).
@@ -110,7 +112,9 @@ namespace fury
 		TEXTURE_1D = 0,
 		TEXTURE_2D,
 		TEXTURE_2D_ARRAY,
-		TEXTURE_CUBE_MAP
+		TEXTURE_CUBE_MAP,
+		// index must match the m_TextureType table order in EnumUtil.cpp
+		TEXTURE_3D
 	};
 
 	enum class FilterMode : unsigned int

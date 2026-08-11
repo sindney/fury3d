@@ -26,7 +26,9 @@ namespace fury
 		{
 			Mesh = 0,
 			Box = 1,
-			Sphere = 2
+			Sphere = 2,
+			// heights come from the sibling Terrain component; static-only
+			HeightField = 3
 		};
 
 		enum class MotionType

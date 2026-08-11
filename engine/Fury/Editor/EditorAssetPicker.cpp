@@ -2,6 +2,7 @@
 
 #include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
+#include "Fury/Heightmap.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/ParticleSystem.h"
@@ -83,6 +84,20 @@ void CollectTextures(std::vector<PickerEntry>& out) {
 	});
 }
 
+void CollectHeightmaps(std::vector<PickerEntry>& out) {
+	if (!Scene::Active) return;
+	auto em = Scene::Active->GetEntityManager();
+	if (!em) return;
+	em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap>& hm) {
+		char buf[300];
+		std::snprintf(buf, sizeof(buf), "%s    %d x %d  %.0f x %.0f cm",
+					  hm->GetName().c_str(), hm->GetResolution(), hm->GetResolution(),
+					  hm->GetWorldSizeX(), hm->GetWorldSizeZ());
+		out.push_back({buf, std::static_pointer_cast<void>(hm)});
+		return true;
+	});
+}
+
 void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
 	for (const auto& c : CollectAnimationClips()) {
 		// Show duration in seconds alongside the name so clips with
@@ -130,6 +145,8 @@ void CollectByType(std::type_index type,
 		CollectMaterials(out);
 	else if (type == typeid(Texture))
 		CollectTextures(out);
+	else if (type == typeid(Heightmap))
+		CollectHeightmaps(out);
 	else if (type == typeid(AnimationClip))
 		CollectAnimationClipsIntoEntries(out);
 	else if (type == typeid(ParticleSystem))
@@ -140,6 +157,41 @@ void CollectByType(std::type_index type,
 	// disabled and the user can only Cancel.
 }
 } // namespace
+
+void RenderLinkedTextureRow(const char* label, const char* pickerId,
+							const std::string& currentPath,
+							const std::shared_ptr<Texture>& current,
+							std::function<void(std::shared_ptr<Texture>)> onPick) {
+	ImGui::PushID(pickerId);
+	ImVec2 thumb_min = ImGui::GetCursorScreenPos();
+	if (current && current->GetID() != 0) {
+		ImGui::Image((ImTextureID)(intptr_t)current->GetID(),
+					 ImVec2(48, 48), ImVec2(0, 1), ImVec2(1, 0));
+	} else {
+		ImGui::GetWindowDrawList()->AddRectFilled(thumb_min,
+			ImVec2(thumb_min.x + 48, thumb_min.y + 48),
+			ImGui::GetColorU32(ImVec4(0, 0, 0, 1)));
+		ImGui::Dummy(ImVec2(48, 48));
+	}
+	ImGui::SetCursorScreenPos(thumb_min);
+	std::string popup = std::string("LinkedTexPicker_") + pickerId;
+	ImGui::InvisibleButton((std::string("##hit_") + pickerId).c_str(), ImVec2(48, 48));
+	if (ImGui::IsItemClicked(0))
+		ImGui::OpenPopup(popup.c_str());
+	ImGui::SameLine();
+	ImGui::BeginGroup();
+	ImGui::Text("%s", label);
+	if (currentPath.empty())
+		ImGui::TextDisabled("(none)");
+	else
+		ImGui::TextDisabled("%s", currentPath.c_str());
+	ImGui::EndGroup();
+	RenderAssetPickerModal(popup.c_str(), label, typeid(Texture),
+		[onPick](std::shared_ptr<void> p) {
+			onPick(std::static_pointer_cast<Texture>(p));
+		});
+	ImGui::PopID();
+}
 
 std::vector<std::shared_ptr<AnimationClip>> CollectAnimationClips() {
 	std::vector<std::shared_ptr<AnimationClip>> out;

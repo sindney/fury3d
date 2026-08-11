@@ -552,8 +552,10 @@ namespace fury
 				continue;
 			}
 
-			if (type == TextureType::TEXTURE_2D_ARRAY)
+			if (type == TextureType::TEXTURE_2D_ARRAY || type == TextureType::TEXTURE_3D)
 			{
+				// 3D slices re-attach through SetArrayTextureLayer too
+				// (glFramebufferTextureLayer takes the z slice for 3D).
 				glFramebufferTextureLayer(GL_FRAMEBUFFER, attachId, texture->GetID(), 0, 0);
 				m_LayerTextures.push_back(std::make_pair(attachId, texture));
 			}

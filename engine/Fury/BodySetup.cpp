@@ -9,6 +9,7 @@ JPH_SUPPRESS_WARNINGS
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 
@@ -19,6 +20,7 @@ JPH_SUPPRESS_WARNINGS
 #include "Fury/PhysicsWorld.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/Terrain.h"
 
 using namespace fury;
 
@@ -34,6 +36,7 @@ namespace
 		{
 		case BodySetup::ShapeType::Box: return "box";
 		case BodySetup::ShapeType::Sphere: return "sphere";
+		case BodySetup::ShapeType::HeightField: return "heightfield";
 		default: return "mesh";
 		}
 	}
@@ -42,6 +45,7 @@ namespace
 	{
 		if (str == "box") { type = BodySetup::ShapeType::Box; return true; }
 		if (str == "sphere") { type = BodySetup::ShapeType::Sphere; return true; }
+		if (str == "heightfield") { type = BodySetup::ShapeType::HeightField; return true; }
 		if (str == "mesh") { type = BodySetup::ShapeType::Mesh; return true; }
 		return false;
 	}
@@ -316,6 +320,41 @@ void BodySetup::CreateBody()
 			m_HalfExtents.x * std::abs(worldScale.x),
 			m_HalfExtents.y * std::abs(worldScale.y),
 			m_HalfExtents.z * std::abs(worldScale.z))).Create();
+	}
+	else if (m_ShapeType == ShapeType::HeightField)
+	{
+		if (dynamic)
+		{
+			FURYW << "BodySetup: heightfield is static-only, skipping body on '" << node->GetName() << "'.";
+			return;
+		}
+
+		auto terrain = node->GetComponent<Terrain>();
+		if (!terrain || !terrain->HasHeights())
+		{
+			FURYE << "BodySetup: heightfield shape on '" << node->GetName()
+				<< "' needs a sibling Terrain with loaded heights.";
+			return;
+		}
+
+		if (std::abs(worldScale.x - 1.0f) > 0.001f || std::abs(worldScale.y - 1.0f) > 0.001f
+			|| std::abs(worldScale.z - 1.0f) > 0.001f)
+		{
+			FURYW << "BodySetup: heightfield on '" << node->GetName()
+				<< "' ignores node scale; size the terrain via its world size.";
+		}
+
+		// local frame: offset(-sx/2, 0, -sz/2), scale(cellX, 1, cellZ);
+		// heights already decoded to cm. The body carries the world
+		// transform (no vertex baking for heightfields).
+		const int N = terrain->GetResolution();
+		const float cellX = terrain->GetWorldSizeX() / (N - 1);
+		const float cellZ = terrain->GetWorldSizeZ() / (N - 1);
+		shapeResult = JPH::HeightFieldShapeSettings(
+			terrain->GetHeights().data(),
+			JPH::Vec3(-terrain->GetWorldSizeX() * 0.5f, 0.0f, -terrain->GetWorldSizeZ() * 0.5f),
+			JPH::Vec3(cellX, 1.0f, cellZ),
+			static_cast<JPH::uint32>(N)).Create();
 	}
 	else
 	{

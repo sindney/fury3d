@@ -52,6 +52,10 @@ namespace fury
 
 		void DrawQuad(const std::shared_ptr<Pass> &pass);
 
+		// SKY draw mode: fills far-depth pixels from the scene's enabled
+		// SkyAtmosphere (LUTs bound here); no-op when no sky is active.
+		void DrawSky(const std::shared_ptr<Pass> &pass);
+
 		// Run the active postprocess chain after the pass loop; the
 		// final effect writes to the default FB / editor RenderTarget
 		// with sRGB encode.

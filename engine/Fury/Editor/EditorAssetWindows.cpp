@@ -24,6 +24,8 @@
 #include "Fury/Editor/Editor3DPreview.h"
 #include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Editor/EditorBodySetupWindow.h"
+#include "Fury/Editor/EditorSkyWindow.h"
+#include "Fury/Editor/EditorTerrainWindow.h"
 #include "ImGui/imgui.h"
 #include "ImGuizmo.h"
 #include "stb_image_write.h"
@@ -1250,6 +1252,10 @@ void RenderAllOpenAssetEditors() {
 
 	// BodySetup editor windows (node-keyed map; same RenderAll loop).
 	RenderAllOpenBodySetupEditors();
+
+	// Terrain / SkyAtmosphere editor windows (node-keyed; same loop).
+	RenderAllOpenTerrainEditors();
+	RenderAllOpenSkyEditors();
 }
 } // namespace Editor
 } // namespace fury

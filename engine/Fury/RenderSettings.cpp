@@ -1,5 +1,8 @@
 #include "Fury/RenderSettings.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "Fury/Log.h"
 #include "Fury/Uniform.h"
 
@@ -47,6 +50,10 @@ namespace fury
 			m_CascadedShadowMap = b;
 		else
 			m_CascadedShadowMap = true; // legacy default: CSM on
+
+		LoadMemberValue(wrapper, "csm_map_size", m_CsmMapSize);
+		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
+		LoadMemberValue(wrapper, "csm_split_blend", m_CsmSplitBlend);
 
 		m_Chain.clear();
 		// Ordered chain: [{ effect, enabled, uniforms? }, ...]. Missing /
@@ -102,6 +109,15 @@ namespace fury
 
 		SaveKey(wrapper, "cascaded_shadow_map");
 		SaveValue(wrapper, m_CascadedShadowMap);
+
+		SaveKey(wrapper, "csm_map_size");
+		SaveValue(wrapper, m_CsmMapSize);
+
+		SaveKey(wrapper, "shadow_far");
+		SaveValue(wrapper, m_ShadowFar);
+
+		SaveKey(wrapper, "csm_split_blend");
+		SaveValue(wrapper, m_CsmSplitBlend);
 
 		SaveKey(wrapper, "chain");
 		StartArray(wrapper);
@@ -168,6 +184,54 @@ namespace fury
 	void RenderSettings::SetCascadedShadowMap(bool value)
 	{
 		m_CascadedShadowMap = value;
+	}
+
+	int RenderSettings::GetCsmMapSize() const
+	{
+		return m_CsmMapSize;
+	}
+
+	void RenderSettings::SetCsmMapSize(int size)
+	{
+		// sane cascade sizes only
+		if (size == 512 || size == 1024 || size == 2048 || size == 4096)
+			m_CsmMapSize = size;
+	}
+
+	float RenderSettings::GetShadowFar() const
+	{
+		return m_ShadowFar;
+	}
+
+	void RenderSettings::SetShadowFar(float value)
+	{
+		m_ShadowFar = value;
+	}
+
+	float RenderSettings::GetCsmSplitBlend() const
+	{
+		return m_CsmSplitBlend;
+	}
+
+	void RenderSettings::SetCsmSplitBlend(float blend)
+	{
+		m_CsmSplitBlend = blend < 0.0f ? 0.0f : (blend > 1.0f ? 1.0f : blend);
+	}
+
+	void RenderSettings::ComputeCsmSplits(float nearPlane, float cameraFar, float *outSplits4) const
+	{
+		// never stretch the cascade range past the camera's far plane
+		const float farCap = m_ShadowFar > 0.0f
+			? std::min(m_ShadowFar, cameraFar) : cameraFar;
+		const float range = farCap - nearPlane;
+		const float lambda = GetCsmSplitBlend();
+		for (int i = 1; i <= 4; i++)
+		{
+			const float f = static_cast<float>(i) / 4.0f;
+			const float lin = nearPlane + range * f;
+			const float log = nearPlane * powf((nearPlane + range) / nearPlane, f);
+			outSplits4[i - 1] = lin * (1.0f - lambda) + log * lambda;
+		}
 	}
 
 	const std::vector<RenderChainEntry> &RenderSettings::GetChain() const

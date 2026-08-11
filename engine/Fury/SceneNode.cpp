@@ -18,6 +18,8 @@
 #include "Fury/Transform.h"
 #include "Fury/AnimationPlayer.h"
 #include "Fury/ParticleRenderer.h"
+#include "Fury/SkyAtmosphere.h"
+#include "Fury/Terrain.h"
 
 namespace fury
 {
@@ -31,7 +33,9 @@ namespace fury
 		{ "ParticleRenderer", []() -> Component::Ptr { return ParticleRenderer::Create(); } },
 		{ "BodySetup",        []() -> Component::Ptr { return BodySetup::Create(); } },
 		{ "FreeFlyController", []() -> Component::Ptr { return FreeFlyController::Create(); } },
-		{ "CharacterController", []() -> Component::Ptr { return CharacterController::Create(); } }
+		{ "CharacterController", []() -> Component::Ptr { return CharacterController::Create(); } },
+		{ "SkyAtmosphere",    []() -> Component::Ptr { return SkyAtmosphere::Create(); } },
+		{ "Terrain",          []() -> Component::Ptr { return Terrain::Create(); } }
 	};
 
 	SceneNode::Ptr SceneNode::Create(const std::string &name)

@@ -12,6 +12,8 @@
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorBodySetupWindow.h"
+#include "Fury/Editor/EditorSkyWindow.h"
+#include "Fury/Editor/EditorTerrainWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Engine.h"
@@ -26,6 +28,7 @@
 #include "Fury/RenderSettings.h"
 
 #include "Fury/Gui.h"
+#include "Fury/Heightmap.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Joint.h"
 #include "Fury/BodySetup.h"
@@ -38,6 +41,8 @@
 #include "Fury/MeshRender.h"
 #include "Fury/ParticleRenderer.h"
 #include "Fury/ParticleSystem.h"
+#include "Fury/SkyAtmosphere.h"
+#include "Fury/Terrain.h"
 #include "Fury/MeshSimplifier.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/OcTree.h"
@@ -459,12 +464,15 @@ namespace fury
 				"GetFar", &Camera::GetFar,
 				"GetShadowFar", &Camera::GetShadowFar,
 				"SetShadowFar", &Camera::SetShadowFar,
+				"GetCsmSplitBlend", &Camera::GetCsmSplitBlend,
+				"SetCsmSplitBlend", &Camera::SetCsmSplitBlend,
 				"SetShadowBounds", &Camera::SetShadowBounds);
 
 			// --- Color ---------------------------------------------------------
 			lua.new_usertype<Color>("Color",
 				sol::call_constructor,
-				sol::constructors<Color(float, float, float, float)>());
+				sol::constructors<Color(float, float, float, float)>(),
+				"Lerp", &Color::Lerp);
 
 			// --- LightType + Light --------------------------------------------
 			// LightType enum exposed as a plain Lua table so scripts can write
@@ -488,6 +496,93 @@ namespace fury
 				"SetRadius",    &Light::SetRadius,
 				"SetCastShadows", &Light::SetCastShadows,
 				"CalculateAABB",  &Light::CalculateAABB);
+
+			// --- SkyAtmosphere ----------------------------------------------
+			lua.new_usertype<SkyAtmosphere>("SkyAtmosphere",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", &SkyAtmosphere::Create,
+				"GetEnabled", &SkyAtmosphere::GetEnabled,
+				"SetEnabled", &SkyAtmosphere::SetEnabled,
+				"GetTimeHours", &SkyAtmosphere::GetTimeHours,
+				"SetTimeHours", &SkyAtmosphere::SetTimeHours,
+				"GetDayLengthMinutes", &SkyAtmosphere::GetDayLengthMinutes,
+				"SetDayLengthMinutes", &SkyAtmosphere::SetDayLengthMinutes,
+				"GetAutoAdvance", &SkyAtmosphere::GetAutoAdvance,
+				"SetAutoAdvance", &SkyAtmosphere::SetAutoAdvance,
+				"GetSunFromTod", &SkyAtmosphere::GetSunFromTod,
+				"SetSunFromTod", &SkyAtmosphere::SetSunFromTod,
+				"GetSunLightName", &SkyAtmosphere::GetSunLightName,
+				"SetSunLightName", &SkyAtmosphere::SetSunLightName,
+				"GetCloudsEnabled", &SkyAtmosphere::GetCloudsEnabled,
+				"SetCloudsEnabled", &SkyAtmosphere::SetCloudsEnabled,
+				"GetCloudCoverage", &SkyAtmosphere::GetCloudCoverage,
+				"SetCloudCoverage", &SkyAtmosphere::SetCloudCoverage,
+				"GetCloudAltitudeKm", &SkyAtmosphere::GetCloudAltitudeKm,
+				"SetCloudAltitudeKm", &SkyAtmosphere::SetCloudAltitudeKm,
+				"GetCloudScale", &SkyAtmosphere::GetCloudScale,
+				"SetCloudScale", &SkyAtmosphere::SetCloudScale,
+				"GetCloudWindSpeed", &SkyAtmosphere::GetCloudWindSpeed,
+				"SetCloudWindSpeed", &SkyAtmosphere::SetCloudWindSpeed,
+				"GetCloudDensity", &SkyAtmosphere::GetCloudDensity,
+				"SetCloudDensity", &SkyAtmosphere::SetCloudDensity,
+				"GetCloudFadeKm", &SkyAtmosphere::GetCloudFadeKm,
+				"SetCloudFadeKm", &SkyAtmosphere::SetCloudFadeKm,
+				"SetRayleighScattering", &SkyAtmosphere::SetRayleighScattering,
+				"SetMieScattering", &SkyAtmosphere::SetMieScattering,
+				"SetMieG", &SkyAtmosphere::SetMieG,
+				"SetGroundAlbedo", &SkyAtmosphere::SetGroundAlbedo,
+				"SetSunIntensity", &SkyAtmosphere::SetSunIntensity,
+				"SetMoonTexturePath", &SkyAtmosphere::SetMoonTexturePath,
+				"SetCloudNoisePath", &SkyAtmosphere::SetCloudNoisePath,
+				"SetSunAngularRadius", &SkyAtmosphere::SetSunAngularRadius,
+				"SetSunDiscIntensity", &SkyAtmosphere::SetSunDiscIntensity,
+				"SetMoonIntensity", &SkyAtmosphere::SetMoonIntensity,
+				"SetMoonAngularRadius", &SkyAtmosphere::SetMoonAngularRadius,
+				"GetSunDirection", &SkyAtmosphere::GetSunDirection,
+				"GetDaylight", &SkyAtmosphere::GetDaylight);
+
+			// --- Terrain ---------------------------------------------------
+			lua.new_usertype<Terrain>("Terrain",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", &Terrain::Create,
+				"GetHeightmapName", &Terrain::GetHeightmapName,
+				"SetHeightmapName", &Terrain::SetHeightmapName,
+				"GetHeightmapPath", &Terrain::GetHeightmapPath,
+				"SetHeightmapPath", &Terrain::SetHeightmapPath,
+				"GetSplatmapPath", &Terrain::GetSplatmapPath,
+				"SetSplatmapPath", &Terrain::SetSplatmapPath,
+				"GetChunkCount", &Terrain::GetChunkCount,
+				"SetChunkCount", &Terrain::SetChunkCount,
+				"GetLodCount", &Terrain::GetLodCount,
+				"SetLodCount", &Terrain::SetLodCount,
+				"SetLayer", [](Terrain &t, int index, const std::string &name,
+					const std::string &texture, float tiling) {
+					Terrain::Layer layer;
+					layer.Name = name;
+					layer.TexturePath = texture;
+					layer.TilingCm = tiling;
+					t.SetLayer(index, layer);
+				},
+				"Rebuild", &Terrain::Rebuild,
+				"GetHeight", &Terrain::GetHeight,
+				"HasHeights", &Terrain::HasHeights);
+
+			// --- Heightmap (asset) -------------------------------------------
+			lua.new_usertype<Heightmap>("Heightmap",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"Create", &Heightmap::Create,
+				"GetName", &Heightmap::GetName,
+				"GetFilePath", &Heightmap::GetFilePath,
+				"SetFilePath", &Heightmap::SetFilePath,
+				"LoadHeights", &Heightmap::LoadHeights,
+				"HasHeights", &Heightmap::HasHeights,
+				"GetResolution", &Heightmap::GetResolution,
+				"GetWorldSizeX", &Heightmap::GetWorldSizeX,
+				"GetWorldSizeZ", &Heightmap::GetWorldSizeZ,
+				"GetHeightScale", &Heightmap::GetHeightScale);
 
 			// --- MeshRender ---------------------------------------------------
 			// Inspector and editor scripts need to read mesh / material slots
@@ -798,6 +893,12 @@ namespace fury
 					},
 					[](SceneNode &n, CharacterController::Ptr c) {
 						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, SkyAtmosphere::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, Terrain::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
 					}),
 				"RemoveComponent", sol::overload(
 					[](SceneNode &n, Transform::Ptr) { return n.RemoveComponent(typeid(Transform)); },
@@ -807,7 +908,9 @@ namespace fury
 					[](SceneNode &n, Animator::Ptr)  { return n.RemoveComponent(typeid(Animator)); },
 					[](SceneNode &n, BodySetup::Ptr) { return n.RemoveComponent(typeid(BodySetup)); },
 					[](SceneNode &n, FreeFlyController::Ptr) { return n.RemoveComponent(typeid(FreeFlyController)); },
-					[](SceneNode &n, CharacterController::Ptr) { return n.RemoveComponent(typeid(CharacterController)); }),
+					[](SceneNode &n, CharacterController::Ptr) { return n.RemoveComponent(typeid(CharacterController)); },
+					[](SceneNode &n, SkyAtmosphere::Ptr) { return n.RemoveComponent(typeid(SkyAtmosphere)); },
+					[](SceneNode &n, Terrain::Ptr) { return n.RemoveComponent(typeid(Terrain)); }),
 				"GetComponent", sol::overload(
 					// Typed overloads FIRST so a Lua-side
 					// `n:GetComponent(ParticleSystem)` resolves to the
@@ -822,6 +925,8 @@ namespace fury
 					[](SceneNode &n, BodySetup::Ptr) -> std::shared_ptr<BodySetup> { return n.GetComponent<BodySetup>(); },
 					[](SceneNode &n, FreeFlyController::Ptr) -> std::shared_ptr<FreeFlyController> { return n.GetComponent<FreeFlyController>(); },
 					[](SceneNode &n, CharacterController::Ptr) -> std::shared_ptr<CharacterController> { return n.GetComponent<CharacterController>(); },
+					[](SceneNode &n, SkyAtmosphere::Ptr) -> std::shared_ptr<SkyAtmosphere> { return n.GetComponent<SkyAtmosphere>(); },
+					[](SceneNode &n, Terrain::Ptr) -> std::shared_ptr<Terrain> { return n.GetComponent<Terrain>(); },
 					[](SceneNode &n, sol::type t) -> sol::object {
 						// Forward a Lua-side `GetComponent(SceneNode.Light)`-style
 						// call (when registered as a table) by name lookup. This
@@ -843,6 +948,8 @@ namespace fury
 				"GetBodySetup", [](SceneNode &n) -> std::shared_ptr<BodySetup> { return n.GetComponent<BodySetup>(); },
 				"GetFreeFlyController", [](SceneNode &n) -> std::shared_ptr<FreeFlyController> { return n.GetComponent<FreeFlyController>(); },
 				"GetCharacterController", [](SceneNode &n) -> std::shared_ptr<CharacterController> { return n.GetComponent<CharacterController>(); },
+				"GetSkyAtmosphere", [](SceneNode &n) -> std::shared_ptr<SkyAtmosphere> { return n.GetComponent<SkyAtmosphere>(); },
+				"GetTerrain", [](SceneNode &n) -> std::shared_ptr<Terrain> { return n.GetComponent<Terrain>(); },
 				"AddChild", &SceneNode::AddChild,
 				"RemoveChild", &SceneNode::RemoveChild,
 				"RemoveFromParent", &SceneNode::RemoveFromParent,
@@ -935,6 +1042,12 @@ namespace fury
 				"SetHDR", &RenderSettings::SetHDR,
 				"IsCascadedShadowMap", &RenderSettings::IsCascadedShadowMap,
 				"SetCascadedShadowMap", &RenderSettings::SetCascadedShadowMap,
+				"GetCsmMapSize", &RenderSettings::GetCsmMapSize,
+				"SetCsmMapSize", &RenderSettings::SetCsmMapSize,
+				"GetShadowFar", &RenderSettings::GetShadowFar,
+				"SetShadowFar", &RenderSettings::SetShadowFar,
+				"GetCsmSplitBlend", &RenderSettings::GetCsmSplitBlend,
+				"SetCsmSplitBlend", &RenderSettings::SetCsmSplitBlend,
 				"GetChain", [&lua](RenderSettings &self) {
 					// Hand back a Lua table of { effectName, enabled }
 					// entries. sol2's binding for std::vector<struct>
@@ -1253,6 +1366,12 @@ namespace fury
 				// resolve, and a re-save drops particleSystems[]).
 				source_em->ForEach<ParticleSystem>([&](const std::shared_ptr<ParticleSystem> &p) -> bool {
 					target_em->Add(p); return true;
+				});
+				// Heightmap assets (terrain) - same stranding risk as
+				// ParticleSystem: skipped transfers drop the heightmaps[]
+				// array on the next save and hide the asset from pickers.
+				source_em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap> &h) -> bool {
+					target_em->Add(h); return true;
 				});
 				target->GetSceneManager()->AddSceneNodeRecursively(target_root);
 				return merged;
@@ -1675,6 +1794,16 @@ namespace fury
 				if (auto node = Scene::Active->GetRootNode()->FindChildRecursively(nodeName))
 					Editor::OpenBodySetupEditor(node);
 			};
+			editor_tbl["OpenTerrainEditor"] = [](const std::string& nodeName) {
+				if (!Scene::Active || !Scene::Active->GetRootNode()) return;
+				if (auto node = Scene::Active->GetRootNode()->FindChildRecursively(nodeName))
+					Editor::OpenTerrainEditor(node);
+			};
+			editor_tbl["OpenSkyEditor"] = [](const std::string& nodeName) {
+				if (!Scene::Active || !Scene::Active->GetRootNode()) return;
+				if (auto node = Scene::Active->GetRootNode()->FindChildRecursively(nodeName))
+					Editor::OpenSkyEditor(node);
+			};
 #else
 			// No-op stubs so user scripts that reference Editor.* compose
 			// with both build modes. Each accepts and discards arguments.
@@ -1714,6 +1843,8 @@ namespace fury
 			editor_tbl["GetSnapEnabled"]        = []() -> bool { return false; };
 			editor_tbl["OpenParticleEditor"]    = [](sol::object) {};
 			editor_tbl["OpenMeshEditor"]        = [](sol::object) {};
+			editor_tbl["OpenTerrainEditor"]     = [](sol::object) {};
+			editor_tbl["OpenSkyEditor"]         = [](sol::object) {};
 #endif
 
 			// --- RenderUtil (singleton; no methods bound this round) ----------

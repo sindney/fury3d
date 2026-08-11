@@ -27,6 +27,7 @@ namespace fury
 		ptr->m_Frustum = m_Frustum;
 		ptr->m_ShadowAABB = m_ShadowAABB;
 		ptr->m_ShadowFar = m_ShadowFar;
+		ptr->m_CsmSplitBlend = m_CsmSplitBlend;
 		return ptr;
 	}
 
@@ -65,6 +66,7 @@ namespace fury
 		}
 
 		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
+		LoadMemberValue(wrapper, "csm_split_blend", m_CsmSplitBlend);
 
 		Vector4 bmin, bmax;
 		if (LoadMemberValue(wrapper, "shadow_min", bmin) && LoadMemberValue(wrapper, "shadow_max", bmax))
@@ -93,6 +95,9 @@ namespace fury
 
 		SaveKey(wrapper, "shadow_far");
 		SaveValue(wrapper, m_ShadowFar);
+
+		SaveKey(wrapper, "csm_split_blend");
+		SaveValue(wrapper, m_CsmSplitBlend);
 
 		const BoxBounds bounds = GetShadowBounds(false);
 		SaveKey(wrapper, "shadow_min");
@@ -246,6 +251,30 @@ namespace fury
 	void Camera::SetShadowFar(float far)
 	{
 		m_ShadowFar = far;
+	}
+
+	float Camera::GetCsmSplitBlend() const
+	{
+		return m_CsmSplitBlend;
+	}
+
+	void Camera::SetCsmSplitBlend(float blend)
+	{
+		m_CsmSplitBlend = blend < 0.0f ? 0.0f : (blend > 1.0f ? 1.0f : blend);
+	}
+
+	void Camera::GetCsmSplits(float *outSplits4) const
+	{
+		const float nearPlane = GetNear();
+		const float range = (m_ShadowFar > 0.0f ? m_ShadowFar : GetFar()) - nearPlane;
+		const float lambda = GetCsmSplitBlend();
+		for (int i = 1; i <= 4; i++)
+		{
+			const float f = static_cast<float>(i) / 4.0f;
+			const float lin = nearPlane + range * f;
+			const float log = nearPlane * powf((nearPlane + range) / nearPlane, f);
+			outSplits4[i - 1] = lin * (1.0f - lambda) + log * lambda;
+		}
 	}
 
 	BoxBounds Camera::GetShadowBounds(bool worldSpace) const

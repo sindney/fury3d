@@ -407,9 +407,12 @@ namespace fury
 
 		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
+		unsigned int magMode = (m_FilterMode == FilterMode::NEAREST
+			|| m_FilterMode == FilterMode::NEAREST_MIPMAP_NEAREST)
+			? GL_NEAREST : GL_LINEAR;
 
 		glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, magMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
@@ -457,7 +460,7 @@ namespace fury
 		glGenTextures(1, &m_ID);
 		glBindTexture(m_TypeUint, m_ID);
 
-		if (m_Type == TextureType::TEXTURE_2D_ARRAY)
+		if (m_Type == TextureType::TEXTURE_2D_ARRAY || m_Type == TextureType::TEXTURE_3D)
 		{
 			glTexStorage3D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height, depth);
 		}
@@ -468,9 +471,12 @@ namespace fury
 
 		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
+		unsigned int magMode = (m_FilterMode == FilterMode::NEAREST
+			|| m_FilterMode == FilterMode::NEAREST_MIPMAP_NEAREST)
+			? GL_NEAREST : GL_LINEAR;
 
 		glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
+		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, magMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
 		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
@@ -600,7 +606,12 @@ namespace fury
 
 				unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
 				glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-				glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
+				// mag has no mip filtering in GL; a mipmap mode here would
+				// make the texture incomplete (and black)
+				unsigned int magMode = (m_FilterMode == FilterMode::NEAREST
+					|| m_FilterMode == FilterMode::NEAREST_MIPMAP_NEAREST)
+					? GL_NEAREST : GL_LINEAR;
+				glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, magMode);
 
 				glBindTexture(m_TypeUint, 0);
 			}

@@ -273,6 +273,9 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/RenderSettings.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderTarget.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/SkyAtmosphere.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Heightmap.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Terrain.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Scene.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SceneNode.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Serializable.cpp
@@ -299,6 +302,8 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorParticleWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPicking.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSelectionViz.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSkyWindow.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorTerrainWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorThemes.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorWindows.cpp
 	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImGuizmo.cpp

@@ -70,6 +70,23 @@ namespace fury
 		bool IsCascadedShadowMap() const;
 		void SetCascadedShadowMap(bool value);
 
+		// CSM depth map resolution per cascade (default 1024).
+		int GetCsmMapSize() const;
+		void SetCsmMapSize(int size);
+
+		// Cascade range in cm; 0 = cover the camera's full far plane.
+		float GetShadowFar() const;
+		void SetShadowFar(float far);
+
+		// Split blend: 0 = linear, 1 = logarithmic, in-between blends.
+		float GetCsmSplitBlend() const;
+		void SetCsmSplitBlend(float blend);
+
+		// The 4 cascade far distances (cm view depth) for a camera with
+		// this near/far. THE split source: the shadow-map render and the
+		// light shader's cascade picker must both use these.
+		void ComputeCsmSplits(float nearPlane, float cameraFar, float *outSplits4) const;
+
 		// Chain accessors. The chain is owned by RenderSettings; UI
 		// code mutates it in place via these methods. Resolution
 		// against the registry happens on scene load (see
@@ -100,6 +117,9 @@ namespace fury
 		std::string m_PipelinePath;
 		bool m_HDR = false;
 		bool m_CascadedShadowMap = true;
+		int m_CsmMapSize = 2048;
+		float m_ShadowFar = 20000.0f;    // cm; 0 = camera far
+		float m_CsmSplitBlend = 0.7f;    // 0 = linear, 1 = logarithmic
 		std::vector<RenderChainEntry> m_Chain;
 	};
 }
