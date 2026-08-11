@@ -95,3 +95,38 @@ The Engine settings panel SHALL expose the render settings — HDR/LDR toggle, C
 - **WHEN** the user clicks reset-to-defaults in the Edit dialog
 - **THEN** the entry's overrides are cleared and the effect renders with its descriptor defaults
 
+### Requirement: Render settings SHALL hold CSM tuning parameters and own cascade split computation
+
+Alongside the CSM toggle, the `renderSettings` block SHALL serialize:
+`csm_map_size` (per-cascade depth map resolution; only 512, 1024, 2048, and
+4096 are accepted — other values are rejected — default 2048), `shadow_far`
+(cascade range in cm; 0 = cover the camera's full far plane; default 20000),
+and `csm_split_blend` (0 = linear, 1 = logarithmic, in-between blends,
+clamped to [0, 1]; default 0.7).
+`RenderSettings::ComputeCsmSplits(nearPlane, cameraFar, outSplits4)` SHALL be
+THE single source of the 4 cascade far distances: the shadow-map render and
+the light shader's cascade picker SHALL both derive their splits from it, and
+the cascade range SHALL never stretch past the camera's far plane. The Engine
+settings panel SHALL expose the three fields (map-size combo, shadow-far
+drag, split-blend slider) and mark the scene dirty on edit.
+
+#### Scenario: Splits blend linear to logarithmic
+
+- **WHEN** `csm_split_blend` moves from 0 to 1
+- **THEN** `ComputeCsmSplits` output interpolates between the linear and logarithmic split schemes
+
+#### Scenario: Shadow far caps the cascade range
+
+- **WHEN** `shadow_far` is below the camera's far plane
+- **THEN** the outermost cascade ends at `shadow_far` rather than the camera far
+
+#### Scenario: Legacy scenes get the shipped defaults
+
+- **WHEN** a scene saved without the CSM tuning fields is loaded
+- **THEN** `csm_map_size` / `shadow_far` / `csm_split_blend` default to 2048 / 20000 / 0.7 and rendering is unchanged
+
+#### Scenario: Edit CSM settings in the panel
+
+- **WHEN** the user changes the CSM map size or split blend in the Engine settings panel
+- **THEN** the new values persist with the scene, the shadow maps rebuild at the new resolution, and the scene is marked dirty
+
