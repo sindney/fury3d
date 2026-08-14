@@ -29,8 +29,10 @@ namespace fury
 
 	// C4251: STL members (std::string, std::stringstream) in an exported class --
 // see the matching note in ThreadUtil.h.
+#if PLATFORM_WINDOWS
 #pragma warning(push)
 #pragma warning(disable: 4251)
+#endif
 	class FURY_API Record
 	{
 	public:
@@ -84,7 +86,9 @@ namespace fury
 			return *this;
 		}
 	};
+#if PLATFORM_WINDOWS
 #pragma warning(pop)
+#endif
 
 	struct FURY_API Formatter
 	{
@@ -121,8 +125,10 @@ namespace fury
 	template<int instance>
 	// C4251: STL members (std::mutex, std::ostream ref captured as pointer, ...)
 	// in an exported template class -- see note on Record above.
+#if PLATFORM_WINDOWS
 #pragma warning(push)
 #pragma warning(disable: 4251)
+#endif
 	class FURY_API Log : public Singleton<Log<instance>, LogLevel, const char*, bool, const LogFormatter&, bool>
 	{
 	private:
@@ -205,7 +211,9 @@ namespace fury
 			}
 		}
 	};
+#if PLATFORM_WINDOWS
 #pragma warning(pop)
+#endif
 }
 
 #ifdef _MSC_VER

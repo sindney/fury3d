@@ -21,8 +21,10 @@ namespace fury
 	// -- our consumers (fury + furye) all build against the same STL vendor and
 	// version, so the layout matches across the boundary. Suppress locally; the
 	// rest of the engine stays at /W4.
+#if PLATFORM_WINDOWS
 #pragma warning(push)
 #pragma warning(disable: 4251)
+#endif
 	class FURY_API ThreadUtil : public Singleton<ThreadUtil, size_t>
 	{
 	public:
@@ -114,7 +116,9 @@ namespace fury
 
 		bool IsMainThread();
 	};
+#if PLATFORM_WINDOWS
 #pragma warning(pop)
+#endif
 }
 
 #endif // _FURY_THREAD_UTIL_H_
