@@ -9,9 +9,16 @@ TBD
 ### Requirement: Context menu on every node row
 The Scene Inspector SHALL display a right-click context menu on every visible node row. The menu SHALL offer "Add Child", "Duplicate", "Rename", and "Delete" actions. The root node row SHALL offer only "Add Child".
 
-#### Scenario: Right-click on a non-root node
-- **WHEN** the user right-clicks on a non-root node row
-- **THEN** a popup appears with "Add Child", "Duplicate", "Rename", and "Delete" entries
+Entries are gated by the current selection size; see `scene-inspector-multi-select` for the full rules.
+
+#### Scenario: Right-click on a non-root node with one selected node
+- **WHEN** the user right-clicks a non-root node while exactly one node is selected
+- **THEN** a popup appears with "Add Child", "Duplicate", "Rename", and "Delete" entries, all enabled
+
+#### Scenario: Right-click with a multi-selection
+- **WHEN** the user right-clicks while three nodes are selected
+- **THEN** "Add Child", "Duplicate", "Rename" are rendered disabled (greyed out)
+- **AND** "Delete" is enabled
 
 #### Scenario: Right-click on the root node
 - **WHEN** the user right-clicks on the root node row
@@ -34,7 +41,7 @@ The Scene Inspector SHALL activate an in-place text input on a node row when the
 - **AND** the row's existing name is left unchanged
 
 ### Requirement: Double-click on a parent row toggles its expand/collapse state and frames the camera
-When the user double-clicks a node row whose node has one or more children, the Scene Inspector SHALL toggle that row's open/collapsed state (expand if collapsed, collapse if expanded) AND request the editor camera to frame that node. The expand/collapse SHALL be provided by `ImGuiTreeNodeFlags_OpenOnDoubleClick` on the row's `TreeNodeEx` flags; the frame SHALL go through the registered frame-selection handler (the C++ layer does NOT compute the camera transform directly). Both effects happen on the same double-click.
+When the user double-clicks a node row whose node has one or more children, the Scene Inspector SHALL toggle that row's open/collapsed state (expand if collapsed, collapse if expanded) AND request the editor camera to frame that node. The expand/collapse is implemented by flipping `g_OpenedNodes` directly via `Editor::SetNodeOpen` instead of relying on the unreliable `ImGuiTreeNodeFlags_OpenOnDoubleClick` detection; the frame goes through the registered frame-selection handler (the C++ layer does NOT compute the camera transform directly). Both effects happen on the same double-click.
 
 #### Scenario: Double-click expands a collapsed parent and frames it
 - **WHEN** the user double-clicks a node row that has children and is currently collapsed
@@ -46,10 +53,10 @@ When the user double-clicks a node row whose node has one or more children, the 
 - **THEN** the row collapses and its children become hidden
 - **AND** the camera is repositioned to frame the node
 
-#### Scenario: Double-click on the row's arrow icon also toggles
-- **WHEN** the user single-clicks the row's expand/collapse arrow
-- **THEN** the row toggles its open state (existing ImGui behavior preserved)
-- **AND** no camera motion occurs (only double-click triggers framing)
+#### Scenario: Double-click on the root node also toggles
+- **WHEN** the user double-clicks the root row
+- **THEN** the root's open/collapsed state toggles
+- **AND** the frame-selection handler is not invoked
 
 ### Requirement: Double-click on a leaf row frames the node in the viewport
 When the user double-clicks a node row whose node has zero children (a leaf), the Scene Inspector SHALL request the editor camera to frame that node by invoking the registered frame-selection handler with the node as the argument. The C++ layer SHALL NOT compute the camera transform directly; it SHALL defer to the registered handler. Leaves cannot expand (zero children), so the frame is the only effect.
@@ -137,7 +144,7 @@ The Scene Inspector SHALL allow a node to be dragged onto another node row. On d
 - **THEN** the drop is rejected and the original hierarchy is unchanged
 
 ### Requirement: Hover-to-expand during drag
-While a drag is active, the Scene Inspector SHALL automatically expand any collapsed node row that the cursor hovers over for at least 0.5 seconds, so the user can drop onto a deeper descendant without first manually expanding.
+While a drag is active, the Scene Inspector SHALL automatically expand any collapsed node row that the cursor hovers over for at least 0.5 seconds, so the user can drop onto a deeper descendant without first manually expanding. The expansion goes through `Editor::SetNodeOpen` so it integrates with the inspector's tree-state storage.
 
 #### Scenario: Hover expands a collapsed node
 - **WHEN** the user drags a node and hovers over a collapsed row for more than 0.5 seconds
@@ -146,14 +153,3 @@ While a drag is active, the Scene Inspector SHALL automatically expand any colla
 #### Scenario: Hover does not collapse an already-open node
 - **WHEN** the user hovers over an already-expanded node during a drag
 - **THEN** its open state is preserved
-
-### Requirement: Hover buttons provide discoverable per-row affordances
-When the cursor is over a node row, the Scene Inspector SHALL reveal two compact hover buttons: "+" (Add Child) and "..." (open context menu).
-
-#### Scenario: Hover reveals buttons
-- **WHEN** the cursor enters a node row
-- **THEN** a "+" and "..." button become visible at the right side of the row
-
-#### Scenario: Off-hover hides buttons
-- **WHEN** the cursor leaves a node row
-- **THEN** the row's hover buttons are not rendered

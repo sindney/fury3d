@@ -1,9 +1,11 @@
 #include "Fury/Scene.h"
 
+#include <cstring>
 #include <functional>
 #include <unordered_map>
 
 #include "Fury/AnimationClip.h"
+#include "Fury/FileUtil.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Heightmap.h"
 #include "Fury/Joint.h"
@@ -26,6 +28,24 @@ std::string Scene::Path(const std::string& path) {
 		return Scene::Active->GetWorkingDir() + path;
 	else
 		return path;
+}
+
+namespace { constexpr const char* kEnginePrefix = "Engine/"; }
+namespace { constexpr const char* kEngineAssetRoot = "Resource/"; }
+
+std::string Scene::ResolveAsset(const std::string& path) {
+	if (path.empty()) return path;
+
+	// Engine asset: strip "Engine/" and resolve to the engine resource
+	// root (cwd + "Resource/"). The engine resource root lives next
+	// to fury/furye on a typical launch (cwd = examples/).
+	if (path.compare(0, std::strlen(kEnginePrefix), kEnginePrefix) == 0) {
+		const std::string rest = path.substr(std::strlen(kEnginePrefix));
+		return FileUtil::GetAbsPath() + kEngineAssetRoot + rest;
+	}
+
+	// Project asset: scene's working_dir + path (the Scene::Path semantics).
+	return Scene::Path(path);
 }
 
 std::shared_ptr<EntityManager> Scene::Manager() {

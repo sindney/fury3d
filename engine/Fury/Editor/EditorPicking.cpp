@@ -285,7 +285,9 @@ namespace fury
 
 				if (auto locked = g_IdTable[id - 1].lock())
 				{
-					SetSelectedSceneNode(locked.get());
+					SceneNode* picked = locked.get();
+					SetSelectedSceneNode(picked);
+					Editor::RevealInInspector(picked);
 				}
 					// else: node was destroyed between request and readback -- silently no-op.
 				}

@@ -30,6 +30,7 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #if defined(_WIN32)
@@ -112,7 +113,14 @@ std::vector<CameraControl> g_CameraControls;
 // without exposing it on the Editor namespace.
 std::function<void(SceneNode*)> g_FrameSelectionHandler;
 std::unordered_map<std::string, bool> g_ImportFlags;
-SceneNode* g_SelectedSceneNode = nullptr;
+SceneNode* g_SelectedSceneNode = nullptr; // cached anchor of g_SelectionSet
+SceneNodeSet g_SelectionSet;              // full multi-node selection set
+
+// Per-node Scene Inspector tree open/closed state. Members are
+// SceneNode* (raw pointers -- the trigger funcs clear the set on
+// scene swap so dangling pointers don't leak across scenes).
+std::unordered_set<SceneNode*> g_OpenedNodes;
+
 bool g_ShowSettings = false;
 // Hidden by default -- opened on demand via the Window menu. (It was
 // briefly default-ON for dock persistence; the [FuryEditor] ini
@@ -313,7 +321,6 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Show=ContentBrowser=%d\n", g_ShowContentBrowser ? 1 : 0);
 	buf->appendf("Show=Viewport=%d\n", g_ShowViewport ? 1 : 0);
 	buf->appendf("Show=Animation=%d\n", g_ShowAnimation ? 1 : 0);
-
 	if (g_WindowForPersistence != nullptr)
 	{
 		const sf::Vector2u sz = g_WindowForPersistence->getSize();
@@ -368,12 +375,22 @@ const char* PlatformShortcut(const char* mac_text, const char* other_text) {
 	return ImGui::GetIO().ConfigMacOSXBehaviors ? mac_text : other_text;
 }
 
+// Per-scene editor reset. Wipes selection + tree state so dangling
+// SceneNode* pointers don't leak across scene swaps, then seeds the
+// new scene's root as expanded.
+void ResetForNewScene() {
+	g_OpenedNodes.clear();
+	ClearSelection();
+	if (Scene::Active && Scene::Active->GetRootNode())
+		Editor::SetNodeOpen(Scene::Active->GetRootNode().get(), true);
+}
+
 void TriggerNew() {
 	if (g_SceneIO.on_new) try {
 			g_SceneIO.on_new();
 		} catch (...) {}
 	ClearCurrentScene();
-	SetSelectedSceneNode(nullptr);
+	ResetForNewScene();
 }
 
 // Forward declaration -- TriggerSave falls through to TriggerSaveAs when
@@ -419,6 +436,7 @@ void TriggerSaveAs() {
 // Resource/Scene/ load path. Replaces the retired ImGui "Import Scene"
 // modal.
 void TriggerImport() {
+	ResetForNewScene();
 	if (g_SceneIO.on_import) {
 		try {
 			g_SceneIO.on_import({});
@@ -431,6 +449,7 @@ void TriggerImport() {
 // Editor.OpenDialog (replacing the retired ImGui "Open Scene" modal).
 // The File -> Open > <file> submenu still passes a bare filename.
 void TriggerOpen() {
+	ResetForNewScene();
 	if (g_SceneIO.on_open) {
 		try {
 			g_SceneIO.on_open({});
@@ -941,30 +960,77 @@ SceneNode* GetSelectedSceneNode() {
 	return g_SelectedSceneNode;
 }
 
+const SceneNodeSet& GetSelectionSet() {
+	return g_SelectionSet;
+}
+
 void SetSelectedSceneNode(SceneNode* node) {
-	if (g_SelectedSceneNode == node)
+	SceneNodeSet next;
+	if (node) {
+		next.members.push_back(node);
+		next.anchor = node;
+	}
+	if (g_SelectedSceneNode == next.anchor &&
+		g_SelectionSet.members.size() == next.members.size())
 		return;
-	g_SelectedSceneNode = node;
+	g_SelectionSet = std::move(next);
+	g_SelectedSceneNode = g_SelectionSet.anchor;
 	if (auto sig = OnSelectionChanged())
-		sig->Emit(std::move(node));
+		sig->Emit(std::move(g_SelectedSceneNode));
+}
+
+void SetSelectionSet(const SceneNodeSet& set) {
+	if (set.anchor == g_SelectionSet.anchor &&
+		set.members.size() == g_SelectionSet.members.size())
+	{
+		bool same = true;
+		for (size_t i = 0; i < set.members.size(); ++i) {
+			if (set.members[i] != g_SelectionSet.members[i]) { same = false; break; }
+		}
+		if (same) return;
+	}
+	g_SelectionSet = set;
+	g_SelectedSceneNode = g_SelectionSet.anchor;
+	if (auto sig = OnSelectionChanged())
+		sig->Emit(std::move(g_SelectedSceneNode));
+}
+
+void ClearSelection() {
+	if (g_SelectionSet.members.empty() && g_SelectionSet.anchor == nullptr)
+		return;
+	g_SelectionSet = SceneNodeSet{};
+	g_SelectedSceneNode = nullptr;
+	if (auto sig = OnSelectionChanged())
+		sig->Emit(std::move(g_SelectedSceneNode));
+}
+
+void SetNodeOpen(SceneNode* node, bool open) {
+	if (!node) return;
+	if (open) g_OpenedNodes.insert(node);
+	else      g_OpenedNodes.erase(node);
+}
+
+bool IsNodeOpen(SceneNode* node) {
+	if (!node) return false;
+	return g_OpenedNodes.count(node) != 0;
+}
+
+void RevealInInspector(SceneNode* node) {
+	// Open every collapsed ancestor so the picked node is visible.
+	if (!node) return;
+	for (auto p = node->GetParent().get(); p != nullptr; p = p->GetParent().get())
+		if (!IsNodeOpen(p)) SetNodeOpen(p, true);
 }
 
 void SelectAssetInBrowser(std::type_index type, const std::string& name) {
-	// Sets the Content Browser's selected asset (type_index, name)
-	// and flags a scroll-to-selection for the next frame. This is
-	// the "jump to asset" mechanism used by the Node Properties
-	// inspector's mesh / material / texture rows. No-op if the
-	// asset doesn't actually exist in the EntityManager -- the
-	// grid just won't find a matching tile and the scroll flag
-	// clears next frame.
 	g_SelectedAsset = std::make_pair(type, name);
 	g_PendingScrollToAsset = name;
 }
 
 std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged() {
-	// Function-local static: initialized on first call, survives
-	// across frames, destroyed at program exit. Avoids static-init
-	// ordering hazards with other file-scope globals.
+	// Function-local static: survives across frames, destroyed at
+	// program exit. Avoids static-init ordering hazards with other
+	// file-scope globals.
 	static auto sig = Signal<SceneNode*>::Create();
 	return sig;
 }
@@ -1144,6 +1210,7 @@ void SetCameraControls(std::vector<CameraControl> controls) {
 void ClearCameraControls() {
 	g_CameraControls.clear();
 }
+
 } // namespace Editor
 } // namespace fury
 

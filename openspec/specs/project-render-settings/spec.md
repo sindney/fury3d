@@ -4,6 +4,10 @@
 
 The per-scene `renderSettings` block: the single home for project-level render configuration (referenced pipeline, HDR/LDR mode, CSM, ordered postprocess chain). Persisted with the scene, seeded into the active pipeline on load, and edited in the Engine settings panel.
 ## Requirements
+### Requirement: Settings window sections open collapsed by default
+
+The Settings window `Render` and `Postprocess` sections (which host the render-settings widgets) SHALL start in their collapsed state on first appearance. Headers remain interactive; clicking a header toggles open/closed. See `editor-settings-collapsed-default` for the global behavior.
+
 ### Requirement: Scene owns a per-project render settings block
 
 A `Scene` SHALL persist a `renderSettings` block containing at minimum: the referenced pipeline, HDR/LDR mode, Cascaded Shadow Map (CSM) enablement, and an ordered postprocess chain. This block is the single home for project-level render configuration and SHALL NOT be stored on the Camera component or on individual nodes.

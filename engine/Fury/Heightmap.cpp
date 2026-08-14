@@ -77,7 +77,7 @@ namespace fury
 		jsonPath += ".json";
 
 		std::string jsonText;
-		if (!FileUtil::LoadString(Scene::Path(jsonPath), jsonText))
+		if (!FileUtil::LoadString(Scene::ResolveAsset(jsonPath), jsonText))
 		{
 			FURYE << "Heightmap: sidecar not found: " << jsonPath;
 			return false;
@@ -103,7 +103,7 @@ namespace fury
 			FURYW << "Heightmap: resolution " << m_Resolution << " is not 2^k+1, loading anyway";
 		}
 
-		std::ifstream stream(Scene::Path(m_FilePath), std::ios::binary);
+		std::ifstream stream(Scene::ResolveAsset(m_FilePath), std::ios::binary);
 		if (!stream.good())
 		{
 			FURYE << "Heightmap: file not found: " << m_FilePath;

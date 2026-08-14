@@ -17,6 +17,16 @@ namespace fury
 
 	namespace Editor
 	{
+		// Struct definitions live outside the WITH_EDITOR gate so the
+		// stub body in the OFF branch can return references to them.
+		// Both are pure data types (no FURY_API members) so linking
+		// stays clean in both build modes.
+		struct SceneNodeSet
+		{
+			std::vector<SceneNode*> members; // anchor-first
+			SceneNode* anchor = nullptr;
+		};
+
 #if WITH_EDITOR
 		// ----- lifecycle ---------------------------------------------------
 		void FURY_API Initialize();
@@ -34,31 +44,30 @@ namespace fury
 		void FURY_API Shutdown();
 
 		// ----- selection / visibility -------------------------------------
-		// Returns the SceneNode currently selected in the Scene Inspector,
-		// or nullptr if none / the selection has been invalidated.
+		// Set/GetSelectedSceneNode is the legacy single-node accessor; the
+		// underlying state is SceneNodeSet { members, anchor }, where anchor
+		// is the selected node. Existing single-node consumers read through
+		// the wrapper; multi-select mutations go through SetSelectionSet.
 		FURY_API SceneNode* GetSelectedSceneNode();
-
-		// Set the selected SceneNode and emit OnSelectionChanged. Every
-		// internal write to the selection goes through this helper so the
-		// signal fires uniformly. Passing nullptr deselects.
 		void FURY_API SetSelectedSceneNode(SceneNode* node);
+		FURY_API const SceneNodeSet& GetSelectionSet();
+		void FURY_API SetSelectionSet(const SceneNodeSet& set);
+		void FURY_API ClearSelection();
+
+		// ----- tree open/closed state ----------------------------------
+		void FURY_API SetNodeOpen(SceneNode* node, bool open);
+		bool FURY_API IsNodeOpen(SceneNode* node);
+
+		// Open every collapsed ancestor of the picked node so its row is
+		// visible after pick. Selection-only; no camera move.
+		void FURY_API RevealInInspector(SceneNode* node);
 
 		// ----- Edit-menu actions on the currently selected node -----
-		// Backing for File -> Edit menu items (and their keyboard
-		// shortcuts). No-op when nothing is selected; the scene-graph
-		// mutations (add / delete / duplicate / reparent) happen via
-		// the same deferred queue as the Scene Inspector's right-click
-		// context menu, so they observe identical safety invariants.
 		void FURY_API DeleteSelectedSceneNode();
-
 		void FURY_API DuplicateSelectedSceneNode();
-
 		void FURY_API AddChildToSelectedSceneNode();
 
-		// Signal emitted exactly once per selection change (including
-		// deselect-to-nullptr). Consumers subscribe via Connect; the
-		// returned shared_ptr owns the signal. Selection visualization
-		// and other editor systems use this instead of polling.
+		// Emits exactly once per selection change.
 		FURY_API std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged();
 
 		// True while the viewport-picking state machine is resolving a
@@ -229,6 +238,12 @@ namespace fury
 		inline void Shutdown() {}
 		inline SceneNode* GetSelectedSceneNode() { return nullptr; }
 		inline void SetSelectedSceneNode(SceneNode*) {}
+		inline const SceneNodeSet& GetSelectionSet() { static SceneNodeSet s; return s; }
+		inline void SetSelectionSet(const SceneNodeSet&) {}
+		inline void ClearSelection() {}
+		inline void SetNodeOpen(SceneNode*, bool) {}
+		inline bool IsNodeOpen(SceneNode*) { return true; }
+		inline void RevealInInspector(SceneNode*) {}
 		inline std::shared_ptr<Signal<SceneNode*>> OnSelectionChanged() { return nullptr; }
 		inline void DeleteSelectedSceneNode() {}
 		inline void DuplicateSelectedSceneNode() {}

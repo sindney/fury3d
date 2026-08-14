@@ -33,6 +33,13 @@ namespace fury
 		// Scene file format version; absent in files = 1.
 		static constexpr int kFormatVersion = 3;
 
+		// Resolves a relative asset path. "Engine/..." -> cwd/Resource/...
+		// (engine-shared); anything else -> scene's working_dir (project).
+		static std::string ResolveAsset(const std::string &path);
+
+		// Legacy path resolver: prepends the active scene's working_dir
+		// to non-absolute paths. No prefix awareness. New callers
+		// should use ResolveAsset instead.
 		static std::string Path(const std::string &path);
 
 		static std::shared_ptr<EntityManager> Manager();

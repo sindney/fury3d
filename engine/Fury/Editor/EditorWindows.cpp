@@ -106,8 +106,9 @@ void RenderSettingsWindow(bool* open) {
 		return;
 	}
 
-	// --- Editor (grid + camera + theme) ---------------------------
-	if (ImGui::CollapsingHeader("Editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+	// --- Editor (grid + camera + theme) -----------------
+	ImGui::SetNextItemOpen(false, ImGuiCond_FirstUseEver);
+	if (ImGui::CollapsingHeader("Editor")) {
 		ImGui::Spacing();
 
 		// Reference grid -- persisted editor state (see g_ShowGrid);
@@ -177,7 +178,8 @@ void RenderSettingsWindow(bool* open) {
 		}
 	}
 
-	// --- Import ---------------------------------------------------
+	// --- Import -----------------------------------------
+	ImGui::SetNextItemOpen(false, ImGuiCond_FirstUseEver);
 	if (ImGui::CollapsingHeader("Import")) {
 		bool v = GetImportFlag("auto_default_sun", true);
 		if (ImGui::Checkbox("Auto-Add Default Sun", &v)) {
@@ -200,40 +202,22 @@ void RenderSettingsWindow(bool* open) {
 		}
 	}
 
-	// --- Engine (read-only unit/coord info + CSM toggle) ---------
+	// --- Engine (HDR / CSM + postprocess chain + modal) ---
+	ImGui::SetNextItemOpen(false, ImGuiCond_FirstUseEver);
 	if (ImGui::CollapsingHeader("Engine")) {
-		// Read-only reference info -- see Camera.h / docs/ARCHITECTURE.md sec 5.1.
+		// Read-only reference info.
 		ImGui::TextDisabled("Unit:   1 unit = 1 cm");
 		ImGui::TextDisabled("Coords: right-handed, +Y up, -Z front");
 		ImGui::Spacing();
 
-		// HDR / LDR + CSM + postprocess chain: these are all fields
-		// of the active scene's `renderSettings` block (see Scene.h
-		// / RenderSettings.h). When no scene is active the panel
-		// stays read-only and shows "(no active pipeline)".
 		auto scene = Scene::Active;
 		auto settings = scene ? scene->GetRenderSettings() : nullptr;
 
 		if (Pipeline::Active && settings) {
-			// HDR toggle. The renderSettings block now carries
-			// HDR / CSM / the postprocess chain, so toggling HDR
-			// is a single click -- no Camera-component ceremony
-			// required. (Earlier revisions opened an "Add Camera?"
-			// confirm dialog here, but the camera typically lives
-			// in a child node, not the root, so the existence
-			// check was always wrong; removing it makes the
-			// toggle a single click.)
 			bool hdr = settings->IsHDR();
 			if (ImGui::Checkbox("HDR (rgba16f + ACES tonemap)", &hdr)) {
 				settings->SetHDR(hdr);
 				Pipeline::Active->SetHDRMode(hdr);
-
-				// Reload the matching stock pipeline for the new mode.
-				// Without the PBR pipeline the chain has no hdr_composite
-				// to read, so HDR-on silently disabled postprocessing
-				// (chainReplacesFinal = false). Only swaps when the
-				// current pipeline is one of the two stock JSONs (or
-				// unset) -- never stomps a custom pipeline.
 				static const char* kLdrPipeline = "Resource/Pipeline/DefferedLightingLambert.json";
 				static const char* kHdrPipeline = "Resource/Pipeline/DefferedLightingPBR.json";
 				const std::string &cur = settings->GetPipelinePath();
@@ -249,10 +233,6 @@ void RenderSettingsWindow(bool* open) {
 				Editor::MarkSceneDirty();
 			}
 
-			// CSM toggle. Reads from the scene's renderSettings
-			// (the single source of truth -- the pipeline switch is
-			// seeded from it on each frame by
-			// PrelightPipeline::Execute).
 			bool csm = settings->IsCascadedShadowMap();
 			if (ImGui::Checkbox("Cascaded Shadow Map (CSM)", &csm)) {
 				settings->SetCascadedShadowMap(csm);
@@ -260,7 +240,6 @@ void RenderSettingsWindow(bool* open) {
 				Editor::MarkSceneDirty();
 			}
 
-			// cascade map resolution (bigger = finer shadows, more memory)
 			{
 				static const char* kSizes[] = { "512", "1024", "2048", "4096" };
 				static const int kValues[] = { 512, 1024, 2048, 4096 };
@@ -273,7 +252,6 @@ void RenderSettingsWindow(bool* open) {
 				}
 			}
 
-			// cascade range + split distribution (scene-wide, both cameras)
 			{
 				float shadowFar = settings->GetShadowFar();
 				if (ImGui::DragFloat("Shadow Far (0 = camera far)", &shadowFar, 100.0f, 0.0f, 500000.0f)) {
@@ -291,12 +269,6 @@ void RenderSettingsWindow(bool* open) {
 			ImGui::Separator();
 			ImGui::TextDisabled("Postprocess chain (fixed order)");
 
-			// Chain order is engine-owned: PrelightPipeline runs
-			// effects sorted by (stage, order, name) -- pre-tonemap
-			// (SSAO/SSR) -> tonemap (ACES, auto with HDR) ->
-			// post-tonemap (FXAA/CRT). Users only toggle effects
-			// on/off here; there is deliberately no reorder UI.
-			// Entry order in the saved scene is ignored at runtime.
 			auto &chain = settings->GetChainMutable();
 			auto findEntry = [&](const std::string &name) -> int {
 				for (size_t i = 0; i < chain.size(); ++i)
@@ -311,7 +283,6 @@ void RenderSettingsWindow(bool* open) {
 				const auto stage = effect->GetStage();
 				const bool isTonemap = (stage == fury::PostProcessStage::TONEMAP);
 
-				// Stage group header doubles as the ordering hint.
 				if (firstRow || stage != lastStage) {
 					if (!firstRow) ImGui::Spacing();
 					switch (stage) {
@@ -339,8 +310,6 @@ void RenderSettingsWindow(bool* open) {
 
 				ImGui::SameLine();
 				if (isTonemap) {
-					// Tonemapping is not a user choice: it tracks the
-					// HDR checkbox (HDR on -> always tonemapped).
 					ImGui::BeginDisabled();
 					ImGui::Checkbox("Enabled", &enabled);
 					ImGui::EndDisabled();
@@ -354,10 +323,6 @@ void RenderSettingsWindow(bool* open) {
 					Editor::MarkSceneDirty();
 				}
 
-				// Edit opens the per-effect settings dialog (uniform
-				// overrides). Toggling isn't required first -- an entry
-				// is created (kept disabled) so e.g. ACES exposure is
-				// editable while the auto flag governs execution.
 				ImGui::SameLine();
 				if (ImGui::Button("Edit")) {
 					int editIdx = idx;
@@ -366,15 +331,11 @@ void RenderSettingsWindow(bool* open) {
 						editIdx = static_cast<int>(chain.size()) - 1;
 						Editor::MarkSceneDirty();
 					}
-					// Only record the request here -- OpenPopup runs
-					// after the loop at matching ID depth.
 					g_EditChainIndex = editIdx;
 				}
 				ImGui::PopID();
 			}
 
-			// Saved entries whose effect is no longer registered are
-			// dead weight: list them in red with a way to drop them.
 			for (size_t i = 0; i < chain.size(); ++i) {
 				if (fury::PostProcessRegistry::Get(chain[i].effectName)) continue;
 				ImGui::PushID(static_cast<int>(i));
@@ -389,7 +350,7 @@ void RenderSettingsWindow(bool* open) {
 					settings->RemoveEffect(chain[i].effectName);
 					Editor::MarkSceneDirty();
 					ImGui::PopID();
-					break; // chain mutated; restart next frame.
+					break;
 				}
 				ImGui::PopID();
 			}
@@ -397,10 +358,6 @@ void RenderSettingsWindow(bool* open) {
 			if (g_EditChainIndex >= 0 && !ImGui::IsPopupOpen("EffectSettings"))
 				ImGui::OpenPopup("EffectSettings");
 
-			// Per-effect settings dialog: edits the chain entry's
-			// uniform overrides. Opened by the row's Edit button
-			// (g_EditChainIndex); values seed from the override when
-			// present, else the effect's declared default.
 			if (g_EditChainIndex >= 0 &&
 				ImGui::BeginPopupModal("EffectSettings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 				auto &chainRef = settings->GetChainMutable();
@@ -414,12 +371,11 @@ void RenderSettingsWindow(bool* open) {
 						g_EditChainIndex = -1;
 						ImGui::CloseCurrentPopup();
 					} else {
-						ImGui::Text("%s uniforms", editEntry.effectName.c_str());
+						ImGui::Text("%s uniforms", editEffect->GetName().c_str());
 						if (editEffect->GetStage() == fury::PostProcessStage::TONEMAP)
 							ImGui::TextDisabled("(runs automatically while HDR is on)");
 						ImGui::Separator();
 
-						// Stable order: unordered_map iteration is not.
 						std::vector<std::string> names;
 						for (const auto &kv : editEffect->GetUniforms())
 							names.push_back(kv.first);
@@ -433,16 +389,12 @@ void RenderSettingsWindow(bool* open) {
 
 							float v[4] = {0, 0, 0, 0};
 							int arity = 0;
-							// p1..p4 (not p) to dodge MSVC C4456 -- the else-if
-							// chain still short-circuits on first match.
 							if (auto p1 = std::dynamic_pointer_cast<Uniform1f>(current)) { v[0] = p1->GetDataAt(0); arity = 1; }
 							else if (auto p2 = std::dynamic_pointer_cast<Uniform2f>(current)) { v[0] = p2->GetDataAt(0); v[1] = p2->GetDataAt(1); arity = 2; }
 							else if (auto p3 = std::dynamic_pointer_cast<Uniform3f>(current)) { v[0] = p3->GetDataAt(0); v[1] = p3->GetDataAt(1); v[2] = p3->GetDataAt(2); arity = 3; }
 							else if (auto p4 = std::dynamic_pointer_cast<Uniform4f>(current)) { v[0] = p4->GetDataAt(0); v[1] = p4->GetDataAt(1); v[2] = p4->GetDataAt(2); v[3] = p4->GetDataAt(3); arity = 4; }
 							if (arity == 0) continue;
 
-							// Descriptor-declared editor metadata:
-							// hover tip + rough adjustment range.
 							auto meta = editEffect->GetUniformMeta(uname);
 
 							ImGui::PushID(uname.c_str());
@@ -1133,20 +1085,70 @@ void HandleRowInteractions(SceneNode* node, int depth, bool isOpen) {
 	const std::string popupId = "NodeMenu##" + std::to_string(reinterpret_cast<uintptr_t>(node));
 
 	// --- Right-click context menu ------------------------------
+	// Wrapped in BeginPopupContextItem so the selection-promotion
+	// logic inside the block only fires when this row's popup is
+	// actually open (i.e. a real right-click happened on this row).
+	// Putting the promotion outside the block re-anchors the last
+	// row every frame the inspector renders -- see the project's
+	// popup-scope bug memory.
 	if (ImGui::BeginPopupContextItem(popupId.c_str())) {
-		if (ImGui::MenuItem("Add Child")) DoAddChild(node);
+		// Selection promotion. If the right-clicked row is not
+		// already in the current selection, replace the selection
+		// with {clicked} so the anchor matches the menu target.
+		// If it IS in the selection, leave the set alone -- the
+		// menu operates on the existing anchor / members.
+		const auto &cur = Editor::GetSelectionSet();
+		bool rowInSelection = false;
+		for (auto *m : cur.members) {
+			if (m == node) { rowInSelection = true; break; }
+		}
+		if (!rowInSelection) {
+			Editor::SetSelectedSceneNode(node);
+		}
+
+		// Selection-size gate. With >1 selected, the per-node
+		// actions (Add Child / Duplicate / Rename) are disabled
+		// and tooltipped; Delete stays enabled and operates on
+		// every member. The root row's spec is unchanged: it
+		// offers only Add Child regardless of selection size.
+		const bool multi = (Editor::GetSelectionSet().members.size() > 1);
+
+		if (ImGui::MenuItem("Add Child", nullptr, false, !multi)) {
+			DoAddChild(node);
+		} else if (multi) {
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Requires a single selection");
+		}
 		if (!isRoot) {
 			ImGui::Separator();
-			if (ImGui::MenuItem("Duplicate")) DoDuplicate(node);
-			if (ImGui::MenuItem("Rename")) DoRenameActivate(node);
-			if (ImGui::MenuItem("Delete")) DoDelete(node);
+			if (ImGui::MenuItem("Duplicate", nullptr, false, !multi)) {
+				DoDuplicate(node);
+			} else if (multi) {
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Requires a single selection");
+			}
+			if (ImGui::MenuItem("Rename", nullptr, false, !multi)) {
+				DoRenameActivate(node);
+			} else if (multi) {
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Requires a single selection");
+			}
+			// Delete iterates the full selection set (the
+			// selection has been promoted to {node} above when
+			// the row wasn't already in the set, so the loop
+			// covers the intended targets either way).
+			if (ImGui::MenuItem("Delete")) {
+				const auto &after = Editor::GetSelectionSet();
+				std::vector<SceneNode*> toDelete;
+				toDelete.reserve(after.members.size());
+				for (auto *m : after.members) {
+					if (m && m->GetParent()) toDelete.push_back(m);
+				}
+				for (auto *m : toDelete) DoDelete(m);
+				Editor::ClearSelection();
+			}
 		}
 		ImGui::EndPopup();
 	}
 
 	// --- Drag source --------------------------------------------
-	// Disabled for the root: the spec only allows reparenting
-	// across parents, never "out of" the root.
 	if (!isRoot && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
 		SceneNode* payload = node;
 		ImGui::SetDragDropPayload(kSceneNodeDragPayload, &payload, sizeof(payload));
@@ -1155,9 +1157,6 @@ void HandleRowInteractions(SceneNode* node, int depth, bool isOpen) {
 	}
 
 	// --- Drop target --------------------------------------------
-	// Queue the reparent; the actual mutation runs at the end of
-	// the frame (see RenderSceneInspectorWindow's tail) so we don't
-	// mutate the scene graph while ImGui is mid-tree.
 	if (ImGui::BeginDragDropTarget()) {
 		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kSceneNodeDragPayload)) {
 			IM_ASSERT(payload->DataSize == sizeof(SceneNode*));
@@ -1170,19 +1169,16 @@ void HandleRowInteractions(SceneNode* node, int depth, bool isOpen) {
 	}
 
 	// --- Hover-to-expand during drag ---------------------------
-	// Track first-hover time on a collapsed row; expand the row
-	// once the dwell exceeds the threshold.
 	if (ImGui::IsDragDropActive() && ImGui::IsItemHovered() && !isOpen && node->GetChildCount() > 0) {
 		double now = ImGui::GetTime();
 		auto it = g_HoverExpandStart.find(node);
 		if (it == g_HoverExpandStart.end())
 			g_HoverExpandStart[node] = now;
 		else if (now - it->second > kHoverExpandDelay) {
-			ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+			Editor::SetNodeOpen(node, true);
 			g_HoverExpandStart.erase(it);
 		}
 	} else {
-		// Cursor left the row -- reset the dwell timer.
 		g_HoverExpandStart.erase(node);
 	}
 }
@@ -1191,15 +1187,80 @@ void HandleRowInteractions(SceneNode* node, int depth, bool isOpen) {
 // Lua-provided TreeNode path. `node` may be nullptr for synthetic
 // rows supplied by Lua (read-only display only -- interactions
 // are skipped when node is null).
+namespace {
+// True if `node` is currently in the multi-node selection set.
+bool IsNodeInSelection(SceneNode* node) {
+	if (!node) return false;
+	const auto &set = Editor::GetSelectionSet();
+	for (auto *m : set.members) if (m == node) return true;
+	return false;
+}
+
+// Walk the active scene's tree depth-first, emitting children only
+// when the parent is open in g_OpenedNodes. Used by shift-click to
+// resolve the range on demand (mid-render click handling).
+void CollectVisibleRows(const std::shared_ptr<SceneNode>& node, std::vector<SceneNode*>& out) {
+	if (!node) return;
+	out.push_back(node.get());
+	if (!Editor::IsNodeOpen(node.get())) return;
+	for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+		CollectVisibleRows(node->GetChildAt(i), out);
+}
+
+size_t FindRowIndex(const std::vector<SceneNode*>& rows, SceneNode* node) {
+	if (!node) return SIZE_MAX;
+	for (size_t i = 0; i < rows.size(); ++i) if (rows[i] == node) return i;
+	return SIZE_MAX;
+}
+}
+
+// Multi-select click rule: plain resets selection; Ctrl toggles (anchor=clicked);
+// Shift selects the contiguous visible range from anchor to clicked.
+void ApplyRowSelectionClick(SceneNode* node, bool ctrl, bool shift) {
+	if (!node) return;
+	const Editor::SceneNodeSet current = Editor::GetSelectionSet();
+	if (shift) {
+		// The click handler fires mid-render, so a render-time cache would
+		// only see rows above this one -- walk the tree on demand.
+		const std::shared_ptr<SceneNode> root =
+			(Scene::Active && Scene::Active->GetRootNode()) ? Scene::Active->GetRootNode() : nullptr;
+		if (!root) return;
+		std::vector<SceneNode*> rows;
+		CollectVisibleRows(root, rows);
+		SceneNode* a = current.anchor ? current.anchor : node;
+		size_t ai = FindRowIndex(rows, a);
+		size_t bi = FindRowIndex(rows, node);
+		if (ai == SIZE_MAX || bi == SIZE_MAX) return;
+		if (ai > bi) std::swap(ai, bi);
+		Editor::SceneNodeSet ns;
+		ns.anchor = a;
+		for (size_t i = ai; i <= bi; ++i)
+			ns.members.push_back(rows[i]);
+		Editor::SetSelectionSet(ns);
+		return;
+	}
+	if (ctrl) {
+		// Toggle. Anchor becomes the clicked node.
+		Editor::SceneNodeSet ns;
+		bool wasIn = false;
+		for (auto *m : current.members) if (m == node) { wasIn = true; break; }
+		for (auto *m : current.members)
+			if (m != node) ns.members.push_back(m);
+		if (!wasIn) ns.members.push_back(node);
+		ns.anchor = node;
+		Editor::SetSelectionSet(ns);
+		return;
+	}
+	if (current.members.size() == 1 && current.anchor == node) return;
+	Editor::SetSelectedSceneNode(node);
+}
+
 void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, bool* outOpen) {
 	const bool isRoot = (depth == 0);
-	// OpenOnArrow (click the triangle) is handled by ImGui. We don't
-	// pass OpenOnDoubleClick because the double-click branch below
-	// flips the storage directly -- a reliable, version-agnostic path
-	// that avoids depending on the ImGui flag firing in this context.
-	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+							   ImGuiTreeNodeFlags_SpanFullWidth;
 	if (isRoot) flags |= ImGuiTreeNodeFlags_DefaultOpen;
-	if (node && g_SelectedSceneNode == node)
+	if (node && IsNodeInSelection(node))
 		flags |= ImGuiTreeNodeFlags_Selected;
 	bool isLeaf = true;
 	if (node)
@@ -1208,16 +1269,16 @@ void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, b
 		isLeaf = false; // unknown child count for synthetic rows
 	if (isLeaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 
+	if (node) {
+		const bool open_in_set = Editor::IsNodeOpen(node);
+		ImGui::SetNextItemOpen(open_in_set, ImGuiCond_Always);
+	}
+
 	bool open = false;
 	auto rit = node ? g_RenameStates.find(node) : g_RenameStates.end();
 	if (rit != g_RenameStates.end() && rit->second.active) {
-		// Render an empty tree node + InputText on the same line.
-		// The Leaf + NoTreePushOnOpen flags prevent the tree node
-		// from opening/closing or pushing onto the ID stack -- we
-		// also force `open=false` so the caller's TreePop() is
-		// skipped (ImGui asserts if TreePop has no matching
-		// push). The user can keep editing children visually
-		// collapsed while the rename field is active.
+		// Inline rename: tree node renders empty + InputText next to it.
+		// Leaf + NoTreePushOnOpen prevent ID stack / TreePop mismatches.
 		flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 		ImGui::TreeNodeEx((void*)node, flags, "");
 		open = false;
@@ -1247,30 +1308,28 @@ void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, b
 								 displayName.empty() ? "(unnamed)" : displayName.c_str());
 	}
 
-	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-		if (node) SetSelectedSceneNode(node);
+	// Mirror resolved open state back into Editor::g_OpenedNodes so
+	// the SetNextItemOpen seed above is consistent next frame.
+	if (node && !(rit != g_RenameStates.end() && rit->second.active))
+		Editor::SetNodeOpen(node, open);
+
+	// Plain click: apply multi-select rule (skip when arrow toggled).
+	const bool wasToggled = ImGui::IsItemToggledOpen();
+	if (ImGui::IsItemClicked() && !wasToggled && node) {
+		ApplyRowSelectionClick(node,
+			ImGui::GetIO().KeyCtrl,
+			ImGui::GetIO().KeyShift);
 	}
 
-	// Double-click on any non-root row: request a camera frame AND
-	// toggle expand/collapse. We flip the storage directly instead of
-	// using ImGuiTreeNodeFlags_OpenOnDoubleClick -- the flag is unreliable
-	// in this layout (its press detection races with our own click
-	// check, and in some ImGui builds the toggle never fires on the
-	// label area). The next frame's TreeNodeEx picks up the flipped
-	// state and the children appear. Leaves can't expand (zero
-	// children), so the frame is the only visible effect for them.
-	// Rename is no longer reachable via double-click -- use F2 or the
-	// context menu's "Rename" entry instead.
-	if (node && !isRoot && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-		Editor::FrameSelection(node);
-		ImGuiID id = ImGui::GetID((void*)node);
-		ImGuiStorage* storage = ImGui::GetStateStorage();
-		int current = storage->GetInt(id, 0);
-		storage->SetInt(id, current == 0 ? 1 : 0);
+	// Double-click: toggle open/closed (always). Camera-frame is
+	// skipped for the root -- framing the whole scene does nothing
+	// useful. Flip storage directly because OpenOnDoubleClick is
+	// unreliable (its press detection races with our own click check).
+	if (node && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+		if (!isRoot) Editor::FrameSelection(node);
+		Editor::SetNodeOpen(node, !Editor::IsNodeOpen(node));
 	}
 
-	// Only the C++ scene-graph path exposes mutations: synthetic
-	// Lua-owned rows are read-only.
 	if (node) HandleRowInteractions(node, depth, open);
 
 	if (outOpen) *outOpen = open;

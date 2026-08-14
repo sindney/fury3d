@@ -1724,6 +1724,20 @@ namespace fury
 			else
 				Editor::SetSelectedSceneNode(node_obj.as<SceneNode*>());
 		};
+		// Multi-select accessor: returns a Lua table of SceneNode*
+		// usertypes in anchor-first order. The C++ side keeps the full
+		// set in Editor::GetSelectionSet(); we copy each entry into a
+		// new table so user scripts that mutate the table don't see
+		// the set through a live reference.
+		editor_tbl["GetSelection"] = [](sol::this_state s) -> sol::table {
+			sol::state_view sview(s);
+			const auto &set = fury::Editor::GetSelectionSet();
+			sol::table t = sview.create_table();
+			for (size_t i = 0; i < set.members.size(); ++i)
+				t[i + 1] = set.members[i];
+			return t;
+		};
+		editor_tbl["ClearSelection"] = []() { fury::Editor::ClearSelection(); };
 		editor_tbl["SetWindowVisible"]    = [](const std::string &name, bool v) { Editor::SetWindowVisible(name.c_str(), v); };
 		editor_tbl["GetWindowVisible"]    = [](const std::string& name) -> bool { return Editor::GetWindowVisible(name.c_str()); };
 		editor_tbl["IsPickInFlight"]      = []() -> bool { return Editor::IsPickInFlight(); };
@@ -1817,6 +1831,8 @@ namespace fury
 			editor_tbl["Log"]                   = [](sol::object, sol::object) {};
 		editor_tbl["GetSelectedSceneNode"]  = []() -> sol::object { return sol::nil; };
 		editor_tbl["SetSelectedSceneNode"]  = [](sol::object) {};
+		editor_tbl["GetSelection"]          = [](sol::this_state) { return sol::object(sol::nil); };
+		editor_tbl["ClearSelection"]        = [](sol::object) {};
 		editor_tbl["SetWindowVisible"]      = [](sol::object, sol::object) {};
 		editor_tbl["GetWindowVisible"]      = [](sol::object) -> bool { return false; };
 		editor_tbl["IsPickInFlight"]        = []() -> bool { return false; };

@@ -479,6 +479,30 @@ weight per vertex) feed the standard linear-blend skinning shader.
 
 ## 8. Asset loading
 
+### 8.0 Asset path scheme (`Scene::ResolveAsset`)
+
+`Scene::ResolveAsset(p)` has two cases:
+
+- `Engine/foo.png` -> `<cwd>/Resource/foo.png` (engine-shared asset
+  that ships with fury/furye; cwd is the `examples/` tree on a typical
+  `./furye` launch).
+- Anything else -> `working_dir + path` (project-local asset that
+  lives next to the loaded `.bin`). Equivalent to the legacy
+  `Scene::Path(p)`.
+
+The `Engine/` prefix is the only thing distinguishing engine vs
+project assets; "raw" paths (no prefix) all flow through the project
+case. Use `Engine/` for things that ship with the engine binaries
+(pipeline JSONs, atmosphere shaders, cloud/moon textures, etc.) and
+raw paths for things that ship with a project (terrain height
+images, splatmaps, etc.).
+
+C++ callers of `ResolveAsset`: `Texture::CreateFromImage`,
+`Heightmap::LoadMeta`, `Heightmap::Open`. Other engine-asset paths
+loaded from Lua (`Resource/Pipeline/...`, `Resource/PostProcess/...`)
+still flow through `FileUtil.GetAbsPath(p)` (cwd-relative) and can
+migrate to `Engine/...` later for consistency.
+
 ### 8.1 FBX path (`FbxParser`)
 
 Single entry point:

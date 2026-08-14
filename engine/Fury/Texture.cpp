@@ -227,15 +227,16 @@ namespace fury
 		int channels;
 		std::vector<unsigned char> pixels;
 
-		// Resolve via Scene::Path (which prepends the active scene's
-		// working_dir) for relative paths; absolute paths are passed through
-		// untouched so glTF-importer-extracted textures (which write to
-		// /tmp/.../outdoor_imageN.jpg etc.) resolve correctly without being
-		// double-prefixed.
+		// Resolve via Scene::ResolveAsset (Engine/ prefix routes to the
+		// engine resource root, anything else joins the active scene's
+		// working_dir). Absolute paths are passed through untouched so
+		// glTF-importer-extracted textures (which write to
+		// /tmp/.../outdoor_imageN.jpg etc.) resolve correctly without
+		// being double-prefixed.
 		const bool isAbsolute = !filePath.empty()
 			&& (filePath.front() == '/' || filePath.front() == '\\'
 				|| (filePath.size() >= 2 && filePath[1] == ':'));
-		const std::string resolved = isAbsolute ? filePath : Scene::Path(filePath);
+		const std::string resolved = isAbsolute ? filePath : Scene::ResolveAsset(filePath);
 
 		// Record the requested path up-front so the save-side
 		// relocation can find and rewrite it even when the load

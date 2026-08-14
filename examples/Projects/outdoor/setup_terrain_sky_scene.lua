@@ -116,8 +116,11 @@ sky:SetCloudsEnabled(true)
 sky:SetCloudCoverage(0.4)
 sky:SetCloudScale(0.7)   -- 512px tile ~= 1.4km, texel ~2.8m
 sky:SetCloudDensity(18.0)
-sky:SetCloudNoisePath("Terrain/cloud_noise.png")
-sky:SetMoonTexturePath("Terrain/moon.png")
+-- Engine/ prefix -> Scene::ResolveAsset maps to <cwd>/Resource/...
+-- so these resolve to examples/Resource/Texture/Sky/ regardless of
+-- the opened scene's working_dir. See SKY-README.md.
+sky:SetCloudNoisePath("Engine/Texture/Sky/cloud_noise.png")
+sky:SetMoonTexturePath("Engine/Texture/Sky/moon.png")
 sky:SetSunAngularRadius(0.009)   -- larger-than-life disc, demo readability
 sky:SetSunDiscIntensity(10.0)    -- keeps the horizon disc orange, not blown
 sky:SetMoonIntensity(0.9)
