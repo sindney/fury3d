@@ -691,13 +691,24 @@ namespace fury
 
 		glBindVertexArray(mesh->m_VAO);
 
+		// A channel whose Data is empty is "clean" (nothing to upload) but
+		// has buffer ID 0. Binding buffer 0 + glVertexAttribPointer(..., 0)
+		// sources the attribute from CLIENT address 0 -- core GL raises
+		// GL_INVALID_OPERATION (macOS: draw silently skipped), while the
+		// Windows NVIDIA driver dereferences the null client pointer inside
+		// glDrawElements (nvoglv64 worker-thread AV). Guard on GetID() and
+		// fall back to a disabled (constant) attribute for empty channels.
 		if (posFlag != -1)
 		{
-			if (!mesh->Positions.GetDirty())
+			if (!mesh->Positions.GetDirty() && mesh->Positions.GetID() != 0)
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Positions.GetID());
 				glVertexAttribPointer(posFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
 				glEnableVertexAttribArray(posFlag);
+			}
+			else if (mesh->Positions.Data.empty())
+			{
+				glDisableVertexAttribArray(posFlag);
 			}
 			else
 			{
@@ -706,11 +717,15 @@ namespace fury
 		}
 		if (normalFlag != -1)
 		{
-			if (!mesh->Normals.GetDirty())
+			if (!mesh->Normals.GetDirty() && mesh->Normals.GetID() != 0)
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Normals.GetID());
 				glVertexAttribPointer(normalFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
 				glEnableVertexAttribArray(normalFlag);
+			}
+			else if (mesh->Normals.Data.empty())
+			{
+				glDisableVertexAttribArray(normalFlag);
 			}
 			else
 			{
@@ -719,11 +734,15 @@ namespace fury
 		}
 		if (tangentFlag != -1)
 		{
-			if (!mesh->Tangents.GetDirty())
+			if (!mesh->Tangents.GetDirty() && mesh->Tangents.GetID() != 0)
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->Tangents.GetID());
 				glVertexAttribPointer(tangentFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
 				glEnableVertexAttribArray(tangentFlag);
+			}
+			else if (mesh->Tangents.Data.empty())
+			{
+				glDisableVertexAttribArray(tangentFlag);
 			}
 			else
 			{
@@ -732,11 +751,15 @@ namespace fury
 		}
 		if (uvFlag != -1)
 		{
-			if (!mesh->UVs.GetDirty())
+			if (!mesh->UVs.GetDirty() && mesh->UVs.GetID() != 0)
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mesh->UVs.GetID());
 				glVertexAttribPointer(uvFlag, 2, GL_FLOAT, GL_FALSE, 0, 0);
 				glEnableVertexAttribArray(uvFlag);
+			}
+			else if (mesh->UVs.Data.empty())
+			{
+				glDisableVertexAttribArray(uvFlag);
 			}
 			else
 			{
@@ -751,11 +774,15 @@ namespace fury
 
 			if (idFlag != -1)
 			{
-				if (!mesh->IDs.GetDirty())
+				if (!mesh->IDs.GetDirty() && mesh->IDs.GetID() != 0)
 				{
 					glBindBuffer(GL_ARRAY_BUFFER, mesh->IDs.GetID());
 					glVertexAttribIPointer(idFlag, 4, GL_UNSIGNED_INT, 0, 0);
 					glEnableVertexAttribArray(idFlag);
+				}
+				else if (mesh->IDs.Data.empty())
+				{
+					glDisableVertexAttribArray(idFlag);
 				}
 				else
 				{
@@ -769,11 +796,15 @@ namespace fury
 
 			if (weightFlag != -1)
 			{
-				if (!mesh->Weights.GetDirty())
+				if (!mesh->Weights.GetDirty() && mesh->Weights.GetID() != 0)
 				{
 					glBindBuffer(GL_ARRAY_BUFFER, mesh->Weights.GetID());
 					glVertexAttribPointer(weightFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
 					glEnableVertexAttribArray(weightFlag);
+				}
+				else if (mesh->Weights.Data.empty())
+				{
+					glDisableVertexAttribArray(weightFlag);
 				}
 				else
 				{

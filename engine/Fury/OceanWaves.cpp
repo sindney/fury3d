@@ -7,10 +7,12 @@
 #include <rapidjson/document.h>
 
 #include "Fury/EnumUtil.h"
-#include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Scene.h"
+// NOTE: must come after GLLoader.h (windows.h) -- FileUtil.h #undefs the
+// WinAPI LoadString macro that would otherwise rewrite FileUtil::LoadString.
+#include "Fury/FileUtil.h"
 
 namespace fury
 {
