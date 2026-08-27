@@ -15,6 +15,7 @@
 #include "Fury/AnimationClip.h"
 #include "Fury/BoxBounds.h"
 #include "Fury/BufferManager.h"
+#include "Fury/Engine.h"
 #include "Fury/EntityManager.h"
 #include "Fury/FbxConverter.h"
 #include "Fury/FileUtil.h"
@@ -1175,4 +1176,5 @@ namespace fury
 			return 2;
 		}
 	}
+
 }

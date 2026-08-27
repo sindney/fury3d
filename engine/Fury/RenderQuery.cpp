@@ -58,6 +58,11 @@ namespace fury
 		particleNodes.push_back(node);
 	}
 
+	void RenderQuery::AddOcean(const std::shared_ptr<SceneNode> &node)
+	{
+		oceanNodes.push_back(node);
+	}
+
 	void RenderQuery::Sort(Vector4 camPos)
 	{
 		std::sort(opaqueUnits.begin(), opaqueUnits.end(), [&camPos](const RenderUnit &a, const RenderUnit &b) -> bool
@@ -88,6 +93,7 @@ namespace fury
 		opaqueUnits.clear();
 		transparentUnits.clear();
 		particleNodes.clear();
+		oceanNodes.clear();
 		renderableNodes.clear();
 		lightNodes.clear();
 	}

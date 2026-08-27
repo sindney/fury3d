@@ -1,0 +1,42 @@
+{
+  "bands": {
+    "ripple": {
+      "amplitudeCm": 4.0,
+      "dispFile": "ripple_disp.f16",
+      "maxFoam": 0.1229,
+      "nrmFile": "ripple_nrm.u8",
+      "preNormPeakDy": 0.0,
+      "resolution": 32,
+      "tileCm": 400.0
+    },
+    "swell": {
+      "amplitudeCm": 40.0,
+      "dispFile": "swell_disp.f16",
+      "maxFoam": 0.2423,
+      "nrmFile": "swell_nrm.u8",
+      "preNormPeakDy": 0.0012,
+      "resolution": 32,
+      "tileCm": 2000.0
+    }
+  },
+  "choppiness": 1.0,
+  "fetchCm": 100000.0,
+  "foamBias": 1.0,
+  "foamGain": 2.0,
+  "format": 1,
+  "frames": 8,
+  "layout": {
+    "disp": "RGBA16 half LE, frame-major, rows=z cols=x",
+    "nrm": "RGBA8, frame-major, rows=z cols=x"
+  },
+  "loopSeconds": 4.0,
+  "seed": 7,
+  "sha256": {
+    "ripple_disp.f16": "44b8d1b1c99b141b5ee33b15f78260eff9587d7ed24a1627619d4fd6a9d34605",
+    "ripple_nrm.u8": "d458b59530e85191348a1b9bd07e74de5fd815ef57b84f2602517d647f592953",
+    "swell_disp.f16": "a13c2dd4e0d950707653f780e828621a82f8faaebcecb6255e738f048cf91671",
+    "swell_nrm.u8": "dc3429e3dd446f640de0f1ab9e4267240f69af01dbe010a01a5065b35904253b"
+  },
+  "windDirectionDeg": 35.0,
+  "windSpeedCmPerSec": 800.0
+}

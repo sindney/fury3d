@@ -18,6 +18,7 @@
 #include "Fury/Heightmap.h"
 #include "Fury/Light.h"
 #include "Fury/EntityUtil.h"
+#include "Fury/Engine.h"
 #include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
@@ -27,6 +28,8 @@
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/MeshUtil.h"
+#include "Fury/OceanComponent.h"
+#include "Fury/OceanWaves.h"
 #include "Fury/Pass.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PostProcessEffect.h"
@@ -267,6 +270,31 @@ void RenderSettingsWindow(bool* open) {
 
 			ImGui::Spacing();
 			ImGui::Separator();
+			ImGui::TextDisabled("GPU capabilities");
+
+			// Compute shader switch (change: add-fft-ocean): the global user
+			// enable AND-ed with hardware capability. Persisted via the
+			// import-flag registry; FURY_COMPUTE_SHADER=0/1 overrides per run.
+			{
+				bool capable = gl::HasComputeShaders();
+				bool enabled = Engine::GetComputeShadersEnabled();
+				if (!capable) ImGui::BeginDisabled();
+				if (ImGui::Checkbox("Compute Shaders (GL 4.3+)", &enabled)) {
+					Engine::SetComputeShadersEnabled(enabled);
+					Editor::SetImportFlag("compute_shaders", enabled);
+				}
+				if (!capable) {
+					ImGui::EndDisabled();
+					ImGui::SameLine();
+					ImGui::TextDisabled("(unavailable: GL 4.3+ required)");
+				}
+				ImGui::TextDisabled("Effective: %s%s",
+					Engine::HasEffectiveCompute() ? "on" : "off",
+					getenv("FURY_COMPUTE_SHADER") ? " (env override)" : "");
+			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
 			ImGui::TextDisabled("Postprocess chain (fixed order)");
 
 			auto &chain = settings->GetChainMutable();
@@ -477,6 +505,18 @@ void CollectShadowCasters(const std::shared_ptr<SceneNode> &node,
 		CollectShadowCasters(node->GetChildAt(i), out);
 }
 
+// Recursive helper: collect every SceneNode with an OceanComponent
+// (viewport debug droplist drives all of them at once).
+void CollectOceanNodes(const std::shared_ptr<SceneNode> &node,
+	std::vector<std::shared_ptr<SceneNode>> &out)
+{
+	if (!node) return;
+	if (node->GetComponent<OceanComponent>())
+		out.push_back(node);
+	for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+		CollectOceanNodes(node->GetChildAt(i), out);
+}
+
 // Stable sort: directional first, then point, then spot.
 static int LightTypeRank(LightType type) {
 	switch (type) {
@@ -651,8 +691,8 @@ void RenderProfilerGBufferTab() {
 	} else {
 		show("Light Buffer:", "gbuffer_light", false);
 	}
-	// Buffer debug view (viewport toolbar View SSAO/SSR) -- shown
-	// here too when the pipeline produced one this frame.
+	// Buffer debug view (viewport Debug droplist, PostProcess submenu) --
+	// shown here too when the pipeline produced one this frame.
 	if (Pipeline::Active->GetDebugViewTexture()) {
 		show("Debug View (SSAO/SSR):", "debug_view", false);
 	}
@@ -1577,7 +1617,8 @@ struct TileEntry {
 static int g_FilterType = 0;
 static char g_FilterText[128] = "";
 constexpr const char* kFilterTypeNames[] = {
-	"All", "Mesh", "Material", "Texture", "AnimationClip", "ParticleSystem", "Heightmap"};
+	"All", "Mesh", "Material", "Texture", "AnimationClip", "ParticleSystem", "Heightmap",
+	"OceanWaves"};
 
 // Case-insensitive subsequence: every char of `pattern` appears in
 // `text` in order ("spz" matches "Sponza").
@@ -1602,6 +1643,7 @@ bool TilePassesFilter(const TileEntry& tile) {
 		case 4: want = &typeid(AnimationClip); break;
 		case 5: want = &typeid(ParticleSystem); break;
 		case 6: want = &typeid(Heightmap); break;
+		case 7: want = &typeid(OceanWaves); break;
 		}
 		if (want && tile.type != *want) return false;
 	}
@@ -1610,8 +1652,36 @@ bool TilePassesFilter(const TileEntry& tile) {
 	return true;
 }
 
-void CollectTiles(std::vector<TileEntry>& tiles) {
-	if (!Scene::Active) return;
+// Lazily load + cache the bake's swell height preview PNG for an
+// OceanWaves tile (editor-only: a GL context always exists here).
+// Lives next to the wave json as <dir>/swell_height_preview.png.
+unsigned int GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
+	static std::unordered_map<std::string, Texture::Ptr> cache;
+	static std::unordered_set<std::string> missing;
+	if (!waves) return 0;
+	const std::string& path = waves->GetFilePath();
+	if (missing.count(path)) return 0;
+	auto it = cache.find(path);
+	if (it != cache.end()) return it->second->GetID();
+	std::string dir;
+	auto slash = path.find_last_of("/\\");
+	if (slash != std::string::npos) dir = path.substr(0, slash + 1);
+	const std::string rel = dir + "swell_height_preview.png";
+	if (!FileUtil::FileExist(Scene::ResolveAsset(rel))) {
+		missing.insert(path);
+		return 0;
+	}
+	auto tex = Texture::Create("oceanwaves_preview");
+	tex->CreateFromImage(rel, false, false);
+	if (tex->GetID() == 0) {
+		missing.insert(path);
+		return 0;
+	}
+	cache[path] = tex;
+	return tex->GetID();
+}
+
+void CollectTiles(std::vector<TileEntry>& tiles) {	if (!Scene::Active) return;
 	auto em = Scene::Active->GetEntityManager();
 	if (!em) return;
 	em->ForEach<Mesh>([&](const std::shared_ptr<Mesh>& m) {
@@ -1642,6 +1712,11 @@ void CollectTiles(std::vector<TileEntry>& tiles) {
 	em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap>& h) {
 		tiles.push_back({typeid(Heightmap), h->GetName(),
 						 std::static_pointer_cast<void>(h)});
+		return true;
+	});
+	em->ForEach<OceanWaves>([&](const std::shared_ptr<OceanWaves>& w) {
+		tiles.push_back({typeid(OceanWaves), w->GetName(),
+						 std::static_pointer_cast<void>(w)});
 		return true;
 	});
 }
@@ -1907,6 +1982,25 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		ImVec2 p1 = ImGui::GetItemRectMax();
 		ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
 												  ImGui::GetColorU32(ImVec4(0.23f, 0.32f, 0.42f, 1.0f)));
+	} else if (tile.type == typeid(OceanWaves)) {
+		// OceanWaves tile -- the bake's swell height preview PNG when it
+		// exists (lazily loaded + cached per asset path; editor always has
+		// GL), else a flat placeholder rect (same SIGBUS reason as
+		// ParticleSystem: the fallthrough casts to Mesh).
+		auto waves = std::static_pointer_cast<OceanWaves>(tile.ptr);
+		unsigned int texId = waves ? GetOceanWavesPreviewTex(waves) : 0;
+		if (texId) {
+			ImGui::SetCursorScreenPos(thumb_min);
+			ImGui::Image((ImTextureID)(intptr_t)texId,
+						 ImVec2(kTileThumbnail, kTileThumbnail),
+						 ImVec2(0, 1), ImVec2(1, 0));
+		} else {
+			ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
+			ImVec2 p0 = ImGui::GetItemRectMin();
+			ImVec2 p1 = ImGui::GetItemRectMax();
+			ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
+													  ImGui::GetColorU32(ImVec4(0.10f, 0.35f, 0.40f, 1.0f)));
+		}
 	} else // Mesh
 	{
 			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
@@ -1925,13 +2019,14 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			}
 		}
 
-	// Type badge (M / Mat / T / Anim / PS / HM) in the top-left corner.
+	// Type badge (M / Mat / T / Anim / PS / HM / OW) in the top-left corner.
 	const char* badge =
 		(tile.type == typeid(Mesh)) ? "M" :
 		(tile.type == typeid(Material)) ? "Mat" :
 		(tile.type == typeid(AnimationClip)) ? "Anim" :
 		(tile.type == typeid(ParticleSystem)) ? "PS" :
-		(tile.type == typeid(Heightmap)) ? "HM" : "T";
+		(tile.type == typeid(Heightmap)) ? "HM" :
+		(tile.type == typeid(OceanWaves)) ? "OW" : "T";
 		ImGui::GetWindowDrawList()->AddText(thumb_min,
 											ImGui::GetColorU32(ImVec4(1, 1, 0, 0.9f)), badge);
 
@@ -1982,7 +2077,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 					Editor::SetWindowVisible("Animation", true);
 				else if (tile.type == typeid(ParticleSystem))
 					Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
-				else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture)) {
+				else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture) ||
+						 tile.type == typeid(OceanWaves)) {
 					// no per-asset editor for these (double-click no-op)
 				} else
 					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
@@ -2002,7 +2098,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
 			else if (tile.type == typeid(ParticleSystem))
 				Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
-			else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture)) {
+			else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture) ||
+					 tile.type == typeid(OceanWaves) || tile.type == typeid(AnimationClip)) {
 				// no per-asset editor for these (double-click no-op)
 			} else
 				OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
@@ -2045,7 +2142,10 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
 				else if (tile.type == typeid(ParticleSystem))
 					Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
-				else
+				else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture) ||
+						 tile.type == typeid(OceanWaves) || tile.type == typeid(AnimationClip)) {
+					// no per-asset editor for these (double-click no-op)
+				} else
 					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
 			}
 		}
@@ -2339,43 +2439,36 @@ void RenderViewportToolbar() {
 	}
 	if (changed) ImGui::MarkIniSettingsDirty();
 
-	// --- Right: debug view (single-select) + overlays (multi) ----
-	// Debug views replace the viewport image with a buffer view
-	// (pipeline DrawEffectDebugView) -- inherently single-select.
-	// Overlays draw on top of the scene and combine freely.
-	static int debug_view = 0; // 0=none, 1=SSAO, 2=SSR
+	// --- Right: one Debug droplist hosts every debug view ----------
+	// Overlay rows are multi-select. The Ocean + PostProcess submenus
+	// are single-select debug views: Ocean drives every OceanComponent's
+	// debugView in the scene; PostProcess replaces the viewport image
+	// with a buffer view (pipeline DrawEffectDebugView).
+	static int postfx_view = 0; // 0=none, 1=SSAO, 2=SSR
 	static bool draw_light_bounds = false;
 	static bool draw_mesh_bounds = false;
 	static bool draw_custom_bounds = false;
 	static bool draw_octree_bounds = false;
 	static bool lod_debug_on = false;
 
-	// Right-align the pair on the SAME line (see the historical
-	// note below about measuring before SameLine).
-	const float view_w = 130.0f;
+	// Mirror the first ocean's debugView (the inspector can change it
+	// too); a submenu click writes every ocean in the scene.
+	std::vector<std::shared_ptr<SceneNode>> oceanNodes;
+	if (Scene::Active && Scene::Active->GetRootNode())
+		CollectOceanNodes(Scene::Active->GetRootNode(), oceanNodes);
+	int ocean_debug = 0;
+	if (!oceanNodes.empty())
+		if (auto ocean = oceanNodes.front()->GetComponent<OceanComponent>())
+			ocean_debug = std::clamp((int)ocean->GetDebugView(), 0, 3);
+
+	// Right-align the droplist on the SAME line (see the historical
+	// note above about measuring before SameLine).
 	const float combo_w = 200.0f;
-	const float spacing = ImGui::GetStyle().ItemSpacing.x;
 	ImGui::SameLine();
 	const float remaining = ImGui::GetContentRegionAvail().x;
-	const float pair_w = view_w + spacing + combo_w;
-	if (remaining > pair_w)
-		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + remaining - pair_w);
+	if (remaining > combo_w)
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + remaining - combo_w);
 
-	// Single-select debug view combo.
-	static const char* viewItems[] = { "(none)", "SSAO", "SSR" };
-	ImGui::SetNextItemWidth(view_w);
-	if (ImGui::BeginCombo("##debug_view", viewItems[debug_view])) {
-		for (int i = 0; i < 3; ++i) {
-			if (ImGui::Selectable(viewItems[i], debug_view == i))
-				debug_view = i;
-		}
-		ImGui::EndCombo();
-	}
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Buffer debug view: replaces the viewport with the\neffect's raw output (AO term / reflection contribution).");
-
-	// Multi-select overlays combo. Preview shows the single-selected
-	// name, or a count when more are active.
 	bool overlayState[] = {
 		g_ShowGrid,
 		draw_light_bounds,
@@ -2392,30 +2485,75 @@ void RenderViewportToolbar() {
 		"Draw OcTree Bounds",
 		"LOD Debug Colors"
 	};
-	int selectedCount = 0;
-	int firstSelected = -1;
-	for (int i = 0; i < 6; ++i) {
-		if (overlayState[i]) {
-			++selectedCount;
-			if (firstSelected < 0) firstSelected = i;
+	static const char* kOceanViews[] = {
+		"Off", "Foam Mask", "Displacement Heatmap", "Ring Wireframe"
+	};
+	static const char* kPostFxViews[] = { "Off", "SSAO View", "SSR View" };
+
+	// Preview: the active pieces joined, or "(none)".
+	std::string preview;
+	{
+		int overlayCount = 0;
+		int firstOverlay = -1;
+		for (int i = 0; i < 6; ++i) {
+			if (overlayState[i]) {
+				++overlayCount;
+				if (firstOverlay < 0) firstOverlay = i;
+			}
+		}
+		std::vector<std::string> parts;
+		if (overlayCount == 1) parts.push_back(overlayItems[firstOverlay]);
+		else if (overlayCount > 1)
+			parts.push_back(std::to_string(overlayCount) + " overlays");
+		if (ocean_debug > 0 && !oceanNodes.empty())
+			parts.push_back(std::string("Ocean: ") + kOceanViews[ocean_debug]);
+		if (postfx_view != 0)
+			parts.push_back(kPostFxViews[postfx_view]);
+		if (parts.empty()) preview = "(none)";
+		for (size_t i = 0; i < parts.size(); ++i) {
+			if (i > 0) preview += " + ";
+			preview += parts[i];
 		}
 	}
-	std::string overlayPreview;
-	if (selectedCount == 0)       overlayPreview = "(none)";
-	else if (selectedCount == 1)  overlayPreview = overlayItems[firstSelected];
-	else                          overlayPreview = std::to_string(selectedCount) + " overlays selected";
 
-	ImGui::SameLine();
+	// HeightLargest: the popup fits all rows (no scrollbar when there is
+	// room); every row uses DontClosePopups so the droplist only closes on
+	// an outside click - debug sessions toggle several views at a time.
 	ImGui::SetNextItemWidth(combo_w);
-	if (ImGui::BeginCombo("##debug_overlays", overlayPreview.c_str())) {
+	if (ImGui::BeginCombo("##debug_views", preview.c_str(), ImGuiComboFlags_HeightLargest)) {
 		for (int i = 0; i < 6; ++i) {
 			if (ImGui::Selectable(overlayItems[i], overlayState[i],
 								  ImGuiSelectableFlags_DontClosePopups)) {
 				overlayState[i] = !overlayState[i];
 			}
 		}
+		ImGui::Separator();
+		if (ImGui::BeginMenu("Ocean", !oceanNodes.empty())) {
+			for (int i = 0; i < 4; ++i) {
+				if (ImGui::Selectable(kOceanViews[i], ocean_debug == i,
+									  ImGuiSelectableFlags_DontClosePopups)) {
+					for (auto &n : oceanNodes)
+						if (auto ocean = n->GetComponent<OceanComponent>())
+							ocean->SetDebugView((unsigned int)i);
+					ocean_debug = i;
+				}
+			}
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("PostProcess")) {
+			for (int i = 0; i < 3; ++i) {
+				if (ImGui::Selectable(kPostFxViews[i], postfx_view == i,
+									  ImGuiSelectableFlags_DontClosePopups))
+					postfx_view = i;
+			}
+			ImGui::EndMenu();
+		}
 		ImGui::EndCombo();
 	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Debug views: overlay rows are toggles; Ocean and\n"
+						  "PostProcess submenus are single-select views.");
+
 	if (overlayState[0] != g_ShowGrid) {
 		// Reference grid toggle (persisted; Settings -> Editor -> Show
 		// Grid binds the same global). Applied per-frame below so
@@ -2436,8 +2574,8 @@ void RenderViewportToolbar() {
 		Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on);
-		Pipeline::Active->SetSwitch(PipelineSwitch::SSAO_VIEW, debug_view == 1);
-		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, debug_view == 2);
+		Pipeline::Active->SetSwitch(PipelineSwitch::SSAO_VIEW, postfx_view == 1);
+		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, postfx_view == 2);
 	}
 }
 

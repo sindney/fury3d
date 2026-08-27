@@ -42,6 +42,11 @@ namespace fury
 		// no capture was requested). The launcher passes &local_int.
 		std::string screenshot_path;
 		int screenshot_frame = 2;
+		// --screenshot-series: capture series_count frames every
+		// series_interval frames (from screenshot_frame) into one atlas PNG
+		std::string screenshot_series_path;
+		int series_count = 0;
+		int series_interval = 0;
 		int *exit_code_out = nullptr;
 	};
 
@@ -82,6 +87,17 @@ namespace fury
 		// Fixed step duration in seconds (1/25). The Animator's physics
 		// path advances clip time by this on each OnFixedUpdate.
 		static float GetFixedDt();
+
+		// Global user switch for optional compute shader use (GL 4.3+).
+		// Default on; persisted by the editor settings registry.
+		static void SetComputeShadersEnabled(bool value);
+
+		static bool GetComputeShadersEnabled();
+
+		// True only when the driver exposes compute shaders AND the user
+		// switch allows them. FURY_COMPUTE_SHADER=0/1 overrides the switch.
+		// Every compute consumer gates on this, never on the raw capability.
+		static bool HasEffectiveCompute();
 	};
 }
 

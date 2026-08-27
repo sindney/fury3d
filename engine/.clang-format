@@ -1,40 +1,67 @@
 ---
+# clang-format config for fury3d engine.
+#
+# BasedOnStyle: LLVM is enabled so that the two features we want
+# (trailing-whitespace stripping and `} // namespace foo` close-comment
+# addition) actually fire -- clang-format 16 only does those when LLVM
+# style is active. Side effects we accept:
+#   - `public:`/`private:` indented one level inside class brace
+#   - pointer/reference alignment normalized to Right (`T *x`, `T &x`)
+#   - single-line if/for/while bodies expanded to multi-line
+#   - single-line function bodies expanded to multi-line
+#   - operator name spacing normalized (`operator<<` not `operator <<`)
+#   - `template<` keyword gets a trailing space (`template <`)
+# Explicitly overridden to NOT touch:
+#   - include order/grouping
+#   - multi-line expression wrapping (ColumnLimit: 0)
+#   - long-comment text reflow
+
 BasedOnStyle: LLVM
+
+# Indentation: tabs
 IndentWidth: 4
 TabWidth: 4
 UseTab: Always
+
+# No column limit so multi-line expressions stay multi-line
 ColumnLimit: 0
-AccessModifierOffset: -4
-AlignAfterOpenBracket: Align
-AllowShortBlocksOnASingleLine: Empty
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: WithoutElse
-AllowShortLoopsOnASingleLine: true
-BreakBeforeBraces: Custom
-BraceWrapping:
-  AfterClass: false
-  AfterControlStatement: Never
-  AfterEnum: false
-  AfterFunction: false
-  AfterNamespace: false
-  AfterStruct: false
-  AfterUnion: false
-  BeforeCatch: false
-  BeforeElse: false
-  BeforeWhile: false
-  IndentBraces: false
-  SplitEmptyFunction: false
-  SplitEmptyRecord: false
-  SplitEmptyNamespace: false
-Cpp11BracedListStyle: true
+
+# Brace placement: Allman (brace on its own line)
+BreakBeforeBraces: Allman
+
+# Indent the body of a namespace
+NamespaceIndentation: All
+
+# Auto-add `} // namespace <name>` to closing braces
 FixNamespaceComments: true
-IncludeBlocks: Regroup
-IndentCaseLabels: false
+
+# Leave includes as the author wrote them (don't regroup/sort)
+IncludeBlocks: Preserve
+SortIncludes: Never
+
+# Pointer/reference: codebase uses T *x / T &x style (Right)
+PointerAlignment: Right
+ReferenceAlignment: Right
+
+# Don't merge multi-line statements into single lines
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortLambdasOnASingleLine: None
+
+# Blank-line hygiene
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+
+# Don't indent preprocessor directives / case labels beyond normal
 IndentPPDirectives: None
-NamespaceIndentation: None
-PointerAlignment: Left
-SortIncludes: CaseSensitive
-SpaceAfterCStyleCast: false
-SpaceAfterTemplateKeyword: false
-SpacesInParentheses: false
+IndentCaseLabels: false
+
+# Keep LF line endings (no conversion)
+UseCRLF: false
+
+Language: Cpp
 Standard: c++17

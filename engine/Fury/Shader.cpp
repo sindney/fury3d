@@ -433,6 +433,130 @@ namespace fury
 		return true;
 	}
 
+	bool Shader::LoadAndCompileCompute(const std::string &shaderPath)
+	{
+		std::string dataStr;
+		if (!FileUtil::LoadString(shaderPath, dataStr))
+		{
+			FURYW << m_Name << " load failed!";
+			return false;
+		}
+
+		auto slash = shaderPath.find_last_of('/');
+		std::string dir = slash == std::string::npos ? "" : shaderPath.substr(0, slash + 1);
+
+		std::vector<std::string> stack;
+		stack.push_back(shaderPath);
+		std::string resolved;
+		if (!ResolveShaderIncludes(dataStr, dir, stack, 0, resolved))
+		{
+			FURYE << m_Name << " include resolution failed for " << shaderPath;
+			return false;
+		}
+
+		m_FilePath = shaderPath;
+		return CompileCompute(resolved);
+	}
+
+	bool Shader::CompileCompute(const std::string &source)
+	{
+		DeleteProgram();
+
+		std::stringstream defineStream;
+#if WITH_EDITOR
+		defineStream << "#define WITH_EDITOR\n";
+#endif
+		for (auto define : m_Defines)
+			defineStream << "#define " << define << "\n";
+
+		std::string version, mainStr;
+		GetVersionInfo(source, version, mainStr);
+		if (source.find("#version") == std::string::npos)
+			version = "#version 430 core\n"; // compute needs 4.3; default 330 won't do
+
+		std::string src = version + "\n#define COMPUTE_SHADER\n" + defineStream.str() + mainStr;
+		const char* srcPtr = src.c_str();
+
+		char logbuffer[1024];
+		int logbufferLen;
+
+		unsigned int computeShader = glCreateShader(GL_COMPUTE_SHADER);
+		if (computeShader == 0)
+		{
+			FURYE << m_Name << " glCreateShader(GL_COMPUTE_SHADER) failed (compute unsupported?)";
+			return false;
+		}
+
+		glShaderSource(computeShader, 1, &srcPtr, nullptr);
+		glCompileShader(computeShader);
+
+		GLint status;
+		glGetShaderiv(computeShader, GL_COMPILE_STATUS, &status);
+		if (status != GL_TRUE)
+		{
+			glGetShaderInfoLog(computeShader, sizeof(logbuffer), &logbufferLen, logbuffer);
+			FURYE << m_Name << "'s compute compile failed!";
+			FURYE << std::string(logbuffer, logbufferLen);
+			glDeleteShader(computeShader);
+			return false;
+		}
+
+		m_Program = glCreateProgram();
+		if (m_Program == 0)
+		{
+			FURYE << "Failed to create shader program context!";
+			glDeleteShader(computeShader);
+			return false;
+		}
+
+		glAttachShader(m_Program, computeShader);
+		glLinkProgram(m_Program);
+		glDetachShader(m_Program, computeShader);
+		glDeleteShader(computeShader);
+
+		glGetProgramiv(m_Program, GL_LINK_STATUS, &status);
+		if (status != GL_TRUE)
+		{
+			glGetProgramInfoLog(m_Program, sizeof(logbuffer), &logbufferLen, logbuffer);
+			FURYE << m_Name << " link failed!";
+			FURYE << std::string(logbuffer, logbufferLen);
+			glDeleteProgram(m_Program);
+			m_Program = 0;
+			return false;
+		}
+
+		m_Dirty = false;
+		FURYD << m_Name << " compute compile & link success!";
+		return true;
+	}
+
+	void Shader::DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)
+	{
+		if (m_Dirty)
+		{
+			FURYW << "DispatchCompute on dirty shader " << m_Name;
+			return;
+		}
+		if (glDispatchCompute == nullptr)
+		{
+			FURYW << "DispatchCompute: compute entry points missing";
+			return;
+		}
+
+		glUseProgram(m_Program);
+		glDispatchCompute(groupsX, groupsY, groupsZ);
+	}
+
+	void Shader::ComputeBarrier()
+	{
+		if (glMemoryBarrier == nullptr)
+			return;
+		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+			| GL_TEXTURE_FETCH_BARRIER_BIT
+			| GL_SHADER_STORAGE_BARRIER_BIT
+			| GL_TEXTURE_UPDATE_BARRIER_BIT);
+	}
+
 	void Shader::DeleteProgram()
 	{
 		if (m_Program != 0)

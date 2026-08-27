@@ -16,6 +16,7 @@ JPH_SUPPRESS_WARNINGS
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include "Fury/BodySetup.h"
+#include "Fury/BuoyancyComponent.h"
 #include "Fury/CharacterController.h"
 #include "Fury/Engine.h"
 #include "Fury/Log.h"
@@ -225,6 +226,10 @@ void PhysicsWorld::DiscoverComponentsInScene()
 			if (!alreadyRegistered(m_Characters, character))
 				RegisterCharacter(character);
 
+		if (auto buoyancy = node->GetComponent<BuoyancyComponent>())
+			if (!alreadyRegistered(m_Buoyancies, buoyancy))
+				RegisterBuoyancy(buoyancy);
+
 		for (unsigned int i = 0; i < node->GetChildCount(); ++i)
 			walk(node->GetChildAt(i));
 	};
@@ -279,6 +284,20 @@ void PhysicsWorld::TickFixed()
 		else
 		{
 			it = m_Characters.erase(it);
+		}
+	}
+
+	// Buoyancy forces apply to this same step (pre-Update, after characters).
+	for (auto it = m_Buoyancies.begin(); it != m_Buoyancies.end();)
+	{
+		if (auto buoyancy = it->lock())
+		{
+			buoyancy->TickBuoyancy(Engine::GetFixedDt());
+			++it;
+		}
+		else
+		{
+			it = m_Buoyancies.erase(it);
 		}
 	}
 
@@ -432,4 +451,28 @@ void PhysicsWorld::UnregisterCharacter(const std::shared_ptr<CharacterController
 			auto locked = weak.lock();
 			return !locked || locked == character;
 		}), m_Characters.end());
+}
+
+void PhysicsWorld::RegisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &buoyancy)
+{
+	m_Buoyancies.emplace_back(buoyancy);
+}
+
+void PhysicsWorld::UnregisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &buoyancy)
+{
+	m_Buoyancies.erase(std::remove_if(m_Buoyancies.begin(), m_Buoyancies.end(),
+		[&buoyancy](const std::weak_ptr<BuoyancyComponent> &weak)
+		{
+			auto locked = weak.lock();
+			return !locked || locked == buoyancy;
+		}), m_Buoyancies.end());
+}
+
+bool PhysicsWorld::HasBuoyancyDebugDraw() const
+{
+	for (const auto &weak : m_Buoyancies)
+		if (auto buoyancy = weak.lock())
+			if (buoyancy->GetDebugDraw())
+				return true;
+	return false;
 }

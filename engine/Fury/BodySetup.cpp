@@ -388,6 +388,10 @@ void BodySetup::CreateBody()
 	{
 		settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
 		settings.mMassPropertiesOverride.mMass = std::max(m_Mass, 0.001f);
+		// Jolt's default velocity clamp (cMaxPhysicsVelocity = 500) is
+		// meter-scale; in cm units it caps falls at 5 m/s. Restore the
+		// intended 500 m/s.
+		settings.mMaxLinearVelocity = 50000.0f;
 	}
 
 	JPH::BodyInterface &bodies = system->GetBodyInterface();

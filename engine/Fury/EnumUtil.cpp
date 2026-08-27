@@ -344,6 +344,8 @@ namespace fury
 			return "light";
 		case DrawMode::SKY:
 			return "sky";
+		case DrawMode::OCEAN:
+			return "ocean";
 		case DrawMode::QUAD:
 		default:
 			return "quad";
@@ -360,6 +362,8 @@ namespace fury
 			return DrawMode::LIGHT;
 		else if (name == "sky")
 			return DrawMode::SKY;
+		else if (name == "ocean")
+			return DrawMode::OCEAN;
 		else
 			return DrawMode::QUAD;
 	}

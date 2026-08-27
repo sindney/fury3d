@@ -26,10 +26,12 @@ scene:AddMesh(cube)
 local mat = Material.Create("physics_smoke_mat")
 scene:AddMaterial(mat)
 
--- Floor: unit cube scaled to (2000, 20, 2000) -> box half extents
--- (1000, 10, 1000) after world-scale bake; top surface at y = 10.
+-- Floor: unit cube scaled to (2000, 100, 2000) -> box half extents
+-- (1000, 50, 1000) after world-scale bake; top surface at y = 50.
+-- (100 cm thick: the crate lands at ~790 cm/s = 32 cm per 25 Hz step -
+-- a 20 cm floor tunneled; Discrete motion quality has no CCD.)
 local floor = SceneNode.Create("Floor")
-floor:SetLocalScale(Vector4(2000.0, 20.0, 2000.0, 1.0))
+floor:SetLocalScale(Vector4(2000.0, 100.0, 2000.0, 1.0))
 floor:AddComponent(MeshRender.Create(mat, cube))
 local floor_body = BodySetup.Create()
 floor_body:SetShapeType(1) -- box
@@ -37,8 +39,8 @@ floor:AddComponent(floor_body)
 floor_body:AutoFitFromMesh()
 scene:GetRootNode():AddChild(floor)
 
--- Crate: dynamic unit box dropped from y = 300. Rest pose ~= 11
--- (floor top 10 + half height 0.5xscale... unit cube half 0.5).
+-- Crate: dynamic unit box dropped from y = 300. Rest pose ~= 50.5
+-- (floor top 50 + half height 0.5xscale... unit cube half 0.5).
 local crate = SceneNode.Create("Crate")
 crate:SetLocalPosition(Vector4(0.0, 300.0, 0.0, 1.0))
 crate:AddComponent(MeshRender.Create(mat, cube))
@@ -67,13 +69,15 @@ if not crate_body:HasBody() then fail("crate body not created") end
 Physics.Step(100) -- 4 s at 25 Hz
 local y = crate:GetWorldPosition().y
 print(string.format("physics_smoke: crate rest y = %.2f", y))
-if y < 8.0 or y > 14.0 then
-    fail("crate should rest on the floor top (~10.5), got " .. y)
+if y < 48.0 or y > 54.0 then
+    fail("crate should rest on the floor top (~50.5), got " .. y)
 end
 
--- Crate must not have drifted sideways on the flat floor.
+-- Crate must not have drifted sideways on the flat floor. (The real impact
+-- velocity is ~790 cm/s since BodySetup::CreateBody fixed the meter-scale
+-- cMaxPhysicsVelocity clamp; the bounce can shift it a couple of cm.)
 local x, z = crate:GetWorldPosition().x, crate:GetWorldPosition().z
-if math.abs(x) > 1.0 or math.abs(z) > 1.0 then
+if math.abs(x) > 3.0 or math.abs(z) > 3.0 then
     fail(string.format("crate drifted: x=%.2f z=%.2f", x, z))
 end
 
@@ -94,7 +98,7 @@ if body2:GetShapeType() ~= 1 then fail("shape_type lost (want 1=box)") end
 -- The reloaded scene simulates too (components re-register on load).
 Physics.Step(50)
 local y2 = crate2:GetWorldPosition().y
-if y2 < 8.0 or y2 > 14.0 then
+if y2 < 48.0 or y2 > 54.0 then
     fail("reloaded crate should rest on the floor, got " .. y2)
 end
 

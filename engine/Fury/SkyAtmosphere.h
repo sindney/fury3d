@@ -132,6 +132,7 @@ namespace fury
 		Vector4 GetMoonDirection() const { return m_MoonDir; }
 		float GetDaylight() const { return m_Daylight; }
 		float GetViewHeightKm() const { return m_ViewHeightKm; }
+		float GetBottomRadiusKm() const { return m_BottomRadiusKm; }
 
 		float GetSunAngularRadius() const { return m_SunAngularRadius; }
 		void SetSunAngularRadius(float v) { m_SunAngularRadius = v; }
@@ -211,7 +212,7 @@ namespace fury
 		bool m_MoonEnabled = true;
 		float m_MoonAngularRadius = 0.0047f;
 		float m_MoonIntensity = 0.12f;
-		std::string m_MoonTexturePath;
+		std::string m_MoonTexturePath = "Engine/Texture/Sky/moon.png";
 
 		bool m_CloudsEnabled = false;
 		float m_CloudCoverage = 0.45f;
@@ -221,7 +222,7 @@ namespace fury
 		float m_CloudDensity = 18.0f;           // extinction per km
 		float m_CloudWindSpeedCm = 200.0f;      // cm/s
 		float m_CloudFadeKm = 2.5f;
-		std::string m_CloudNoisePath;
+		std::string m_CloudNoisePath = "Engine/Texture/Sky/cloud_noise.png";
 
 		float m_TimeHours = 12.0f;
 		float m_DayLengthMinutes = 10.0f;

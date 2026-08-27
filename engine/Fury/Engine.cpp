@@ -1,7 +1,9 @@
 #include <SFML/Window.hpp>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <optional>
 #include <vector>
 
@@ -121,6 +123,50 @@ namespace fury
 				return false;
 			}
 			return true;
+		}
+
+		// Raw back-buffer readback (GL bottom-left origin, unflipped).
+		bool ReadBackBuffer(std::vector<unsigned char> &out, unsigned int &w,
+			unsigned int &h, sf::Window &window)
+		{
+			const sf::Vector2u sz = window.getSize();
+			w = sz.x;
+			h = sz.y;
+			if (w == 0 || h == 0)
+				return false;
+			out.resize(static_cast<std::size_t>(w) * h * 4);
+			glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
+				GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+			return true;
+		}
+
+		// Contact-sheet atlas: `count` frames in a near-square grid, each
+		// vertically flipped (GL origin), written as one PNG.
+		bool WriteSeriesAtlas(const std::string &path,
+			const std::vector<std::vector<unsigned char>> &frames,
+			unsigned int w, unsigned int h)
+		{
+			const int count = (int)frames.size();
+			if (count == 0 || w == 0 || h == 0)
+				return false;
+			const int cols = (int)std::ceil(std::sqrt((double)count));
+			const int rows = (count + cols - 1) / cols;
+			const std::size_t srcRow = (std::size_t)w * 4;
+			const std::size_t dstRow = srcRow * cols;
+			std::vector<unsigned char> atlas(dstRow * h * rows, 0);
+			for (int f = 0; f < count; ++f)
+			{
+				const std::size_t cx = (std::size_t)(f % cols) * w;
+				const std::size_t cy = (std::size_t)(f / cols) * h;
+				const auto &pix = frames[f];
+				for (unsigned int y = 0; y < h; ++y)
+				{
+					std::memcpy(atlas.data() + (cy + y) * dstRow + cx * 4,
+						pix.data() + (std::size_t)(h - 1 - y) * srcRow, srcRow);
+				}
+			}
+			return stbi_write_png(path.c_str(), (int)(w * cols), (int)(h * rows),
+				4, atlas.data(), (int)dstRow) != 0;
 		}
 	}
 	Signal<float>::Ptr Engine::OnUpdate = Signal<float>::Create();
@@ -394,6 +440,43 @@ namespace fury
 		return 1.0f / 25.0f;
 	}
 
+	namespace
+	{
+		bool g_ComputeShadersEnabled = true;
+
+		// -1 unread, 0 env-off, 1 env-on, 2 no override
+		int ComputeEnvOverride()
+		{
+			static int cached = -1;
+			if (cached < 0)
+			{
+				const char* env = std::getenv("FURY_COMPUTE_SHADER");
+				if (env == nullptr || env[0] == '\0')
+					cached = 2;
+				else
+					cached = env[0] == '0' ? 0 : 1;
+			}
+			return cached;
+		}
+	}
+
+	void Engine::SetComputeShadersEnabled(bool value)
+	{
+		g_ComputeShadersEnabled = value;
+	}
+
+	bool Engine::GetComputeShadersEnabled()
+	{
+		return g_ComputeShadersEnabled;
+	}
+
+	bool Engine::HasEffectiveCompute()
+	{
+		int env = ComputeEnvOverride();
+		bool allowed = env == 2 ? g_ComputeShadersEnabled : env == 1;
+		return allowed && gl::HasComputeShaders() != 0;
+	}
+
 	void Engine::Run(sf::Window &window, const EngineCallbacks &cb)
 	{
 		Run(window, cb, EngineOptions{});
@@ -454,6 +537,11 @@ namespace fury
 		std::int32_t next_game_tick = clock.getElapsedTime().asMilliseconds();
 		bool running = true;
 		int frame_index = 0;
+
+		// --screenshot-series state: captured frames + a pinned size
+		std::vector<std::vector<unsigned char>> seriesFrames;
+		unsigned int seriesW = 0;
+		unsigned int seriesH = 0;
 
 		while (window.isOpen() && running)
 		{
@@ -556,6 +644,49 @@ namespace fury
 					if (opts.exit_code_out) *opts.exit_code_out = 1;
 				}
 				running = false;
+			}
+
+			// --screenshot-series: capture every opts.series_interval frames
+			// (starting at --screenshot-frame), then write one atlas and exit
+			if (!opts.screenshot_series_path.empty() && opts.series_count > 0 &&
+				opts.series_interval > 0 &&
+				frame_index >= opts.screenshot_frame &&
+				(frame_index - opts.screenshot_frame) % opts.series_interval == 0 &&
+				(int)seriesFrames.size() < opts.series_count)
+			{
+				std::vector<unsigned char> pix;
+				unsigned int w = 0, h = 0;
+				if (ReadBackBuffer(pix, w, h, window))
+				{
+					if (seriesFrames.empty())
+					{
+						seriesW = w;
+						seriesH = h;
+					}
+					if (w == seriesW && h == seriesH)
+						seriesFrames.push_back(std::move(pix));
+				}
+				if ((int)seriesFrames.size() == opts.series_count)
+				{
+					const bool ok = WriteSeriesAtlas(opts.screenshot_series_path,
+						seriesFrames, seriesW, seriesH);
+					if (ok)
+					{
+						FURYI << "captured " << opts.series_count << "-frame series to "
+							<< opts.screenshot_series_path << " (frames "
+							<< opts.screenshot_frame << ".."
+							<< opts.screenshot_frame + opts.series_count * opts.series_interval - 1
+							<< ")";
+						if (opts.exit_code_out) *opts.exit_code_out = 0;
+					}
+					else
+					{
+						FURYE << "series atlas write failed for '"
+							<< opts.screenshot_series_path << "'";
+						if (opts.exit_code_out) *opts.exit_code_out = 1;
+					}
+					running = false;
+				}
 			}
 		}
 

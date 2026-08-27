@@ -295,7 +295,31 @@ def build_heightmap(args, perlin):
         vals = [(v - lo2) * a_lo if v <= med else target + (v - med) * a_hi
                 for v in vals]
     flatten_disc(args, vals)
+    island_falloff(args, vals)
     return vals
+
+
+def island_falloff(args, vals):
+    """Radial island cone: scales heights by a smooth falloff that is 1 at
+    the map center and 0 at island_frac * half-extent. Beyond the falloff the
+    height is 0 = sea floor (below any positive water level). Runs AFTER the
+    flatten/median shaping so the island profile dominates."""
+    frac = args.island
+    if frac <= 0.0:
+        return
+    res = args.resolution
+    n = res - 1
+    radius = min(args.world_size_x, args.world_size_z) * 0.5 * frac
+    for r in range(res):
+        wz = (r / n - 0.5) * args.world_size_z
+        base = r * res
+        for c in range(res):
+            wx = (c / n - 0.5) * args.world_size_x
+            d = math.hypot(wx, wz)
+            # smooth cone: 1 at center, ease to 0 at the island radius
+            f = 1.0 - sstep(0.0, radius, d)
+            i = base + c
+            vals[i] *= f * f  # f^2: steeper beach, flatter summit plateau
 
 
 def flatten_disc(args, vals):
@@ -705,6 +729,10 @@ def parse_args(argv=None):
     ap.add_argument("--terrace-levels", type=int, default=6)
     ap.add_argument("--terrace-blend", type=float, default=0.25,
                     help="0 = no terraces, 1 = full stairs")
+    ap.add_argument("--island", type=float, default=0.0,
+                    help="0 = off; else radial island cone: fBm * smooth "
+                         "falloff, 1 at the map center -> 0 at this fraction "
+                         "of the half-extent (ocean demo island scenes)")
     ap.add_argument("--out", default="examples/Projects/outdoor/Terrain")
     ap.add_argument("--skip-checks", action="store_true",
                     help="skip the self-verification pass")

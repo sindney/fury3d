@@ -2,6 +2,7 @@
 #include <sstream>
 
 #include "Fury/BoxBounds.h"
+#include "Fury/BuoyancyComponent.h"
 #include "Fury/Camera.h"
 #include "Fury/Log.h"
 #include "Fury/Light.h"
@@ -28,7 +29,7 @@
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/OcTree.h"
-#include "Fury/OcTree.h"
+#include "Fury/PhysicsWorld.h"
 #include "Fury/Shader.h"
 #include "Fury/SphereBounds.h"
 #include "Fury/Texture.h"
@@ -1003,6 +1004,43 @@ namespace fury
 		{
 			if (auto tree = std::dynamic_pointer_cast<OcTree>(Scene::Active->GetSceneManager()))
 				tree->DrawDebugBounds(*renderUtil);
+		}
+
+		// Buoyancy float-point markers (component flag, works in play
+		// sessions where no editor selection exists). Simulating bodies
+		// color by last submersion (green dry -> red submerged).
+		if (PhysicsWorld::Exists())
+		{
+			bool simulating = PhysicsWorld::Instance()->IsSimulationEnabled();
+			for (const auto &weak : PhysicsWorld::Instance()->GetBuoyancies())
+			{
+				auto buoyancy = weak.lock();
+				if (!buoyancy || !buoyancy->GetDebugDraw())
+					continue;
+				auto node = buoyancy->GetOwner();
+				if (!node)
+					continue;
+
+				Matrix4 world = node->GetWorldMatrix();
+				const auto &points = buoyancy->GetFloatPoints();
+				for (unsigned int i = 0; i < points.size(); i++)
+				{
+					Vector4 center = world.Multiply(points[i].Offset);
+					float r = points[i].Radius;
+					Color color = Color(0.2f, 0.8f, 0.9f, 1.0f); // editor: cyan
+					if (simulating)
+					{
+						float s = buoyancy->GetLastSubmersion(i);
+						color = Color(0.2f + 0.75f * s, 0.9f - 0.65f * s, 0.2f, 1.0f);
+					}
+					float lines[18] = {
+						center.x - r, center.y, center.z, center.x + r, center.y, center.z,
+						center.x, center.y - r, center.z, center.x, center.y + r, center.z,
+						center.x, center.y, center.z - r, center.x, center.y, center.z + r
+					};
+					renderUtil->DrawLines(lines, 18, color, LineMode::LINES);
+				}
+			}
 		}
 
 		renderUtil->EndDrawLines();

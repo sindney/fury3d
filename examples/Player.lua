@@ -68,6 +68,15 @@ local function on_init()
         if sky then sky:SetTimeHours(tonumber(tod_env)) end
     end
 
+    -- FURY_OCEAN_DEBUG=0..3: pin every OceanComponent's debug view
+    -- (screenshot matrix hook; 1 foam mask, 2 displacement, 3 wireframe).
+    local ocean_dbg = os.getenv("FURY_OCEAN_DEBUG")
+    if ocean_dbg then
+        local ocean_node = scene:GetRootNode():FindChildRecursively("Ocean")
+        local ocean = ocean_node and ocean_node:GetOceanComponent()
+        if ocean then ocean:SetDebugView(tonumber(ocean_dbg)) end
+    end
+
     -- First enabled controller wins; its bound camera becomes the render
     -- camera (Activate does Pipeline.SetCurrentCamera).
     -- Headless verify hook: FURY_CAM="px,py,pz,yawDeg,pitchDeg" skips
@@ -91,16 +100,23 @@ local function on_init()
 
         local eye = Vector4(0.0, 170.0, 400.0, 1.0)
         local yaw, pitch = 0.0, -0.4
-        local far = 5000.0
+        -- 5 km, not 50 m: ocean/terrain horizons must not clip (matches
+        -- the editor camera default)
+        local far = 500000.0
 
         if cam_env then
-            local px, py, pz, yawd, pitchd = cam_env:match("^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$")
+            -- FURY_CAM="px,py,pz,yawDeg,pitchDeg[,farCm]" (far optional)
+            local px, py, pz, yawd, pitchd, fard = cam_env:match("^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$")
+            if not px then
+                px, py, pz, yawd, pitchd = cam_env:match("^([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$")
+            end
             if px then
                 eye = Vector4(tonumber(px), tonumber(py), tonumber(pz), 1.0)
                 yaw = math.rad(tonumber(yawd))
                 pitch = math.rad(tonumber(pitchd))
+                if fard then far = tonumber(fard) end
             else
-                print("Player.lua FURY_CAM: could not parse '" .. cam_env .. "' (want px,py,pz,yawDeg,pitchDeg)")
+                print("Player.lua FURY_CAM: could not parse '" .. cam_env .. "' (want px,py,pz,yawDeg,pitchDeg[,farCm])")
             end
         else
             local mn, mx = scene:ComputeWorldAABB()
@@ -110,7 +126,7 @@ local function on_init()
                 local size = mx - mn
                 local radius = math.max(size.x, math.max(size.y, size.z)) * 0.5
                 if radius < 1.0 then radius = 1.0 end
-                far = math.max(5000.0, radius * 6.0)
+                far = math.max(500000.0, radius * 6.0)
                 eye = center + Vector4(radius * 0.6, radius * 0.45, radius * 1.1, 0.0)
                 local dir = (center - eye):Normalized()
                 yaw = math.atan(-dir.x, -dir.z)

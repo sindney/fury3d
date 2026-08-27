@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include "Fury/GLLoader.h"
 
+static void Load_ComputeShader(void);
+
 #if defined(__APPLE__)
 #include <dlfcn.h>
 
@@ -1220,19 +1222,67 @@ int gl::LoadGLFunctions()
 {
 	int numFailed = 0;
 	ClearExtensionVars();
-	
+
 	_ptrc_glGetIntegerv = (void (CODEGEN_FUNCPTR *)(GLenum, GLint *))IntGetProcAddress("glGetIntegerv");
 	if (!_ptrc_glGetIntegerv) return 0;
 	_ptrc_glGetStringi = (const GLubyte * (CODEGEN_FUNCPTR *)(GLenum, GLuint))IntGetProcAddress("glGetStringi");
 	if (!_ptrc_glGetStringi) return 0;
-	
+
 	ProcExtsFromExtList();
 	numFailed = Load_Version_3_3();
-	
+	Load_ComputeShader();
+
 	if(numFailed == 0)
 		return 1;
 	else
 		return 1 + numFailed;
+}
+
+/* --- optional compute shader support (GL 4.3 / ARB_compute_shader) --- */
+
+void (CODEGEN_FUNCPTR *_ptrc_glDispatchCompute)(GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z) = NULL;
+void (CODEGEN_FUNCPTR *_ptrc_glMemoryBarrier)(GLbitfield barriers) = NULL;
+void (CODEGEN_FUNCPTR *_ptrc_glBindImageTexture)(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format) = NULL;
+
+static int g_ExtComputeShader = 0;
+static int g_ExtImageLoadStore = 0;
+
+static void Load_ComputeShader(void)
+{
+	/* extension scan for the ARB fallback path (4.2-class drivers) */
+	GLint iNumExtensions = 0;
+	_ptrc_glGetIntegerv(GL_NUM_EXTENSIONS, &iNumExtensions);
+	for (GLint i = 0; i < iNumExtensions; i++)
+	{
+		const char *name = (const char *)_ptrc_glGetStringi(GL_EXTENSIONS, i);
+		if (name == NULL)
+			continue;
+		if (strcmp(name, "GL_ARB_compute_shader") == 0)
+			g_ExtComputeShader = 1;
+		else if (strcmp(name, "GL_ARB_shader_image_load_store") == 0)
+			g_ExtImageLoadStore = 1;
+	}
+
+	/* resolving always; pointers stay null when the context lacks 4.3 */
+	_ptrc_glDispatchCompute = (void (CODEGEN_FUNCPTR *)(GLuint, GLuint, GLuint))IntGetProcAddress("glDispatchCompute");
+	_ptrc_glMemoryBarrier = (void (CODEGEN_FUNCPTR *)(GLbitfield))IntGetProcAddress("glMemoryBarrier");
+	_ptrc_glBindImageTexture = (void (CODEGEN_FUNCPTR *)(GLuint, GLuint, GLint, GLboolean, GLint, GLenum, GLenum))IntGetProcAddress("glBindImageTexture");
+}
+
+int gl::HasComputeShaders(void)
+{
+	if (!_ptrc_glGetIntegerv)
+		return 0; /* loader never ran: headless / no context */
+	if (!IsVersionGEQ(4, 3) && !(g_ExtComputeShader && g_ExtImageLoadStore))
+		return 0;
+	return _ptrc_glDispatchCompute != NULL
+		&& _ptrc_glMemoryBarrier != NULL
+		&& _ptrc_glBindImageTexture != NULL;
+}
+
+int gl::HasGLContext(void)
+{
+	return _ptrc_glGetIntegerv != NULL ? 1 : 0;
 }
 
 static int g_major_version = 0;

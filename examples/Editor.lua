@@ -34,6 +34,17 @@
 local octree           = nil
 local cam_node         = nil
 local cam_pos          = nil           -- Vector4, set in on_init
+-- Editor camera far plane: 5 km default (was 5000 cm = 50 m, which clipped
+-- the ocean demo scenes' horizons). Editable live in Settings -> Camera.
+-- Linear gbuffer depth makes precision uniform, so a big far plane is safe.
+local editor_cam_far   = 500000.0
+
+local function apply_editor_cam_clip()
+    local cam = cam_node and cam_node:GetCamera()
+    if cam then
+        cam:PerspectiveFov(0.7854, 1.778, cam:GetNear(), editor_cam_far)
+    end
+end
 
 -- Which pipeline JSON we last loaded into Pipeline.GetActive().
 -- Compared against renderSettings.pipelinePath on File → Open so
@@ -148,7 +159,7 @@ local function replace_active_scene(new_scene)
     editor_cam:Recompose(false)
     editor_cam:AddComponent(Transform.Create())
     local editor_camera = Camera.Create()
-    editor_camera:PerspectiveFov(0.7854, 1.778, 1, 5000)
+    editor_camera:PerspectiveFov(0.7854, 1.778, 1, editor_cam_far)
     editor_camera:SetShadowFar(2000)
     editor_camera:SetShadowBounds(Vector4(-500), Vector4(500))
     editor_cam:AddComponent(editor_camera)
@@ -439,8 +450,13 @@ frame_scene = function(scene)
     -- background mesh is sliced off when auto-scale grows the
     -- scene above 1250 radius.
     local cam = cam_node and cam_node:GetCamera()
-    if cam and distance * 4.0 > 5000.0 then
+    -- frame-selection fits the near plane to the framed distance (adaptive
+    -- precision); the far plane never shrinks below the user's setting
+    -- (a small framed object used to clip the horizon to distance*4).
+    if cam and distance * 4.0 > editor_cam_far then
         cam:PerspectiveFov(0.7854, 1.778, math.max(1.0, distance * 0.001), distance * 4.0)
+    elseif cam then
+        cam:PerspectiveFov(0.7854, 1.778, math.max(1.0, distance * 0.001), editor_cam_far)
     end
 
     local dir_len = math.sqrt(1.0 + 0.36 + 1.0)  -- normalized (1, 0.6, 1)
@@ -544,7 +560,7 @@ local function on_init()
     -- Engine unit = 1 cm (see docs/ARCHITECTURE.md). Camera near/far
     -- and shadow frustum are in cm.
     local camera = Camera.Create()
-    camera:PerspectiveFov(0.7854, 1.778, 1, 5000)
+    camera:PerspectiveFov(0.7854, 1.778, 1, editor_cam_far)
     camera:SetShadowFar(2000)
     camera:SetShadowBounds(Vector4(-500), Vector4(500))
 
@@ -562,6 +578,25 @@ local function on_init()
 
     Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
     Pipeline.GetActive():SetCurrentCamera(cam_node)
+
+    -- Settings -> Camera section: live far-plane control (see
+    -- editor_cam_far). SetCameraSettings replaces the whole list; the
+    -- far plane is the only camera control today.
+    Editor.SetCameraSettings({
+        controls = {
+            {
+                label = "Far Plane (cm)",
+                kind = "slider",
+                min = 1000.0,
+                max = 800000.0,
+                get = function() return editor_cam_far end,
+                set = function(v)
+                    editor_cam_far = v
+                    apply_editor_cam_clip()
+                end,
+            },
+        },
+    })
     FileUtil.LoadPipelineFromFile(
         Pipeline.GetActive(),
         FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))

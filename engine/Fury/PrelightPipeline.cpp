@@ -39,6 +39,9 @@
 #include "Fury/RenderSettings.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/SkyAtmosphere.h"
+#include "Fury/OceanComponent.h"
+#include "Fury/PhysicsWorld.h"
+#include "Fury/OceanWaves.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -449,6 +452,12 @@ namespace fury
 				// would wipe hdr_composite).
 				DrawSky(pass);
 			}
+			else if (drawMode == DrawMode::OCEAN)
+			{
+				// Same owned-bind pattern as DrawSky (needs a pre-pass
+				// depth copy for shore foam before the pass binds).
+				DrawOcean(pass, query);
+			}
 			else if (drawMode == DrawMode::LIGHT)
 			{
 				pass->Bind(true);
@@ -491,7 +500,8 @@ namespace fury
 		// draw debug
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
 			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS,
-			PipelineSwitch::EDITOR_GRID }, true))
+			PipelineSwitch::EDITOR_GRID }, true) ||
+			(PhysicsWorld::Exists() && PhysicsWorld::Instance()->HasBuoyancyDebugDraw()))
 		{
 			// When an offscreen RenderTarget is set, the final composite
 			// pass rendered into it (see Pass::Bind). The last pass's
@@ -1164,6 +1174,294 @@ namespace fury
 		shader->UnBind();
 
 		RenderUtil::Instance()->IncreaseDrawCall();
+	}
+
+	void PrelightPipeline::DrawOcean(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query)
+	{
+		// HDR-only feature (same constraint as the sky pass).
+		if (!IsHDRMode())
+			return;
+		if (m_CurrentCamera == nullptr || query == nullptr || query->oceanNodes.empty())
+			return;
+		auto shader = m_CurrentShader != nullptr ? m_CurrentShader : pass->GetFirstShader();
+		if (shader == nullptr)
+			return;
+
+		// Pre-pass depth copy: shore foam samples the opaque scene depth,
+		// which is also this pass's depth attachment (sampling the bound
+		// attachment would be a feedback loop). Depth copies go through
+		// glBlitFramebuffer (RenderUtil::Blit is a color draw).
+		Texture::Ptr depthCopy;
+		auto depthSrc = GetTextureByName("gbuffer_depth");
+		if (depthSrc)
+		{
+			depthCopy = Texture::GetTemporary(depthSrc->GetWidth(), depthSrc->GetHeight(),
+				1, depthSrc->GetFormat(), TextureType::TEXTURE_2D);
+
+			static unsigned int s_DepthCopyFbos[2] = { 0, 0 };
+			if (s_DepthCopyFbos[0] == 0)
+				glGenFramebuffers(2, s_DepthCopyFbos);
+			int w = depthSrc->GetWidth();
+			int h = depthSrc->GetHeight();
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, s_DepthCopyFbos[0]);
+			glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthSrc->GetID(), 0);
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_DepthCopyFbos[1]);
+			glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthCopy->GetID(), 0);
+			glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		}
+
+		pass->Bind(false); // never clear: hdr_composite holds the lit scene
+		shader->Bind();
+		shader->BindCamera(m_CurrentCamera);
+
+		// per-buffer blend: color0 (hdr_composite) alpha-blends; color1
+		// (gbuffer_normal) must stay replace or normals get smeared.
+		// glEnablei/glDisablei are GL 3.0 core; per-buffer blend FUNC
+		// (glBlendFunci) is 4.0-only, so the func stays global and
+		// buffer 1 simply keeps blending disabled.
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glEnablei(GL_BLEND, 0);
+		glDisablei(GL_BLEND, 1);
+		glEnable(GL_DEPTH_TEST);
+		glDepthMask(GL_TRUE);
+
+		// note: the GetDummyTexture* helpers are free functions in
+		// namespace fury (RenderUtil.cpp), not RenderUtil members
+		if (depthCopy)
+			shader->BindTexture("u_scene_depth", depthCopy);
+		else
+			shader->BindTexture("u_scene_depth", GetDummyTexture2D());
+		shader->BindFloat("u_rt_size", (float)pass->GetTextureAt(0, false)->GetWidth(),
+			(float)pass->GetTextureAt(0, false)->GetHeight());
+
+		// dominant directional light for the sun term (BindLight uniforms)
+		SceneNode::Ptr sunNode;
+		for (const auto &lightNode : query->lightNodes)
+		{
+			auto light = lightNode->GetComponent<Light>();
+			if (light && light->GetType() == LightType::DIRECTIONAL)
+			{
+				sunNode = lightNode;
+				break;
+			}
+		}
+		if (sunNode)
+		{
+			shader->BindLight(sunNode);
+			shader->BindInt("u_light_valid", 1);
+		}
+		else
+		{
+			shader->BindInt("u_light_valid", 0);
+		}
+
+		// CSM shadow-receive from the frame's cached sun map (transparent
+		// pass reads the same caches)
+		int shadowType = 0;
+		if (sunNode)
+		{
+			auto texIt = m_LastShadowTextures.find(sunNode.get());
+			auto matIt = m_LastShadowMatrices.find(sunNode.get());
+			if (texIt != m_LastShadowTextures.end() && texIt->second &&
+				matIt != m_LastShadowMatrices.end() && matIt->second.csm.size() == 4)
+			{
+				shader->BindTexture("shadow_buffer_csm", texIt->second);
+				shader->BindMatrices("shadow_matrix_csm", 4, matIt->second.csm.data());
+				shader->BindFloat("shadow_far", matIt->second.shadowFar.x,
+					matIt->second.shadowFar.y, matIt->second.shadowFar.z,
+					matIt->second.shadowFar.w);
+				shadowType = 3;
+			}
+		}
+		if (shadowType == 0)
+			shader->BindTexture("shadow_buffer_csm", GetDummyTexture2DArray());
+		shader->BindInt("u_shadow_type", shadowType);
+
+		// aerial perspective volume (same source as PbrCombine)
+		auto sky = SkyAtmosphere::GetActive();
+		if (sky && sky->GetEnabled() && sky->GetCameraVolume())
+		{
+			shader->BindTexture("u_ap_volume", sky->GetCameraVolume());
+			shader->BindFloat("u_ap_range", sky->GetApRangeKm());
+			shader->BindInt("u_atmosphere_enabled", 1);
+			// sky-view LUT: true sky color for reflections + the fog
+			// convergence target (rendered fresh in pass_sky above)
+			shader->BindTexture("u_skyview_lut", sky->GetSkyViewLut());
+			shader->BindFloat("u_bottom_radius", sky->GetBottomRadiusKm());
+			shader->BindFloat("u_view_height", sky->GetViewHeightKm());
+			// moonlight: the sun light dims to zero at night, but the water
+			// should keep a cool moon glint (diffuse + a capped spec path)
+			Vector4 moonDir = sky->GetMoonDirection();
+			shader->BindFloat("u_moon_dir", moonDir.x, moonDir.y, moonDir.z);
+			shader->BindFloat("u_moon_intensity", sky->GetMoonEnabled()
+				? sky->GetMoonIntensity() : 0.0f);
+		}
+		else
+		{
+			shader->BindTexture("u_ap_volume", GetDummyTexture3D());
+			shader->BindInt("u_atmosphere_enabled", 0);
+			shader->BindTexture("u_skyview_lut", GetDummyTexture2D());
+			shader->BindFloat("u_bottom_radius", 6360.0f);
+			shader->BindFloat("u_view_height", 0.0f);
+			shader->BindFloat("u_moon_dir", 0.0f, -1.0f, 0.0f);
+			shader->BindFloat("u_moon_intensity", 0.0f);
+		}
+
+		Vector4 camPos = m_CurrentCamera->GetWorldPosition();
+		// camera-radial band fades are centered on the camera (VS)
+		shader->BindFloat("u_cam_xz", camPos.x, camPos.z);
+		for (const auto &node : query->oceanNodes)
+		{
+			auto ocean = node->GetComponent<OceanComponent>();
+			if (!ocean)
+				continue;
+
+			ocean->UpdateCameraFollow(camPos);
+			auto waves = ocean->GetWaves();
+			bool valid = waves && waves->IsValid();
+
+			Vector4 nodePos = node->GetWorldPosition();
+			shader->BindFloat("u_water_level", nodePos.y + ocean->GetWaterLevel());
+			shader->BindFloat("u_time", ocean->GetWaveTime());
+			shader->BindInt("u_waves_valid", valid ? 1 : 0);
+
+			if (valid)
+			{
+				// roles by tile (bands are sorted tile-ascending at load):
+				// swell = largest, chop = smallest when a 3rd cascade exists,
+				// ripple = the one in between. The chop band contributes
+				// normals + foam only (no vertex displacement).
+				const int bandCount = waves->GetBandCount();
+				const auto &swellBand = waves->GetBand(bandCount - 1);
+				const auto &rippleBand = waves->GetBand(bandCount >= 3 ? 1 : 0);
+				const bool hasChop = bandCount >= 3;
+				const auto &chopBand = waves->GetBand(0);
+
+				shader->BindFloat("u_loop_seconds", waves->GetLoopSeconds());
+				shader->BindFloat("u_frames", (float)waves->GetFrameCount());
+				shader->BindFloat("u_swell_tile", swellBand.TileCm);
+				shader->BindFloat("u_ripple_tile", rippleBand.TileCm);
+				shader->BindTexture("u_disp_swell", swellBand.DispTexture);
+				shader->BindTexture("u_disp_ripple", rippleBand.DispTexture);
+				shader->BindTexture("u_nrm_swell", swellBand.NrmTexture);
+				shader->BindTexture("u_nrm_ripple", rippleBand.NrmTexture);
+				shader->BindInt("u_chop_valid", hasChop ? 1 : 0);
+				if (hasChop)
+				{
+					shader->BindFloat("u_chop_tile", chopBand.TileCm);
+					shader->BindTexture("u_nrm_chop", chopBand.NrmTexture);
+				}
+				else
+				{
+					shader->BindFloat("u_chop_tile", 300.0f);
+					shader->BindTexture("u_nrm_chop", GetDummyTexture2DArray());
+				}
+			}
+			else
+			{
+				shader->BindFloat("u_loop_seconds", 12.0f);
+				shader->BindFloat("u_frames", 32.0f);
+				shader->BindFloat("u_swell_tile", 10000.0f);
+				shader->BindFloat("u_ripple_tile", 800.0f);
+				shader->BindTexture("u_disp_swell", GetDummyTexture2DArray());
+				shader->BindTexture("u_disp_ripple", GetDummyTexture2DArray());
+				shader->BindTexture("u_nrm_swell", GetDummyTexture2DArray());
+				shader->BindTexture("u_nrm_ripple", GetDummyTexture2DArray());
+				shader->BindInt("u_chop_valid", 0);
+				shader->BindFloat("u_chop_tile", 300.0f);
+				shader->BindTexture("u_nrm_chop", GetDummyTexture2DArray());
+			}
+
+			Color absorb = ocean->GetAbsorbColor();
+			Color scatter = ocean->GetScatterColor();
+			shader->BindFloat("u_absorb_color", absorb.r, absorb.g, absorb.b);
+			shader->BindFloat("u_scatter_color", scatter.r, scatter.g, scatter.b);
+			shader->BindFloat("u_roughness", ocean->GetRoughness());
+			// always the true roughness: the SSAO water gate reads the same
+			// gbuffer alpha as SSR (SSR's own roughness < 0.95 gate is
+			// unaffected), so SSR-off water must not write 1.0 here
+			shader->BindFloat("u_ssr_roughness", ocean->GetRoughness());
+			shader->BindFloat("u_normal_strength", ocean->GetNormalStrength());
+			shader->BindFloat("u_foam_amount", ocean->GetFoamAmount());
+			shader->BindFloat("u_shore_foam_depth", ocean->GetShoreFoamDepthCm());
+			shader->BindFloat("u_wind_speed", ocean->GetWindSpeed());
+			shader->BindInt("u_debug_view", (int)ocean->GetDebugView());
+			shader->BindFloat("u_disp_debug_scale", 0.02f);
+
+			// camera-radial band fades: ranges derive from the ring radii;
+			// the legacy per-piece uniforms survive as multipliers (1 = on)
+			const Vector4 &fadeRanges = ocean->GetFadeRanges();
+			shader->BindFloat("u_fade_ranges", fadeRanges.x, fadeRanges.y,
+				fadeRanges.z, fadeRanges.w);
+			shader->BindFloat("u_swell_fade", 1.0f);
+			shader->BindFloat("u_ripple_fade", 1.0f);
+
+			// distance fog converges far water to the sky horizon color;
+			// fully fogged at the skirt radius so the far edge never reads.
+			// The start follows the last ring's outer radius (never below
+			// 1 km): with more rings the detailed band reaches further, and
+			// a fixed start left a hard fog band against it.
+			float fogStart = std::max(100000.0f, fadeRanges.w);
+			float fogEnd = std::max(ocean->GetSkirtRadiusCm(), fogStart * 1.01f);
+			shader->BindFloat("u_fog_start", fogStart);
+			shader->BindFloat("u_fog_end", fogEnd);
+
+			// debug view 3: ring-LOD wireframe via polygon mode (no CPU
+			// line lists; restored right after this ocean's draws)
+			bool wireframe = ocean->GetDebugView() == 3;
+			if (wireframe)
+				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+			if (ocean->GetMode() == OceanComponent::Mode::Finite)
+			{
+				auto mesh = ocean->GetFiniteMesh();
+				if (!mesh)
+					continue;
+				shader->BindFloat("u_world_origin", nodePos.x, nodePos.y, nodePos.z);
+				shader->BindFloat("u_y_offset", 0.0f);
+				shader->BindFloat("u_debug_color", 0.2f, 0.9f, 0.9f);
+				mesh->UpdateBuffer();
+				shader->BindMesh(mesh);
+				glDrawElements(GL_TRIANGLES, (GLsizei)mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				RenderUtil::Instance()->IncreaseDrawCall();
+			}
+			else
+			{
+				// per-piece wireframe colors: center white, rings cycle, skirt gray
+				static const float kPieceColors[][3] = {
+					{ 1.0f, 1.0f, 1.0f }, { 0.95f, 0.6f, 0.2f }, { 0.3f, 0.9f, 0.4f },
+					{ 0.35f, 0.6f, 1.0f }, { 0.9f, 0.4f, 0.9f }, { 0.5f, 0.5f, 0.5f }
+				};
+				int pieceIndex = 0;
+				for (const auto &piece : ocean->GetRingPieces())
+				{
+					if (!piece.MeshPtr)
+						continue;
+					const float *pc = kPieceColors[std::min<int>(piece.IsSkirt ? 5 : pieceIndex, 5)];
+					shader->BindFloat("u_world_origin", piece.Origin.x, piece.Origin.y, piece.Origin.z);
+					shader->BindFloat("u_y_offset", piece.YOffset);
+					shader->BindFloat("u_debug_color", pc[0], pc[1], pc[2]);
+					piece.MeshPtr->UpdateBuffer();
+					shader->BindMesh(piece.MeshPtr);
+					glDrawElements(GL_TRIANGLES, (GLsizei)piece.MeshPtr->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					RenderUtil::Instance()->IncreaseDrawCall();
+					++pieceIndex;
+				}
+			}
+
+			if (wireframe)
+				glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		}
+
+		// restore: blend/depth state leaves with the pass
+		glDisablei(GL_BLEND, 0);
+		glDepthMask(GL_TRUE);
+		shader->UnBind();
+
+		if (depthCopy)
+			Texture::ReleaseTemporary(depthCopy);
 	}
 
 	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture() const

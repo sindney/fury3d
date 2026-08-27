@@ -7,6 +7,7 @@
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/EditorThemes.h"
+#include "Fury/Engine.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Gui.h"
 #include "Fury/Log.h"
@@ -285,6 +286,10 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 void SettingsHandler_ApplyAll(ImGuiContext*, ImGuiSettingsHandler*) {
 	// Apply the persisted theme once ImGui finishes loading the ini.
 	ApplyPersistedTheme();
+
+	// Compute-shader user switch (change: add-fft-ocean), default on;
+	// FURY_COMPUTE_SHADER still overrides per run.
+	Engine::SetComputeShadersEnabled(GetImportFlag("compute_shaders", true));
 
 	// One-time layout migration: if the ini predates the current
 	// layout version (e.g. an ini from before the Viewport window

@@ -47,6 +47,42 @@
 
 namespace
 {
+	// Create the window asking for the highest available core profile so
+	// optional GL 4.3+ features (compute shaders) are usable when the driver
+	// provides them. Attempts descend 4.6 -> 3.3; the negotiated version is
+	// read back from the created context and logged. 3.3 core remains the
+	// guaranteed floor, so nothing changes on old drivers (or macOS, which
+	// caps at 4.1).
+	bool CreateWindowNegotiated(sf::Window &window, sf::VideoMode mode,
+		const char* title, std::uint32_t style)
+	{
+		static const int kAttempts[][2] = {{4, 6}, {4, 5}, {4, 3}, {4, 1}, {3, 3}};
+		for (const auto &att : kAttempts)
+		{
+			sf::ContextSettings settings;
+			settings.depthBits = 24;
+			settings.stencilBits = 8;
+			settings.antiAliasingLevel = 0;
+			settings.majorVersion = att[0];
+			settings.minorVersion = att[1];
+
+			window.create(mode, title, style, sf::State::Windowed, settings);
+			if (!window.isOpen())
+				continue;
+
+			const auto &actual = window.getSettings();
+			if (actual.majorVersion > 3 ||
+				(actual.majorVersion == 3 && actual.minorVersion >= 3))
+			{
+				std::cout << "fury: GL context " << actual.majorVersion << "."
+					<< actual.minorVersion << " (requested " << att[0] << "." << att[1] << ")\n";
+				return true;
+			}
+			window.close();
+		}
+		return false;
+	}
+
 	// Walk argv[2..argc-1] and split out the launcher's runtime flags. The
 	// flags are written into `out_options`; everything else is appended to
 	// `out_filtered` in original order. Returns true on success; false (with
@@ -67,6 +103,44 @@ namespace
 					return false;
 				}
 				out_options.screenshot_path = argv[++i];
+				continue;
+			}
+			// "--screenshot-series path,N,interval": capture N frames every
+			// `interval` frames (from --screenshot-frame) into one atlas PNG.
+			if (std::strcmp(a, "--screenshot-series") == 0)
+			{
+				if (i + 1 >= argc)
+				{
+					std::cerr << "fury: --screenshot-series requires 'path,N,interval'\n";
+					return false;
+				}
+				std::string spec = argv[++i];
+				const auto c1 = spec.rfind(',');
+				const auto c2 = c1 == std::string::npos ? c1 : spec.rfind(',', c1 - 1);
+				if (c1 == std::string::npos || c2 == std::string::npos)
+				{
+					std::cerr << "fury: --screenshot-series wants 'path,N,interval' (got '"
+						<< spec << "')\n";
+					return false;
+				}
+				try
+				{
+					out_options.screenshot_series_path = spec.substr(0, c2);
+					out_options.series_count = std::stoi(spec.substr(c2 + 1, c1 - c2 - 1));
+					out_options.series_interval = std::stoi(spec.substr(c1 + 1));
+				}
+				catch (const std::exception &)
+				{
+					std::cerr << "fury: --screenshot-series N/interval must be integers (got '"
+						<< spec << "')\n";
+					return false;
+				}
+				if (out_options.series_count < 1 || out_options.series_count > 64 ||
+					out_options.series_interval < 1)
+				{
+					std::cerr << "fury: --screenshot-series requires 1..64 frames and interval >= 1\n";
+					return false;
+				}
 				continue;
 			}
 			if (std::strcmp(a, "--screenshot-frame") == 0)
@@ -128,18 +202,12 @@ int main(int argc, char *argv[])
 	// `fury render-mesh` needs a GL context, so set up the window + engine here
 	// and delegate to Cli::RenderMesh.
 	if (argc >= 2 && std::strcmp(argv[1], "render-mesh") == 0) {
-		sf::ContextSettings settings;
-		settings.depthBits = 24;
-		settings.stencilBits = 8;
-		settings.antiAliasingLevel = 0;
-		settings.majorVersion = 3;
-		settings.minorVersion = 3;
-		sf::Window window(
-			sf::VideoMode({256, 256}),
-			"Fury3d-render-mesh",
-			sf::Style::None,
-			sf::State::Windowed,
-			settings);
+		sf::Window window;
+		if (!CreateWindowNegotiated(window, sf::VideoMode({256, 256}),
+				"Fury3d-render-mesh", sf::Style::None)) {
+			std::cerr << "fury render-mesh: window creation failed\n";
+			return 1;
+		}
 		window.setVerticalSyncEnabled(false);
 		(void)window.setActive();
 		int rc = 1;
@@ -152,6 +220,7 @@ int main(int argc, char *argv[])
 		}
 		return rc;
 	}
+
 
 	// Fast-path: if argv[1] looks like a CLI subcommand, take the offline
 	// path. No window, no engine, no Lua. Exit code from Cli::Run propagates.
@@ -166,13 +235,6 @@ int main(int argc, char *argv[])
 		return 1;
 
 	// Otherwise: existing Lua launcher behavior.
-	sf::ContextSettings settings;
-	settings.depthBits = 24;
-	settings.stencilBits = 8;
-	settings.antiAliasingLevel = 0;
-	settings.majorVersion = 3;
-	settings.minorVersion = 3;
-
 	sf::Vector2u window_size{1280, 720};
 	sf::Vector2i window_pos{-1, -1};
 	int pw = 0, ph = 0, px2 = 0, py2 = 0;
@@ -184,12 +246,13 @@ int main(int argc, char *argv[])
 		window_pos.y = py2;
 	}
 
-	sf::Window window(
-		sf::VideoMode(window_size),
-		"Fury3d",
-		sf::Style::Titlebar | sf::Style::Resize | sf::Style::Close,
-		sf::State::Windowed,
-		settings);
+	sf::Window window;
+	if (!CreateWindowNegotiated(window, sf::VideoMode(window_size),
+			"Fury3d", sf::Style::Titlebar | sf::Style::Resize | sf::Style::Close))
+	{
+		std::cerr << "fury: window creation failed" << std::endl;
+		return 1;
+	}
 	if (window_pos.x >= 0 && window_pos.y >= 0)
 		window.setPosition(window_pos);
 	window.setKeyRepeatEnabled(true);

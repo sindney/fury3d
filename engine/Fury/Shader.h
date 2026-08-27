@@ -70,6 +70,22 @@ namespace fury
 
 		bool LoadAndCompile(const std::string &shaderPath, bool useGeomShader = false);
 
+		// Compile only the COMPUTE_SHADER section of a shader file as a
+		// single-stage GL_COMPUTE_SHADER program (#version 430 injected when
+		// the file declares none). Requires gl::HasComputeShaders().
+		bool LoadAndCompileCompute(const std::string &shaderPath);
+
+		// Same, from an in-memory source string.
+		bool CompileCompute(const std::string &source);
+
+		// UseProgram + glDispatchCompute. No-op with a warning when compute
+		// entry points are missing or the program failed to build.
+		void DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ);
+
+		// glMemoryBarrier over image/fetch/storage/update bits. Call between
+		// a compute write pass and any later image/sampler read.
+		static void ComputeBarrier();
+
 		bool Compile(const std::string &vsData, const std::string &fsData, const std::string &gsData);
 
 		void DeleteProgram();

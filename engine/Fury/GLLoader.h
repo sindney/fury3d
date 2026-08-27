@@ -506,6 +506,13 @@ extern "C" {
 #define GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING 0x889F
 #define GL_WRITE_ONLY 0x88B9
 
+/* compute shader support (GL 4.3 / ARB_compute_shader), optional at runtime */
+#define GL_COMPUTE_SHADER 0x91B9
+#define GL_TEXTURE_FETCH_BARRIER_BIT 0x00000008
+#define GL_SHADER_IMAGE_ACCESS_BARRIER_BIT 0x00000020
+#define GL_SHADER_STORAGE_BARRIER_BIT 0x00002000
+#define GL_TEXTURE_UPDATE_BARRIER_BIT 0x00000100
+
 #define GL_ACTIVE_ATTRIBUTES 0x8B89
 #define GL_ACTIVE_ATTRIBUTE_MAX_LENGTH 0x8B8A
 #define GL_ACTIVE_UNIFORMS 0x8B86
@@ -1687,6 +1694,15 @@ extern "C" {
 	extern void (CODEGEN_FUNCPTR *_ptrc_glTexStorage3D)(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth);
 #define glTexStorage3D _ptrc_glTexStorage3D
 
+/* Optional compute entry points, resolved by LoadGLFunctions when the
+   context provides them (GL 4.3+ or ARB_compute_shader). Null otherwise. */
+extern void (CODEGEN_FUNCPTR *_ptrc_glDispatchCompute)(GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z);
+#define glDispatchCompute _ptrc_glDispatchCompute
+extern void (CODEGEN_FUNCPTR *_ptrc_glMemoryBarrier)(GLbitfield barriers);
+#define glMemoryBarrier _ptrc_glMemoryBarrier
+extern void (CODEGEN_FUNCPTR *_ptrc_glBindImageTexture)(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format);
+#define glBindImageTexture _ptrc_glBindImageTexture
+
 namespace gl
 {
 	int LoadGLFunctions();
@@ -1694,6 +1710,14 @@ namespace gl
 	int GetMinorVersion(void);
 	int GetMajorVersion(void);
 	int IsVersionGEQ(int majorVersion, int minorVersion);
+
+	/* 1 when compute shaders are usable: GL 4.3+ or both ARB extensions,
+	   with all entry points resolved. 0 without a GL context. */
+	int HasComputeShaders(void);
+
+	/* 1 when LoadGLFunctions ran against a live context (0 in headless
+	   exec); use to guard any GL resource creation. */
+	int HasGLContext(void);
 }
 
 #ifdef __cplusplus

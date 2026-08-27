@@ -64,7 +64,10 @@ namespace fury
 	}
 
 	Material::Material(const std::string &name)
-		: Entity(name), m_TextureFlags(0), m_Opaque(true), m_AlphaMode(AlphaMode::OPAQUE), m_AlphaCutoff(0.5f), m_ID(GetMaterialID())
+		// A fresh material has no textures: it is color-only. (The zero
+		// default silently matched the pass's first textured shader, which
+		// then sampled unit-0's leftover texture - invisible/garbage output.)
+		: Entity(name), m_TextureFlags((unsigned int)ShaderTexture::COLOR_ONLY), m_Opaque(true), m_AlphaMode(AlphaMode::OPAQUE), m_AlphaCutoff(0.5f), m_ID(GetMaterialID())
 	{
 		m_TypeIndex = typeid(Material);
 		m_Dirty = false;

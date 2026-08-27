@@ -14,12 +14,16 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/Heightmap.h"
 #include "Fury/Light.h"
+#include "Fury/OceanComponent.h"
+#include "Fury/OceanWaves.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/BodySetup.h"
+#include "Fury/BuoyancyComponent.h"
 #include "Fury/CharacterController.h"
+#include "Fury/Engine.h"
 #include "Fury/ParticleRenderer.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/PlayerController.h"
@@ -939,6 +943,252 @@ void RenderTerrainBody(SceneNode* node, Terrain* terrain) {
 	}
 }
 
+// OceanComponent: mode, wave source (+ resolved reason), spectrum params for
+// the GPU path, geometry, shading, foam, debug views (change: add-fft-ocean).
+void RenderOceanBody(SceneNode* node, OceanComponent* ocean) {
+	if (!ocean) return;
+	(void)node;
+
+	int mode = (int)ocean->GetMode();
+	if (ImGui::Combo("Mode", &mode, "Finite (grid)\0Infinite (ring LOD)\0")) {
+		ocean->SetMode((OceanComponent::Mode)mode);
+		Editor::MarkSceneDirty();
+	}
+
+	// Wave Source is baked-only after remove-gpu-ocean-generation: the GPU
+	// path is gone, the enum's Auto value deserializes legacy files as
+	// Baked, and a future Gerstner/in-shader path would re-add a real
+	// choice. For now: read-only.
+	ImGui::TextDisabled("Wave Source: Baked asset (GPU generation removed)");
+
+	// resolved source + reason: 0 = none, 1 = baked, 2 was GPU (retired)
+	const char* srcNames[] = { "none (flat)", "baked asset" };
+	int resolved = ocean->GetResolvedSource();
+	int safeResolved = (resolved == 2) ? 1 : (resolved != 0 ? 1 : 0);
+	ImGui::TextDisabled("Resolved: %s - %s",
+		srcNames[safeResolved], ocean->GetResolvedReason().c_str());
+
+	// Wave asset row: Change (picker) / -> (jump to browser) / x (unbind) +
+	// name + a stats line - the Terrain heightmap-row precedent (the raw
+	// text input is gone; the picker lists loaded OceanWaves assets).
+	{
+		const bool hasWaves = !ocean->GetWaveAssetPath().empty();
+		if (ImGui::Button("Change##waveasset"))
+			ImGui::OpenPopup("OceanWavesPicker");
+		ImGui::SameLine();
+		if (!hasWaves) ImGui::BeginDisabled();
+		if (ImGui::Button("->##waveasset"))
+			Editor::SelectAssetInBrowser(typeid(OceanWaves), ocean->GetWaveAssetPath());
+		if (!hasWaves) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (!hasWaves) ImGui::BeginDisabled();
+		if (ImGui::Button("x##waveasset")) {
+			ocean->SetWaveAssetPath("");
+			Editor::MarkSceneDirty();
+		}
+		if (!hasWaves) ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::TextUnformatted("OceanWaves:");
+		ImGui::SameLine();
+		if (hasWaves)
+			ImGui::TextUnformatted(ocean->GetWaveAssetPath().c_str());
+		else
+			ImGui::TextDisabled("(none)");
+
+		RenderAssetPickerModal("OceanWavesPicker", "Pick OceanWaves (loaded)",
+			typeid(OceanWaves),
+			[ocean](std::shared_ptr<void> p) {
+				auto waves = std::static_pointer_cast<OceanWaves>(p);
+				ocean->SetWaveAssetPath(waves ? waves->GetFilePath() : "");
+				Editor::MarkSceneDirty();
+			});
+
+		if (auto waves = ocean->GetWaves(); waves && waves->IsValid()) {
+			if (waves->GetBandCount() >= 2)
+				ImGui::TextDisabled("%d bands, %d frames x %.1fs, tiles %.0f/%.0f cm",
+					waves->GetBandCount(), waves->GetFrameCount(), waves->GetLoopSeconds(),
+					waves->GetBand(0).TileCm, waves->GetBand(1).TileCm);
+			else
+				ImGui::TextDisabled("%d band, %d frames x %.1fs, tile %.0f cm",
+					waves->GetBandCount(), waves->GetFrameCount(), waves->GetLoopSeconds(),
+					waves->GetBand(0).TileCm);
+		} else {
+			ImGui::TextDisabled("no waves resolved");
+		}
+	}
+
+	float waterLevel = ocean->GetWaterLevel();
+	if (ImGui::DragFloat("Water Level (cm)", &waterLevel, 1.0f, -100000.0f, 100000.0f)) {
+		ocean->SetWaterLevel(waterLevel);
+		Editor::MarkSceneDirty();
+	}
+
+	// --- geometry ---------------------------------------------------------
+	if (ocean->GetMode() == OceanComponent::Mode::Finite) {
+		float size = ocean->GetFiniteSizeCm();
+		if (ImGui::DragFloat("Size (cm)", &size, 10.0f, 100.0f, 1000000.0f)) {
+			ocean->SetFiniteSizeCm(size);
+			Editor::MarkSceneDirty();
+		}
+		int res = ocean->GetFiniteResolution();
+		if (ImGui::DragInt("Resolution", &res, 1.0f, 8, 512)) {
+			ocean->SetFiniteResolution(res);
+			Editor::MarkSceneDirty();
+		}
+	} else {
+		float cell = ocean->GetRingCellSizeCm();
+		if (ImGui::DragFloat("Cell Size (cm)", &cell, 1.0f, 10.0f, 10000.0f)) {
+			ocean->SetRingCellSizeCm(cell);
+			Editor::MarkSceneDirty();
+		}
+		int cells = ocean->GetRingCells();
+		if (ImGui::DragInt("Center Cells", &cells, 1.0f, 8, 256)) {
+			ocean->SetRingCells(cells);
+			Editor::MarkSceneDirty();
+		}
+		int rings = ocean->GetRingCount();
+		if (ImGui::DragInt("Ring Count", &rings, 1.0f, 0, 5)) {
+			ocean->SetRingCount(rings);
+			Editor::MarkSceneDirty();
+		}
+		float skirt = ocean->GetSkirtRadiusCm();
+		if (ImGui::DragFloat("Skirt Radius (cm)", &skirt, 1000.0f, 10000.0f, 4000000.0f)) {
+			ocean->SetSkirtRadiusCm(skirt);
+			Editor::MarkSceneDirty();
+		}
+		ImGui::TextDisabled("%u verts (budget 250k)", ocean->GetOceanVertexCount());
+	}
+
+	// --- shading ----------------------------------------------------------
+	ImGui::SeparatorText("Shading");
+	{
+		Color absorb = ocean->GetAbsorbColor();
+		float rgb[3] = { absorb.r, absorb.g, absorb.b };
+		if (ImGui::ColorEdit3("Absorb Color", rgb)) {
+			ocean->SetAbsorbColor(Color(rgb[0], rgb[1], rgb[2], 1.0f));
+			Editor::MarkSceneDirty();
+		}
+		Color scatter = ocean->GetScatterColor();
+		float rgb2[3] = { scatter.r, scatter.g, scatter.b };
+		if (ImGui::ColorEdit3("Scatter Color", rgb2)) {
+			ocean->SetScatterColor(Color(rgb2[0], rgb2[1], rgb2[2], 1.0f));
+			Editor::MarkSceneDirty();
+		}
+	}
+	float roughness = ocean->GetRoughness();
+	if (ImGui::SliderFloat("Roughness", &roughness, 0.02f, 1.0f)) {
+		ocean->SetRoughness(roughness);
+		Editor::MarkSceneDirty();
+	}
+	float nrmStr = ocean->GetNormalStrength();
+	if (ImGui::SliderFloat("Normal Strength", &nrmStr, 0.0f, 3.0f)) {
+		ocean->SetNormalStrength(nrmStr);
+		Editor::MarkSceneDirty();
+	}
+	float foam = ocean->GetFoamAmount();
+	if (ImGui::SliderFloat("Foam Amount", &foam, 0.0f, 3.0f)) {
+		ocean->SetFoamAmount(foam);
+		Editor::MarkSceneDirty();
+	}
+	float shore = ocean->GetShoreFoamDepthCm();
+	if (ImGui::DragFloat("Shore Foam Depth (cm)", &shore, 5.0f, 0.0f, 5000.0f)) {
+		ocean->SetShoreFoamDepthCm(shore);
+		Editor::MarkSceneDirty();
+	}
+	// (no SSR checkbox: water always writes its true roughness to
+	// gbuffer_normal.a so the SSAO water gate works; SSR's own
+	// roughness < 0.95 gate decides reflection. The serialized `ssr`
+	// field stays for scene compat but no longer gates anything.)
+
+	// (no Debug section here: the debug views live in the viewport's Debug
+	// droplist, Ocean submenu - they drive every ocean in the scene at once)
+}
+
+// BuoyancyComponent: float-point list editor + coefficients (change:
+// add-fft-ocean). Forces tick in play mode only.
+void RenderBuoyancyBody(SceneNode* node, BuoyancyComponent* buoyancy) {
+	if (!buoyancy) return;
+
+	// sibling BodySetup must exist and be dynamic
+	auto body = node ? node->GetComponent<BodySetup>() : nullptr;
+	if (!body) {
+		ImGui::TextDisabled("Requires a dynamic BodySetup on the same node.");
+	} else if (body->GetMotionType() != BodySetup::MotionType::Dynamic) {
+		ImGui::TextDisabled("BodySetup is not dynamic - buoyancy will not act.");
+	}
+
+	ImGui::TextDisabled("Float points (node-local, cm):");
+	for (unsigned int i = 0; i < buoyancy->GetFloatPointCount(); ++i) {
+		ImGui::PushID(i);
+		auto point = buoyancy->GetFloatPoint(i);
+		float off[3] = { point.Offset.x, point.Offset.y, point.Offset.z };
+		float radius = point.Radius;
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+		bool changed = ImGui::DragFloat3("##offset", off, 1.0f, -10000.0f, 10000.0f);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+		changed |= ImGui::DragFloat("##radius", &radius, 1.0f, 1.0f, 1000.0f, "r=%.0f");
+		ImGui::SameLine();
+		if (ImGui::Button("x")) {
+			buoyancy->RemoveFloatPoint(i);
+			Editor::MarkSceneDirty();
+			ImGui::PopID();
+			break;
+		}
+		if (changed) {
+			buoyancy->SetFloatPoint(i, Vector4(off[0], off[1], off[2], 1.0f), radius);
+			Editor::MarkSceneDirty();
+		}
+		ImGui::PopID();
+	}
+	if (ImGui::Button("Add Float Point")) {
+		buoyancy->AddFloatPoint(Vector4(0.0f, 0.0f, 0.0f, 1.0f), 25.0f);
+		Editor::MarkSceneDirty();
+	}
+
+	float density = buoyancy->GetWaterDensity();
+	if (ImGui::DragFloat("Water Density", &density, 0.05f, 0.01f, 100.0f)) {
+		buoyancy->SetWaterDensity(density);
+		Editor::MarkSceneDirty();
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("1.0 = neutral at full submersion; ~2 floats half-submerged");
+
+	float lin = buoyancy->GetLinearDrag();
+	if (ImGui::DragFloat("Linear Drag", &lin, 0.05f, 0.0f, 20.0f)) {
+		buoyancy->SetLinearDrag(lin);
+		Editor::MarkSceneDirty();
+	}
+	float ang = buoyancy->GetAngularDrag();
+	if (ImGui::DragFloat("Angular Drag", &ang, 0.05f, 0.0f, 20.0f)) {
+		buoyancy->SetAngularDrag(ang);
+		Editor::MarkSceneDirty();
+	}
+	float righting = buoyancy->GetRightingStrength();
+	if (ImGui::DragFloat("Righting Strength", &righting, 0.1f, 0.0f, 100.0f)) {
+		buoyancy->SetRightingStrength(righting);
+		Editor::MarkSceneDirty();
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Must dominate the buoyancy pendulum or a capsized body stays inverted");
+
+	char oceanName[128];
+	std::strncpy(oceanName, buoyancy->GetOceanNodeName().c_str(), sizeof(oceanName) - 1);
+	oceanName[sizeof(oceanName) - 1] = '\0';
+	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+	if (ImGui::InputText("Ocean Node", oceanName, sizeof(oceanName))) {
+		buoyancy->SetOceanNodeName(oceanName);
+		Editor::MarkSceneDirty();
+	}
+
+	bool dbg = buoyancy->GetDebugDraw();
+	if (ImGui::Checkbox("Debug Draw Float Points", &dbg)) {
+		buoyancy->SetDebugDraw(dbg);
+		Editor::MarkSceneDirty();
+	}
+	ImGui::TextDisabled("Forces tick in play mode only (PhysicsWorld pre-step).");
+}
+
 static const std::vector<ComponentEntry>& ComponentRenderTable() {
 	static const std::vector<ComponentEntry> table = {
 		{"Transform", typeid(Transform), false, [](SceneNode* n, Component* c) { RenderTransformBody(n, static_cast<Transform*>(c)); }},
@@ -952,6 +1202,8 @@ static const std::vector<ComponentEntry>& ComponentRenderTable() {
 		{"CharacterController", typeid(CharacterController), true, [](SceneNode* n, Component* c) { RenderCharacterControllerBody(n, static_cast<CharacterController*>(c)); }},
 		{"SkyAtmosphere", typeid(SkyAtmosphere), true, [](SceneNode* n, Component* c) { RenderSkyAtmosphereBody(n, static_cast<SkyAtmosphere*>(c)); }},
 		{"Terrain", typeid(Terrain), true, [](SceneNode* n, Component* c) { RenderTerrainBody(n, static_cast<Terrain*>(c)); }},
+		{"OceanComponent", typeid(OceanComponent), true, [](SceneNode* n, Component* c) { RenderOceanBody(n, static_cast<OceanComponent*>(c)); }},
+		{"BuoyancyComponent", typeid(BuoyancyComponent), true, [](SceneNode* n, Component* c) { RenderBuoyancyBody(n, static_cast<BuoyancyComponent*>(c)); }},
 	};
 	return table;
 }

@@ -156,6 +156,7 @@ namespace fury
 
 		std::string GetFilePath() const;
 
+
 	protected:
 
 		void IncreaseMemory();

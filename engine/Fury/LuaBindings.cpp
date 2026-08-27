@@ -46,6 +46,9 @@
 #include "Fury/MeshSimplifier.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/OcTree.h"
+#include "Fury/OceanComponent.h"
+#include "Fury/BuoyancyComponent.h"
+#include "Fury/OceanWaves.h"
 #include "Fury/PhysicsWorld.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PlayerController.h"
@@ -61,6 +64,7 @@
 #include "Fury/Transform.h"
 #include "Fury/TypeComparable.h"
 #include "Fury/Vector4.h"
+#include "Fury/WaveSampler.h"
 
 #if WITH_EDITOR
 // nativefiledialog-extended backs the Editor.OpenDialog / Editor.SaveDialog
@@ -175,6 +179,7 @@ namespace fury
 			math_tbl["EulerRadToQuat"] = sol::overload(
 				static_cast<Quaternion(*)(Vector4)>(&MathUtil::EulerRadToQuat),
 				static_cast<Quaternion(*)(float, float, float)>(&MathUtil::EulerRadToQuat));
+			math_tbl["QuatToEulerRad"] = static_cast<Vector4(*)(Quaternion)>(&MathUtil::QuatToEulerRad);
 
 			// --- LogLevel ------------------------------------------------------
 			lua.new_enum<LogLevel>("LogLevel", {
@@ -258,6 +263,12 @@ namespace fury
 				// scene with a different working dir) before saving.
 				"GetTexture", [](Scene &s, const std::string &name) -> Texture::Ptr {
 					if (auto em = s.GetEntityManager()) return em->Get<Texture>(name);
+					return nullptr;
+				},
+				// Name lookup for OceanWaves assets - the asset-flow test
+				// asserts MergeInto transfers them (editor open-scene path).
+				"GetOceanWaves", [](Scene &s, const std::string &name) -> std::shared_ptr<OceanWaves> {
+					if (auto em = s.GetEntityManager()) return em->Get<OceanWaves>(name);
 					return nullptr;
 				},
 				"AddParticleSystem", [](Scene &s, const ParticleSystem::Ptr &p) {
@@ -472,6 +483,10 @@ namespace fury
 			lua.new_usertype<Color>("Color",
 				sol::call_constructor,
 				sol::constructors<Color(float, float, float, float)>(),
+				"r", sol::property([](const Color& c) { return c.r; }, [](Color& c, float f) { c.r = f; }),
+				"g", sol::property([](const Color& c) { return c.g; }, [](Color& c, float f) { c.g = f; }),
+				"b", sol::property([](const Color& c) { return c.b; }, [](Color& c, float f) { c.b = f; }),
+				"a", sol::property([](const Color& c) { return c.a; }, [](Color& c, float f) { c.a = f; }),
 				"Lerp", &Color::Lerp);
 
 			// --- LightType + Light --------------------------------------------
@@ -583,6 +598,148 @@ namespace fury
 				"GetWorldSizeX", &Heightmap::GetWorldSizeX,
 				"GetWorldSizeZ", &Heightmap::GetWorldSizeZ,
 				"GetHeightScale", &Heightmap::GetHeightScale);
+
+			// --- OceanWaves + WaveSampler --------------------------------
+			lua.new_usertype<OceanWaves>("OceanWaves",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Entity, Serializable>(),
+				"Create", &OceanWaves::Create,
+				"Resolve", &OceanWaves::Resolve,
+				"GetName", &OceanWaves::GetName,
+				"GetFilePath", &OceanWaves::GetFilePath,
+				"SetFilePath", &OceanWaves::SetFilePath,
+				"LoadWaves", &OceanWaves::LoadWaves,
+				"IsValid", &OceanWaves::IsValid,
+				"GetFrameCount", &OceanWaves::GetFrameCount,
+				"GetLoopSeconds", &OceanWaves::GetLoopSeconds,
+				"GetBandCount", &OceanWaves::GetBandCount,
+				"GetDispValue", &OceanWaves::GetDispValue);
+
+			sol::table waveSampler = lua.create_table();
+			waveSampler.set_function("Height",
+				[](OceanWaves::Ptr waves, float x, float z, float t) {
+					return waves ? WaveSampler::Height(*waves, x, z, t) : 0.0f;
+				});
+			waveSampler.set_function("HeightChoppyCorrected",
+				[](OceanWaves::Ptr waves, float x, float z, float t, sol::optional<int> iterations) {
+					return waves ? WaveSampler::HeightChoppyCorrected(*waves, x, z, t, iterations.value_or(2)) : 0.0f;
+				});
+			waveSampler.set_function("Displacement",
+				[](OceanWaves::Ptr waves, float x, float z, float t) {
+					return waves ? WaveSampler::Displacement(*waves, x, z, t) : Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+				});
+			waveSampler.set_function("Normal",
+				[](OceanWaves::Ptr waves, float x, float z, float t) {
+					return waves ? WaveSampler::Normal(*waves, x, z, t) : Vector4(0.0f, 1.0f, 0.0f, 0.0f);
+				});
+			lua["WaveSampler"] = waveSampler;
+
+			// --- OceanComponent ------------------------------------------
+			lua.new_usertype<OceanComponent>("OceanComponent",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", &OceanComponent::Create,
+				"GetName", &OceanComponent::GetName,
+				"SetMode", &OceanComponent::SetMode,
+				"GetMode", &OceanComponent::GetMode,
+				"SetWaveSource", &OceanComponent::SetWaveSource,
+				"GetWaveSource", &OceanComponent::GetWaveSource,
+				"SetWaveAssetPath", &OceanComponent::SetWaveAssetPath,
+				"GetWaveAssetPath", &OceanComponent::GetWaveAssetPath,
+				"SetWaterLevel", &OceanComponent::SetWaterLevel,
+				"GetWaterLevel", &OceanComponent::GetWaterLevel,
+				"SetSeed", &OceanComponent::SetSeed,
+				"GetSeed", &OceanComponent::GetSeed,
+				"SetWindSpeed", &OceanComponent::SetWindSpeed,
+				"GetWindSpeed", &OceanComponent::GetWindSpeed,
+				"SetWindDirectionDeg", &OceanComponent::SetWindDirectionDeg,
+				"GetWindDirectionDeg", &OceanComponent::GetWindDirectionDeg,
+				"SetFetchCm", &OceanComponent::SetFetchCm,
+				"GetFetchCm", &OceanComponent::GetFetchCm,
+				"SetChoppiness", &OceanComponent::SetChoppiness,
+				"GetChoppiness", &OceanComponent::GetChoppiness,
+				"SetSwellResolution", &OceanComponent::SetSwellResolution,
+				"GetSwellResolution", &OceanComponent::GetSwellResolution,
+				"SetRippleResolution", &OceanComponent::SetRippleResolution,
+				"GetRippleResolution", &OceanComponent::GetRippleResolution,
+				"SetSwellTileCm", &OceanComponent::SetSwellTileCm,
+				"GetSwellTileCm", &OceanComponent::GetSwellTileCm,
+				"SetRippleTileCm", &OceanComponent::SetRippleTileCm,
+				"GetRippleTileCm", &OceanComponent::GetRippleTileCm,
+				"SetFrameCount", &OceanComponent::SetFrameCount,
+				"GetFrameCount", &OceanComponent::GetFrameCount,
+				"SetLoopSeconds", &OceanComponent::SetLoopSeconds,
+				"GetLoopSeconds", &OceanComponent::GetLoopSeconds,
+				"SetFiniteSizeCm", &OceanComponent::SetFiniteSizeCm,
+				"GetFiniteSizeCm", &OceanComponent::GetFiniteSizeCm,
+				"SetFiniteResolution", &OceanComponent::SetFiniteResolution,
+				"GetFiniteResolution", &OceanComponent::GetFiniteResolution,
+				"SetRingCellSizeCm", &OceanComponent::SetRingCellSizeCm,
+				"GetRingCellSizeCm", &OceanComponent::GetRingCellSizeCm,
+				"SetRingCells", &OceanComponent::SetRingCells,
+				"GetRingCells", &OceanComponent::GetRingCells,
+				"SetRingCount", &OceanComponent::SetRingCount,
+				"GetRingCount", &OceanComponent::GetRingCount,
+				"SetSkirtRadiusCm", &OceanComponent::SetSkirtRadiusCm,
+				"GetSkirtRadiusCm", &OceanComponent::GetSkirtRadiusCm,
+				"SetAbsorbColor", &OceanComponent::SetAbsorbColor,
+				"GetAbsorbColor", &OceanComponent::GetAbsorbColor,
+				"SetScatterColor", &OceanComponent::SetScatterColor,
+				"GetScatterColor", &OceanComponent::GetScatterColor,
+				"SetRoughness", &OceanComponent::SetRoughness,
+				"GetRoughness", &OceanComponent::GetRoughness,
+				"SetNormalStrength", &OceanComponent::SetNormalStrength,
+				"GetNormalStrength", &OceanComponent::GetNormalStrength,
+				"SetFoamAmount", &OceanComponent::SetFoamAmount,
+				"GetFoamAmount", &OceanComponent::GetFoamAmount,
+				"SetShoreFoamDepthCm", &OceanComponent::SetShoreFoamDepthCm,
+				"GetShoreFoamDepthCm", &OceanComponent::GetShoreFoamDepthCm,
+				"SetSsrEnabled", &OceanComponent::SetSsrEnabled,
+				"GetSsrEnabled", &OceanComponent::GetSsrEnabled,
+				"SetDebugView", &OceanComponent::SetDebugView,
+				"GetDebugView", &OceanComponent::GetDebugView,
+				"GetResolvedSource", &OceanComponent::GetResolvedSource,
+				"GetResolvedReason", &OceanComponent::GetResolvedReason,
+				"GetWaveTime", &OceanComponent::GetWaveTime,
+				"SetWaveTime", &OceanComponent::SetWaveTime,
+				"WaveHeightAtWorld", &OceanComponent::WaveHeightAtWorld,
+				"UpdateCameraFollow", &OceanComponent::UpdateCameraFollow,
+				"GetOceanVertexCount", &OceanComponent::GetOceanVertexCount,
+				"GetWaves", &OceanComponent::GetWaves);
+
+			// --- BuoyancyComponent ------------------------------------------
+			// Float points take (x, y, z, radius) raw numbers: the vendored
+			// sol2 can't deduce a small struct from a Lua table, so the
+			// list is edited point-wise by index.
+			lua.new_usertype<BuoyancyComponent>("BuoyancyComponent",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create", &BuoyancyComponent::Create,
+				"GetName", &BuoyancyComponent::GetName,
+				"GetFloatPointCount", &BuoyancyComponent::GetFloatPointCount,
+				"AddFloatPoint", [](BuoyancyComponent &c, float x, float y, float z, float radius)
+				{ c.AddFloatPoint(Vector4(x, y, z, 1.0f), radius); },
+				"SetFloatPoint", [](BuoyancyComponent &c, unsigned int index, float x, float y, float z, float radius)
+				{ c.SetFloatPoint(index, Vector4(x, y, z, 1.0f), radius); },
+				"GetFloatPointOffset", [](const BuoyancyComponent &c, unsigned int index) -> Vector4
+				{ return index < c.GetFloatPointCount() ? c.GetFloatPoint(index).Offset : Vector4(0.0f, 0.0f, 0.0f, 1.0f); },
+				"GetFloatPointRadius", [](const BuoyancyComponent &c, unsigned int index) -> float
+				{ return index < c.GetFloatPointCount() ? c.GetFloatPoint(index).Radius : 0.0f; },
+				"RemoveFloatPoint", &BuoyancyComponent::RemoveFloatPoint,
+				"ClearFloatPoints", &BuoyancyComponent::ClearFloatPoints,
+				"SetWaterDensity", &BuoyancyComponent::SetWaterDensity,
+				"GetWaterDensity", &BuoyancyComponent::GetWaterDensity,
+				"SetLinearDrag", &BuoyancyComponent::SetLinearDrag,
+				"GetLinearDrag", &BuoyancyComponent::GetLinearDrag,
+				"SetAngularDrag", &BuoyancyComponent::SetAngularDrag,
+				"GetAngularDrag", &BuoyancyComponent::GetAngularDrag,
+				"SetRightingStrength", &BuoyancyComponent::SetRightingStrength,
+				"GetRightingStrength", &BuoyancyComponent::GetRightingStrength,
+				"SetOceanNodeName", &BuoyancyComponent::SetOceanNodeName,
+				"GetOceanNodeName", &BuoyancyComponent::GetOceanNodeName,
+				"SetDebugDraw", &BuoyancyComponent::SetDebugDraw,
+				"GetDebugDraw", &BuoyancyComponent::GetDebugDraw,
+				"GetLastSubmersion", &BuoyancyComponent::GetLastSubmersion);
 
 			// --- MeshRender ---------------------------------------------------
 			// Inspector and editor scripts need to read mesh / material slots
@@ -865,6 +1022,8 @@ namespace fury
 					static_cast<void(SceneNode::*)(Quaternion)>(&SceneNode::SetLocalRoattion),
 					static_cast<void(SceneNode::*)(float, float, float)>(&SceneNode::SetLocalRoattion),
 					static_cast<void(SceneNode::*)(Vector4, float)>(&SceneNode::SetLocalRoattion)),
+				"GetLocalRoattion", &SceneNode::GetLocalRoattion,
+				"GetWorldRoattion", &SceneNode::GetWorldRoattion,
 				"SetLocalScale", sol::overload(
 					static_cast<void(SceneNode::*)(Vector4)>(&SceneNode::SetLocalScale),
 					static_cast<void(SceneNode::*)(float)>(&SceneNode::SetLocalScale)),
@@ -899,6 +1058,12 @@ namespace fury
 					},
 					[](SceneNode &n, Terrain::Ptr c) {
 						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, OceanComponent::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, BuoyancyComponent::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
 					}),
 				"RemoveComponent", sol::overload(
 					[](SceneNode &n, Transform::Ptr) { return n.RemoveComponent(typeid(Transform)); },
@@ -910,7 +1075,9 @@ namespace fury
 					[](SceneNode &n, FreeFlyController::Ptr) { return n.RemoveComponent(typeid(FreeFlyController)); },
 					[](SceneNode &n, CharacterController::Ptr) { return n.RemoveComponent(typeid(CharacterController)); },
 					[](SceneNode &n, SkyAtmosphere::Ptr) { return n.RemoveComponent(typeid(SkyAtmosphere)); },
-					[](SceneNode &n, Terrain::Ptr) { return n.RemoveComponent(typeid(Terrain)); }),
+					[](SceneNode &n, Terrain::Ptr) { return n.RemoveComponent(typeid(Terrain)); },
+					[](SceneNode &n, OceanComponent::Ptr) { return n.RemoveComponent(typeid(OceanComponent)); },
+					[](SceneNode &n, BuoyancyComponent::Ptr) { return n.RemoveComponent(typeid(BuoyancyComponent)); }),
 				"GetComponent", sol::overload(
 					// Typed overloads FIRST so a Lua-side
 					// `n:GetComponent(ParticleSystem)` resolves to the
@@ -927,6 +1094,8 @@ namespace fury
 					[](SceneNode &n, CharacterController::Ptr) -> std::shared_ptr<CharacterController> { return n.GetComponent<CharacterController>(); },
 					[](SceneNode &n, SkyAtmosphere::Ptr) -> std::shared_ptr<SkyAtmosphere> { return n.GetComponent<SkyAtmosphere>(); },
 					[](SceneNode &n, Terrain::Ptr) -> std::shared_ptr<Terrain> { return n.GetComponent<Terrain>(); },
+					[](SceneNode &n, OceanComponent::Ptr) -> std::shared_ptr<OceanComponent> { return n.GetComponent<OceanComponent>(); },
+				[](SceneNode &n, BuoyancyComponent::Ptr) -> std::shared_ptr<BuoyancyComponent> { return n.GetComponent<BuoyancyComponent>(); },
 					[](SceneNode &n, sol::type t) -> sol::object {
 						// Forward a Lua-side `GetComponent(SceneNode.Light)`-style
 						// call (when registered as a table) by name lookup. This
@@ -950,6 +1119,8 @@ namespace fury
 				"GetCharacterController", [](SceneNode &n) -> std::shared_ptr<CharacterController> { return n.GetComponent<CharacterController>(); },
 				"GetSkyAtmosphere", [](SceneNode &n) -> std::shared_ptr<SkyAtmosphere> { return n.GetComponent<SkyAtmosphere>(); },
 				"GetTerrain", [](SceneNode &n) -> std::shared_ptr<Terrain> { return n.GetComponent<Terrain>(); },
+				"GetOceanComponent", [](SceneNode &n) -> std::shared_ptr<OceanComponent> { return n.GetComponent<OceanComponent>(); },
+			"GetBuoyancyComponent", [](SceneNode &n) -> std::shared_ptr<BuoyancyComponent> { return n.GetComponent<BuoyancyComponent>(); },
 				"AddChild", &SceneNode::AddChild,
 				"RemoveChild", &SceneNode::RemoveChild,
 				"RemoveFromParent", &SceneNode::RemoveFromParent,
@@ -1372,6 +1543,13 @@ namespace fury
 				// array on the next save and hide the asset from pickers.
 				source_em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap> &h) -> bool {
 					target_em->Add(h); return true;
+				});
+				// OceanWaves - same stranding risk: the component holds its
+				// own shared_ptr so rendering works either way, but the
+				// content browser / pickers enumerate the active EM and the
+				// asset goes missing.
+				source_em->ForEach<OceanWaves>([&](const std::shared_ptr<OceanWaves> &w) -> bool {
+					target_em->Add(w); return true;
 				});
 				target->GetSceneManager()->AddSceneNodeRecursively(target_root);
 				return merged;
@@ -1966,6 +2144,9 @@ namespace fury
 			//   callbacks: { on_init, on_update, on_fixed_update, on_shutdown }
 			//   options:   { max_fps, gui_scale, gui_font_scale, dpi_aware_override }
 			sol::table engine_tbl = lua.create_named_table("Engine");
+			engine_tbl["HasEffectiveCompute"] = &Engine::HasEffectiveCompute;
+			engine_tbl["GetComputeShadersEnabled"] = &Engine::GetComputeShadersEnabled;
+			engine_tbl["SetComputeShadersEnabled"] = &Engine::SetComputeShadersEnabled;
 			engine_tbl["run"] = [&lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
@@ -2004,6 +2185,14 @@ namespace fury
 				if (s_launcher_options && !s_launcher_options->screenshot_path.empty())
 				{
 					opts.screenshot_path = s_launcher_options->screenshot_path;
+					opts.screenshot_frame = s_launcher_options->screenshot_frame;
+					opts.exit_code_out = &s_launcher_options->exit_code;
+				}
+				if (s_launcher_options && !s_launcher_options->screenshot_series_path.empty())
+				{
+					opts.screenshot_series_path = s_launcher_options->screenshot_series_path;
+					opts.series_count = s_launcher_options->series_count;
+					opts.series_interval = s_launcher_options->series_interval;
 					opts.screenshot_frame = s_launcher_options->screenshot_frame;
 					opts.exit_code_out = &s_launcher_options->exit_code;
 				}

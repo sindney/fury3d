@@ -55,6 +55,12 @@ fury <script.lua> [args...] --screenshot <path> [--screenshot-frame <N>]
   set state in `on_init` and animate in `on_update` show their first
   animated frame). `N` must be a positive integer; values larger than
   `1000` are clamped with a warning. `N <= 0` exits with code 1.
+- `--screenshot-series <path,N,interval>` — temporal capture: grab the
+  back-buffer every `interval` frames starting at `--screenshot-frame`,
+  `N` frames total, then write ONE contact-sheet atlas PNG (near-square
+  grid, chronological left-to-right top-to-bottom) to `<path>` and exit.
+  For diagnosing temporal artifacts (flicker, popping, stepping) that a
+  single screenshot can't show. `N` 1..64, `interval` >= 1.
 
 **Headless caveat.** SFML/OpenGL needs a window to provide a GL context,
 so an `sf::Window` opens briefly during capture (typically 50–150 ms

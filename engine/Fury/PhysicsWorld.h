@@ -21,6 +21,7 @@ namespace JPH
 namespace fury
 {
 	class BodySetup;
+	class BuoyancyComponent;
 	class CharacterController;
 	class SceneNode;
 
@@ -73,6 +74,15 @@ namespace fury
 		void UnregisterBodySetup(const std::shared_ptr<BodySetup> &body);
 		void RegisterCharacter(const std::shared_ptr<CharacterController> &character);
 		void UnregisterCharacter(const std::shared_ptr<CharacterController> &character);
+		// Buoyancy forces tick pre-step (TickBuoyancy runs right before
+		// PhysicsSystem::Update, same-tick application).
+		void RegisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &buoyancy);
+		void UnregisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &buoyancy);
+
+		// Debug-draw support (Pipeline::DrawDebug): registered list + true
+		// when any live buoyancy component has its debugDraw flag on.
+		const std::vector<std::weak_ptr<BuoyancyComponent>> &GetBuoyancies() const { return m_Buoyancies; }
+		bool HasBuoyancyDebugDraw() const;
 
 		// Jolt accessors for physics components (BodySetup/CharacterController
 		// .cpps include Jolt and use these directly). Null while uninitialized.
@@ -117,6 +127,8 @@ namespace fury
 		std::vector<std::weak_ptr<BodySetup>> m_BodySetups;
 
 		std::vector<std::weak_ptr<CharacterController>> m_Characters;
+
+		std::vector<std::weak_ptr<BuoyancyComponent>> m_Buoyancies;
 	};
 }
 

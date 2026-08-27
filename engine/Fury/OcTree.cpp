@@ -6,6 +6,7 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/OceanComponent.h"
 #include "Fury/ParticleRenderer.h"
 #include "Fury/OcTreeNode.h"
 #include "Fury/OcTree.h"
@@ -116,6 +117,11 @@ namespace fury
 			{
 				renderQuery->AddParticle(sceneNode);
 			}
+
+			if (sceneNode->GetComponent<OceanComponent>() != nullptr)
+			{
+				renderQuery->AddOcean(sceneNode);
+			}
 		});
 	}
 
@@ -199,8 +205,32 @@ namespace fury
 
 		using TreeNodePair = std::pair<bool, OcTreeNode::Ptr>;
 
+		// Root-resident nodes are always tested per-node: infinite-bounds
+		// nodes (directional lights, oceans, particle systems) never
+		// subdivide out of the root, and must still be collected when the
+		// camera roams beyond the tree extent (the root cell itself tests
+		// OUT while the infinite node is visible).
+		int rootNodeCount = m_Root->GetSceneNodeCount();
+		for (int i = 0; i < rootNodeCount; i++)
+		{
+			SceneNode::Ptr sceneNode = m_Root->GetSceneNodeAt(i);
+			if (collider.IsInsideFast(sceneNode->GetWorldAABB()))
+				filterFunc(sceneNode);
+		}
+
+		// Subtree: normal hierarchical pruning. Finite root-resident nodes
+		// are contained by the root AABB, so an OUT root skips them safely.
+		Side rootSide = collider.IsInside(m_Root->GetAABB());
+		if (rootSide == Side::OUT)
+			return;
+
 		std::deque<TreeNodePair> possiblePairs;
-		possiblePairs.push_back(std::make_pair(false, m_Root));
+		for (int i = 0; i < 8; i++)
+		{
+			OcTreeNode::Ptr childNode = m_Root->GetChildAt(i);
+			if (childNode != nullptr && childNode->GetTotalSceneNodeCount() > 0)
+				possiblePairs.push_back(std::make_pair(rootSide == Side::IN, childNode));
+		}
 
 		while (!possiblePairs.empty())
 		{

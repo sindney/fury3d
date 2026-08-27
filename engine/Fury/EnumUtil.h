@@ -65,7 +65,9 @@ namespace fury
 		LIGHT,
 		QUAD,
 		// fullscreen sky draw (atmosphere LUTs bound from C++)
-		SKY
+		SKY,
+		// ocean surface draw (meshes + wave textures bound from C++)
+		OCEAN
 	};
 
 	// glTF alphaMode: OPAQUE solid, MASK alpha-tested, BLEND transparent. Material::m_Opaque = (mode != BLEND).

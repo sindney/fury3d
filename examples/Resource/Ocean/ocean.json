@@ -1,0 +1,65 @@
+{
+  "bands": {
+    "chop": {
+      "amplitudeCm": 2.0,
+      "dispFile": "chop_disp.f16",
+      "maxFoam": 0.0847,
+      "nrmFile": "chop_nrm.u8",
+      "preNormPeakDy": 1.77,
+      "previewFoam": "chop_foam_preview.png",
+      "previewHeight": "chop_height_preview.png",
+      "resolution": 64,
+      "tileCm": 300.0
+    },
+    "ripple": {
+      "amplitudeCm": 8.0,
+      "dispFile": "ripple_disp.f16",
+      "maxFoam": 0.1481,
+      "nrmFile": "ripple_nrm.u8",
+      "preNormPeakDy": 27.8691,
+      "previewFoam": "ripple_foam_preview.png",
+      "previewHeight": "ripple_height_preview.png",
+      "resolution": 64,
+      "tileCm": 800.0
+    },
+    "swell": {
+      "amplitudeCm": 80.0,
+      "dispFile": "swell_disp.f16",
+      "maxFoam": 0.3713,
+      "nrmFile": "swell_nrm.u8",
+      "preNormPeakDy": 356.1449,
+      "previewFoam": "swell_foam_preview.png",
+      "previewHeight": "swell_height_preview.png",
+      "resolution": 128,
+      "tileCm": 10000.0
+    }
+  },
+  "choppiness": 1.0,
+  "fetchCm": 100000.0,
+  "foamBias": 1.0,
+  "foamGain": 2.0,
+  "format": 1,
+  "frames": 32,
+  "layout": {
+    "disp": "RGBA16 half LE, frame-major, rows=z cols=x",
+    "nrm": "RGBA8, frame-major, rows=z cols=x"
+  },
+  "loopSeconds": 12.0,
+  "seed": 7,
+  "sha256": {
+    "chop_disp.f16": "dfb4e875c174a818c4fc5fbb9749d8cd3699a287cb6d4a40ffee5392c8b420a8",
+    "chop_foam_preview.png": "a26b03aa61a5c51924531302ff7689205f59a762b3573b2da378eea986c95267",
+    "chop_height_preview.png": "a1c0c13c9cbf364beb0ad77aed166f2a94f2e1a37a5e15a4235951247df9a45d",
+    "chop_nrm.u8": "48eb626f376b3ba8db3d6aa064b4947848b0f2a1338ec69a4a9dbfd46687144d",
+    "ripple_disp.f16": "49c63880cf25c637df59083acf0bae0d988519da350c60c67db5e504c961e4b6",
+    "ripple_foam_preview.png": "c64ec4d5831efbc4269a0e59eed117ae458ecc2b1c069348ab6710aeece2a53d",
+    "ripple_height_preview.png": "6117190ad719757b3b70f22afe4e8e44c539a9231134b3d08eaa268c0774c990",
+    "ripple_nrm.u8": "12df67159aa97ca4d3011a2229ca065ede397d1429bb1e8f65ddc2d807084b18",
+    "swell_disp.f16": "ba086ad6fa802857c71d0e13d0c4b0e996874c6e4279f65f28b452b3ac58ec6b",
+    "swell_foam_preview.png": "7b8903f1bf2e7ae59bf73f5f115ad2ab6e84e13ac3d58d277c3dd51aee7c6996",
+    "swell_height_preview.png": "6547adb84527f6d55c8984d7a17d79badf7a397b82dca81e0e28a6448ba6e8a8",
+    "swell_nrm.u8": "95b76b51911a5882a2e626acc49d8cc39db67e62badf1429e240e472ace46631"
+  },
+  "windDirectionDeg": 35.0,
+  "windSpeedCmPerSec": 800.0
+}

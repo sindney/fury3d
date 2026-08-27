@@ -49,6 +49,9 @@ namespace fury
 		// ParticleRenderer nodes, drawn after transparentUnits.
 		std::vector<std::shared_ptr<SceneNode>> particleNodes;
 
+		// OceanComponent nodes, drawn by pass_ocean (before transparents).
+		std::vector<std::shared_ptr<SceneNode>> oceanNodes;
+
 		std::vector<std::shared_ptr<SceneNode>> renderableNodes;
 
 		std::vector<std::shared_ptr<SceneNode>> lightNodes;
@@ -56,6 +59,8 @@ namespace fury
 		void AddRenderable(const std::shared_ptr<SceneNode> &node);
 
 		void AddParticle(const std::shared_ptr<SceneNode> &node);
+
+		void AddOcean(const std::shared_ptr<SceneNode> &node);
 
 		void AddLight(const std::shared_ptr<SceneNode> &node);
 

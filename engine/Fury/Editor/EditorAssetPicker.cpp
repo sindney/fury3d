@@ -5,6 +5,7 @@
 #include "Fury/Heightmap.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/OceanWaves.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
@@ -98,6 +99,22 @@ void CollectHeightmaps(std::vector<PickerEntry>& out) {
 	});
 }
 
+// OceanWaves are file-backed (ocean.json sidecar) and load on demand, so
+// usually nothing is loaded to list - the inspector's text path row is the
+// primary editor. This lists what IS loaded (e.g. the active scene's ocean).
+void CollectOceanWaves(std::vector<PickerEntry>& out) {
+	if (!Scene::Active) return;
+	auto em = Scene::Active->GetEntityManager();
+	if (!em) return;
+	em->ForEach<OceanWaves>([&](const std::shared_ptr<OceanWaves>& waves) {
+		char buf[300];
+		std::snprintf(buf, sizeof(buf), "%s    %d bands x %d frames",
+					  waves->GetFilePath().c_str(), waves->GetBandCount(), waves->GetFrameCount());
+		out.push_back({buf, std::static_pointer_cast<void>(waves)});
+		return true;
+	});
+}
+
 void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
 	for (const auto& c : CollectAnimationClips()) {
 		// Show duration in seconds alongside the name so clips with
@@ -151,6 +168,8 @@ void CollectByType(std::type_index type,
 		CollectAnimationClipsIntoEntries(out);
 	else if (type == typeid(ParticleSystem))
 		CollectParticleSystems(out);
+	else if (type == typeid(OceanWaves))
+		CollectOceanWaves(out);
 	else if (type == typeid(PostProcessEffect))
 		CollectPostProcessEffects(out);
 	// Unknown type: leave out empty -- the OK button stays

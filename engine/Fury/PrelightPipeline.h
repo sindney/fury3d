@@ -56,6 +56,10 @@ namespace fury
 		// SkyAtmosphere (LUTs bound here); no-op when no sky is active.
 		void DrawSky(const std::shared_ptr<Pass> &pass);
 
+		// pass_ocean: displaced wave grids, alpha-blended into hdr_composite,
+		// writing depth + gbuffer_normal so SSR sees the water surface.
+		void DrawOcean(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query);
+
 		// Run the active postprocess chain after the pass loop; the
 		// final effect writes to the default FB / editor RenderTarget
 		// with sRGB encode.

@@ -275,6 +275,9 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/RenderUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SkyAtmosphere.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Heightmap.cpp
+	${PROJECT_SOURCE_DIR}/Fury/OceanComponent.cpp
+	${PROJECT_SOURCE_DIR}/Fury/OceanWaves.cpp
+	${PROJECT_SOURCE_DIR}/Fury/BuoyancyComponent.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Terrain.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Scene.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SceneNode.cpp
@@ -285,7 +288,8 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/ThreadUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Transform.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Uniform.cpp
-	${PROJECT_SOURCE_DIR}/Fury/Vector4.cpp)
+	${PROJECT_SOURCE_DIR}/Fury/Vector4.cpp
+	${PROJECT_SOURCE_DIR}/Fury/WaveSampler.cpp)
 
 set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/Editor.cpp

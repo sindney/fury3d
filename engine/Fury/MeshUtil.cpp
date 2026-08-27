@@ -31,9 +31,46 @@ namespace fury
 		m_UnitCone.reset();
 	}
 
-	std::shared_ptr<Mesh> MeshUtil::GetUnitCube() 
+	std::shared_ptr<Mesh> MeshUtil::GetUnitCube()
 	{
 		return m_UnitCube;
+	}
+
+	namespace
+	{
+		// Primitives must ship with normals + a valid UV buffer: a shader
+		// declaring vertex_normal/vertex_uv against an empty buffer makes
+		// every indexed draw an out-of-range attribute error in core GL
+		// (GL_INVALID_OPERATION, zero fragments, nothing rendered).
+		void EnsureNormalsUVs(const std::shared_ptr<Mesh> &mesh)
+		{
+			if (mesh->Normals.Data.empty())
+				MeshUtil::CalculateNormal(mesh);
+
+			if (mesh->UVs.Data.empty())
+			{
+				// trivial planar XZ projection normalized to the extent;
+				// placeholder UVs for the attribute - solid-color demo
+				// materials don't sample patterns
+				const size_t count = mesh->Positions.Data.size() / 3;
+				mesh->UVs.Data.resize(count * 2, 0.0f);
+				Vector4 mn(1e30f, 0.0f, 1e30f), mx(-1e30f, 0.0f, -1e30f);
+				for (size_t i = 0; i < count; i++)
+				{
+					float x = mesh->Positions.Data[i * 3];
+					float z = mesh->Positions.Data[i * 3 + 2];
+					mn.x = std::min(mn.x, x); mx.x = std::max(mx.x, x);
+					mn.z = std::min(mn.z, z); mx.z = std::max(mx.z, z);
+				}
+				float sx = mx.x - mn.x > 1e-6f ? 1.0f / (mx.x - mn.x) : 1.0f;
+				float sz = mx.z - mn.z > 1e-6f ? 1.0f / (mx.z - mn.z) : 1.0f;
+				for (size_t i = 0; i < count; i++)
+				{
+					mesh->UVs.Data[i * 2] = (mesh->Positions.Data[i * 3] - mn.x) * sx;
+					mesh->UVs.Data[i * 2 + 1] = (mesh->Positions.Data[i * 3 + 2] - mn.z) * sz;
+				}
+			}
+		}
 	}
 
 	std::shared_ptr<Mesh> MeshUtil::GetUnitQuad() 
@@ -78,6 +115,8 @@ namespace fury
 
 		mesh->CalculateAABB();
 
+		EnsureNormalsUVs(mesh);
+
 		return mesh;
 	}
 
@@ -120,6 +159,8 @@ namespace fury
 		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
 		mesh->CalculateAABB();
+
+		EnsureNormalsUVs(mesh);
 
 		return mesh;
 	}
@@ -228,6 +269,8 @@ namespace fury
 
 		mesh->CalculateAABB();
 
+		EnsureNormalsUVs(mesh);
+
 		return mesh;
 	}
 
@@ -320,6 +363,8 @@ namespace fury
 		OptimizeMesh(mesh);
 
 		mesh->CalculateAABB();
+
+		EnsureNormalsUVs(mesh);
 
 		return mesh;
 	}
@@ -423,6 +468,8 @@ namespace fury
 
 		mesh->CalculateAABB();
 
+		EnsureNormalsUVs(mesh);
+
 		return mesh;
 	}
 
@@ -478,13 +525,20 @@ namespace fury
 				mesh->Normals.SetDirty();
 				mesh->Normals.UpdateBuffer();
 			}
-			
+
 			if (hasTangent)
 			{
 				mesh->Tangents.UpdateBuffer();
 				mesh->Tangents.SetDirty();
 			}
 		}
+
+		// the vertex loop moved every position; the cached bounds must
+		// follow (frustum culling + scene AABBs read m_AABB, and Mesh::Save
+		// serializes it as data)
+		mesh->CalculateAABB();
+
+		EnsureNormalsUVs(mesh);
 	}
 
 	void MeshUtil::OptimizeMesh(const std::shared_ptr<Mesh> &mesh)

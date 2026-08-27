@@ -706,6 +706,7 @@ namespace fury
 		return m_FilePath;
 	}
 
+
 	void Texture::IncreaseMemory()
 	{
 		unsigned int bitPerPixel = EnumUtil::TextureBitPerPixel(m_Format);
