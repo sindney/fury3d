@@ -35,6 +35,7 @@
 #include "Fury/Pipeline.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
+#include "Fury/Profiler.h"
 #include "Fury/PrelightPipeline.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/RenderTarget.h"
@@ -105,6 +106,7 @@ namespace fury
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
+		FURY_ZONE;
 		ASSERT_MSG(m_CurrentCamera != nullptr, "PrelightPipeline.m_CurrentCamera not found!");
 
 		// pre
@@ -130,8 +132,11 @@ namespace fury
 
 		// find visible nodes
 		RenderQuery::Ptr query = RenderQuery::Create();
-		sceneManager->GetRenderQuery(m_CurrentCamera->GetComponent<Camera>()->GetFrustum(), query);
-		query->Sort(m_CurrentCamera->GetWorldPosition());
+		{
+			FURY_ZONE_NAMED("Culling");
+			sceneManager->GetRenderQuery(m_CurrentCamera->GetComponent<Camera>()->GetFrustum(), query);
+			query->Sort(m_CurrentCamera->GetWorldPosition());
+		}
 
 		// draw passes
 
@@ -149,6 +154,9 @@ namespace fury
 		{
 			auto passName = m_SortedPasses[i];
 			auto pass = m_EntityManager->Get<Pass>(passName);
+
+			FURY_ZONE_DYNAMIC(passName.c_str());
+			FURY_GPU_ZONE_DYNAMIC(passName.c_str());
 
 			auto drawMode = pass->GetDrawMode();
 
@@ -781,6 +789,7 @@ namespace fury
 
 	void PrelightPipeline::DrawPointLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		auto light = node->GetComponent<Light>();
 		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
 		auto camPos = m_CurrentCamera->GetWorldPosition();
@@ -860,6 +869,7 @@ namespace fury
 
 	void PrelightPipeline::DrawDirLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		auto light = node->GetComponent<Light>();
 		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
 		auto mesh = light->GetMesh();
@@ -972,6 +982,7 @@ namespace fury
 
 	void PrelightPipeline::DrawSpotLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		auto light = node->GetComponent<Light>();
 		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
 		auto camPos = m_CurrentCamera->GetWorldPosition();
@@ -1125,6 +1136,7 @@ namespace fury
 
 	void PrelightPipeline::DrawSky(const std::shared_ptr<Pass> &pass)
 	{
+		FURY_ZONE;
 		// HDR-only feature; no sky -> no draw, hdr_composite untouched.
 		if (!IsHDRMode())
 			return;
@@ -1178,6 +1190,7 @@ namespace fury
 
 	void PrelightPipeline::DrawOcean(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query)
 	{
+		FURY_ZONE;
 		// HDR-only feature (same constraint as the sky pass).
 		if (!IsHDRMode())
 			return;
@@ -1486,6 +1499,7 @@ namespace fury
 
 	void PrelightPipeline::RunPostProcessChain()
 	{
+		FURY_ZONE;
 		if (m_ActiveChain.empty()) return;
 		if (m_CurrentCamera == nullptr) return;
 

@@ -5,6 +5,7 @@
 /build-engine-noeditor/
 /build-demo/
 /build/
+/build-*/
 /cmake-build-*/
 
 # CMake artifacts (defense-in-depth in case someone configures in-tree)
@@ -33,6 +34,8 @@ compile_commands.json
 /examples/Log.txt
 /examples/fury
 /examples/furye
+/examples/tracy-profiler
+/examples/tracy-capture
 /examples/FBX2glTF-darwin-x64
 /examples/FBX2glTF-windows-x64.exe
 /examples/FBX2glTF-linux-x64

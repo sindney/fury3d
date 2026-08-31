@@ -28,6 +28,18 @@ endif()
 # enable.
 option(FURY_DOCGEN "Regenerate docs/LUA_API.md from LuaBindings.cpp at build time." OFF)
 
+# Tracy profiler: ON by default for dev/editor configs (Debug,
+# RelWithDebInfo, and multi-config generators where the editor lives),
+# OFF by default for shipping configs (Release/MinSizeRel). Explicit
+# -DFURY_WITH_TRACY=ON/OFF always wins.
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+	set(_FURY_TRACY_DEFAULT OFF)
+else()
+	set(_FURY_TRACY_DEFAULT ON)
+endif()
+option(FURY_WITH_TRACY "Enable Tracy profiler instrumentation (ThirdParty/tracy submodule)." ${_FURY_TRACY_DEFAULT})
+option(FURY_WITH_TRACY_GPU "Enable Tracy OpenGL GPU zones (requires FURY_WITH_TRACY; unreliable on Apple/TBDR drivers)." ON)
+
 # Two binaries from one configure:
 #   fury   — headless runtime, no editor shell (no ImReflect/ImGuizmo/nfd, no WITH_EDITOR)
 #   furye  — editor shell + runtime (ImReflect/ImGuizmo/nfd linked, WITH_EDITOR defined)
@@ -115,6 +127,9 @@ endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/JoltPhysics/Jolt/Jolt.h")
 	message(FATAL_ERROR "JoltPhysics submodule missing - run: git submodule update --init --recursive")
 endif()
+if(FURY_WITH_TRACY AND NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/tracy/public/TracyClient.cpp")
+	message(FATAL_ERROR "tracy submodule missing - run: git submodule update --init --recursive (or configure with -DFURY_WITH_TRACY=OFF)")
+endif()
 
 # SFML 3.1: build only the modules we actually need
 set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
@@ -150,6 +165,15 @@ file(GLOB MESHO_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src/*.cpp)
 add_library(meshoptimizer STATIC ${MESHO_SRC})
 target_include_directories(meshoptimizer SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/meshoptimizer/src)
 set_property(TARGET meshoptimizer PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+# Tracy profiler client: single-TU build; TRACY_ENABLE/TRACY_ON_DEMAND are
+# PUBLIC so linking `tracy` arms the Profiler.h macros in engine sources.
+if(FURY_WITH_TRACY)
+	add_library(tracy STATIC ${PROJECT_SOURCE_DIR}/ThirdParty/tracy/public/TracyClient.cpp)
+	target_include_directories(tracy SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/tracy/public)
+	target_compile_definitions(tracy PUBLIC TRACY_ENABLE TRACY_ON_DEMAND)
+	set_property(TARGET tracy PROPERTY POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # JoltPhysics: vendored submodule (v5.6.0), built via its own Build/CMakeLists.txt
 # (the SFML/nfd add_subdirectory precedent). When embedded like this, Jolt's
@@ -360,6 +384,14 @@ if(OS_WINDOWS)
 elseif(OS_MACOSX)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt)
 endif()
+if(FURY_WITH_TRACY)
+	# Tracy needs winsock2 (ws2_32) and dial-up box (dbghelp) on Windows.
+	if(OS_WINDOWS)
+		list(APPEND FURY_PLATFORM_LIBS tracy dbghelp)
+	else()
+		list(APPEND FURY_PLATFORM_LIBS tracy pthread dl)
+	endif()
+endif()
 
 # Path to the host-platform FBX2glTF binary copied next to each executable.
 if(OS_MACOSX)
@@ -384,6 +416,9 @@ function(fury_add_target NAME)
 		$<$<CONFIG:Debug>:FURY_BUILD_DEBUG>
 		$<$<CONFIG:RelWithDebInfo>:FURY_BUILD_PROFILE>
 		$<$<CONFIG:Release>:FURY_BUILD_RELEASE>)
+	if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
+		target_compile_definitions(${NAME} PRIVATE FURY_TRACY_GPU)
+	endif()
 	set_target_properties(${NAME} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples"
 		# Multi-Config generators (Visual Studio / Xcode / Ninja Multi-Config)
@@ -475,12 +510,18 @@ if(BUILD_SHARED_LIBS)
 		add_library(furye SHARED ${FURY_CORE_SRC} ${FURY_EDITOR_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 		target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 		target_link_libraries(furye PUBLIC ${FURY_PLATFORM_LIBS} nfd::nfd)
+		if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
+			target_compile_definitions(furye PRIVATE FURY_TRACY_GPU)
+		endif()
 		set_target_properties(furye PROPERTIES
 			BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 		install(TARGETS furye DESTINATION lib)
 	else()
 		add_library(fury SHARED ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 		target_link_libraries(fury PUBLIC ${FURY_PLATFORM_LIBS})
+		if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
+			target_compile_definitions(fury PRIVATE FURY_TRACY_GPU)
+		endif()
 		set_target_properties(fury PROPERTIES
 			BUILD_WITH_INSTALL_RPATH 1 INSTALL_NAME_DIR "@executable_path")
 		install(TARGETS fury DESTINATION lib)
@@ -494,4 +535,43 @@ else()
 	target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 	target_link_libraries(furye PRIVATE nfd::nfd)
 	install(TARGETS furye DESTINATION bin)
+endif()
+
+# Tracy tools (profiler UI + headless capture CLI): built alongside the engine
+# when Tracy is on; binaries land next to fury/furye in examples/. ExternalProject
+# keeps tracy's own C++20 + CPM-fetched deps isolated from our C++17 engine build.
+# Tools are a standalone ALL target: a full build includes them, but building just
+# the fury/furye targets skips them.
+if(FURY_WITH_TRACY AND NOT BUILD_SHARED_LIBS)
+	include(ExternalProject)
+	set(_TRACY_TOOLS_DIR ${CMAKE_BINARY_DIR}/tracy-tools)
+	if(OS_WINDOWS)
+		set(_TRACY_TOOL_SUFFIX ".exe")
+	endif()
+	# Multi-config generators put Release outputs in a Release/ subdir.
+	if(CMAKE_CONFIGURATION_TYPES)
+		set(_TRACY_TOOL_SUBDIR "Release/")
+	endif()
+	ExternalProject_Add(tracy_capture_ext
+		PREFIX ${_TRACY_TOOLS_DIR}/capture
+		SOURCE_DIR ${PROJECT_SOURCE_DIR}/ThirdParty/tracy/capture
+		CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+		BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
+		INSTALL_COMMAND "")
+	ExternalProject_Add(tracy_profiler_ext
+		PREFIX ${_TRACY_TOOLS_DIR}/profiler
+		SOURCE_DIR ${PROJECT_SOURCE_DIR}/ThirdParty/tracy/profiler
+		CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+		BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
+		INSTALL_COMMAND "")
+	add_custom_target(tracy_tools ALL
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_TRACY_TOOLS_DIR}/capture/src/tracy_capture_ext-build/${_TRACY_TOOL_SUBDIR}tracy-capture${_TRACY_TOOL_SUFFIX}
+			${PROJECT_SOURCE_DIR}/../examples/tracy-capture${_TRACY_TOOL_SUFFIX}
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${_TRACY_TOOLS_DIR}/profiler/src/tracy_profiler_ext-build/${_TRACY_TOOL_SUBDIR}tracy-profiler${_TRACY_TOOL_SUFFIX}
+			${PROJECT_SOURCE_DIR}/../examples/tracy-profiler${_TRACY_TOOL_SUFFIX}
+		DEPENDS tracy_capture_ext tracy_profiler_ext
+		COMMENT "Copying tracy-profiler / tracy-capture next to fury/furye"
+		VERBATIM)
 endif()

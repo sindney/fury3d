@@ -10,6 +10,7 @@
 #include "Fury/EntityManager.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
+#include "Fury/Profiler.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/Uniform.h"
 #include "Fury/Scene.h"
@@ -525,6 +526,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		(void)pass;
 		const int numSplit = 4;
 
@@ -665,6 +667,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawDirLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		(void)pass;
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");
@@ -759,6 +762,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		(void)pass;
 		auto depth_shader = GetShaderByName("cube_depth_shader");
 		auto depth_skin_shader = GetShaderByName("cube_depth_skin_shader");
@@ -870,6 +874,7 @@ namespace fury
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
+		FURY_ZONE;
 		(void)pass;
 		// get pointers
 		auto depth_shader = GetShaderByName("leagcy_depth_shader");

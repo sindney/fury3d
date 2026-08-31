@@ -110,6 +110,8 @@ cmake --build build-engine -j
 | `GUI_IMP`         | `ON`    | Compiles the ImGui overlay (HUD, debug widgets). Required by `WITH_EDITOR`. |
 | `BUILD_SHARED_LIBS` | `OFF` | Builds `fury` / `furye` as executables (default). `ON` produces `libfury.{dylib,so,dll}` for embedding — the Lua launcher `main` is then excluded. |
 | `EXPORT_DLL` (Windows) | `ON` | Defines `FURY_API_EXPORT` so the shared lib exports symbols. Ignored for static builds. |
+| `FURY_WITH_TRACY` | `ON` for Debug / RelWithDebInfo / multi-config, `OFF` for Release / MinSizeRel | Instruments the engine with the Tracy profiler (vendored at `engine/ThirdParty/tracy`). Also builds `tracy-profiler` + `tracy-capture` into `examples/`. See [docs/TRACY.md](docs/TRACY.md). |
+| `FURY_WITH_TRACY_GPU` | `ON` when Tracy is on | Adds OpenGL timer-query GPU zones. Unreliable on Apple/TBDR drivers — turn off per machine if so. |
 
 ### Adding a vendored dependency
 

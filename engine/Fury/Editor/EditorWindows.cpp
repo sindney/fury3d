@@ -94,6 +94,11 @@ extern float g_SnapScale;
 // toolbar so pipeline recreation (scene reload) keeps the choice.
 bool g_ShowGrid = true;
 
+// Tracy profiler toggle (persisted via the FuryEditor settings handler,
+// applied by Engine::SetTracyEnabled). Default ON = armed; with
+// TRACY_ON_DEMAND an armed profiler still idles until a client connects.
+bool g_TracyEnabled = true;
+
 // Chain index whose per-effect settings dialog ("EffectSettings"
 // modal) is open; -1 = closed. Set by the chain editor's Edit
 // buttons in the Settings window.
@@ -291,6 +296,24 @@ void RenderSettingsWindow(bool* open) {
 				ImGui::TextDisabled("Effective: %s%s",
 					Engine::HasEffectiveCompute() ? "on" : "off",
 					getenv("FURY_COMPUTE_SHADER") ? " (env override)" : "");
+			}
+
+			// Tracy profiler switch (change: add-tracy-profiler). Compiled
+			// out entirely unless FURY_WITH_TRACY=ON at configure time.
+			{
+#ifdef TRACY_ENABLE
+				if (ImGui::Checkbox("Tracy Profiler", &g_TracyEnabled)) {
+					Engine::SetTracyEnabled(g_TracyEnabled);
+				}
+				ImGui::TextDisabled("Armed on-demand; connect tracy-profiler to capture.%s",
+					getenv("FURY_TRACY") ? " (env override at startup)" : "");
+#else
+				ImGui::BeginDisabled();
+				bool off = false;
+				ImGui::Checkbox("Tracy Profiler", &off);
+				ImGui::EndDisabled();
+				ImGui::TextDisabled("(unavailable: build with -DFURY_WITH_TRACY=ON)");
+#endif
 			}
 
 			ImGui::Spacing();

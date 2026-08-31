@@ -20,6 +20,7 @@ JPH_SUPPRESS_WARNINGS
 #include "Fury/CharacterController.h"
 #include "Fury/Engine.h"
 #include "Fury/Log.h"
+#include "Fury/Profiler.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 
@@ -259,6 +260,7 @@ void PhysicsWorld::Step(int n)
 
 void PhysicsWorld::TickFixed()
 {
+	FURY_ZONE;
 	if (!m_SimulationEnabled || m_System == nullptr)
 		return;
 
@@ -302,7 +304,10 @@ void PhysicsWorld::TickFixed()
 	}
 
 	// 2 collision substeps: effective 50 Hz integration on the 25 Hz tick.
-	m_System->Update(Engine::GetFixedDt(), 2, m_TempAllocator, m_JobSystem);
+	{
+		FURY_ZONE_NAMED("Jolt::Update");
+		m_System->Update(Engine::GetFixedDt(), 2, m_TempAllocator, m_JobSystem);
+	}
 
 	for (auto it = m_BodySetups.begin(); it != m_BodySetups.end();)
 	{
@@ -320,6 +325,7 @@ void PhysicsWorld::TickFixed()
 
 void PhysicsWorld::TickUpdate(float dt)
 {
+	FURY_ZONE;
 	if (!m_SimulationEnabled || m_System == nullptr)
 		return;
 
@@ -328,6 +334,7 @@ void PhysicsWorld::TickUpdate(float dt)
 
 void PhysicsWorld::SyncNodes(float alpha, float dt)
 {
+	FURY_ZONE;
 	for (auto it = m_BodySetups.begin(); it != m_BodySetups.end();)
 	{
 		if (auto body = it->lock())

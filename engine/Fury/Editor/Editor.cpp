@@ -72,6 +72,8 @@ extern float g_SnapTranslate;
 extern float g_SnapRotate;
 extern float g_SnapScale;
 extern bool g_ShowGrid;
+// Defined in EditorWindows.cpp next to g_ShowGrid; persisted Tracy toggle.
+extern bool g_TracyEnabled;
 
 // Public-ish accessors used by the window rendering code, kept in
 // this TU so we don't multiply globals.
@@ -223,6 +225,14 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
+	// Tracy profiler toggle. Default on (armed; with TRACY_ON_DEMAND an
+	// armed profiler still does nothing until a client connects).
+	int tracy = -1;
+	if (std::sscanf(line, "Tracy=%d", &tracy) == 1 && (tracy == 0 || tracy == 1)) {
+		g_TracyEnabled = (tracy != 0);
+		return;
+	}
+
 	// Import flags -- one line per flag: ImportFlag=<name>=<0|1>.
 	// Persisted so toggles in Settings -> Import survive a restart.
 	char flagname[128];
@@ -291,6 +301,10 @@ void SettingsHandler_ApplyAll(ImGuiContext*, ImGuiSettingsHandler*) {
 	// FURY_COMPUTE_SHADER still overrides per run.
 	Engine::SetComputeShadersEnabled(GetImportFlag("compute_shaders", true));
 
+	// Tracy profiler switch (change: add-tracy-profiler), default on;
+	// FURY_TRACY=0 still overrides per run.
+	Engine::SetTracyEnabled(g_TracyEnabled);
+
 	// One-time layout migration: if the ini predates the current
 	// layout version (e.g. an ini from before the Viewport window
 	// existed), rebuild the default layout so new windows snap
@@ -305,6 +319,7 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Theme=%d\n", GetCurrentThemeIndex());
 	buf->appendf("Layout=%d\n", kCurrentLayoutVersion);
 	buf->appendf("ShowGrid=%d\n", g_ShowGrid ? 1 : 0);
+	buf->appendf("Tracy=%d\n", g_TracyEnabled ? 1 : 0);
 	// Import flags -- one line per flag so adding/removing flags
 	// doesn't break the format.
 	for (const auto& kv : g_ImportFlags)

@@ -18,6 +18,7 @@
 #include "Fury/MeshUtil.h"
 #include "Fury/PhysicsWorld.h"
 #include "Fury/Pipeline.h"
+#include "Fury/Profiler.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/ThreadUtil.h"
@@ -200,6 +201,13 @@ namespace fury
 		ThreadUtil::Initialize(static_cast<size_t>(numThreads));
 		ThreadUtil::Instance()->SetMainThread();
 
+		FURY_SET_THREAD_NAME("main");
+		// FURY_TRACY=0 disarms collection for this run (no-op when Tracy is
+		// not compiled in). The editor's persisted Tracy=0 setting lands
+		// here too, via Editor::Initialize -> Engine::SetTracyEnabled.
+		if (const char* env = std::getenv("FURY_TRACY"); env != nullptr && env[0] == '0')
+			SetTracyEnabled(false);
+
 		FURYD << ThreadUtil::Instance()->GetWorkerCount() << " thread launched!";
 		FURYD << "Window width: " << window.getSize().x << ", height: " << window.getSize().y;
 
@@ -238,7 +246,12 @@ namespace fury
 		PhysicsWorld::Instance()->Subscribe();
 
 		if (flag == 1)
+		{
+			// GL context is current here (window.setActive in main.cpp);
+			// no-op when Tracy or GPU zones are compiled out.
+			FURY_GPU_CONTEXT();
 			return true;
+		}
 
 		if (flag < 1)
 		{
@@ -477,6 +490,15 @@ namespace fury
 		return allowed && gl::HasComputeShaders() != 0;
 	}
 
+	void Engine::SetTracyEnabled(bool value)
+	{
+#ifdef TRACY_ENABLE
+		profiler::SetArmed(value);
+#else
+		(void)value;
+#endif
+	}
+
 	void Engine::Run(sf::Window &window, const EngineCallbacks &cb)
 	{
 		Run(window, cb, EngineOptions{});
@@ -559,12 +581,15 @@ namespace fury
 			}
 
 			int numLoops = 0;
-			while (clock.getElapsedTime().asMilliseconds() > next_game_tick && numLoops < MAX_FRAMESKIP && running)
 			{
-				if (cb.OnFixedUpdate) cb.OnFixedUpdate();
-				FixedUpdate();
-				next_game_tick += SKIP_TICKS;
-				numLoops++;
+				FURY_ZONE_NAMED("FixedUpdate");
+				while (clock.getElapsedTime().asMilliseconds() > next_game_tick && numLoops < MAX_FRAMESKIP && running)
+				{
+					if (cb.OnFixedUpdate) cb.OnFixedUpdate();
+					FixedUpdate();
+					next_game_tick += SKIP_TICKS;
+					numLoops++;
+				}
 			}
 
 		// Render interpolation alpha between the last and next fixed
@@ -589,21 +614,36 @@ namespace fury
 			// can sum dt across frames to get true elapsed seconds.
 			float dt = clock.restart().asSeconds();
 
-		Gui::NewFrame(dt);
+		{
+			FURY_ZONE_NAMED("Gui::NewFrame");
+			Gui::NewFrame(dt);
+		}
 		// Editor::Tick must run AFTER Gui::NewFrame and BEFORE the user
 		// on_update callback. Editor::Tick builds the editor's ImGui
 		// windows (menu bar, dockspace, built-in windows, gizmo) into the
 		// current frame's draw lists.
-		Editor::Tick();
-		if (cb.OnUpdate) cb.OnUpdate(dt);
-		Update(dt);
+		{
+			FURY_ZONE_NAMED("Editor::Tick");
+			Editor::Tick();
+		}
+		{
+			FURY_ZONE_NAMED("Lua+Render");
+			if (cb.OnUpdate) cb.OnUpdate(dt);
+		}
+		{
+			FURY_ZONE_NAMED("Engine::Update");
+			Update(dt);
+		}
 
 		// Editor post-render hook: drives the viewport-picking state
 		// machine and the selection-visualization overlay after the user
 		// pipeline has rendered the 3D scene and before Gui::Render
 		// flushes ImGui draws. With WITH_EDITOR=OFF this resolves to an
 		// inline no-op.
-		Editor::TickPostRender();
+		{
+			FURY_ZONE_NAMED("Editor::TickPostRender");
+			Editor::TickPostRender();
+		}
 
 		// Flush ImGui draw lists to the default framebuffer LAST so the
 		// editor (and any script-side floating windows) composite on top
@@ -611,9 +651,14 @@ namespace fury
 		// which samples the scene's offscreen render target. This runs
 		// after TickPostRender so the selection overlay (drawn into the
 		// render target) is visible inside the Viewport window this frame.
-		Gui::Render();
+		{
+			FURY_ZONE_NAMED("Gui::Render");
+			Gui::Render();
+		}
 
 		window.display();
+		FURY_GPU_COLLECT();
+		FURY_FRAME;
 
 			RenderUtil::Instance()->EndFrame();
 

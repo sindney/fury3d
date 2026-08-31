@@ -110,6 +110,8 @@ cmake --build build-engine -j
 | `GUI_IMP`           | `ON`   | 编译 ImGui 叠层（HUD、调试控件）。`WITH_EDITOR` 启用时必须同时启用。 |
 | `BUILD_SHARED_LIBS` | `OFF`  | 默认构建 `fury` / `furye` 可执行文件。设为 `ON` 时输出 `libfury.{dylib,so,dll}` 以便嵌入——此时会移除 Lua 启动器 `main`。 |
 | `EXPORT_DLL`（Windows） | `ON` | 定义 `FURY_API_EXPORT`，让共享库导出符号。对静态构建无影响。 |
+| `FURY_WITH_TRACY`   | Debug / RelWithDebInfo / 多配置生成器为 `ON`，Release / MinSizeRel 为 `OFF` | 启用 Tracy 性能分析（vendor 于 `engine/ThirdParty/tracy`），并自动把 `tracy-profiler` 与 `tracy-capture` 构建到 `examples/`。详见 [docs/TRACY.md](docs/TRACY.md)。 |
+| `FURY_WITH_TRACY_GPU` | Tracy 开启时为 `ON` | 增加 OpenGL timer-query GPU zone。在 Apple/TBDR 驱动上不可靠，可按机器关闭。 |
 
 ### 增加一个 vendor 依赖
 

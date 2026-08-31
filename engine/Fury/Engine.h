@@ -98,6 +98,13 @@ namespace fury
 		// switch allows them. FURY_COMPUTE_SHADER=0/1 overrides the switch.
 		// Every compute consumer gates on this, never on the raw capability.
 		static bool HasEffectiveCompute();
+
+		// Tracy profiler runtime switch (no-op when Tracy is not compiled
+		// in). false disarms all zones for the run; true re-arms. Also
+		// driven at startup by FURY_TRACY=0 and the editor's Tracy=0|1
+		// setting. Safe to toggle at any time (atomic flag, no Tracy
+		// lifetime calls).
+		static void SetTracyEnabled(bool value);
 	};
 }
 

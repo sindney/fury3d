@@ -1,7 +1,9 @@
 #include <stack>
 #include <list>
+#include <cstdio>
 
 #include "Fury/Log.h"
+#include "Fury/Profiler.h"
 #include "Fury/ThreadUtil.h"
 
 namespace fury
@@ -22,8 +24,14 @@ namespace fury
 
 		for (size_t i = 0; i < numThreads; i++)
 		{
-			m_Workers.emplace_back([this]
+			m_Workers.emplace_back([this, i]
 			{
+				{
+					// tracy thread names are 64-char max
+					char name[32];
+					snprintf(name, sizeof(name), "worker-%zu", i);
+					FURY_SET_THREAD_NAME(name);
+				}
 				while (true)
 				{
 					std::function<void()> task;

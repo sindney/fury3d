@@ -10,6 +10,7 @@
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/Profiler.h"
 #include "Fury/Quaternion.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneManager.h"
@@ -406,11 +407,13 @@ namespace fury
 
 	void Animator::TickFixed()
 	{
+		FURY_ZONE;
 		AdvanceTime(Engine::GetFixedDt());
 	}
 
 	void Animator::TickUpdate(float dt)
 	{
+		FURY_ZONE;
 		if (m_AnimatePhysics)
 			Display(Engine::GetFixedTickAlpha());
 		else

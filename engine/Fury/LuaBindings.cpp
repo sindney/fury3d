@@ -2147,6 +2147,7 @@ namespace fury
 			engine_tbl["HasEffectiveCompute"] = &Engine::HasEffectiveCompute;
 			engine_tbl["GetComputeShadersEnabled"] = &Engine::GetComputeShadersEnabled;
 			engine_tbl["SetComputeShadersEnabled"] = &Engine::SetComputeShadersEnabled;
+			engine_tbl["SetTracyEnabled"] = &Engine::SetTracyEnabled;
 			engine_tbl["run"] = [&lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
@@ -2176,6 +2177,11 @@ namespace fury
 					opts.gui_scale      = o.get_or("gui_scale", opts.gui_scale);
 					opts.gui_font_scale = o.get_or("gui_font_scale", opts.gui_font_scale);
 					opts.dpi_aware_override = o.get_or("dpi_aware_override", opts.dpi_aware_override);
+					// tracy = false shuts the profiler down for this run
+					// (no-op when Tracy is not compiled in).
+					sol::object tracy = o["tracy"];
+					if (tracy.valid() && tracy.get_type() == sol::type::boolean)
+						Engine::SetTracyEnabled(tracy.as<bool>());
 				}
 
 				// Layer launcher-supplied options over the script's. Launcher
