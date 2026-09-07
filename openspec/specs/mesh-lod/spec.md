@@ -144,3 +144,18 @@ The mesh editor SHALL include a `Generate LODs…` button (visible regardless of
 
 - **WHEN** the editor reads `mesh->GetLodCount()` and `render->GetActiveLod()` from a `const MeshRender*`
 - **THEN** the calls compile and return the same value as the non-const overload
+### Requirement: `Mesh` LOD tiers SHALL support a billboard flag
+
+`Mesh` SHALL carry a parallel flag array (`m_LodBillboardFlags`, `std::vector<bool>`) of the same length as `m_LodMeshes`, exposed via `Mesh::IsLodBillboard(i)`. A flagged terminal tier is drawn via the `BILLBOARD` shader variant (a cylindrical camera-facing quad with atlas cell selection) instead of the tier's mesh geometry. The flag array is optional on serialization — a mesh with no chain has no flags; a chain with no flags array defaults to all-false. `Mesh::SetLodMeshes(meshes, thresholds, billboardFlags)` SHALL validate that `billboardFlags.size() == meshes.size()` when non-empty.
+
+#### Scenario: Flagged terminal tier renders via BILLBOARD shader
+
+- **WHEN** a mesh chain has 3 tiers and `IsLodBillboard(3)` is true
+- **THEN** the renderer submits the mesh's `GetBillboardMaterial()` at the flagged tier
+- **AND** the camera-facing quad uses the mesh's billboard atlas for the current view azimuth
+
+#### Scenario: Flag/chain size mismatch rejected
+
+- **WHEN** `SetLodMeshes(meshes, thresholds, billboardFlags)` is called with `meshes.size() == 3` and `billboardFlags.size() == 2`
+- **THEN** a `FURYE` log is emitted
+- **AND** the chain is not modified
