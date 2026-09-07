@@ -79,10 +79,8 @@ namespace fury
 		void RegisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &buoyancy);
 		void UnregisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &buoyancy);
 
-		// Debug-draw support (Pipeline::DrawDebug): registered list + true
-		// when any live buoyancy component has its debugDraw flag on.
+		// Registered buoyancy components (Pipeline::DrawDebug reads this).
 		const std::vector<std::weak_ptr<BuoyancyComponent>> &GetBuoyancies() const { return m_Buoyancies; }
-		bool HasBuoyancyDebugDraw() const;
 
 		// Jolt accessors for physics components (BodySetup/CharacterController
 		// .cpps include Jolt and use these directly). Null while uninitialized.

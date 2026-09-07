@@ -36,6 +36,7 @@
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
+#include "Fury/InstancedMeshRender.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -737,8 +738,6 @@ namespace fury
 				"GetRightingStrength", &BuoyancyComponent::GetRightingStrength,
 				"SetOceanNodeName", &BuoyancyComponent::SetOceanNodeName,
 				"GetOceanNodeName", &BuoyancyComponent::GetOceanNodeName,
-				"SetDebugDraw", &BuoyancyComponent::SetDebugDraw,
-				"GetDebugDraw", &BuoyancyComponent::GetDebugDraw,
 				"GetLastSubmersion", &BuoyancyComponent::GetLastSubmersion);
 
 			// --- MeshRender ---------------------------------------------------
@@ -755,7 +754,49 @@ namespace fury
 				"GetMaterialCount",&MeshRender::GetMaterialCount,
 				"GetMaterial",     &MeshRender::GetMaterial,
 				"SetMaterial",     &MeshRender::SetMaterial,
-				"GetRenderable",   &MeshRender::GetRenderable);
+				"GetRenderable",   &MeshRender::GetRenderable,
+				"GetActiveLod",    &MeshRender::GetActiveLod,
+				"GetCastShadows",  &MeshRender::GetCastShadows,
+				"SetCastShadows",  &MeshRender::SetCastShadows);
+
+			// --- InstancedMeshRender -------------------------------------------
+			// ISM/HISM instanced rendering component (vegetation). Instance
+			// transforms are node-local; AddInstance takes a position plus
+			// optional yaw (radians) and uniform scale -- the common
+			// vegetation scatter case.
+			lua.new_usertype<InstancedMeshRender>("InstancedMeshRender",
+				sol::no_constructor,
+				sol::base_classes, sol::bases<Component, Serializable>(),
+				"Create",          &InstancedMeshRender::Create,
+				"GetMesh",         &InstancedMeshRender::GetMesh,
+				"SetMesh",         &InstancedMeshRender::SetMesh,
+				"GetMaterialCount",&InstancedMeshRender::GetMaterialCount,
+				"GetMaterial",     &InstancedMeshRender::GetMaterial,
+				"SetMaterial",     &InstancedMeshRender::SetMaterial,
+				"GetRenderable",   &InstancedMeshRender::GetRenderable,
+				"GetCastShadows",  &InstancedMeshRender::GetCastShadows,
+				"SetCastShadows",  &InstancedMeshRender::SetCastShadows,
+				"GetCullDistance", &InstancedMeshRender::GetCullDistance,
+				"SetCullDistance", &InstancedMeshRender::SetCullDistance,
+				"GetHierarchical", &InstancedMeshRender::GetHierarchical,
+				"SetHierarchical", &InstancedMeshRender::SetHierarchical,
+				"GetInstanceCount",&InstancedMeshRender::GetInstanceCount,
+				"ClearInstances",  &InstancedMeshRender::ClearInstances,
+				// Debug/validation readback of the per-frame HISM buckets.
+				"GetBatchCount", [](InstancedMeshRender &r) { return (unsigned int)r.GetBatches().size(); },
+				"GetBatchInfo", [](InstancedMeshRender &r, unsigned int i) -> sol::optional<std::tuple<unsigned int, bool, unsigned int>> {
+					const auto &batches = r.GetBatches();
+					if (i >= batches.size()) return sol::nullopt;
+					return std::make_tuple(batches[i].LodTier, batches[i].Billboard,
+						(unsigned int)batches[i].WorldMatrices.size());
+				},
+				"AddInstance", [](InstancedMeshRender &r, Vector4 position, float yaw, float scale) {
+					InstancedMeshRender::Instance inst;
+					inst.Position = position;
+					inst.Rotation = MathUtil::AxisRadToQuat(Vector4::YAxis, yaw);
+					inst.Scale = Vector4(scale, scale, scale);
+					r.AddInstance(inst);
+				});
 
 			// --- BoxBounds -----------------------------------------------------
 			// Minimal binding so the Editor.lua frame-selection handler can
@@ -1010,7 +1051,10 @@ namespace fury
 				sol::no_constructor,
 				"Create", &SceneNode::Create,
 				"GetName", &SceneNode::GetName,
-				"SetName", &SceneNode::SetName,
+				// Entity::SetName returns the name hash as size_t; sol2
+				// refuses the lossy size_t -> lua number conversion, so the
+				// binding discards it.
+				"SetName", [](SceneNode &n, const std::string &name) { n.SetName(name); },
 				"GetWorldPosition", &SceneNode::GetWorldPosition,
 				"GetWorldAABB", &SceneNode::GetWorldAABB,
 				"GetLocalPosition", &SceneNode::GetLocalPosition,
@@ -1064,6 +1108,9 @@ namespace fury
 					},
 					[](SceneNode &n, BuoyancyComponent::Ptr c) {
 						return n.AddComponent(std::static_pointer_cast<Component>(c));
+					},
+					[](SceneNode &n, InstancedMeshRender::Ptr c) {
+						return n.AddComponent(std::static_pointer_cast<Component>(c));
 					}),
 				"RemoveComponent", sol::overload(
 					[](SceneNode &n, Transform::Ptr) { return n.RemoveComponent(typeid(Transform)); },
@@ -1077,7 +1124,8 @@ namespace fury
 					[](SceneNode &n, SkyAtmosphere::Ptr) { return n.RemoveComponent(typeid(SkyAtmosphere)); },
 					[](SceneNode &n, Terrain::Ptr) { return n.RemoveComponent(typeid(Terrain)); },
 					[](SceneNode &n, OceanComponent::Ptr) { return n.RemoveComponent(typeid(OceanComponent)); },
-					[](SceneNode &n, BuoyancyComponent::Ptr) { return n.RemoveComponent(typeid(BuoyancyComponent)); }),
+					[](SceneNode &n, BuoyancyComponent::Ptr) { return n.RemoveComponent(typeid(BuoyancyComponent)); },
+					[](SceneNode &n, InstancedMeshRender::Ptr) { return n.RemoveComponent(typeid(InstancedMeshRender)); }),
 				"GetComponent", sol::overload(
 					// Typed overloads FIRST so a Lua-side
 					// `n:GetComponent(ParticleSystem)` resolves to the
@@ -1112,6 +1160,7 @@ namespace fury
 				"GetCamera",    [](SceneNode &n) -> std::shared_ptr<Camera>    { return n.GetComponent<Camera>(); },
 				"GetLight",     [](SceneNode &n) -> std::shared_ptr<Light>     { return n.GetComponent<Light>(); },
 				"GetMeshRender",[](SceneNode &n) -> std::shared_ptr<MeshRender>{ return n.GetComponent<MeshRender>(); },
+				"GetInstancedMeshRender",[](SceneNode &n) -> std::shared_ptr<InstancedMeshRender>{ return n.GetComponent<InstancedMeshRender>(); },
 				"GetAnimator",  [](SceneNode &n) -> std::shared_ptr<Animator>  { return n.GetComponent<Animator>(); },
 				"GetParticleRenderer", [](SceneNode &n) -> std::shared_ptr<ParticleRenderer> { return n.GetComponent<ParticleRenderer>(); },
 				"GetBodySetup", [](SceneNode &n) -> std::shared_ptr<BodySetup> { return n.GetComponent<BodySetup>(); },
@@ -1241,7 +1290,9 @@ namespace fury
 				"RemoveEffect", &RenderSettings::RemoveEffect,
 				"MoveEffect", &RenderSettings::MoveEffect,
 				"CopyChainFrom", &RenderSettings::CopyChainFrom,
-				"SetEffectEnabled", &RenderSettings::SetEffectEnabled);
+				"SetEffectEnabled", &RenderSettings::SetEffectEnabled,
+				"GetWindParams", &RenderSettings::GetWindParams,
+				"SetWindParams", &RenderSettings::SetWindParams);
 
 			// --- PostProcessRegistry -----------------------------------------
 			// Exposed as a Lua table so scripts can call
@@ -1353,6 +1404,19 @@ namespace fury
 					out[idx++] = name;
 				}
 				return out;
+			};
+
+			// File copy (asset bake/populate scripts relocate textures).
+			fu_tbl["CopyFile"] = [](const std::string &from, const std::string &to) -> bool {
+				std::error_code ec;
+				std::filesystem::copy_file(from, to,
+					std::filesystem::copy_options::overwrite_existing, ec);
+				if (ec)
+				{
+					FURYW << "FileUtil.CopyFile: " << from << " -> " << to << ": " << ec.message();
+					return false;
+				}
+				return true;
 			};
 
 			// --- Importer (runtime asset import: glTF / FBX / engine scene) -
@@ -2041,9 +2105,12 @@ namespace fury
 			editor_tbl["OpenSkyEditor"]         = [](sol::object) {};
 #endif
 
-			// --- RenderUtil (singleton; no methods bound this round) ----------
+			// --- RenderUtil (singleton; draw-call counters for headless
+			// perf assertions) -------------------------------------------
 			lua.new_usertype<RenderUtil>("RenderUtil",
-				sol::no_constructor);
+				sol::no_constructor,
+				"GetDrawCall", &RenderUtil::GetDrawCall,
+				"GetTriangleCount", &RenderUtil::GetTriangleCount);
 			lua["RenderUtil"]["Instance"] = []() { return RenderUtil::Instance(); };
 
 			// --- InputUtil (singleton, polling-style accessors) ---------------
@@ -2144,10 +2211,11 @@ namespace fury
 			//   callbacks: { on_init, on_update, on_fixed_update, on_shutdown }
 			//   options:   { max_fps, gui_scale, gui_font_scale, dpi_aware_override }
 			sol::table engine_tbl = lua.create_named_table("Engine");
-			engine_tbl["HasEffectiveCompute"] = &Engine::HasEffectiveCompute;
-			engine_tbl["GetComputeShadersEnabled"] = &Engine::GetComputeShadersEnabled;
-			engine_tbl["SetComputeShadersEnabled"] = &Engine::SetComputeShadersEnabled;
 			engine_tbl["SetTracyEnabled"] = &Engine::SetTracyEnabled;
+			// Global render clock (WIND shaders); SetTime pins it for
+			// headless sway screenshots.
+			engine_tbl["GetTime"] = &Engine::GetTime;
+			engine_tbl["SetTime"] = &Engine::SetTime;
 			engine_tbl["run"] = [&lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
@@ -2241,6 +2309,9 @@ namespace fury
 				// LOD chain accessors -- direct mirror of Mesh.h:227-236.
 				"GetLodCount", &Mesh::GetLodCount,
 				"GetLodMesh",  &Mesh::GetLodMesh,
+				"GetLodThreshold", &Mesh::GetLodThreshold,
+				"IsLodBillboard", &Mesh::IsLodBillboard,
+				"GetBillboardMaterial", &Mesh::GetBillboardMaterial,
 				"ClearLodChain", &Mesh::ClearLodChain);
 
 			// Flat-table round-trip helpers. Done outside the usertype literal
@@ -2259,6 +2330,9 @@ namespace fury
 				m.Positions.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.Positions.Data.push_back(t.get<float>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.Positions.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetNormals"] = [](const Mesh &m, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2273,6 +2347,9 @@ namespace fury
 				m.Normals.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.Normals.Data.push_back(t.get<float>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.Normals.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetUVs"] = [](const Mesh &m, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2287,6 +2364,9 @@ namespace fury
 				m.UVs.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.UVs.Data.push_back(t.get<float>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.UVs.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetTangents"] = [](const Mesh &m, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2296,11 +2376,27 @@ namespace fury
 					t[i + 1] = data[i];
 				return t;
 			};
+			// Vertex colors (wind weights on kraut trees) -- same flat
+			// vec4-float table shape as the other channels.
+			lua["Mesh"]["GetColors"] = [](const Mesh &m, sol::this_state s) -> sol::table {
+				sol::state_view lua(s);
+				sol::table t = lua.create_table();
+				const auto &data = m.Colors.Data;
+				for (size_t i = 0; i < data.size(); ++i)
+					t[i + 1] = data[i];
+				return t;
+			};
+			lua["Mesh"]["GetColorCount"] = [](const Mesh &m) {
+				return m.Colors.Data.size() / 4;
+			};
 			lua["Mesh"]["SetTangents"] = [](Mesh &m, sol::table t) {
 				m.Tangents.Data.clear();
 				m.Tangents.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.Tangents.Data.push_back(t.get<float>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.Tangents.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetBoneIds"] = [](const Mesh &m, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2315,6 +2411,9 @@ namespace fury
 				m.IDs.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.IDs.Data.push_back(t.get<unsigned int>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.IDs.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetBoneWeights"] = [](const Mesh &m, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2329,6 +2428,9 @@ namespace fury
 				m.Weights.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.Weights.Data.push_back(t.get<float>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.Weights.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetIndices"] = [](const Mesh &m, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2343,6 +2445,9 @@ namespace fury
 				m.Indices.Data.reserve(t.size());
 				for (size_t i = 1; i <= t.size(); ++i)
 					m.Indices.Data.push_back(t.get<unsigned int>(i));
+				// mark dirty so the next draw re-uploads the channel
+				m.Indices.SetDirty();
+				m.SetDirty();  // mesh-level (Buffer base): BindMesh gates UpdateBuffer on this
 			};
 			lua["Mesh"]["GetSubmeshIndices"] = [](Mesh &m, unsigned int i, sol::this_state s) -> sol::table {
 				sol::state_view lua(s);
@@ -2354,20 +2459,29 @@ namespace fury
 					t[k + 1] = data[k];
 				return t;
 			};
-			// LOD chain setter: accepts parallel arrays (meshes, thresholds).
-			// Mirrors Mesh::SetLodMeshes' validation: sizes must match and
-			// thresholds must be non-increasing -- the C++ side enforces and
-			// logs FURYE on mismatch, so we forward and trust.
-			lua["Mesh"]["SetLodMeshes"] = [](Mesh &m, sol::table meshes_tbl, sol::table thresholds_tbl) {
+			// LOD chain setter: accepts parallel arrays (meshes, thresholds)
+			// plus an optional billboard-flags table (nil = clear flags, the
+			// pre-kraut behavior). Mirrors Mesh::SetLodMeshes' validation:
+			// sizes must match and thresholds must be non-increasing -- the
+			// C++ side enforces and logs FURYE on mismatch, so we forward
+			// and trust.
+			lua["Mesh"]["SetLodMeshes"] = [](Mesh &m, sol::table meshes_tbl, sol::table thresholds_tbl, sol::optional<sol::table> flags_tbl) {
 				std::vector<std::shared_ptr<Mesh>> meshes;
 				std::vector<float> thresholds;
+				std::vector<bool> flags;
 				meshes.reserve(meshes_tbl.size());
 				for (size_t i = 1; i <= meshes_tbl.size(); ++i)
 					meshes.push_back(meshes_tbl.get<std::shared_ptr<Mesh>>(i));
 				thresholds.reserve(thresholds_tbl.size());
 				for (size_t i = 1; i <= thresholds_tbl.size(); ++i)
 					thresholds.push_back(thresholds_tbl.get<float>(i));
-				m.SetLodMeshes(meshes, thresholds);
+				if (flags_tbl)
+				{
+					flags.reserve(flags_tbl->size());
+					for (size_t i = 1; i <= flags_tbl->size(); ++i)
+						flags.push_back(flags_tbl->get<bool>(i));
+				}
+				m.SetLodMeshes(meshes, thresholds, flags);
 			};
 
 			// --- Texture ---------------------------------------------------
@@ -2393,11 +2507,27 @@ namespace fury
 				"SetName", &Material::SetName,
 				"IsOpaque", &Material::GetOpaque,
 				"SetOpaque", &Material::SetOpaque,
+				"GetAlphaMode", [](const Material &mat) { return static_cast<int>(mat.GetAlphaMode()); },
+				"GetTwoSided", &Material::GetTwoSided,
+				"SetTwoSided", &Material::SetTwoSided,
+				"GetWindEnabled", &Material::GetWindEnabled,
+				"SetWindEnabled", &Material::SetWindEnabled,
 				"GetTextureCount", &Material::GetTextureCount,
 				"GetTexture", [](const Material &mat, const std::string &key, sol::this_state s) -> sol::object {
 					auto tex = mat.GetTexture(key);
 					if (!tex) return sol::nil;
 					return sol::make_object(sol::state_view(s), tex->GetFilePath());
+				},
+				// Flip the sRGB flag on the material's embedded texture object
+				// (the one the renderer actually samples); Texture::Save then
+				// emits "srgb": <flag> for the embedded record.
+				"SetTextureSRGB", [](Material &mat, const std::string &key, bool srgb) {
+					if (auto tex = mat.GetTexture(key))
+						tex->SetFilePathAndSRGB(tex->GetFilePath(), srgb);
+				},
+				"GetTextureSRGB", [](const Material &mat, const std::string &key) -> bool {
+					auto tex = mat.GetTexture(key);
+					return tex && tex->IsSRGB();
 				},
 				"SetTexture", [](Material &mat, const std::string &key, const std::string &path) {
 					auto tex = Texture::Create(key);

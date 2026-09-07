@@ -101,6 +101,8 @@ namespace fury
 		else
 			SetAlphaMode(m_Opaque ? AlphaMode::OPAQUE : AlphaMode::BLEND);
 		LoadMemberValue(wrapper, "alpha_cutoff", m_AlphaCutoff);
+		LoadMemberValue(wrapper, "two_sided", m_TwoSided);
+		LoadMemberValue(wrapper, "wind_enabled", m_WindEnabled);
 
 		// load shaders
 		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
@@ -212,6 +214,10 @@ namespace fury
 		SaveValue(wrapper, EnumUtil::AlphaModeToString(m_AlphaMode));
 		SaveKey(wrapper, "alpha_cutoff");
 		SaveValue(wrapper, m_AlphaCutoff);
+		SaveKey(wrapper, "two_sided");
+		SaveValue(wrapper, m_TwoSided);
+		SaveKey(wrapper, "wind_enabled");
+		SaveValue(wrapper, m_WindEnabled);
 		SaveKey(wrapper, "texture_flags");
 		SaveValue(wrapper, m_TextureFlags);
 

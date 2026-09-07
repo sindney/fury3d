@@ -174,7 +174,7 @@ namespace fury
 
 	Signal<>::Ptr Engine::OnFixedUpdate = Signal<>::Create();
 
-	namespace { float s_FixedTickAlpha = 0.0f; }
+	namespace { float s_FixedTickAlpha = 0.0f; float s_Time = 0.0f; }
 
 	namespace
 	{
@@ -406,6 +406,7 @@ namespace fury
 
 	void Engine::Update(float dt)
 	{
+		s_Time += dt;
 		ThreadUtil::Instance()->Update();
 		OnUpdate->Emit(std::move(dt));
 	}
@@ -453,41 +454,14 @@ namespace fury
 		return 1.0f / 25.0f;
 	}
 
-	namespace
+	float Engine::GetTime()
 	{
-		bool g_ComputeShadersEnabled = true;
-
-		// -1 unread, 0 env-off, 1 env-on, 2 no override
-		int ComputeEnvOverride()
-		{
-			static int cached = -1;
-			if (cached < 0)
-			{
-				const char* env = std::getenv("FURY_COMPUTE_SHADER");
-				if (env == nullptr || env[0] == '\0')
-					cached = 2;
-				else
-					cached = env[0] == '0' ? 0 : 1;
-			}
-			return cached;
-		}
+		return s_Time;
 	}
 
-	void Engine::SetComputeShadersEnabled(bool value)
+	void Engine::SetTime(float seconds)
 	{
-		g_ComputeShadersEnabled = value;
-	}
-
-	bool Engine::GetComputeShadersEnabled()
-	{
-		return g_ComputeShadersEnabled;
-	}
-
-	bool Engine::HasEffectiveCompute()
-	{
-		int env = ComputeEnvOverride();
-		bool allowed = env == 2 ? g_ComputeShadersEnabled : env == 1;
-		return allowed && gl::HasComputeShaders() != 0;
+		s_Time = seconds;
 	}
 
 	void Engine::SetTracyEnabled(bool value)

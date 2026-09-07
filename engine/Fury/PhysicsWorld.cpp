@@ -474,12 +474,3 @@ void PhysicsWorld::UnregisterBuoyancy(const std::shared_ptr<BuoyancyComponent> &
 			return !locked || locked == buoyancy;
 		}), m_Buoyancies.end());
 }
-
-bool PhysicsWorld::HasBuoyancyDebugDraw() const
-{
-	for (const auto &weak : m_Buoyancies)
-		if (auto buoyancy = weak.lock())
-			if (buoyancy->GetDebugDraw())
-				return true;
-	return false;
-}

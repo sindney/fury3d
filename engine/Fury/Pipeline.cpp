@@ -1,9 +1,12 @@
 #include <algorithm>
+#include <functional>
 #include <sstream>
 
 #include "Fury/BoxBounds.h"
+#include "Fury/Color.h"
 #include "Fury/BuoyancyComponent.h"
 #include "Fury/Camera.h"
+#include "Fury/Engine.h"
 #include "Fury/Log.h"
 #include "Fury/Light.h"
 #include "Fury/EnumUtil.h"
@@ -17,6 +20,8 @@
 #include "Fury/FileUtil.h"
 #include "Fury/Frustum.h"
 #include "Fury/GLLoader.h"
+#include "Fury/InstancedMeshRender.h"
+#include "Fury/InstancedMeshStreamer.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
@@ -109,6 +114,26 @@ namespace fury
 			{
 				FURYE << "Shader param 'name' not found!";
 				return false;
+			}
+
+			// Skip INSTANCE_SSBO variants when the context lacks SSBO
+			// (GL 3.3/4.1): they'd fail to compile and are never
+			// selected there (the divisor-VBO variants serve instead).
+			if (!InstancedMeshStreamer::Get().SSBOAvailable())
+			{
+				bool wantsSSBO = false;
+				LoadArray(node, "defines", [&](const void* defineNode) -> bool
+				{
+					std::string define;
+					if (LoadValue(defineNode, define) && define == "INSTANCE_SSBO")
+						wantsSSBO = true;
+					return true;
+				});
+				if (wantsSSBO)
+				{
+					FURYD << "Pipeline: skipping INSTANCE_SSBO shader '" << str << "' (no SSBO support)";
+					return true;
+				}
 			}
 
 			auto shader = Shader::Create(str, ShaderType::OTHER);
@@ -524,15 +549,243 @@ namespace fury
 		return projMatrix * cropMatrix;
 	}
 
+	namespace
+	{
+		// Depth-shader variant set for one shadow pass. Any variant may be
+		// null (legacy pipeline JSONs lack them) -- Pick falls back to the
+		// plain shader in that case.
+		struct ShadowDepthShaders
+		{
+			std::shared_ptr<Shader> Plain;
+			std::shared_ptr<Shader> Skin;
+			std::shared_ptr<Shader> AlphaTest;
+			std::shared_ptr<Shader> AlphaTestWind;
+			std::shared_ptr<Shader> Wind;
+			// INSTANCED variants for the active stream path (SSBO or
+			// divisor resolved at fetch time).
+			std::shared_ptr<Shader> Inst;
+			std::shared_ptr<Shader> InstAlphaTest;
+			std::shared_ptr<Shader> InstAlphaTestWind;
+			std::shared_ptr<Shader> InstWind;
+
+			std::shared_ptr<Shader> Pick(bool skinned, bool alphaTest, bool wind) const
+			{
+				if (skinned)
+					return Skin ? Skin : Plain;
+				std::shared_ptr<Shader> s;
+				if (alphaTest && wind) s = AlphaTestWind;
+				else if (alphaTest) s = AlphaTest;
+				else if (wind) s = Wind;
+				return s ? s : Plain;
+			}
+
+			// Null when no instanced variant exists -- the caller skips
+			// instanced casters then (a non-instanced shader would draw
+			// the whole batch at one transform).
+			std::shared_ptr<Shader> PickInstanced(bool alphaTest, bool wind) const
+			{
+				std::shared_ptr<Shader> s;
+				if (alphaTest && wind) s = InstAlphaTestWind;
+				if (!s && alphaTest) s = InstAlphaTest;
+				if (!s && wind) s = InstWind;
+				if (!s) s = Inst;
+				return s;
+			}
+		};
+
+		// Shadow-pass LOD policy: billboard-terminated chains (kraut trees)
+		// demote to the deepest non-billboard tier -- their LOD 0 is the
+		// expensive full-detail mesh and the deep tier shadows fine.
+		// Plain LOD chains (terrain, meshopt props) keep LOD 0: their
+		// coarse tiers deviate from the rendered surface by meters, which
+		// reads as self-shadow blotches on open slopes.
+		std::shared_ptr<Mesh> PickShadowLodMesh(const std::shared_ptr<Mesh> &base)
+		{
+			if (!base)
+				return nullptr;
+			unsigned int count = base->GetLodCount();
+			if (count <= 1 || !base->IsLodBillboard(count - 1))
+				return base;
+			for (unsigned int i = count; i-- > 1;)
+			{
+				if (!base->IsLodBillboard(i))
+					return base->GetLodMesh(i);
+			}
+			return base;
+		}
+
+		void BindShadowWindUniforms(const std::shared_ptr<Shader> &shader)
+		{
+			shader->BindFloat("u_time", Engine::GetTime());
+			Vector4 windParams(1.0f, 0.0f, 1.0f, 1.0f);
+			if (Scene::Active && Scene::Active->GetRenderSettings())
+				windParams = Scene::Active->GetRenderSettings()->GetWindParams();
+			shader->BindFloat("u_wind_params", windParams.x, windParams.y, windParams.z, windParams.w);
+		}
+
+		// Draws one shadow caster with the shadow LOD policy and the
+		// foliage depth variants. bindShader switches programs (and binds
+		// pass-level uniforms like the light view matrix); bindProj binds
+		// the projection for this draw (per cascade / cube face / single).
+		// Tracks the last bound program so per-submesh shader switches
+		// stay cheap. Returns the draw-call count.
+		int DrawShadowCasterGeometry(
+			const std::shared_ptr<SceneNode> &caster,
+			const ShadowDepthShaders &shaders,
+			const std::function<void(const std::shared_ptr<Shader>&)> &bindShader,
+			const std::function<void(const std::shared_ptr<Shader>&)> &bindProj)
+		{
+			auto casterRender = caster->GetComponent<MeshRender>();
+			if (!casterRender)
+				return 0;
+			auto casterMesh = PickShadowLodMesh(casterRender->GetMesh());
+			if (!casterMesh)
+				return 0;
+
+			// Match the legacy fallback: a skinned mesh without a skin
+			// depth shader draws as static (bind pose at the node).
+			const bool skinned = casterMesh->IsSkinnedMesh() && shaders.Skin != nullptr;
+			Matrix4 identityWorld;
+			Matrix4 world;
+			if (!skinned)
+				world = caster->GetWorldMatrix();
+
+			const unsigned int subCount = casterMesh->GetSubMeshCount();
+
+			// Whole-mesh draw when nothing material-dependent splits the
+			// draws: skinned meshes (no alpha test on skin in v1) and
+			// submesh-less meshes.
+			if (skinned || subCount == 0)
+			{
+				bool wind = false;
+				if (!skinned)
+					if (auto mat = casterRender->GetMaterial())
+						wind = mat->GetWindEnabled();
+				auto shader = shaders.Pick(skinned, false, wind);
+				if (!shader)
+					return 0;
+				bindShader(shader);
+				bindProj(shader);
+				shader->BindMesh(casterMesh);
+				shader->BindMatrix(Matrix4::WORLD_MATRIX, skinned ? identityWorld : world);
+				if (wind)
+					BindShadowWindUniforms(shader);
+				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
+				return 1;
+			}
+
+			// Per-submesh draws: MASK materials use the alpha-tested depth
+			// variant with the diffuse texture bound (leaf-shaped shadows).
+			int draws = 0;
+			for (unsigned int sm = 0; sm < subCount; ++sm)
+			{
+				auto material = casterRender->GetMaterial(sm);
+				const bool alphaTest = material && material->GetAlphaMode() == AlphaMode::MASK &&
+					material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
+				const bool wind = material && material->GetWindEnabled();
+				auto shader = shaders.Pick(false, alphaTest, wind);
+				if (!shader)
+					continue;
+				bindShader(shader);
+				bindProj(shader);
+				shader->BindMesh(casterMesh);
+				shader->BindMatrix(Matrix4::WORLD_MATRIX, world);
+				if (alphaTest)
+				{
+					material->UpdateBuffer();
+					shader->BindTexture(Material::DIFFUSE_TEXTURE, material->GetTexture(Material::DIFFUSE_TEXTURE));
+					shader->BindFloat("u_alpha_cutoff", material->GetAlphaCutoff());
+				}
+				if (wind)
+					BindShadowWindUniforms(shader);
+				shader->BindSubMesh(casterMesh, sm);
+				auto subMesh = casterMesh->GetSubMeshAt(sm);
+				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
+				draws++;
+			}
+			return draws;
+		}
+
+		// Fetches the depth variants for one shadow pass. prefix is
+		// "leagcy_depth" (dir/spot/CSM) or "cube_depth" (point). The
+		// instanced variants resolve to the active stream path
+		// (INSTANCE_SSBO on GL 4.3+, divisor attributes elsewhere).
+		ShadowDepthShaders FetchShadowDepthShaders(Pipeline *pipeline, const char *prefix)
+		{
+			const bool ssbo = InstancedMeshStreamer::Get().UseSSBO();
+			const std::string base(prefix);
+			const std::string suffix = ssbo ? "_ssbo_shader" : "_shader";
+			ShadowDepthShaders set;
+			set.Plain = pipeline->GetShaderByName(base + "_shader");
+			set.Skin = pipeline->GetShaderByName(base + "_skin_shader");
+			set.AlphaTest = pipeline->GetShaderByName(base + "_alphatest_shader");
+			set.AlphaTestWind = pipeline->GetShaderByName(base + "_alphatest_wind_shader");
+			set.Wind = pipeline->GetShaderByName(base + "_wind_shader");
+			set.Inst = pipeline->GetShaderByName(base + "_instanced" + suffix);
+			set.InstAlphaTest = pipeline->GetShaderByName(base + "_alphatest_instanced" + suffix);
+			set.InstAlphaTestWind = pipeline->GetShaderByName(base + "_alphatest_wind_instanced" + suffix);
+			set.InstWind = pipeline->GetShaderByName(base + "_wind_instanced" + suffix);
+			return set;
+		}
+
+		// Draws one instanced caster (ISM/HISM component) into the current
+		// shadow map: all instances, deepest non-billboard LOD tier,
+		// instanced draw per submesh. bindShader/bindProj match
+		// DrawShadowCasterGeometry's contract.
+		void DrawInstancedShadowCaster(
+			const std::shared_ptr<SceneNode> &caster,
+			const std::shared_ptr<InstancedMeshRender> &instanced,
+			const ShadowDepthShaders &shaders,
+			const std::function<void(const std::shared_ptr<Shader>&)> &bindShader,
+			const std::function<void(const std::shared_ptr<Shader>&)> &bindProj)
+		{
+			auto baseMesh = instanced->GetMesh();
+			if (!baseMesh)
+				return;
+			auto mesh = baseMesh->GetLodMesh(instanced->GetShadowLodTier());
+			if (!mesh || mesh->IsSkinnedMesh())
+				return;
+			const auto &matrices = instanced->GetShadowMatrices();
+			if (matrices.empty())
+				return;
+
+			const unsigned int subCount = mesh->GetSubMeshCount();
+			const unsigned int slots = subCount > 0 ? subCount : 1;
+			for (unsigned int sm = 0; sm < slots; ++sm)
+			{
+				auto material = instanced->GetMaterial(subCount > 0 ? sm : 0);
+				const bool alphaTest = material && material->GetAlphaMode() == AlphaMode::MASK &&
+					material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
+				const bool wind = material && material->GetWindEnabled();
+				auto shader = shaders.PickInstanced(alphaTest, wind);
+				if (!shader)
+					continue;
+				bindShader(shader);
+				bindProj(shader);
+				if (alphaTest)
+				{
+					material->UpdateBuffer();
+					shader->BindTexture(Material::DIFFUSE_TEXTURE, material->GetTexture(Material::DIFFUSE_TEXTURE));
+					shader->BindFloat("u_alpha_cutoff", material->GetAlphaCutoff());
+				}
+				if (wind)
+					BindShadowWindUniforms(shader);
+				InstancedMeshStreamer::Get().DrawInstanced(shader, mesh,
+					subCount > 0 ? static_cast<int>(sm) : -1, matrices);
+			}
+		}
+	}
+
 	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
 	{
 		FURY_ZONE;
 		(void)pass;
 		const int numSplit = 4;
 
-		// get pointers
-		auto depth_shader = GetShaderByName("leagcy_depth_shader");
-		auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
+		// depth shader set is resolved per pass below (incl. foliage
+		// and instanced variants)
 		auto camera = m_CurrentCamera->GetComponent<Camera>();
 
 		// map size from the scene's render settings (default 1024)
@@ -609,11 +862,10 @@ namespace fury
 			glEnable(GL_POLYGON_OFFSET_FILL);
 			glPolygonOffset(1.0f, 1024.0f);
 
-			// Skinned casters use the skin depth shader (bone_matrices +
-			// identity world_matrix, matching the gbuffer skin path) so
-			// their shadows deform with the skeleton. Static casters use
-			// the plain depth shader with the caster's world matrix.
-			Matrix4 identityWorld;
+			// Foliage depth variants (alpha test / wind / instanced).
+			// Missing entries fall back to the plain shaders.
+			ShadowDepthShaders depthShaders = FetchShadowDepthShaders(this, "leagcy_depth");
+
 			Shader* boundShader = nullptr;
 			auto bindDepthShader = [&](const std::shared_ptr<Shader>& s) {
 				if (!s || boundShader == s.get()) return;
@@ -630,24 +882,19 @@ namespace fury
 				auto &casters = casterArrays[i];
 				for (auto &caster : casters)
 				{
-					auto casterRender = caster->GetComponent<MeshRender>();
-					auto casterMesh = casterRender->GetMesh();
-					const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
-					auto& shader = skinned ? depth_skin_shader : depth_shader;
-					bindDepthShader(shader);
-					shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrices[i].Raw[0]);
-					shader->BindMesh(casterMesh);
-					if (skinned)
-						shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
-					else {
-						Matrix4 w = caster->GetWorldMatrix();
-						shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+					// Instanced casters: one instanced draw per submesh at
+					// the shadow LOD tier.
+					if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+					{
+						auto projI = projMatrices[i];
+						DrawInstancedShadowCaster(caster, instanced, depthShaders, bindDepthShader,
+							[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::PROJECTION_MATRIX, &projI.Raw[0]); });
+						continue;
 					}
-
-					glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-					RenderUtil::Instance()->IncreaseDrawCall();
-
-					RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
+					auto proj = projMatrices[i];
+					int draws = DrawShadowCasterGeometry(caster, depthShaders, bindDepthShader,
+						[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::PROJECTION_MATRIX, &proj.Raw[0]); });
+					for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 				}
 			}
 
@@ -669,8 +916,7 @@ namespace fury
 	{
 		FURY_ZONE;
 		(void)pass;
-		// get pointers
-		auto depth_shader = GetShaderByName("leagcy_depth_shader");
+		// get pointers (depth shader set resolved per pass below)
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
@@ -717,9 +963,10 @@ namespace fury
 			// Skinned casters use the skin depth shader (bone_matrices +
 			// identity world_matrix) so their shadows deform; static
 			// casters use the plain depth shader + caster world matrix.
-			Matrix4 identityWorld;
+			// Foliage variants (alpha test / wind / instanced) fall back
+			// to plain when the pipeline JSON lacks them.
 			Shader* boundShader = nullptr;
-			auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
+			ShadowDepthShaders depthShaders = FetchShadowDepthShaders(this, "leagcy_depth");
 			auto bindDepthShader = [&](const std::shared_ptr<Shader>& s) {
 				if (!s || boundShader == s.get()) return;
 				if (boundShader) boundShader->UnBind();
@@ -731,23 +978,19 @@ namespace fury
 
 			for (auto &caster : casters)
 			{
-				auto casterRender = caster->GetComponent<MeshRender>();
-				auto casterMesh = casterRender->GetMesh();
-				const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
-				auto& shader = skinned ? depth_skin_shader : depth_shader;
-				bindDepthShader(shader);
-				shader->BindMesh(casterMesh);
-				if (skinned)
-					shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
-				else {
-					Matrix4 w = caster->GetWorldMatrix();
-					shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+				// Instanced casters: one instanced draw per submesh at
+				// the shadow LOD tier. The spot pass queries renderables
+				// (not casters), so honor the flag here.
+				if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+				{
+					if (instanced->GetCastShadows())
+						DrawInstancedShadowCaster(caster, instanced, depthShaders, bindDepthShader,
+							[](const std::shared_ptr<Shader>&) {});
+					continue;
 				}
-
-				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-				RenderUtil::Instance()->IncreaseDrawCall();
-
-				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
+				int draws = DrawShadowCasterGeometry(caster, depthShaders, bindDepthShader,
+					[](const std::shared_ptr<Shader>&) {});
+				for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
@@ -765,7 +1008,6 @@ namespace fury
 		FURY_ZONE;
 		(void)pass;
 		auto depth_shader = GetShaderByName("cube_depth_shader");
-		auto depth_skin_shader = GetShaderByName("cube_depth_skin_shader");
 		auto depth_buffer = Texture::GetTemporary(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
 		// for debug
@@ -818,7 +1060,10 @@ namespace fury
 			depth_shader->BindFloat("light_far", radius);
 			depth_shader->BindFloat("light_pos", lightPos.x, lightPos.y, lightPos.z);
 
-			Matrix4 identityWorld;
+			// Foliage depth variants (alpha test / wind / instanced);
+			// missing JSON entries fall back to the plain shaders.
+			ShadowDepthShaders depthShaders = FetchShadowDepthShaders(this, "cube_depth");
+
 			Shader* boundShader = depth_shader.get();
 			auto bindCubeShader = [&](const std::shared_ptr<Shader>& s) {
 				if (!s || boundShader == s.get()) return;
@@ -838,27 +1083,20 @@ namespace fury
 
 				for (auto &caster : casters)
 				{
-					auto casterRender = caster->GetComponent<MeshRender>();
-					auto casterMesh = casterRender->GetMesh();
-
 					auto ivm = dirMatrices[i];
 
-					const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
-					auto& shader = skinned ? depth_skin_shader : depth_shader;
-					bindCubeShader(shader);
-					shader->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]);
-					shader->BindMesh(casterMesh);
-					if (skinned)
-						shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
-					else {
-						Matrix4 w = caster->GetWorldMatrix();
-						shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+					// Instanced casters: one instanced draw per submesh.
+					if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+					{
+						if (instanced->GetCastShadows())
+							DrawInstancedShadowCaster(caster, instanced, depthShaders, bindCubeShader,
+								[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]); });
+						continue;
 					}
 
-					glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-					RenderUtil::Instance()->IncreaseDrawCall();
-
-					RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
+					int draws = DrawShadowCasterGeometry(caster, depthShaders, bindCubeShader,
+						[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]); });
+					for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 				}
 			}
 
@@ -876,8 +1114,7 @@ namespace fury
 	{
 		FURY_ZONE;
 		(void)pass;
-		// get pointers
-		auto depth_shader = GetShaderByName("leagcy_depth_shader");
+		// get pointers (depth shader set resolved per pass below)
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 
 		// for debug
@@ -925,9 +1162,10 @@ namespace fury
 			// Skinned casters use the skin depth shader (bone_matrices +
 			// identity world_matrix) so their shadows deform; static
 			// casters use the plain depth shader + caster world matrix.
-			Matrix4 identityWorld;
+			// Foliage variants (alpha test / wind / instanced) fall back
+			// to plain when the pipeline JSON lacks them.
 			Shader* boundShader = nullptr;
-			auto depth_skin_shader = GetShaderByName("leagcy_depth_skin_shader");
+			ShadowDepthShaders depthShaders = FetchShadowDepthShaders(this, "leagcy_depth");
 			auto bindDepthShader = [&](const std::shared_ptr<Shader>& s) {
 				if (!s || boundShader == s.get()) return;
 				if (boundShader) boundShader->UnBind();
@@ -939,23 +1177,19 @@ namespace fury
 
 			for (auto &caster : casters)
 			{
-				auto casterRender = caster->GetComponent<MeshRender>();
-				auto casterMesh = casterRender->GetMesh();
-				const bool skinned = casterMesh->IsSkinnedMesh() && depth_skin_shader;
-				auto& shader = skinned ? depth_skin_shader : depth_shader;
-				bindDepthShader(shader);
-				shader->BindMesh(casterMesh);
-				if (skinned)
-					shader->BindMatrix(Matrix4::WORLD_MATRIX, &identityWorld.Raw[0]);
-				else {
-					Matrix4 w = caster->GetWorldMatrix();
-					shader->BindMatrix(Matrix4::WORLD_MATRIX, &w.Raw[0]);
+				// Instanced casters: one instanced draw per submesh at
+				// the shadow LOD tier. The spot pass queries renderables
+				// (not casters), so honor the flag here.
+				if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+				{
+					if (instanced->GetCastShadows())
+						DrawInstancedShadowCaster(caster, instanced, depthShaders, bindDepthShader,
+							[](const std::shared_ptr<Shader>&) {});
+					continue;
 				}
-
-				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-				RenderUtil::Instance()->IncreaseDrawCall();
-
-				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
+				int draws = DrawShadowCasterGeometry(caster, depthShaders, bindDepthShader,
+					[](const std::shared_ptr<Shader>&) {});
+				for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 			}
 
 			glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1011,16 +1245,17 @@ namespace fury
 				tree->DrawDebugBounds(*renderUtil);
 		}
 
-		// Buoyancy float-point markers (component flag, works in play
-		// sessions where no editor selection exists). Simulating bodies
-		// color by last submersion (green dry -> red submerged).
-		if (PhysicsWorld::Exists())
+		// Buoyancy float-point markers, gated solely on the global
+		// BUOYANCY_DEBUG switch (Debug views dropdown, off by default).
+		// Simulating bodies color by last submersion (green dry -> red
+		// submerged).
+		if (IsSwitchOn(PipelineSwitch::BUOYANCY_DEBUG) && PhysicsWorld::Exists())
 		{
 			bool simulating = PhysicsWorld::Instance()->IsSimulationEnabled();
 			for (const auto &weak : PhysicsWorld::Instance()->GetBuoyancies())
 			{
 				auto buoyancy = weak.lock();
-				if (!buoyancy || !buoyancy->GetDebugDraw())
+				if (!buoyancy)
 					continue;
 				auto node = buoyancy->GetOwner();
 				if (!node)
@@ -1176,4 +1411,21 @@ namespace fury
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(quad->Indices.Data.size()));
 	}
+	// Palette order: LOD 0 = green, 1 = yellow, 2 = red, 3 = cyan,
+	// 4 = magenta, 5 = white; deeper LODs wrap modulo the table size.
+#if WITH_DBG_OVERLAY
+	static const Color kLodColors[kLodPaletteSize] = {
+		Color(0.0f, 1.0f, 0.0f, 1.0f),
+		Color(1.0f, 1.0f, 0.0f, 1.0f),
+		Color(1.0f, 0.0f, 0.0f, 1.0f),
+		Color(0.0f, 1.0f, 1.0f, 1.0f),
+		Color(1.0f, 0.0f, 1.0f, 1.0f),
+		Color(1.0f, 1.0f, 1.0f, 1.0f)
+	};
+
+	Color GetLodDebugColor(unsigned int lodIndex)
+	{
+		return kLodColors[lodIndex % kLodPaletteSize];
+	}
+#endif
 }

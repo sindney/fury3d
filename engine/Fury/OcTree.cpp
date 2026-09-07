@@ -2,6 +2,7 @@
 #include <utility>
 
 #include "Fury/Frustum.h"
+#include "Fury/InstancedMeshRender.h"
 #include "Fury/Light.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
@@ -122,6 +123,12 @@ namespace fury
 			{
 				renderQuery->AddOcean(sceneNode);
 			}
+
+			if (auto instanced = sceneNode->GetComponent<InstancedMeshRender>())
+			{
+				if (instanced->GetRenderable())
+					renderQuery->AddInstanced(sceneNode);
+			}
 		});
 	}
 
@@ -146,6 +153,13 @@ namespace fury
 			auto render = sceneNode->GetComponent<MeshRender>();
 			if (render != nullptr && render->GetRenderable())
 				renderables.push_back(sceneNode);
+
+			// The spot shadow pass queries renderables (not casters);
+			// instanced units must appear here too. Their cast_shadows
+			// flag is honored in the pass itself.
+			auto instanced = sceneNode->GetComponent<InstancedMeshRender>();
+			if (instanced != nullptr && instanced->GetRenderable())
+				renderables.push_back(sceneNode);
 		});
 	}
 
@@ -162,6 +176,11 @@ namespace fury
 			// asset-level default that's seeded into MeshRender on load
 			// but doesn't override per-instance toggles.
 			if (render != nullptr && render->GetRenderable() && render->GetCastShadows())
+				renderables.push_back(sceneNode);
+
+			// Instanced casters (ISM/HISM) honor their own flag.
+			auto instanced = sceneNode->GetComponent<InstancedMeshRender>();
+			if (instanced != nullptr && instanced->GetRenderable() && instanced->GetCastShadows())
 				renderables.push_back(sceneNode);
 		});
 	}

@@ -51,7 +51,6 @@ namespace fury
 		LoadMemberValue(wrapper, "angularDrag", m_AngularDrag);
 		LoadMemberValue(wrapper, "rightingStrength", m_RightingStrength);
 		LoadMemberValue(wrapper, "oceanNode", m_OceanNodeName);
-		LoadMemberValue(wrapper, "debugDraw", m_DebugDraw);
 
 		m_FloatPoints.clear();
 		LoadArray(wrapper, "floatPoints", [&](const void* elem) -> bool
@@ -80,7 +79,6 @@ namespace fury
 		SaveKey(wrapper, "angularDrag"); SaveValue(wrapper, m_AngularDrag);
 		SaveKey(wrapper, "rightingStrength"); SaveValue(wrapper, m_RightingStrength);
 		SaveKey(wrapper, "oceanNode"); SaveValue(wrapper, m_OceanNodeName);
-		SaveKey(wrapper, "debugDraw"); SaveValue(wrapper, m_DebugDraw);
 
 		SaveKey(wrapper, "floatPoints");
 		SaveArray(wrapper, (unsigned int)m_FloatPoints.size(), [&](unsigned int i)
@@ -104,7 +102,6 @@ namespace fury
 		clone->m_AngularDrag = m_AngularDrag;
 		clone->m_RightingStrength = m_RightingStrength;
 		clone->m_OceanNodeName = m_OceanNodeName;
-		clone->m_DebugDraw = m_DebugDraw;
 		return clone;
 	}
 

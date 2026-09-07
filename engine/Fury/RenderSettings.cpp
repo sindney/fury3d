@@ -54,6 +54,7 @@ namespace fury
 		LoadMemberValue(wrapper, "csm_map_size", m_CsmMapSize);
 		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
 		LoadMemberValue(wrapper, "csm_split_blend", m_CsmSplitBlend);
+		LoadMemberValue(wrapper, "wind_params", m_WindParams);
 
 		m_Chain.clear();
 		// Ordered chain: [{ effect, enabled, uniforms? }, ...]. Missing /
@@ -118,6 +119,9 @@ namespace fury
 
 		SaveKey(wrapper, "csm_split_blend");
 		SaveValue(wrapper, m_CsmSplitBlend);
+
+		SaveKey(wrapper, "wind_params");
+		SaveValue(wrapper, m_WindParams);
 
 		SaveKey(wrapper, "chain");
 		StartArray(wrapper);

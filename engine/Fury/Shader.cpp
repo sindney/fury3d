@@ -286,6 +286,11 @@ namespace fury
 #if WITH_EDITOR
 		defineStream << "#define WITH_EDITOR\n";
 #endif
+		// Visual debug overlays (LOD tier tint, ...) survive in headless
+		// builds; stripped only in FURY_BUILD_SHIPPING flavor builds.
+#if WITH_DBG_OVERLAY
+		defineStream << "#define WITH_DBG_OVERLAY\n";
+#endif
 		for (auto define : m_Defines)
 			defineStream << "#define " << define << "\n";
 
@@ -465,6 +470,9 @@ namespace fury
 		std::stringstream defineStream;
 #if WITH_EDITOR
 		defineStream << "#define WITH_EDITOR\n";
+#endif
+#if WITH_DBG_OVERLAY
+		defineStream << "#define WITH_DBG_OVERLAY\n";
 #endif
 		for (auto define : m_Defines)
 			defineStream << "#define " << define << "\n";
@@ -688,6 +696,7 @@ namespace fury
 		int normalFlag = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
 		int tangentFlag = glGetAttribLocation(m_Program, mesh->Tangents.Name.c_str());
 		int uvFlag = glGetAttribLocation(m_Program, mesh->UVs.Name.c_str());
+		int colorFlag = glGetAttribLocation(m_Program, mesh->Colors.Name.c_str());
 
 		glBindVertexArray(mesh->m_VAO);
 
@@ -764,6 +773,23 @@ namespace fury
 			else
 			{
 				FURYW << "Mesh " + mesh->GetName() + " UV data dirty!";
+			}
+		}
+		if (colorFlag != -1)
+		{
+			if (!mesh->Colors.GetDirty() && mesh->Colors.GetID() != 0)
+			{
+				glBindBuffer(GL_ARRAY_BUFFER, mesh->Colors.GetID());
+				glVertexAttribPointer(colorFlag, 4, GL_FLOAT, GL_FALSE, 0, 0);
+				glEnableVertexAttribArray(colorFlag);
+			}
+			else if (mesh->Colors.Data.empty())
+			{
+				glDisableVertexAttribArray(colorFlag);
+			}
+			else
+			{
+				FURYW << "Mesh " + mesh->GetName() + " Color data dirty!";
 			}
 		}
 

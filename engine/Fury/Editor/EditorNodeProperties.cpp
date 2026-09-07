@@ -1,5 +1,9 @@
 #if WITH_EDITOR
 
+#include <cmath>
+#include <functional>
+#include <random>
+
 #include "Fury/Camera.h"
 #include "Fury/Component.h"
 #include "Fury/EntityManager.h"
@@ -11,6 +15,7 @@
 #include "Fury/Editor/EditorSkyWindow.h"
 #include "Fury/Editor/EditorTerrainWindow.h"
 #include "Fury/Editor/EditorReflect.hpp"
+#include "Fury/Editor/EditorUiRow.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/Heightmap.h"
 #include "Fury/Light.h"
@@ -20,6 +25,7 @@
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
+#include "Fury/InstancedMeshRender.h"
 #include "Fury/BodySetup.h"
 #include "Fury/BuoyancyComponent.h"
 #include "Fury/CharacterController.h"
@@ -370,6 +376,281 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 	}
 }
 
+// ----- InstancedMeshRender inspector (task 6.7, add-kraut-vegetation) -----
+
+// Finds the first Terrain component in the active scene (recursive).
+static Terrain* FindSceneTerrain() {
+	if (!Scene::Active) return nullptr;
+	auto root = Scene::Active->GetRootNode();
+	if (!root) return nullptr;
+	Terrain* found = nullptr;
+	std::function<void(const std::shared_ptr<SceneNode>&)> walk = [&](const std::shared_ptr<SceneNode>& n) {
+		if (found || !n) return;
+		if (auto t = n->GetComponent<Terrain>()) { found = t.get(); return; }
+		for (unsigned int i = 0; i < n->GetChildCount(); ++i)
+			walk(n->GetChildAt(i));
+	};
+	walk(root);
+	return found;
+}
+
+void RenderInstancedMeshRenderBody(SceneNode* node, InstancedMeshRender* imr) {
+	(void)node;
+	auto mesh = imr->GetMesh();
+
+	bool cast = imr->GetCastShadows();
+	if (EditorUi::CheckboxRow("Cast Shadows", &cast))
+		imr->SetCastShadows(cast);
+
+	// ISM (single tier) vs HISM (per-instance LOD buckets).
+	bool hism = imr->GetHierarchical();
+	if (EditorUi::CheckboxRow("HISM (per-instance LOD)", &hism))
+		imr->SetHierarchical(hism);
+
+	float cullDist = imr->GetCullDistance();
+	EditorUi::FieldRow("Cull Distance (cm)", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##cull", &cullDist, 50.0f, 0.0f, 500000.0f, "%.0f"))
+			imr->SetCullDistance(cullDist);
+	}, "0 = no cap; past this distance instances drop out entirely");
+
+	// Mesh row (same button layout as the MeshRender body).
+	ImGui::AlignTextToFramePadding();
+	if (ImGui::Button("Change")) {
+		ImGui::OpenPopup("InstMeshPicker");
+	}
+	ImGui::SameLine();
+	if (!mesh) ImGui::BeginDisabled();
+	if (ImGui::Button("->")) {
+		if (mesh)
+			Editor::SelectAssetInBrowser(typeid(Mesh), mesh->GetName());
+	}
+	if (!mesh) ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button("x")) {
+		imr->SetMesh(nullptr);
+	}
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Mesh:");
+	ImGui::SameLine();
+	if (mesh) {
+		ImGui::TextUnformatted(mesh->GetName().c_str());
+	} else {
+		ImGui::TextDisabled("(no mesh)");
+	}
+
+	{
+		const unsigned int lod_count = mesh ? mesh->GetLodCount() : 1;
+		if (lod_count <= 1) {
+			ImGui::TextDisabled("LOD: (single mesh)");
+		} else {
+			ImGui::Text("LOD chain: %u level(s)", lod_count);
+		}
+	}
+
+	RenderAssetPickerModal("InstMeshPicker", "Pick Mesh", typeid(Mesh),
+						   [imr](std::shared_ptr<void> p) {
+							   auto m = std::static_pointer_cast<Mesh>(p);
+							   imr->SetMesh(m);
+						   });
+
+	// Material slots.
+	for (unsigned int i = 0; i < imr->GetMaterialCount(); ++i) {
+		auto mat = imr->GetMaterial(i);
+		ImGui::PushID(static_cast<int>(i));
+		ImGui::AlignTextToFramePadding();
+		if (ImGui::Button("Change")) {
+			char popup[64];
+			std::snprintf(popup, sizeof(popup), "InstMaterialPicker%u", i);
+			ImGui::OpenPopup(popup);
+		}
+		ImGui::SameLine();
+		if (!mat) ImGui::BeginDisabled();
+		if (ImGui::Button("->")) {
+			if (mat)
+				Editor::SelectAssetInBrowser(typeid(Material), mat->GetName());
+		}
+		if (!mat) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("x")) {
+			imr->SetMaterial(nullptr, i);
+		}
+		ImGui::SameLine();
+		ImGui::Text("Slot %u:", i);
+		ImGui::SameLine();
+		if (mat) {
+			ImGui::TextUnformatted(mat->GetName().c_str());
+		} else {
+			ImGui::TextDisabled("(none)");
+		}
+		char popup[64];
+		std::snprintf(popup, sizeof(popup), "InstMaterialPicker%u", i);
+		char title[80];
+		std::snprintf(title, sizeof(title), "Pick Material (slot %u)", i);
+		RenderAssetPickerModal(popup, title, typeid(Material),
+							   [imr, i](std::shared_ptr<void> p) {
+								   auto m = std::static_pointer_cast<Material>(p);
+								   imr->SetMaterial(m, i);
+							   });
+		ImGui::PopID();
+	}
+
+	if (mesh && imr->GetMaterialCount() < mesh->GetSubMeshCount()) {
+		if (ImGui::Button("Add Material Slot")) {
+			imr->SetMaterial(nullptr, imr->GetMaterialCount());
+		}
+	}
+
+	ImGui::Separator();
+
+	// ---- Instance editing ----
+	ImGui::Text("Instances: %u", imr->GetInstanceCount());
+
+	if (ImGui::Button("Add Instance")) {
+		InstancedMeshRender::Instance inst;
+		imr->AddInstance(inst);
+	}
+
+	// Fixed-height scrolling list via ImGuiListClipper: the raw per-row
+	// replication capped at 64 rows and rebuilt the whole list every frame;
+	// the clipper renders only the visible rows so 10k+ instance components
+	// stay interactive. Click a row to edit it below.
+	static int s_SelectedInstance = -1;
+	unsigned int removeIndex = 0xffffffff;
+	unsigned int duplicateIndex = 0xffffffff;
+	const float listH = ImGui::GetTextLineHeightWithSpacing() * 10.0f;
+	if (ImGui::BeginChild("##imr_instances", ImVec2(0.0f, listH), true)) {
+		ImGuiListClipper clipper;
+		clipper.Begin(static_cast<int>(imr->GetInstanceCount()));
+		char label[96];
+		while (clipper.Step()) {
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+				const auto &inst = imr->GetInstance(static_cast<unsigned int>(i));
+				// Y-twist readout: exact for pure-yaw instance rotations
+				// (the scatter/common case), approximate otherwise
+				const Quaternion &q = inst.Rotation;
+				float yawDeg = 2.0f * std::atan2(q.y, q.w) * MathUtil::RadToDeg;
+				std::snprintf(label, sizeof(label), "%4d  (%.0f, %.0f, %.0f)  yaw %.0f  x%.2f",
+					i, inst.Position.x, inst.Position.y, inst.Position.z, yawDeg, inst.Scale.x);
+				if (ImGui::Selectable(label, s_SelectedInstance == i))
+					s_SelectedInstance = i;
+			}
+		}
+	}
+	ImGui::EndChild();
+
+	// selected-instance editor
+	if (s_SelectedInstance >= 0 && s_SelectedInstance < static_cast<int>(imr->GetInstanceCount())) {
+		auto inst = imr->GetInstance(static_cast<unsigned int>(s_SelectedInstance));
+		bool changed = false;
+		ImGui::PushItemWidth(80.0f);
+		changed |= ImGui::DragFloat("X", &inst.Position.x, 1.0f);
+		ImGui::SameLine();
+		changed |= ImGui::DragFloat("Y", &inst.Position.y, 1.0f);
+		ImGui::SameLine();
+		changed |= ImGui::DragFloat("Z", &inst.Position.z, 1.0f);
+		ImGui::PopItemWidth();
+		float yawDeg = 2.0f * std::atan2(inst.Rotation.y, inst.Rotation.w) * MathUtil::RadToDeg;
+		if (ImGui::DragFloat("Yaw (deg)", &yawDeg, 0.5f)) {
+			inst.Rotation = MathUtil::AxisRadToQuat(Vector4::YAxis, yawDeg * MathUtil::DegToRad);
+			changed = true;
+		}
+		if (ImGui::DragFloat("Scale", &inst.Scale.x, 0.01f, 0.01f, 1000.0f)) {
+			inst.Scale.y = inst.Scale.z = inst.Scale.x;
+			changed = true;
+		}
+		if (changed)
+			imr->SetInstance(static_cast<unsigned int>(s_SelectedInstance), inst);
+		if (ImGui::Button("Remove")) {
+			removeIndex = static_cast<unsigned int>(s_SelectedInstance);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Duplicate")) {
+			duplicateIndex = static_cast<unsigned int>(s_SelectedInstance);
+		}
+	}
+	if (removeIndex != 0xffffffff) {
+		imr->RemoveInstance(removeIndex);
+		s_SelectedInstance = -1;
+	}
+	if (duplicateIndex != 0xffffffff)
+		imr->AddInstance(imr->GetInstance(duplicateIndex));
+
+	ImGui::Separator();
+
+	// ---- Seeded scatter over terrain ----
+	// Distributes instances in a rectangle around the node's position,
+	// snapped to the terrain surface. Deterministic per seed.
+	static int s_ScatterCount = 100;
+	static int s_ScatterSeed = 7;
+	static float s_ScatterRadius = 5000.0f;   // cm, half-extent of the scatter square
+	static float s_ScatterMinHeight = -1e30f; // below this terrain height instances are skipped (e.g. waterline)
+	static bool s_ScatterReplace = true;
+	ImGui::TextDisabled("Scatter over terrain:");
+
+	EditorUi::FieldRowN("Count / Seed", 2, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		ImGui::InputInt("##scat_count", &s_ScatterCount);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(w);
+		ImGui::InputInt("##scat_seed", &s_ScatterSeed);
+	});
+
+	EditorUi::FieldRow("Radius (cm)", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		ImGui::DragFloat("##scat_radius", &s_ScatterRadius, 10.0f, 1.0f, 100000.0f, "%.0f");
+	});
+	EditorUi::FieldRow("Min Height", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		ImGui::DragFloat("##scat_minh", &s_ScatterMinHeight, 1.0f, -100000.0f, 100000.0f, "%.1f");
+	}, "skip terrain below this height (waterline)");
+	EditorUi::CheckboxRow("Replace existing instances", &s_ScatterReplace);
+
+	Terrain* terrain = FindSceneTerrain();
+	if (!terrain) ImGui::BeginDisabled();
+	if (ImGui::Button("Scatter")) {
+		if (terrain) {
+			auto owner = imr->GetOwner();
+			Vector4 center = owner ? owner->GetWorldPosition() : Vector4(0.0f, 0.0f, 0.0f);
+
+			// std::mt19937 for cross-platform determinism.
+			std::mt19937 rng(static_cast<unsigned int>(s_ScatterSeed));
+			std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+			std::uniform_real_distribution<float> yaw(0.0f, 6.2831853f);
+			std::uniform_real_distribution<float> scaleJitter(0.85f, 1.25f);
+
+			if (s_ScatterReplace)
+				imr->ClearInstances();
+
+			const Matrix4 invWorld = owner ? owner->GetWorldMatrix().Inverse() : Matrix4();
+			unsigned int placed = 0, attempts = 0;
+			const unsigned int maxAttempts = static_cast<unsigned int>(s_ScatterCount) * 10;
+			while (placed < static_cast<unsigned int>(s_ScatterCount) && attempts < maxAttempts) {
+				++attempts;
+				float wx = center.x + dist(rng) * s_ScatterRadius;
+				float wz = center.z + dist(rng) * s_ScatterRadius;
+				float h = terrain->GetHeight(wx, wz);
+				if (h < s_ScatterMinHeight)
+					continue;
+
+				// Instance transforms are node-local; convert the world
+				// sample point back into the node's space.
+				Vector4 localPos = invWorld.Multiply(Vector4(wx, h, wz));
+				InstancedMeshRender::Instance inst;
+				inst.Position = localPos;
+				inst.Rotation = MathUtil::AxisRadToQuat(Vector4::YAxis, yaw(rng));
+				float s = scaleJitter(rng);
+				inst.Scale = Vector4(s, s, s);
+				imr->AddInstance(inst);
+				++placed;
+			}
+		}
+	}
+	if (!terrain) ImGui::EndDisabled();
+	if (!terrain)
+		ImGui::TextDisabled("(no Terrain in scene)");
+}
+
 // ----- Component dispatch table -----
 struct ComponentEntry {
 	std::string name;
@@ -626,24 +907,30 @@ void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
 
 	static const char* kShapeNames[] = { "Mesh", "Box", "Sphere", "HeightField" };
 	int shapeIdx = static_cast<int>(body->GetShapeType());
-	if (ImGui::Combo("Shape", &shapeIdx, kShapeNames, 4)) {
-		body->SetShapeType(static_cast<BodySetup::ShapeType>(shapeIdx));
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Shape", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::Combo("##shape", &shapeIdx, kShapeNames, 4)) {
+			body->SetShapeType(static_cast<BodySetup::ShapeType>(shapeIdx));
+			Editor::MarkSceneDirty();
+		}
+	});
 	if (body->GetShapeType() == BodySetup::ShapeType::HeightField) {
 		bool hasTerrain = node && node->GetComponent<Terrain>() != nullptr;
 		if (hasTerrain)
-			ImGui::TextDisabled("Heightfield from sibling Terrain heights");
+			ImGui::TextWrapped("Heightfield from sibling Terrain heights");
 		else
-			ImGui::TextDisabled("Needs a sibling Terrain component!");
+			ImGui::TextWrapped("Needs a sibling Terrain component!");
 	}
 
 	static const char* kMotionNames[] = { "Static", "Dynamic" };
 	int motionIdx = static_cast<int>(body->GetMotionType());
-	if (ImGui::Combo("Motion", &motionIdx, kMotionNames, 2)) {
-		body->SetMotionType(static_cast<BodySetup::MotionType>(motionIdx));
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Motion", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::Combo("##motion", &motionIdx, kMotionNames, 2)) {
+			body->SetMotionType(static_cast<BodySetup::MotionType>(motionIdx));
+			Editor::MarkSceneDirty();
+		}
+	});
 
 	if (body->GetShapeType() == BodySetup::ShapeType::Mesh) {
 		// Collision mesh row - same Change/jump/clear pattern as the particle
@@ -678,22 +965,35 @@ void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
 	}
 	else if (body->GetShapeType() == BodySetup::ShapeType::Box) {
 		Vector4 he = body->GetHalfExtents();
-		if (ImReflect::Input("Half Extents", he).get<Vector4>().is_changed()) {
-			body->SetHalfExtents(he);
-			Editor::MarkSceneDirty();
-		}
-		if (ImGui::Button("Auto-Fit From Mesh")) {
+		EditorUi::FieldRowN("Half Extents", 3, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			bool c = ImGui::DragFloat("##hex", &he.x, 0.5f, 0.1f, 100000.0f);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(w);
+			c |= ImGui::DragFloat("##hey", &he.y, 0.5f, 0.1f, 100000.0f);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(w);
+			c |= ImGui::DragFloat("##hez", &he.z, 0.5f, 0.1f, 100000.0f);
+			if (c) {
+				body->SetHalfExtents(he);
+				Editor::MarkSceneDirty();
+			}
+		});
+		if (EditorUi::ButtonRow("Auto-Fit From Mesh")) {
 			body->AutoFitFromMesh();
 			Editor::MarkSceneDirty();
 		}
 	}
 	else {
 		float radius = body->GetRadius();
-		if (ImGui::DragFloat("Radius", &radius, 0.5f, 0.5f, 100000.0f)) {
-			body->SetRadius(radius);
-			Editor::MarkSceneDirty();
-		}
-		if (ImGui::Button("Auto-Fit From Mesh")) {
+		EditorUi::FieldRow("Radius", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragFloat("##radius", &radius, 0.5f, 0.5f, 100000.0f)) {
+				body->SetRadius(radius);
+				Editor::MarkSceneDirty();
+			}
+		});
+		if (EditorUi::ButtonRow("Auto-Fit From Mesh")) {
 			body->AutoFitFromMesh();
 			Editor::MarkSceneDirty();
 		}
@@ -701,23 +1001,32 @@ void RenderBodySetupBody(SceneNode* node, BodySetup* body) {
 
 	if (body->GetMotionType() == BodySetup::MotionType::Dynamic) {
 		float mass = body->GetMass();
-		if (ImGui::DragFloat("Mass", &mass, 0.1f, 0.001f, 100000.0f)) {
-			body->SetMass(mass);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Mass", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragFloat("##mass", &mass, 0.1f, 0.001f, 100000.0f)) {
+				body->SetMass(mass);
+				Editor::MarkSceneDirty();
+			}
+		});
 	}
 	float friction = body->GetFriction();
-	if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) {
-		body->SetFriction(friction);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Friction", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::SliderFloat("##friction", &friction, 0.0f, 1.0f)) {
+			body->SetFriction(friction);
+			Editor::MarkSceneDirty();
+		}
+	});
 	float restitution = body->GetRestitution();
-	if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) {
-		body->SetRestitution(restitution);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Restitution", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::SliderFloat("##restitution", &restitution, 0.0f, 1.0f)) {
+			body->SetRestitution(restitution);
+			Editor::MarkSceneDirty();
+		}
+	});
 
-	if (ImGui::Button("Open Body Setup Editor..."))
+	if (EditorUi::ButtonRow("Open Body Setup Editor..."))
 		Editor::OpenBodySetupEditor(node->shared_from_this());
 }
 
@@ -835,58 +1144,68 @@ void RenderSkyAtmosphereBody(SceneNode* node, SkyAtmosphere* sky) {
 	if (!sky) return;
 
 	bool enabled = sky->GetEnabled();
-	if (ImGui::Checkbox("Enabled", &enabled)) {
+	if (EditorUi::CheckboxRow("Enabled", &enabled)) {
 		sky->SetEnabled(enabled);
 		Editor::MarkSceneDirty();
 	}
 
 	float hours = sky->GetTimeHours();
-	if (ImGui::SliderFloat("Time of Day", &hours, 0.0f, 24.0f, "%.2f h")) {
-		sky->SetTimeHours(hours);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Time of Day", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::SliderFloat("##tod", &hours, 0.0f, 24.0f, "%.2f h")) {
+			sky->SetTimeHours(hours);
+			Editor::MarkSceneDirty();
+		}
+	});
 
 	float dayLen = sky->GetDayLengthMinutes();
-	if (ImGui::DragFloat("Day Length (min)", &dayLen, 0.1f, 0.1f, 240.0f)) {
-		sky->SetDayLengthMinutes(dayLen);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Day Length (min)", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##daylen", &dayLen, 0.1f, 0.1f, 240.0f)) {
+			sky->SetDayLengthMinutes(dayLen);
+			Editor::MarkSceneDirty();
+		}
+	});
 
 	bool autoAdv = sky->GetAutoAdvance();
-	if (ImGui::Checkbox("Auto Advance", &autoAdv)) {
+	if (EditorUi::CheckboxRow("Auto Advance", &autoAdv)) {
 		sky->SetAutoAdvance(autoAdv);
 		Editor::MarkSceneDirty();
 	}
 
 	bool fromTod = sky->GetSunFromTod();
-	if (ImGui::Checkbox("Sun from TOD", &fromTod)) {
+	if (EditorUi::CheckboxRow("Sun from TOD", &fromTod, "off: sky follows the light")) {
 		sky->SetSunFromTod(fromTod);
 		Editor::MarkSceneDirty();
 	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("(off: sky follows the light)");
 
 	char sunName[128];
 	std::strncpy(sunName, sky->GetSunLightName().c_str(), sizeof(sunName) - 1);
 	sunName[sizeof(sunName) - 1] = '\0';
-	// compact row: short label so the Auto-Detect button fits
-	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
-	if (ImGui::InputText("Sun Node", sunName, sizeof(sunName))) {
-		sky->SetSunLightName(sunName);
-		Editor::MarkSceneDirty();
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("Auto-Detect")) {
-		if (sky->AutoSelectSunLight())
+	{
+		// input + trailing label + Auto-Detect button, all inside the row width
+		const float avail = ImGui::GetContentRegionAvail().x;
+		const float spacing = ImGui::GetStyle().ItemSpacing.x + ImGui::GetStyle().ItemInnerSpacing.x;
+		const float labelW = ImGui::CalcTextSize("Sun Node").x;
+		const float btnW = ImGui::CalcTextSize("Auto-Detect").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		ImGui::SetNextItemWidth(std::max(80.0f, avail - labelW - btnW - spacing * 2.0f));
+		if (ImGui::InputText("##sunnode", sunName, sizeof(sunName))) {
+			sky->SetSunLightName(sunName);
 			Editor::MarkSceneDirty();
+		}
+		ImGui::SameLine();
+		ImGui::TextUnformatted("Sun Node");
+		ImGui::SameLine();
+		if (ImGui::Button("Auto-Detect")) {
+			if (sky->AutoSelectSunLight())
+				Editor::MarkSceneDirty();
+		}
+		EditorUi::HintTooltip("Bind the scene's first directional light as the sun");
 	}
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Bind the scene's first directional light as the sun");
 
 	// detail settings (clouds/moon/atmosphere coefficients) live in the
 	// separate sky editor window
-	if (node && ImGui::Button("Open Sky Editor...",
-							  ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
+	if (node && EditorUi::ButtonRow("Open Sky Editor...")) {
 		Editor::OpenSkyEditor(node->shared_from_this());
 	}
 }
@@ -943,34 +1262,30 @@ void RenderTerrainBody(SceneNode* node, Terrain* terrain) {
 	}
 }
 
-// OceanComponent: mode, wave source (+ resolved reason), spectrum params for
-// the GPU path, geometry, shading, foam, debug views (change: add-fft-ocean).
+// OceanComponent: mode, wave asset, geometry, shading, foam.
 void RenderOceanBody(SceneNode* node, OceanComponent* ocean) {
 	if (!ocean) return;
 	(void)node;
 
 	int mode = (int)ocean->GetMode();
-	if (ImGui::Combo("Mode", &mode, "Finite (grid)\0Infinite (ring LOD)\0")) {
-		ocean->SetMode((OceanComponent::Mode)mode);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Mode", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::Combo("##mode", &mode, "Finite (grid)\0Infinite (ring LOD)\0")) {
+			ocean->SetMode((OceanComponent::Mode)mode);
+			Editor::MarkSceneDirty();
+		}
+	});
 
-	// Wave Source is baked-only after remove-gpu-ocean-generation: the GPU
-	// path is gone, the enum's Auto value deserializes legacy files as
-	// Baked, and a future Gerstner/in-shader path would re-add a real
-	// choice. For now: read-only.
-	ImGui::TextDisabled("Wave Source: Baked asset (GPU generation removed)");
+	ImGui::TextDisabled("Wave Source: Baked asset");
 
-	// resolved source + reason: 0 = none, 1 = baked, 2 was GPU (retired)
 	const char* srcNames[] = { "none (flat)", "baked asset" };
 	int resolved = ocean->GetResolvedSource();
-	int safeResolved = (resolved == 2) ? 1 : (resolved != 0 ? 1 : 0);
+	int safeResolved = (resolved != 0) ? 1 : 0;
 	ImGui::TextDisabled("Resolved: %s - %s",
 		srcNames[safeResolved], ocean->GetResolvedReason().c_str());
 
 	// Wave asset row: Change (picker) / -> (jump to browser) / x (unbind) +
-	// name + a stats line - the Terrain heightmap-row precedent (the raw
-	// text input is gone; the picker lists loaded OceanWaves assets).
+	// name + a stats line - the Terrain heightmap-row precedent.
 	{
 		const bool hasWaves = !ocean->GetWaveAssetPath().empty();
 		if (ImGui::Button("Change##waveasset"))
@@ -1005,11 +1320,11 @@ void RenderOceanBody(SceneNode* node, OceanComponent* ocean) {
 
 		if (auto waves = ocean->GetWaves(); waves && waves->IsValid()) {
 			if (waves->GetBandCount() >= 2)
-				ImGui::TextDisabled("%d bands, %d frames x %.1fs, tiles %.0f/%.0f cm",
+				ImGui::TextWrapped("%d bands, %d frames x %.1fs, tiles %.0f/%.0f cm",
 					waves->GetBandCount(), waves->GetFrameCount(), waves->GetLoopSeconds(),
 					waves->GetBand(0).TileCm, waves->GetBand(1).TileCm);
 			else
-				ImGui::TextDisabled("%d band, %d frames x %.1fs, tile %.0f cm",
+				ImGui::TextWrapped("%d band, %d frames x %.1fs, tile %.0f cm",
 					waves->GetBandCount(), waves->GetFrameCount(), waves->GetLoopSeconds(),
 					waves->GetBand(0).TileCm);
 		} else {
@@ -1018,44 +1333,65 @@ void RenderOceanBody(SceneNode* node, OceanComponent* ocean) {
 	}
 
 	float waterLevel = ocean->GetWaterLevel();
-	if (ImGui::DragFloat("Water Level (cm)", &waterLevel, 1.0f, -100000.0f, 100000.0f)) {
-		ocean->SetWaterLevel(waterLevel);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Water Level (cm)", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##wl", &waterLevel, 1.0f, -100000.0f, 100000.0f)) {
+			ocean->SetWaterLevel(waterLevel);
+			Editor::MarkSceneDirty();
+		}
+	});
 
 	// --- geometry ---------------------------------------------------------
 	if (ocean->GetMode() == OceanComponent::Mode::Finite) {
 		float size = ocean->GetFiniteSizeCm();
-		if (ImGui::DragFloat("Size (cm)", &size, 10.0f, 100.0f, 1000000.0f)) {
-			ocean->SetFiniteSizeCm(size);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Size (cm)", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragFloat("##fsize", &size, 10.0f, 100.0f, 1000000.0f)) {
+				ocean->SetFiniteSizeCm(size);
+				Editor::MarkSceneDirty();
+			}
+		});
 		int res = ocean->GetFiniteResolution();
-		if (ImGui::DragInt("Resolution", &res, 1.0f, 8, 512)) {
-			ocean->SetFiniteResolution(res);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Resolution", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragInt("##fres", &res, 1.0f, 8, 512)) {
+				ocean->SetFiniteResolution(res);
+				Editor::MarkSceneDirty();
+			}
+		});
 	} else {
 		float cell = ocean->GetRingCellSizeCm();
-		if (ImGui::DragFloat("Cell Size (cm)", &cell, 1.0f, 10.0f, 10000.0f)) {
-			ocean->SetRingCellSizeCm(cell);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Cell Size (cm)", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragFloat("##cell", &cell, 1.0f, 10.0f, 10000.0f)) {
+				ocean->SetRingCellSizeCm(cell);
+				Editor::MarkSceneDirty();
+			}
+		});
 		int cells = ocean->GetRingCells();
-		if (ImGui::DragInt("Center Cells", &cells, 1.0f, 8, 256)) {
-			ocean->SetRingCells(cells);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Center Cells", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragInt("##cells", &cells, 1.0f, 8, 256)) {
+				ocean->SetRingCells(cells);
+				Editor::MarkSceneDirty();
+			}
+		});
 		int rings = ocean->GetRingCount();
-		if (ImGui::DragInt("Ring Count", &rings, 1.0f, 0, 5)) {
-			ocean->SetRingCount(rings);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Ring Count", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragInt("##rings", &rings, 1.0f, 0, 5)) {
+				ocean->SetRingCount(rings);
+				Editor::MarkSceneDirty();
+			}
+		});
 		float skirt = ocean->GetSkirtRadiusCm();
-		if (ImGui::DragFloat("Skirt Radius (cm)", &skirt, 1000.0f, 10000.0f, 4000000.0f)) {
-			ocean->SetSkirtRadiusCm(skirt);
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Skirt Radius (cm)", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::DragFloat("##skirt", &skirt, 1000.0f, 10000.0f, 4000000.0f)) {
+				ocean->SetSkirtRadiusCm(skirt);
+				Editor::MarkSceneDirty();
+			}
+		});
 		ImGui::TextDisabled("%u verts (budget 250k)", ocean->GetOceanVertexCount());
 	}
 
@@ -1064,44 +1400,55 @@ void RenderOceanBody(SceneNode* node, OceanComponent* ocean) {
 	{
 		Color absorb = ocean->GetAbsorbColor();
 		float rgb[3] = { absorb.r, absorb.g, absorb.b };
-		if (ImGui::ColorEdit3("Absorb Color", rgb)) {
-			ocean->SetAbsorbColor(Color(rgb[0], rgb[1], rgb[2], 1.0f));
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Absorb Color", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::ColorEdit3("##absorb", rgb)) {
+				ocean->SetAbsorbColor(Color(rgb[0], rgb[1], rgb[2], 1.0f));
+				Editor::MarkSceneDirty();
+			}
+		});
 		Color scatter = ocean->GetScatterColor();
 		float rgb2[3] = { scatter.r, scatter.g, scatter.b };
-		if (ImGui::ColorEdit3("Scatter Color", rgb2)) {
-			ocean->SetScatterColor(Color(rgb2[0], rgb2[1], rgb2[2], 1.0f));
-			Editor::MarkSceneDirty();
-		}
+		EditorUi::FieldRow("Scatter Color", 220.0f, [&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::ColorEdit3("##scatter", rgb2)) {
+				ocean->SetScatterColor(Color(rgb2[0], rgb2[1], rgb2[2], 1.0f));
+				Editor::MarkSceneDirty();
+			}
+		});
 	}
 	float roughness = ocean->GetRoughness();
-	if (ImGui::SliderFloat("Roughness", &roughness, 0.02f, 1.0f)) {
-		ocean->SetRoughness(roughness);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Roughness", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::SliderFloat("##rough", &roughness, 0.02f, 1.0f)) {
+			ocean->SetRoughness(roughness);
+			Editor::MarkSceneDirty();
+		}
+	});
 	float nrmStr = ocean->GetNormalStrength();
-	if (ImGui::SliderFloat("Normal Strength", &nrmStr, 0.0f, 3.0f)) {
-		ocean->SetNormalStrength(nrmStr);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Normal Strength", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::SliderFloat("##nrmstr", &nrmStr, 0.0f, 3.0f)) {
+			ocean->SetNormalStrength(nrmStr);
+			Editor::MarkSceneDirty();
+		}
+	});
 	float foam = ocean->GetFoamAmount();
-	if (ImGui::SliderFloat("Foam Amount", &foam, 0.0f, 3.0f)) {
-		ocean->SetFoamAmount(foam);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Foam Amount", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::SliderFloat("##foam", &foam, 0.0f, 3.0f)) {
+			ocean->SetFoamAmount(foam);
+			Editor::MarkSceneDirty();
+		}
+	});
 	float shore = ocean->GetShoreFoamDepthCm();
-	if (ImGui::DragFloat("Shore Foam Depth (cm)", &shore, 5.0f, 0.0f, 5000.0f)) {
-		ocean->SetShoreFoamDepthCm(shore);
-		Editor::MarkSceneDirty();
-	}
-	// (no SSR checkbox: water always writes its true roughness to
-	// gbuffer_normal.a so the SSAO water gate works; SSR's own
-	// roughness < 0.95 gate decides reflection. The serialized `ssr`
-	// field stays for scene compat but no longer gates anything.)
-
-	// (no Debug section here: the debug views live in the viewport's Debug
-	// droplist, Ocean submenu - they drive every ocean in the scene at once)
+	EditorUi::FieldRow("Shore Foam Depth (cm)", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##shore", &shore, 5.0f, 0.0f, 5000.0f)) {
+			ocean->SetShoreFoamDepthCm(shore);
+			Editor::MarkSceneDirty();
+		}
+	});
 }
 
 // BuoyancyComponent: float-point list editor + coefficients (change:
@@ -1112,9 +1459,9 @@ void RenderBuoyancyBody(SceneNode* node, BuoyancyComponent* buoyancy) {
 	// sibling BodySetup must exist and be dynamic
 	auto body = node ? node->GetComponent<BodySetup>() : nullptr;
 	if (!body) {
-		ImGui::TextDisabled("Requires a dynamic BodySetup on the same node.");
+		ImGui::TextWrapped("Requires a dynamic BodySetup on the same node.");
 	} else if (body->GetMotionType() != BodySetup::MotionType::Dynamic) {
-		ImGui::TextDisabled("BodySetup is not dynamic - buoyancy will not act.");
+		ImGui::TextWrapped("BodySetup is not dynamic - buoyancy will not act.");
 	}
 
 	ImGui::TextDisabled("Float points (node-local, cm):");
@@ -1123,10 +1470,15 @@ void RenderBuoyancyBody(SceneNode* node, BuoyancyComponent* buoyancy) {
 		auto point = buoyancy->GetFloatPoint(i);
 		float off[3] = { point.Offset.x, point.Offset.y, point.Offset.z };
 		float radius = point.Radius;
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+		// offset group + radius + remove button share one row's width
+		const float avail = ImGui::GetContentRegionAvail().x;
+		const float spacing = ImGui::GetStyle().ItemSpacing.x;
+		const float btnW = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		const float radW = 70.0f;
+		ImGui::SetNextItemWidth(std::max(120.0f, avail - btnW - radW - spacing * 2.0f));
 		bool changed = ImGui::DragFloat3("##offset", off, 1.0f, -10000.0f, 10000.0f);
 		ImGui::SameLine();
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+		ImGui::SetNextItemWidth(radW);
 		changed |= ImGui::DragFloat("##radius", &radius, 1.0f, 1.0f, 1000.0f, "r=%.0f");
 		ImGui::SameLine();
 		if (ImGui::Button("x")) {
@@ -1141,52 +1493,60 @@ void RenderBuoyancyBody(SceneNode* node, BuoyancyComponent* buoyancy) {
 		}
 		ImGui::PopID();
 	}
-	if (ImGui::Button("Add Float Point")) {
+	if (EditorUi::ButtonRow("Add Float Point")) {
 		buoyancy->AddFloatPoint(Vector4(0.0f, 0.0f, 0.0f, 1.0f), 25.0f);
 		Editor::MarkSceneDirty();
 	}
 
 	float density = buoyancy->GetWaterDensity();
-	if (ImGui::DragFloat("Water Density", &density, 0.05f, 0.01f, 100.0f)) {
-		buoyancy->SetWaterDensity(density);
-		Editor::MarkSceneDirty();
-	}
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("1.0 = neutral at full submersion; ~2 floats half-submerged");
+	EditorUi::FieldRow("Water Density", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##wd", &density, 0.05f, 0.01f, 100.0f)) {
+			buoyancy->SetWaterDensity(density);
+			Editor::MarkSceneDirty();
+		}
+	}, "1.0 = neutral at full submersion; ~2 floats half-submerged");
 
 	float lin = buoyancy->GetLinearDrag();
-	if (ImGui::DragFloat("Linear Drag", &lin, 0.05f, 0.0f, 20.0f)) {
-		buoyancy->SetLinearDrag(lin);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Linear Drag", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##ld", &lin, 0.05f, 0.0f, 20.0f)) {
+			buoyancy->SetLinearDrag(lin);
+			Editor::MarkSceneDirty();
+		}
+	});
+
 	float ang = buoyancy->GetAngularDrag();
-	if (ImGui::DragFloat("Angular Drag", &ang, 0.05f, 0.0f, 20.0f)) {
-		buoyancy->SetAngularDrag(ang);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Angular Drag", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##ad", &ang, 0.05f, 0.0f, 20.0f)) {
+			buoyancy->SetAngularDrag(ang);
+			Editor::MarkSceneDirty();
+		}
+	});
+
 	float righting = buoyancy->GetRightingStrength();
-	if (ImGui::DragFloat("Righting Strength", &righting, 0.1f, 0.0f, 100.0f)) {
-		buoyancy->SetRightingStrength(righting);
-		Editor::MarkSceneDirty();
-	}
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Must dominate the buoyancy pendulum or a capsized body stays inverted");
+	EditorUi::FieldRow("Righting Strength", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::DragFloat("##rs", &righting, 0.1f, 0.0f, 100.0f)) {
+			buoyancy->SetRightingStrength(righting);
+			Editor::MarkSceneDirty();
+		}
+	}, "must dominate the buoyancy pendulum or a capsized body stays inverted");
 
 	char oceanName[128];
 	std::strncpy(oceanName, buoyancy->GetOceanNodeName().c_str(), sizeof(oceanName) - 1);
 	oceanName[sizeof(oceanName) - 1] = '\0';
-	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
-	if (ImGui::InputText("Ocean Node", oceanName, sizeof(oceanName))) {
-		buoyancy->SetOceanNodeName(oceanName);
-		Editor::MarkSceneDirty();
-	}
+	EditorUi::FieldRow("Ocean Node", 220.0f, [&](float w) {
+		ImGui::SetNextItemWidth(w);
+		if (ImGui::InputText("##oceanname", oceanName, sizeof(oceanName))) {
+			buoyancy->SetOceanNodeName(oceanName);
+			Editor::MarkSceneDirty();
+		}
+	});
 
-	bool dbg = buoyancy->GetDebugDraw();
-	if (ImGui::Checkbox("Debug Draw Float Points", &dbg)) {
-		buoyancy->SetDebugDraw(dbg);
-		Editor::MarkSceneDirty();
-	}
-	ImGui::TextDisabled("Forces tick in play mode only (PhysicsWorld pre-step).");
+	// Float-point markers: Debug views dropdown -> "Buoyancy Float Points".
+	ImGui::TextWrapped("Forces tick in play mode only (PhysicsWorld pre-step).");
 }
 
 static const std::vector<ComponentEntry>& ComponentRenderTable() {
@@ -1204,6 +1564,7 @@ static const std::vector<ComponentEntry>& ComponentRenderTable() {
 		{"Terrain", typeid(Terrain), true, [](SceneNode* n, Component* c) { RenderTerrainBody(n, static_cast<Terrain*>(c)); }},
 		{"OceanComponent", typeid(OceanComponent), true, [](SceneNode* n, Component* c) { RenderOceanBody(n, static_cast<OceanComponent*>(c)); }},
 		{"BuoyancyComponent", typeid(BuoyancyComponent), true, [](SceneNode* n, Component* c) { RenderBuoyancyBody(n, static_cast<BuoyancyComponent*>(c)); }},
+		{"InstancedMeshRender", typeid(InstancedMeshRender), true, [](SceneNode* n, Component* c) { RenderInstancedMeshRenderBody(n, static_cast<InstancedMeshRender*>(c)); }},
 	};
 	return table;
 }

@@ -60,6 +60,12 @@ namespace fury
 		// writing depth + gbuffer_normal so SSR sees the water surface.
 		void DrawOcean(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query);
 
+		// Instanced (ISM/HISM) draw for the OPAQUE pass: one
+		// glDrawElementsInstanced per (component, LOD tier, submesh).
+		// Batches come from InstancedMeshRender::BuildVisibleBatches,
+		// run once per frame in Execute.
+		void DrawInstancedUnits(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query);
+
 		// Run the active postprocess chain after the pass loop; the
 		// final effect writes to the default FB / editor RenderTarget
 		// with sRGB encode.

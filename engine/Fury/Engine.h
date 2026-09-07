@@ -88,16 +88,12 @@ namespace fury
 		// path advances clip time by this on each OnFixedUpdate.
 		static float GetFixedDt();
 
-		// Global user switch for optional compute shader use (GL 4.3+).
-		// Default on; persisted by the editor settings registry.
-		static void SetComputeShadersEnabled(bool value);
+		// Accumulated wall-clock seconds (sum of Update dt). Drives the
+		// WIND shader variant's u_time. SetTime is the headless/test hook
+		// (fixed-frame renders need a deterministic clock).
+		static float GetTime();
 
-		static bool GetComputeShadersEnabled();
-
-		// True only when the driver exposes compute shaders AND the user
-		// switch allows them. FURY_COMPUTE_SHADER=0/1 overrides the switch.
-		// Every compute consumer gates on this, never on the raw capability.
-		static bool HasEffectiveCompute();
+		static void SetTime(float seconds);
 
 		// Tracy profiler runtime switch (no-op when Tracy is not compiled
 		// in). false disarms all zones for the run; true re-arms. Also

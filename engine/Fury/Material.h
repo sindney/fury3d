@@ -98,6 +98,12 @@ namespace fury
 
 		float m_AlphaCutoff;
 
+		// Vegetation flags. TwoSided: cull off + back-face normal flip.
+		// WindEnabled: vertex-color-weighted sway in the WIND shader variant.
+		bool m_TwoSided = false;
+
+		bool m_WindEnabled = false;
+
 		unsigned int m_ID;
 
 	public:
@@ -152,6 +158,14 @@ namespace fury
 		float GetAlphaCutoff() const;
 
 		void SetAlphaCutoff(float value);
+
+		bool GetTwoSided() const { return m_TwoSided; }
+
+		void SetTwoSided(bool value) { m_TwoSided = value; }
+
+		bool GetWindEnabled() const { return m_WindEnabled; }
+
+		void SetWindEnabled(bool value) { m_WindEnabled = value; }
 
 		// get this material's unique identifier for rendering.
 		unsigned int GetID() const;

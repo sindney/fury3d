@@ -307,6 +307,466 @@
    ]
   },
   {
+   "name": "gbuffer_shader_mask_twosided",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_mask_twosided_wind",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided",
+    "wind"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "WIND",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_wind",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "wind"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "WIND",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_billboard",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided",
+    "billboard"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "BILLBOARD",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_instanced",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "instanced"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "INSTANCED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_instanced_ssbo",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "instanced",
+    "instance_ssbo"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_notexture_shader_instanced",
+   "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "color_only",
+    "instanced"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "INSTANCED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_notexture_shader_instanced_ssbo",
+   "path": "Resource/Shader/Lambert/GBufferNoTexture.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "color_only",
+    "instanced",
+    "instance_ssbo"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_mask_instanced",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "instanced"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "INSTANCED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_mask_instanced_ssbo",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "instanced",
+    "instance_ssbo"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_mask_twosided_wind_instanced",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided",
+    "wind",
+    "instanced"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "WIND",
+    "INSTANCED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_mask_twosided_wind_instanced_ssbo",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided",
+    "wind",
+    "instanced",
+    "instance_ssbo"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_wind_instanced",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "wind",
+    "instanced"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "WIND",
+    "INSTANCED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_wind_instanced_ssbo",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "wind",
+    "instanced",
+    "instance_ssbo"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_billboard_instanced",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided",
+    "billboard",
+    "instanced"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "BILLBOARD",
+    "INSTANCED",
+    "PBR"
+   ]
+  },
+  {
+   "name": "gbuffer_shader_billboard_instanced_ssbo",
+   "path": "Resource/Shader/Lambert/GBuffer.glsl",
+   "type": "static_mesh",
+   "textures": [
+    "diffuse",
+    "alpha_test",
+    "two_sided",
+    "billboard",
+    "instanced",
+    "instance_ssbo"
+   ],
+   "defines": [
+    "STATIC_MESH",
+    "ALPHA_TEST",
+    "TWO_SIDED",
+    "BILLBOARD",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "PBR"
+   ]
+  },
+
+  {
+   "name": "leagcy_depth_alphatest_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST"
+   ]
+  },
+  {
+   "name": "leagcy_depth_wind_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "WIND"
+   ]
+  },
+  {
+   "name": "leagcy_depth_alphatest_wind_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND"
+   ]
+  },
+  {
+   "name": "cube_depth_alphatest_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "ALPHA_TEST"
+   ]
+  },
+  {
+   "name": "cube_depth_wind_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "WIND"
+   ]
+  },
+  {
+   "name": "cube_depth_alphatest_wind_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND"
+   ]
+  },
+  {
+   "name": "leagcy_depth_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "leagcy_depth_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "leagcy_depth_alphatest_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "leagcy_depth_alphatest_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "leagcy_depth_wind_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "WIND",
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "leagcy_depth_wind_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "leagcy_depth_alphatest_wind_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "leagcy_depth_alphatest_wind_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "cube_depth_instanced_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "cube_depth_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "cube_depth_alphatest_instanced_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "cube_depth_alphatest_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "cube_depth_wind_instanced_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "WIND",
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "cube_depth_wind_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+  {
+   "name": "cube_depth_alphatest_wind_instanced_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "INSTANCED"
+   ]
+  },
+  {
+   "name": "cube_depth_alphatest_wind_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthCube.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO"
+   ]
+  },
+
+  {
    "name": "ocean_surface_shader",
    "path": "Resource/Shader/Ocean/OceanSurface.glsl"
   }
@@ -355,7 +815,23 @@
     "gbuffer_shader_mask",
     "gbuffer_notexture_shader_mask",
     "gbuffer_skin_shader_mask",
-    "gbuffer_notexture_skin_shader_mask"
+    "gbuffer_notexture_skin_shader_mask",
+    "gbuffer_shader_mask_twosided",
+    "gbuffer_shader_mask_twosided_wind",
+    "gbuffer_shader_wind",
+    "gbuffer_shader_billboard",
+    "gbuffer_shader_instanced",
+    "gbuffer_notexture_shader_instanced",
+    "gbuffer_shader_mask_instanced",
+    "gbuffer_shader_mask_twosided_wind_instanced",
+    "gbuffer_shader_wind_instanced",
+    "gbuffer_shader_billboard_instanced",
+    "gbuffer_shader_instanced_ssbo",
+    "gbuffer_notexture_shader_instanced_ssbo",
+    "gbuffer_shader_mask_instanced_ssbo",
+    "gbuffer_shader_mask_twosided_wind_instanced_ssbo",
+    "gbuffer_shader_wind_instanced_ssbo",
+    "gbuffer_shader_billboard_instanced_ssbo"
    ],
    "index": 0,
    "input": [],

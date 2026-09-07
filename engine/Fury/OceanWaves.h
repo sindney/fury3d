@@ -16,7 +16,7 @@ namespace fury
 	// float32 CPU copy for WaveSampler/buoyancy, plus frame-layered 2D
 	// array textures for the GPU surface shader when a GL context is live.
 	// The scene file stores only the ocean.json path; payloads re-decode
-	// (or regenerate via the compute path) on load.
+	// on load.
 	class FURY_API OceanWaves : public Entity
 	{
 	public:
@@ -28,10 +28,10 @@ namespace fury
 			float TileCm = 0.0f;
 
 			// Peak of the raw Jacobian foam channel over all frames
-			// (ocean.json maxFoam, or measured post-readback on the GPU
-			// path). Informational - the surface shader thresholds the
-			// ABSOLUTE bake value so calm seas stay foam-free. The CPU copy
-			// stays raw (bit-faithful to the payload for spec tests).
+			// (ocean.json maxFoam, or measured post-readback). The surface
+			// shader thresholds the ABSOLUTE bake value so calm seas stay
+			// foam-free. The CPU copy stays raw (bit-faithful to the
+			// payload for spec tests).
 			float MaxFoam = 0.0f;
 
 			// frames*N*N*4 floats: dx,dy,dz,foam. Frame-major, [z*N+x] rows.

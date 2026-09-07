@@ -11,6 +11,8 @@ namespace fury
 
 	class SceneNode;
 
+	class BoxBounds;
+
 	class FURY_API MeshRender : public Component
 	{
 	public:
@@ -86,6 +88,25 @@ namespace fury
 		// threshold[i] >= coverage. Call once per visible MeshRender
 		// per frame; safe to call when no chain is bound (no-op).
 		void UpdateActiveLod(const std::shared_ptr<SceneNode> &cameraNode);
+
+		// Shared LOD coverage math (also used by InstancedMeshRender's
+		// per-instance HISM bucketing). ComputeCoverageForBounds returns
+		// the screen coverage of a world AABB for the camera, or a
+		// negative value on degenerate input (camera missing / zero fov
+		// -> caller picks the deepest LOD). PickLodForCoverage maps a
+		// coverage value to a tier using the mesh's threshold chain:
+		// threshold(i) is the coverage below which tier i activates, so
+		// tier 0 owns [threshold(1), 1.0].
+		static float ComputeCoverageForBounds(const BoxBounds &worldAabb,
+			const std::shared_ptr<SceneNode> &cameraNode);
+		static unsigned int PickLodForCoverage(const Mesh &mesh, float coverage);
+
+		// Dithered LOD transitions: stable per-object jitter of the
+		// coverage value (hashed from a world position, quantized to cm)
+		// so neighboring objects swap tiers at slightly different
+		// distances instead of popping in lockstep. Returns a multiplier
+		// in [1-band, 1+band]; apply to coverage before picking.
+		static float ComputeLodJitter(const Vector4 &worldPos);
 
 	protected:
 

@@ -34,6 +34,8 @@ compile_commands.json
 /examples/Log.txt
 /examples/fury
 /examples/furye
+/examples/KrautCLI
+/examples/KrautPreview
 /examples/tracy-profiler
 /examples/tracy-capture
 /examples/FBX2glTF-darwin-x64

@@ -424,6 +424,53 @@ bool ReadFloatAccessor(
 	return true;
 }
 
+// Read COLOR_0 into a flat vec4-float vector. glTF allows VEC3/VEC4 in
+// float, normalized UNSIGNED_BYTE, or normalized UNSIGNED_SHORT; vec3
+// gets alpha=1. (Fury stores vertex colors as float4 -- Kraut trees pack
+// wind weights here.)
+bool ReadColorAccessor(
+	const tinygltf::Model& model,
+	int accessor_index,
+	std::vector<float>& out) {
+	if (accessor_index < 0 || accessor_index >= static_cast<int>(model.accessors.size())) return false;
+	const auto& accessor = model.accessors[accessor_index];
+	const int actual_components = tinygltf::GetNumComponentsInType(accessor.type);
+	if (actual_components < 3 || actual_components > 4) return false;
+	if (accessor.bufferView < 0) return false;
+	const auto& bv = model.bufferViews[accessor.bufferView];
+	const auto& buf = model.buffers[bv.buffer];
+	const uint8_t* base = buf.data.data() + bv.byteOffset + accessor.byteOffset;
+
+	size_t comp_size = 0;
+	switch (accessor.componentType) {
+	case TINYGLTF_COMPONENT_TYPE_FLOAT: comp_size = 4; break;
+	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: comp_size = 1; break;
+	case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: comp_size = 2; break;
+	default: return false;
+	}
+	const size_t element_stride = comp_size * actual_components;
+	const size_t stride = (bv.byteStride != 0) ? static_cast<size_t>(bv.byteStride) : element_stride;
+
+	for (size_t i = 0; i < accessor.count; ++i) {
+		const uint8_t* ep = base + i * stride;
+		for (int c = 0; c < 4; ++c) {
+			float v = 1.0f; // alpha default when vec3
+			if (c < actual_components) {
+				switch (accessor.componentType) {
+				case TINYGLTF_COMPONENT_TYPE_FLOAT:
+					v = reinterpret_cast<const float*>(ep)[c]; break;
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+					v = ep[c] / 255.0f; break;
+				case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+					v = reinterpret_cast<const uint16_t*>(ep)[c] / 65535.0f; break;
+				}
+			}
+			out.push_back(v);
+		}
+	}
+	return true;
+}
+
 // Read indices into uint32 (glTF allows UNSIGNED_BYTE / UNSIGNED_SHORT /
 // UNSIGNED_INT). offset_to_add is applied to each value -- used when we
 // renumber primitive-local indices into a combined per-mesh vertex
@@ -616,6 +663,18 @@ std::shared_ptr<Mesh> TranslateMesh(
 		auto uv_it = prim.attributes.find("TEXCOORD_0");
 		if (uv_it != prim.attributes.end())
 			ReadFloatAccessor(model, uv_it->second, 2, mesh->UVs.Data);
+
+		// COLOR_0 -> Mesh::Colors (vec4). If an earlier primitive had
+		// colors and this one doesn't, pad rigid defaults so the channel
+		// stays vertex-aligned.
+		auto color_it = prim.attributes.find("COLOR_0");
+		const bool had_colors = mesh->Colors.Data.size() > 0;
+		if (color_it != prim.attributes.end())
+			ReadColorAccessor(model, color_it->second, mesh->Colors.Data);
+		if (color_it == prim.attributes.end() && had_colors) {
+			for (size_t v = 0; v < verts_added; ++v)
+				mesh->Colors.Data.insert(mesh->Colors.Data.end(), {0.0f, 0.0f, 0.0f, 1.0f});
+		}
 
 		auto joints_it = prim.attributes.find("JOINTS_0");
 		auto weights_it = prim.attributes.find("WEIGHTS_0");
@@ -1169,6 +1228,277 @@ void ResampleChannel(
 }
 } // namespace
 
+// ---- Kraut postprocess (add-kraut-vegetation) ---------------------------
+// Kraut-exported trees (KrautCLI `export --format glb`) carry
+// asset.extras.kraut: { seed, descriptor, lod_thresholds?, billboard:
+// { atlas_cols, atlas_rows, mode, texture, ... } }. When present, this
+// pass replaces the name-suffix chain's synthesized thresholds, attaches
+// the <base>_Billboard mesh as the flagged terminal tier, sets foliage
+// material flags (two-sided on MASK, wind on all), and scales the tree's
+// root nodes meters -> cm (kraut glb is meters per glTF spec; fury's
+// world unit is cm -- LOD coverage math is scale-invariant).
+static void KrautImportPostprocess(
+	const tinygltf::Model& model,
+	const Scene::Ptr& scene,
+	const std::vector<std::shared_ptr<Mesh>>& meshes,
+	const std::vector<std::shared_ptr<Material>>& materials,
+	const std::vector<std::vector<int>>& submesh_to_gltf_material,
+	std::vector<std::shared_ptr<SceneNode>>& gltf_node_to_scene_node)
+{
+	if (!model.asset.extras.IsObject())
+		return;
+	const auto& extrasObj = model.asset.extras.Get<tinygltf::Value::Object>();
+	auto krautIt = extrasObj.find("kraut");
+	if (krautIt == extrasObj.end() || !krautIt->second.IsObject())
+		return;
+	const auto& kraut = krautIt->second.Get<tinygltf::Value::Object>();
+
+	std::vector<float> thresholds;
+	if (auto it = kraut.find("lod_thresholds"); it != kraut.end() && it->second.IsArray())
+	{
+		for (const auto& v : it->second.Get<tinygltf::Value::Array>())
+			if (v.IsNumber())
+				thresholds.push_back(static_cast<float>(v.GetNumberAsDouble()));
+	}
+
+	int atlasCols = 8, atlasRows = 1;
+	float bbUpBias = 0.28f;
+	if (auto it = kraut.find("billboard"); it != kraut.end() && it->second.IsObject())
+	{
+		const auto& bb = it->second.Get<tinygltf::Value::Object>();
+		if (auto c = bb.find("atlas_cols"); c != bb.end() && c->second.IsNumber())
+			atlasCols = c->second.GetNumberAsInt();
+		if (auto r = bb.find("atlas_rows"); r != bb.end() && r->second.IsNumber())
+			atlasRows = r->second.GetNumberAsInt();
+		// optional per-asset shading-normal override (10.3 tuned 0.28 for
+		// tree canopies; grass wants 1.0 = pure up, matching its card
+		// normals so the billboard tier doesn't go dark)
+		if (auto u = bb.find("up_bias"); u != bb.end() && u->second.IsNumber())
+			bbUpBias = static_cast<float>(u->second.GetNumberAsDouble());
+	}
+
+	// Foliage flags on all kraut tree materials: wind everywhere (trunk
+	// weights are ~0 at the base but branches sway), two-sided on MASK
+	// (leaf/frond cutouts).
+	for (auto& mat : materials)
+	{
+		mat->SetWindEnabled(true);
+		if (mat->GetAlphaMode() == AlphaMode::MASK)
+			mat->SetTwoSided(true);
+	}
+
+	// Canopy-normal bend: kraut leaf cards carry horizontal (card-plane)
+	// normals, so raw geometric normals leave the canopy dark from overhead
+	// while the old camera-facing flip washed it flat at low sun. Bend
+	// foliage normals toward a flattened crown-dome proxy instead:
+	// proxy = normalize(dir.x, dir.y*0.4 + crownR*0.6, dir.z) with dir from
+	// the crown center -- the canopy reads as a volumetric dome at every
+	// sun angle. Applied per tier so all chain levels shade identically
+	// (deep-tier generator normals are degraded). Height < 2 m meshes are
+	// skipped: ground cover (grass) uses deliberate all-up normals.
+	for (size_t mi = 0; mi < meshes.size(); ++mi)
+	{
+		auto& m = meshes[mi];
+		const BoxBounds aabb = m->GetAABB();
+		const float height = aabb.GetMax().y - aabb.GetMin().y;
+		if (height < 2.0f || m->GetSubMeshCount() == 0)
+			continue;
+
+		const float cx = (aabb.GetMin().x + aabb.GetMax().x) * 0.5f;
+		const float cz = (aabb.GetMin().z + aabb.GetMax().z) * 0.5f;
+		const float crownTop = aabb.GetMin().y + height * 0.85f;
+		const float crownR = std::max(aabb.GetMax().x - aabb.GetMin().x,
+			aabb.GetMax().z - aabb.GetMin().z) * 0.5f;
+
+		bool bent = false;
+		for (unsigned int si = 0; si < m->GetSubMeshCount(); ++si)
+		{
+			// foliage submesh = MASK + two-sided material (trunk/bark keep
+			// their authored normals)
+			bool foliage = false;
+			if (mi < submesh_to_gltf_material.size() && si < submesh_to_gltf_material[mi].size())
+			{
+				int gm = submesh_to_gltf_material[mi][si];
+				if (gm >= 0 && gm < static_cast<int>(materials.size()))
+				{
+					auto& mat = materials[gm];
+					foliage = mat->GetAlphaMode() == AlphaMode::MASK && mat->GetTwoSided();
+				}
+			}
+			if (!foliage)
+				continue;
+
+			auto sub = m->GetSubMeshAt(si);
+			if (!sub)
+				continue;
+			// per-vertex, one-time at import. Indices visit shared verts
+			// ~6x each -- skip repeats so big canopies stay linear.
+			std::vector<char> seen(m->Positions.Data.size() / 3, 0);
+			for (unsigned int vi : sub->Indices.Data)
+			{
+				size_t base = static_cast<size_t>(vi) * 3;
+				if (vi >= seen.size() || seen[vi] ||
+					base + 2 >= m->Normals.Data.size() || base + 2 >= m->Positions.Data.size())
+					continue;
+				seen[vi] = 1;
+				float dx = m->Positions.Data[base] - cx;
+				float dy = m->Positions.Data[base + 1] - crownTop;
+				float dz = m->Positions.Data[base + 2] - cz;
+				float px = dx, py = dy * 0.4f + crownR * 0.6f, pz = dz;
+				float len = std::sqrt(px * px + py * py + pz * pz);
+				if (len < 1e-5f)
+					continue;
+				m->Normals.Data[base] = px / len;
+				m->Normals.Data[base + 1] = py / len;
+				m->Normals.Data[base + 2] = pz / len;
+				bent = true;
+			}
+		}
+		if (bent)
+		{
+			m->Normals.SetDirty();
+			m->SetDirty();
+		}
+	}
+
+	// Attach each <base>_Billboard mesh as the flagged terminal LOD tier
+	// of base's chain, and remove its standalone scene node.
+	for (size_t mi = 0; mi < meshes.size(); ++mi)
+	{
+		const auto& name = meshes[mi]->GetName();
+		if (name.size() < 10 || name.compare(name.size() - 10, 10, "_Billboard") != 0)
+			continue;
+		const std::string base = name.substr(0, name.size() - 10);
+
+		std::shared_ptr<Mesh> lod0;
+		for (auto& m : meshes)
+		{
+			if (m->GetName() == base + "_LOD0") { lod0 = m; break; }
+		}
+		if (!lod0)
+		{
+			FURYW << "gltf-importer: kraut billboard '" << name << "' has no " << base << "_LOD0 chain root";
+			continue;
+		}
+		auto bbMesh = meshes[mi];
+
+		std::vector<std::shared_ptr<Mesh>> chain;
+		std::vector<bool> flags;
+		for (unsigned int i = 1; i < lod0->GetLodCount(); ++i)
+		{
+			chain.push_back(lod0->GetLodMesh(i));
+			flags.push_back(lod0->IsLodBillboard(i));
+		}
+		chain.push_back(bbMesh);
+		flags.push_back(true);
+
+		std::vector<float> newThresholds;
+		if (!thresholds.empty() && thresholds.size() == chain.size())
+		{
+			newThresholds = thresholds;
+		}
+		else
+		{
+			if (!thresholds.empty())
+				FURYW << "gltf-importer: kraut lod_thresholds count (" << thresholds.size()
+					  << ") != chain size (" << chain.size() << "); using synthesized thresholds";
+			for (unsigned int i = 1; i < lod0->GetLodCount(); ++i)
+				newThresholds.push_back(lod0->GetLodThreshold(i));
+			// billboard tier: below the deepest mesh tier
+			float last = newThresholds.empty() ? 1.0f : newThresholds.back();
+			newThresholds.push_back(last * 0.5f);
+		}
+		// SetLodMeshes validates non-increasing; clamp defensively
+		for (size_t i = 1; i < newThresholds.size(); ++i)
+			if (newThresholds[i] > newThresholds[i - 1])
+				newThresholds[i] = newThresholds[i - 1];
+		// Cap the billboard tier's threshold: a mesh->billboard swap is only
+		// imperceptible once the tree is small on screen; the kraut exporter's
+		// default (1.5x the deepest tier's distance) puts it at ~25% coverage
+		// where the flat atlas look visibly pops. 0.12 keeps billboards to
+		// distant trees; the deepest mesh tier covers the gap.
+		if (!newThresholds.empty())
+			newThresholds.back() = std::min(newThresholds.back(), 0.12f);
+
+		lod0->SetLodMeshes(chain, newThresholds, flags);
+
+		// billboard material: atlas dims uniform + foliage flags
+		if (mi < submesh_to_gltf_material.size() && !submesh_to_gltf_material[mi].empty())
+		{
+			int gm = submesh_to_gltf_material[mi][0];
+			if (gm >= 0 && gm < static_cast<int>(materials.size()))
+			{
+				auto bbMat = materials[gm];
+				bbMat->SetUniform("u_billboard_atlas",
+					Uniform2f::Create({static_cast<float>(atlasCols), static_cast<float>(atlasRows)}));
+				// Tuned against the mesh tiers (10.3): camera-facing
+				// normals go ~10x dark under overhead sun, pure up
+				// overshoots ~3x; 0.28 lands within ~0% at high/front sun.
+				// extras.kraut.billboard.up_bias overrides per asset.
+				bbMat->SetUniform("u_billboard_up_bias", Uniform1f::Create({ bbUpBias }));
+				bbMat->SetAlphaMode(AlphaMode::MASK);
+				bbMat->SetTwoSided(true);
+				// billboards never sway: displacing a camera-facing quad
+				// around its origin reads as sliding, not wind
+				bbMat->SetWindEnabled(false);
+				// the billboard tier's material travels with the mesh
+				// (renderer material slots key to LOD 0's submeshes)
+				lod0->SetBillboardMaterial(bbMat);
+			}
+		}
+
+		// detach the billboard's standalone scene node (it's a LOD tier,
+		// not a scene object)
+		for (size_t ni = 0; ni < model.nodes.size() && ni < gltf_node_to_scene_node.size(); ++ni)
+		{
+			if (model.nodes[ni].mesh == static_cast<int>(mi) && gltf_node_to_scene_node[ni])
+			{
+				gltf_node_to_scene_node[ni]->RemoveFromParent();
+				gltf_node_to_scene_node[ni].reset();
+			}
+		}
+
+		FURYI << "gltf-importer: kraut tree '" << base << "': chain of "
+			  << lod0->GetLodCount() << " tiers (billboard terminal, atlas "
+			  << atlasCols << "x" << atlasRows << ")";
+	}
+
+	// Also detach the _LOD1..N nodes of every kraut chain: kraut tiers are
+	// co-located chain members, not scene objects -- leaving their nodes
+	// would draw the tree once per tier (overlapping duplicates). The
+	// LOD0 node's MeshRender with the chain is the single live renderer.
+	for (size_t mi = 0; mi < meshes.size() && mi < model.meshes.size(); ++mi)
+	{
+		const auto& name = meshes[mi]->GetName();
+		auto pos = name.rfind("_LOD");
+		if (pos == std::string::npos || pos + 4 >= name.size())
+			continue;
+		// tier index must be > 0 (LOD0 stays)
+		bool allDigits = true;
+		for (size_t c = pos + 4; c < name.size(); ++c)
+			if (name[c] < '0' || name[c] > '9') { allDigits = false; break; }
+		if (!allDigits || std::atoi(name.c_str() + pos + 4) == 0)
+			continue;
+		for (size_t ni = 0; ni < model.nodes.size() && ni < gltf_node_to_scene_node.size(); ++ni)
+		{
+			if (model.nodes[ni].mesh == static_cast<int>(mi) && gltf_node_to_scene_node[ni])
+			{
+				gltf_node_to_scene_node[ni]->RemoveFromParent();
+				gltf_node_to_scene_node[ni].reset();
+			}
+		}
+	}
+
+	// meters -> cm at the tree's top-level nodes
+	auto root = scene->GetRootNode();
+	for (unsigned int i = 0; i < root->GetChildCount(); ++i)
+	{
+		auto c = root->GetChildAt(i);
+		c->SetLocalScale(c->GetLocalScale() * 100.0f);
+		c->Recompose(true);
+	}
+}
+
 std::shared_ptr<Scene> GltfImporter::Import(
 	const std::string& input_path,
 	const std::string& scene_name,
@@ -1497,6 +1827,11 @@ std::shared_ptr<Scene> GltfImporter::Import(
 				  << lod0->GetName() << "'";
 		}
 	}
+
+	// Kraut trees (glb with asset.extras.kraut): thresholds from extras,
+	// billboard terminal tier, foliage material flags, meters -> cm.
+	KrautImportPostprocess(model, scene, meshes, materials,
+		submesh_to_gltf_material, gltf_node_to_scene_node);
 
 	// Self-register the imported hierarchy with the scene's scene
 	// manager so the returned scene renders as-is (Scene.SetActive +

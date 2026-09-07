@@ -63,6 +63,11 @@ namespace fury
 		oceanNodes.push_back(node);
 	}
 
+	void RenderQuery::AddInstanced(const std::shared_ptr<SceneNode> &node)
+	{
+		instancedNodes.push_back(node);
+	}
+
 	void RenderQuery::Sort(Vector4 camPos)
 	{
 		std::sort(opaqueUnits.begin(), opaqueUnits.end(), [&camPos](const RenderUnit &a, const RenderUnit &b) -> bool
@@ -96,5 +101,6 @@ namespace fury
 		oceanNodes.clear();
 		renderableNodes.clear();
 		lightNodes.clear();
+		instancedNodes.clear();
 	}
 }

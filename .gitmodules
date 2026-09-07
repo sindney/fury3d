@@ -22,3 +22,6 @@
 [submodule "engine/ThirdParty/tracy"]
 	path = engine/ThirdParty/tracy
 	url = https://github.com/wolfpld/tracy.git
+[submodule "engine/ThirdParty/Kraut"]
+	path = engine/ThirdParty/Kraut
+	url = https://github.com/sindney/Kraut-CLI.git

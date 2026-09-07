@@ -11,6 +11,18 @@ in vec3 bone_weights;
 uniform mat4 bone_matrices[35];
 #endif
 
+#if defined(INSTANCED) && !defined(INSTANCE_SSBO)
+// Divisor-VBO instance stream (GL 3.3/4.1 fallback path).
+in vec4 instance_row0;
+in vec4 instance_row1;
+in vec4 instance_row2;
+in vec4 instance_row3;
+#endif
+#if defined(INSTANCED) && defined(INSTANCE_SSBO)
+// SSBO instance stream (GL 4.3+ preferred path), indexed by gl_InstanceID.
+layout(std430, binding = 2) buffer InstanceBuffer { mat4 instance_matrices[]; };
+#endif
+
 out vec3 out_normal;
 out float out_depth;
 
@@ -28,8 +40,15 @@ void main()
 	vec4 worldPos = world_matrix * bone_matrix * vec4(vertex_position, 1.0);
 	out_normal = normalize(invert_view_matrix * world_matrix * bone_matrix * vec4(vertex_normal, 0.0)).xyz;
 #else
-	vec4 worldPos = world_matrix * vec4(vertex_position, 1.0);
-	out_normal = normalize(invert_view_matrix * world_matrix * vec4(vertex_normal, 0.0)).xyz;
+#if defined(INSTANCED) && defined(INSTANCE_SSBO)
+	mat4 worldMat = instance_matrices[gl_InstanceID];
+#elif defined(INSTANCED)
+	mat4 worldMat = mat4(instance_row0, instance_row1, instance_row2, instance_row3);
+#else
+	mat4 worldMat = world_matrix;
+#endif
+	vec4 worldPos = worldMat * vec4(vertex_position, 1.0);
+	out_normal = normalize(invert_view_matrix * worldMat * vec4(vertex_normal, 0.0)).xyz;
 #endif
 	
 	vec4 viewPos = invert_view_matrix * worldPos;
@@ -85,6 +104,11 @@ void main()
 #endif
 
 	rt0.rgb = (out_normal.rgb + 1) * 0.5;
+#ifdef TWO_SIDED
+	// Back faces: flip the packed normal (see GBuffer.glsl).
+	if (!gl_FrontFacing)
+		rt0.rgb = ((-out_normal.rgb) + 1) * 0.5;
+#endif
 
 	vec3 finalDiffuse = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;
 #ifdef WITH_EDITOR

@@ -555,6 +555,8 @@ namespace fury
 
 			Vector4 Tangent;
 
+			Vector4 Color;
+
 			unsigned int IDs[4];
 
 			float Weights[3];
@@ -578,6 +580,7 @@ namespace fury
 				UV.Zero();
 				Normal.Zero();
 				Tangent.Zero();
+				Color.Zero();
 				IDs[0] = IDs[1] = IDs[2] = IDs[3] = 0;
 				Weights[0] = Weights[1] = Weights[2] = 0.0f;
 			}
@@ -617,6 +620,7 @@ namespace fury
 		bool hasNormal = mesh->Normals.Data.size() > 0;
 		bool hasTangent = mesh->Tangents.Data.size() > 0;
 		bool hasUV = mesh->UVs.Data.size() > 0;
+		bool hasColor = mesh->Colors.Data.size() > 0;
 		bool hasWeights = mesh->Weights.Data.size() > 0;
 		bool hasIDs = mesh->IDs.Data.size() > 0;
 
@@ -642,6 +646,9 @@ namespace fury
 				mesh->Tangents.Data[posIndex + 2]);
 			if (hasUV)
 				vtx.UV = Vector4(mesh->UVs.Data[uvIndex], mesh->UVs.Data[uvIndex + 1], 0.0f);
+			if (hasColor)
+				vtx.Color = Vector4(mesh->Colors.Data[weightIndex], mesh->Colors.Data[weightIndex + 1],
+					mesh->Colors.Data[weightIndex + 2], mesh->Colors.Data[weightIndex + 3]);
 
 			if (hasWeights)
 			{
@@ -763,6 +770,8 @@ namespace fury
 					continue;
 				if (hasUV && (vtxu.UV - vtx.UV).SquareLength() > squareEpsilon)
 					continue;
+				if (hasColor && (vtxu.Color - vtx.Color).SquareLength() > squareEpsilon)
+					continue;
 				if (hasWeights && !vtxu.HasSameWeights(vtx.Weights, epsilon) && !vtxu.HasSameIDs(vtx.IDs))
 					continue;
 
@@ -801,6 +810,8 @@ namespace fury
 			mesh->Tangents.Data.resize(vtxCount3);
 		if (hasUV)
 			mesh->UVs.Data.resize(vtxCount2);
+		if (hasColor)
+			mesh->Colors.Data.resize(vtxCount4);
 		if (hasWeights)
 			mesh->IDs.Data.resize(vtxCount4);
 		if (hasWeights)
@@ -836,6 +847,14 @@ namespace fury
 			{
 				mesh->UVs.Data[uvIndex] = uVtx.UV.x;
 				mesh->UVs.Data[uvIndex + 1] = uVtx.UV.y;
+			}
+
+			if (hasColor)
+			{
+				mesh->Colors.Data[weightIndex] = uVtx.Color.x;
+				mesh->Colors.Data[weightIndex + 1] = uVtx.Color.y;
+				mesh->Colors.Data[weightIndex + 2] = uVtx.Color.z;
+				mesh->Colors.Data[weightIndex + 3] = uVtx.Color.w;
 			}
 
 			if (hasWeights)

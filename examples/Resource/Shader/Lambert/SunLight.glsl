@@ -180,9 +180,12 @@ void main()
 	vec4 shadowCoord = shadow_matrix[index] * vec4(vs_surface_pos, 1.0);
 	shadowCoord = shadowCoord / shadowCoord.w;
 	vec3 crood = vec3(shadowCoord.x, shadowCoord.y, float(index));
-	// slope-scaled depth bias: grazing angles need more (hillside acne)
+	// slope-scaled depth bias, moderate: an aggressive grazing multiplier
+	// (tuned when terrain cast shadows from its coarsest LOD) wipes out
+	// leaf-canopy self-shadowing at low sun -- canopies need cm-scale
+	// depth resolution, terrain acne is handled by casting from LOD 0.
 	float ndl_csm = max(0.0, dot(normalize(vs_normal), normalize(vs_dir)));
-	float b_csm = bias * (1.0 + 4.0 * (1.0 - ndl_csm));
+	float b_csm = bias * (1.0 + 1.5 * (1.0 - ndl_csm));
 	fragment_output *= shadowCoord.z > 1.0 ? 1.0 : float(shadowCoord.z - b_csm < texture(shadow_buffer, crood).x);
 
 #endif

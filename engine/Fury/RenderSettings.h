@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Fury/Serializable.h"
+#include "Fury/Vector4.h"
 
 namespace fury
 {
@@ -110,6 +111,11 @@ namespace fury
 		// when either index is out of range.
 		void MoveEffect(unsigned int srcIndex, unsigned int dstIndex);
 
+		// Wind sway parameters (dirX, dirZ, strength, frequency) for the
+		// WIND shader variant; bound as u_wind_params.
+		Vector4 GetWindParams() const { return m_WindParams; }
+		void SetWindParams(const Vector4 &params) { m_WindParams = params; }
+
 		void SetEffectEnabled(unsigned int index, bool enabled);
 
 	private:
@@ -120,6 +126,9 @@ namespace fury
 		int m_CsmMapSize = 2048;
 		float m_ShadowFar = 20000.0f;    // cm; 0 = camera far
 		float m_CsmSplitBlend = 0.7f;    // 0 = linear, 1 = logarithmic
+		// Wind for WIND shader variants. Packed into u_wind_params as
+		// (dirX, dirZ, strength, frequency); strength is in cm at weight 1.
+		Vector4 m_WindParams = Vector4(1.0f, 0.0f, 1.0f, 1.0f);
 		std::vector<RenderChainEntry> m_Chain;
 	};
 }

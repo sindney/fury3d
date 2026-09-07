@@ -1,5 +1,7 @@
 #if WITH_EDITOR
 
+#include <map>
+
 #include "Fury/BufferManager.h"
 #include "Fury/AnimationClip.h"
 #include "Fury/Editor/EditorParticleWindow.h"
@@ -11,7 +13,6 @@
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
-#include "Fury/Editor/EditorDebug.h"
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/EntityManager.h"
@@ -40,6 +41,7 @@
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/InstancedMeshRender.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
@@ -78,6 +80,7 @@ extern bool g_ViewportVisible;
 
 // Defined in EditorGizmo.cpp.
 void RenderGizmo(const ImVec2& central_rect_min, const ImVec2& central_rect_size);
+void RenderLodBucketOverlay(const ImVec2& origin, const ImVec2& size);
 
 // Gizmo state lives in EditorGizmo.cpp; the viewport toolbar
 // edits it directly (moved out of the Node Properties window).
@@ -276,27 +279,6 @@ void RenderSettingsWindow(bool* open) {
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::TextDisabled("GPU capabilities");
-
-			// Compute shader switch (change: add-fft-ocean): the global user
-			// enable AND-ed with hardware capability. Persisted via the
-			// import-flag registry; FURY_COMPUTE_SHADER=0/1 overrides per run.
-			{
-				bool capable = gl::HasComputeShaders();
-				bool enabled = Engine::GetComputeShadersEnabled();
-				if (!capable) ImGui::BeginDisabled();
-				if (ImGui::Checkbox("Compute Shaders (GL 4.3+)", &enabled)) {
-					Engine::SetComputeShadersEnabled(enabled);
-					Editor::SetImportFlag("compute_shaders", enabled);
-				}
-				if (!capable) {
-					ImGui::EndDisabled();
-					ImGui::SameLine();
-					ImGui::TextDisabled("(unavailable: GL 4.3+ required)");
-				}
-				ImGui::TextDisabled("Effective: %s%s",
-					Engine::HasEffectiveCompute() ? "on" : "off",
-					getenv("FURY_COMPUTE_SHADER") ? " (env override)" : "");
-			}
 
 			// Tracy profiler switch (change: add-tracy-profiler). Compiled
 			// out entirely unless FURY_WITH_TRACY=ON at configure time.
@@ -2473,6 +2455,7 @@ void RenderViewportToolbar() {
 	static bool draw_custom_bounds = false;
 	static bool draw_octree_bounds = false;
 	static bool lod_debug_on = false;
+	static bool buoyancy_debug = false;
 
 	// Mirror the first ocean's debugView (the inspector can change it
 	// too); a submenu click writes every ocean in the scene.
@@ -2498,7 +2481,8 @@ void RenderViewportToolbar() {
 		draw_mesh_bounds,
 		draw_custom_bounds,
 		draw_octree_bounds,
-		lod_debug_on
+		lod_debug_on,
+		buoyancy_debug
 	};
 	const char* overlayItems[] = {
 		"Show Grid",
@@ -2506,7 +2490,8 @@ void RenderViewportToolbar() {
 		"Draw Mesh Bounds",
 		"Draw Custom Bounds",
 		"Draw OcTree Bounds",
-		"LOD Debug Colors"
+		"LOD Debug Colors",
+		"Buoyancy Float Points"
 	};
 	static const char* kOceanViews[] = {
 		"Off", "Foam Mask", "Displacement Heatmap", "Ring Wireframe"
@@ -2515,10 +2500,13 @@ void RenderViewportToolbar() {
 
 	// Preview: the active pieces joined, or "(none)".
 	std::string preview;
+	constexpr int kOverlayRows = static_cast<int>(sizeof(overlayItems) / sizeof(overlayItems[0]));
+	static_assert(kOverlayRows == sizeof(overlayState) / sizeof(overlayState[0]),
+		"overlayState/overlayItems must stay in sync");
 	{
 		int overlayCount = 0;
 		int firstOverlay = -1;
-		for (int i = 0; i < 6; ++i) {
+		for (int i = 0; i < kOverlayRows; ++i) {
 			if (overlayState[i]) {
 				++overlayCount;
 				if (firstOverlay < 0) firstOverlay = i;
@@ -2544,7 +2532,7 @@ void RenderViewportToolbar() {
 	// an outside click - debug sessions toggle several views at a time.
 	ImGui::SetNextItemWidth(combo_w);
 	if (ImGui::BeginCombo("##debug_views", preview.c_str(), ImGuiComboFlags_HeightLargest)) {
-		for (int i = 0; i < 6; ++i) {
+		for (int i = 0; i < kOverlayRows; ++i) {
 			if (ImGui::Selectable(overlayItems[i], overlayState[i],
 								  ImGuiSelectableFlags_DontClosePopups)) {
 				overlayState[i] = !overlayState[i];
@@ -2589,6 +2577,7 @@ void RenderViewportToolbar() {
 	draw_custom_bounds  = overlayState[3];
 	draw_octree_bounds  = overlayState[4];
 	lod_debug_on        = overlayState[5];
+	buoyancy_debug      = overlayState[6];
 
 	if (Pipeline::Active) {
 		Pipeline::Active->SetSwitch(PipelineSwitch::EDITOR_GRID, g_ShowGrid);
@@ -2597,6 +2586,7 @@ void RenderViewportToolbar() {
 		Pipeline::Active->SetSwitch(PipelineSwitch::CUSTOM_BOUNDS, draw_custom_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::OCTREE_BOUNDS, draw_octree_bounds);
 		Pipeline::Active->SetSwitch(PipelineSwitch::LOD_DEBUG_COLORS, lod_debug_on);
+		Pipeline::Active->SetSwitch(PipelineSwitch::BUOYANCY_DEBUG, buoyancy_debug);
 		Pipeline::Active->SetSwitch(PipelineSwitch::SSAO_VIEW, postfx_view == 1);
 		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, postfx_view == 2);
 	}
@@ -2693,6 +2683,9 @@ void RenderViewportWindow(bool* open) {
 		// the active camera and draws a line/marker on top of the
 		// viewport image so we can see how the skeleton is posed.
 		RenderJointDebugOverlay(pos, avail);
+
+		// LOD tier bucket counts, while the LOD debug view is on.
+		RenderLodBucketOverlay(pos, avail);
 	} else {
 		g_ViewportVisible = false;
 		if (Pipeline::Active)
@@ -2701,6 +2694,59 @@ void RenderViewportWindow(bool* open) {
 
 	ImGui::End();
 }
+
+#if WITH_DBG_OVERLAY
+// LOD tier bucket readout for the LOD_DEBUG_COLORS view: per-tier
+// instance counts summed across every InstancedMeshRender in the scene
+// (the tint shows WHERE each tier is; this shows HOW MANY). Batches are
+// last frame's HISM buckets, rebuilt per frame by the pipeline.
+void RenderLodBucketOverlay(const ImVec2& origin, const ImVec2& size)
+{
+	if (!Pipeline::Active ||
+		!Pipeline::Active->IsSwitchOn(PipelineSwitch::LOD_DEBUG_COLORS))
+		return;
+	if (!Scene::Active) return;
+
+	std::map<unsigned int, size_t> tierCounts; // tier -> visible instances
+	std::map<unsigned int, bool> tierBillboard;	size_t total = 0;
+	std::function<void(const SceneNode::Ptr&)> walk =
+		[&](const SceneNode::Ptr& node) {
+			if (!node) return;
+			if (auto imr = node->GetComponent<InstancedMeshRender>()) {
+				for (const auto& batch : imr->GetBatches()) {
+					tierCounts[batch.LodTier] += batch.WorldMatrices.size();
+					tierBillboard[batch.LodTier] = batch.Billboard;
+					total += batch.WorldMatrices.size();
+				}
+			}
+			for (unsigned int i = 0; i < node->GetChildCount(); ++i)
+				walk(node->GetChildAt(i));
+		};
+	walk(Scene::Active->GetRootNode());
+	if (tierCounts.empty()) return;
+
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	const float lineH = ImGui::GetTextLineHeight();
+	const float w = 190.0f;
+	const float h = lineH * (tierCounts.size() + 1) + 12.0f;
+	ImVec2 base(origin.x + 8.0f, origin.y + 8.0f);
+	drawList->AddRectFilled(base, ImVec2(base.x + w, base.y + h), IM_COL32(0, 0, 0, 140), 4.0f);
+	ImVec2 tp(base.x + 8.0f, base.y + 6.0f);
+	char line[64];
+	std::snprintf(line, sizeof(line), "instances: %zu", total);
+	drawList->AddText(tp, IM_COL32(220, 220, 220, 255), line);
+	tp.y += lineH;
+	for (const auto& kv : tierCounts) {
+		Color c = GetLodDebugColor(kv.first);
+		std::snprintf(line, sizeof(line), "LOD %u%s: %zu",
+			kv.first, tierBillboard[kv.first] ? " (billboard)" : "", kv.second);
+		drawList->AddText(tp, IM_COL32((int)(c.r * 255), (int)(c.g * 255), (int)(c.b * 255), 255), line);
+		tp.y += lineH;
+	}
+}
+#else
+void RenderLodBucketOverlay(const ImVec2&, const ImVec2&) {}
+#endif
 
 // Public wrappers for the Edit menu (called from Editor.cpp).
 

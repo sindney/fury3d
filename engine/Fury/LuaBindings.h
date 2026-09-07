@@ -17,13 +17,13 @@ namespace fury
 		{
 			std::string screenshot_path;
 			int screenshot_frame = 2;
-		// Temporal capture: --screenshot-series "path,N,interval" captures N
-		// back-buffer frames every `interval` frames (starting at
-		// screenshot_frame) and writes ONE contact-sheet atlas PNG. For
-		// diagnosing temporal artifacts (flicker, stepping, popping).
-		std::string screenshot_series_path;
-		int series_count = 0;
-		int series_interval = 0;
+			// Temporal capture: --screenshot-series "path,N,interval" captures N
+			// back-buffer frames every `interval` frames (starting at
+			// screenshot_frame) and writes ONE contact-sheet atlas PNG. For
+			// diagnosing temporal artifacts (flicker, stepping, popping).
+			std::string screenshot_series_path;
+			int series_count = 0;
+			int series_interval = 0;
 
 			// Auto-answer any Editor.RequestConfirmDialog with the default
 			// (affirmative) selection, so modal prompts (import unit-scale

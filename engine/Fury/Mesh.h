@@ -13,6 +13,8 @@
 
 namespace fury
 {
+	class Material;
+
 	class FURY_API SubMesh final : public Buffer, public TypeComparable
 	{
 	public:
@@ -150,6 +152,18 @@ namespace fury
 		// as m_LodMeshes; non-increasing (LOD 1 >= LOD 2 >= ...).
 		std::vector<float> m_LodThresholds;
 
+		// Per-LOD billboard flag for LOD 1..N, parallel to m_LodMeshes
+		// (LOD 0 is never a billboard). Empty means "no billboards".
+		// A flagged tier is drawn via the billboard shader path and
+		// skipped in shadow passes.
+		std::vector<bool> m_LodBillboardFlags;
+
+		// Material for the billboard tier. Billboard tiers live on the
+		// mesh (not the renderer's per-submesh material slots, which are
+		// keyed to LOD 0's submesh layout), so the tier's material travels
+		// with the mesh. Serialized by name.
+		std::weak_ptr<Material> m_BillboardMaterial;
+
 	public:
 
 		ArrayBufferf Positions;
@@ -159,6 +173,8 @@ namespace fury
 		ArrayBufferf Tangents;
 
 		ArrayBufferf UVs;
+
+		ArrayBufferf Colors;
 
 		ArrayBufferf Weights;
 
@@ -234,7 +250,22 @@ namespace fury
 		// threshold editor.
 		const std::vector<std::shared_ptr<Mesh>> &GetLodMeshes() const { return m_LodMeshes; }
 		void SetLodMeshes(const std::vector<std::shared_ptr<Mesh>> &meshes,
-						  const std::vector<float> &thresholds);
+						  const std::vector<float> &thresholds,
+						  const std::vector<bool> &billboardFlags = {});
+		// True if LOD tier i (0 = this mesh) is a billboard tier. Always
+		// false for tier 0, out-of-range tiers, or when no flags are set.
+		bool IsLodBillboard(unsigned int i) const;
+		// Replaces the billboard flags on the existing chain. Flags must
+		// be empty (clear) or match the LOD 1..N count; on mismatch logs
+		// FURYE and the flags are unchanged.
+		void SetLodBillboardFlags(const std::vector<bool> &flags);
+		const std::vector<bool> &GetLodBillboardFlags() const { return m_LodBillboardFlags; }
+
+		// The billboard tier's material (atlas texture). See
+		// m_BillboardMaterial above. Resolved by name through the scene's
+		// EntityManager at load.
+		void SetBillboardMaterial(const std::shared_ptr<Material> &material);
+		std::shared_ptr<Material> GetBillboardMaterial() const;
 		void ClearLodChain();
 	};
 

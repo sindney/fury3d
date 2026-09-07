@@ -18,6 +18,8 @@ namespace fury
 
 	class Collidable;
 
+	class Color;
+
 	class Frustum;
 
 	class Material;
@@ -51,6 +53,9 @@ namespace fury
 		OCTREE_BOUNDS,
 		LOD_DEBUG_COLORS,
 		EDITOR_GRID,
+		// Buoyancy float-point markers (per-component debugDraw AND this
+		// global gate -- off by default so play sessions stay clean).
+		BUOYANCY_DEBUG,
 		// Fullscreen buffer debug views (viewport toolbar "View SSAO"
 		// / "View SSR"). When on, Execute renders the effect's
 		// DEBUG_VIEW shader variant into the debug-view texture; the
@@ -275,6 +280,13 @@ namespace fury
 
 		void SortPassByIndex();
 	};
+
+	// Deterministic LOD -> color palette for the LOD_DEBUG_COLORS debug
+	// view (moved out of the editor TU so headless `fury` can use the
+	// view too). Indices past 5 wrap modulo the table size.
+	constexpr unsigned int kLodPaletteSize = 6;
+
+	FURY_API Color GetLodDebugColor(unsigned int lodIndex);
 }
 
 #endif // _FURY_PIPELINE_H_

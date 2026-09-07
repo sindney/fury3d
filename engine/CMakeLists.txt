@@ -95,6 +95,18 @@ endif()
 # picks which feature set to consume; see WITH_EDITOR_API below).
 option(BUILD_SHARED_LIBS "Build the engine as a shared library instead of an executable." OFF)
 
+# Shipping strip: -DFURY_SHIPPING=ON defines FURY_BUILD_SHIPPING (alongside
+# the per-config FURY_BUILD_DEBUG/PROFILE/RELEASE markers) and forces
+# development-only features off. Visual debug overlays (LOD tier tint now;
+# bounds/buoyancy overlays move here later) live behind WITH_DBG_OVERLAY so
+# they exist in every flavor except Shipping.
+option(FURY_SHIPPING "Strip development-only features (defines FURY_BUILD_SHIPPING)" OFF)
+option(FURY_WITH_DBG_OVERLAY "Compile visual debug overlays (LOD tier tint, ...)" ON)
+if(FURY_SHIPPING AND FURY_WITH_DBG_OVERLAY)
+	message(STATUS "FURY_SHIPPING=ON: forcing FURY_WITH_DBG_OVERLAY=OFF")
+	set(FURY_WITH_DBG_OVERLAY OFF)
+endif()
+
 if(OS_WINDOWS)
 	option(EXPORT_DLL "Define FURY_API_EXPORT" ON)
 	if(EXPORT_DLL)
@@ -129,6 +141,56 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/JoltPhysics/Jolt/Jolt.h")
 endif()
 if(FURY_WITH_TRACY AND NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/tracy/public/TracyClient.cpp")
 	message(FATAL_ERROR "tracy submodule missing - run: git submodule update --init --recursive (or configure with -DFURY_WITH_TRACY=OFF)")
+endif()
+
+# Kraut-CLI tree toolchain (add-kraut-vegetation). Vendored submodule built
+# via ExternalProject: Kraut's CMake is a standalone superbuild (own Output/
+# layout, FetchContent for SDL2/ImGui/glew) that would drag its targets and
+# options into our graph via add_subdirectory. Only KrautCLI (+ KrautPreview
+# when enabled) are built -- the Qt editor stays off. Binaries are copied
+# next to fury/furye POST_BUILD (FBX2glTF pattern) by CopyKrautTools.cmake.
+option(FURY_WITH_KRAUT "Build KrautCLI + KrautPreview tools (ThirdParty/Kraut submodule)." ON)
+option(FURY_WITH_KRAUT_PREVIEW "Build KrautPreview (fetches SDL2 at configure time; off = KrautCLI only)." ON)
+
+if(FURY_WITH_KRAUT)
+	if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/Kraut/CMakeLists.txt")
+		message(FATAL_ERROR "Kraut submodule missing - run: git submodule update --init --recursive (or configure with -DFURY_WITH_KRAUT=OFF)")
+	endif()
+
+	include(ExternalProject)
+	if(FURY_WITH_KRAUT_PREVIEW)
+		set(FURY_KRAUT_PREVIEW_OPT ON)
+	else()
+		set(FURY_KRAUT_PREVIEW_OPT OFF)
+	endif()
+	# Forward the macOS arch/target settings only when set (empty values
+	# would break the subbuild).
+	set(FURY_KRAUT_OSX_ARGS "")
+	if(CMAKE_OSX_ARCHITECTURES)
+		list(APPEND FURY_KRAUT_OSX_ARGS -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
+	endif()
+	if(CMAKE_OSX_DEPLOYMENT_TARGET)
+		list(APPEND FURY_KRAUT_OSX_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET})
+	endif()
+	# POLICY_VERSION_MINIMUM: Kraut's vendored FetchContent deps (SDL2 2.30.5)
+	# predate CMake 3.5+ policy requirements.
+	# BUILD_ALWAYS: the submodule's content changes when the pin moves (git
+	# checkout), which stamp-based staleness can't see; the subbuild is
+	# incremental, so the re-invocation is cheap when nothing changed.
+	ExternalProject_Add(kraut_tools
+		SOURCE_DIR "${PROJECT_SOURCE_DIR}/ThirdParty/Kraut"
+		BINARY_DIR "${CMAKE_BINARY_DIR}/kraut"
+		CMAKE_ARGS
+			-DCMAKE_BUILD_TYPE=Release
+			${FURY_KRAUT_OSX_ARGS}
+			-DKRAUT_BUILD_EDITOR=OFF
+			-DKRAUT_BUILD_PREVIEW=${FURY_KRAUT_PREVIEW_OPT}
+			-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+		BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
+		UPDATE_COMMAND ""
+		BUILD_ALWAYS ON
+		INSTALL_COMMAND ""
+	)
 endif()
 
 # SFML 3.1: build only the modules we actually need
@@ -269,7 +331,10 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/GltfImporter.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Gui.cpp
 	${PROJECT_SOURCE_DIR}/Fury/InputUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/InstancedMeshRender.cpp
+	${PROJECT_SOURCE_DIR}/Fury/InstancedMeshStreamer.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Joint.cpp
+	${PROJECT_SOURCE_DIR}/Fury/KrautConverter.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Light.cpp
 	${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Material.cpp
@@ -323,7 +388,6 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetWindows.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorBodySetupWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorConfirmDialog.cpp
-	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorDebug.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorLog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorNodeProperties.cpp
@@ -416,6 +480,10 @@ function(fury_add_target NAME)
 		$<$<CONFIG:Debug>:FURY_BUILD_DEBUG>
 		$<$<CONFIG:RelWithDebInfo>:FURY_BUILD_PROFILE>
 		$<$<CONFIG:Release>:FURY_BUILD_RELEASE>)
+	# Shipping strip + debug-overlay gate (see the options above).
+	target_compile_definitions(${NAME} PRIVATE
+		$<$<BOOL:${FURY_SHIPPING}>:FURY_BUILD_SHIPPING>
+		WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>)
 	if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
 		target_compile_definitions(${NAME} PRIVATE FURY_TRACY_GPU)
 	endif()
@@ -458,6 +526,21 @@ function(fury_add_target NAME)
 				COMMAND chmod +x "$<TARGET_FILE_DIR:${NAME}>/${FBX2GLTF_BINARY}"
 				VERBATIM)
 		endif()
+	endif()
+	# Kraut tree tools: the ExternalProject builds them on its own
+	# schedule; the POST_BUILD copy picks whatever is newest under the
+	# submodule's Output/Bin at link time (warns, not errors, when the
+	# tools haven't been built yet -- `make kraut_tools` builds them).
+	if(FURY_WITH_KRAUT)
+		add_dependencies(${NAME} kraut_tools)
+		add_custom_command(TARGET ${NAME} POST_BUILD
+			COMMAND ${CMAKE_COMMAND}
+				-DKRAUT_OUTPUT_DIR=${PROJECT_SOURCE_DIR}/ThirdParty/Kraut/Output/Bin
+				-DDEST_DIR=$<TARGET_FILE_DIR:${NAME}>
+				-DWITH_PREVIEW=${FURY_WITH_KRAUT_PREVIEW}
+				-P "${PROJECT_SOURCE_DIR}/../tools/cmake/CopyKrautTools.cmake"
+			COMMENT "Copying KrautCLI/KrautPreview next to ${NAME}"
+			VERBATIM)
 	endif()
 	# Regenerate docs/LUA_API.md from LuaBindings.cpp. Off by default;
 	# pass -DFURY_DOCGEN=ON to enable. When on, the post-build step
@@ -508,7 +591,9 @@ if(BUILD_SHARED_LIBS)
 	# always builds both fury and furye.
 	if(WITH_EDITOR_API)
 		add_library(furye SHARED ${FURY_CORE_SRC} ${FURY_EDITOR_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
-		target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
+		target_compile_definitions(furye PRIVATE WITH_EDITOR=1
+			$<$<BOOL:${FURY_SHIPPING}>:FURY_BUILD_SHIPPING>
+			WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>)
 		target_link_libraries(furye PUBLIC ${FURY_PLATFORM_LIBS} nfd::nfd)
 		if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
 			target_compile_definitions(furye PRIVATE FURY_TRACY_GPU)
@@ -518,6 +603,9 @@ if(BUILD_SHARED_LIBS)
 		install(TARGETS furye DESTINATION lib)
 	else()
 		add_library(fury SHARED ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
+		target_compile_definitions(fury PRIVATE WITH_EDITOR=0
+			$<$<BOOL:${FURY_SHIPPING}>:FURY_BUILD_SHIPPING>
+			WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>)
 		target_link_libraries(fury PUBLIC ${FURY_PLATFORM_LIBS})
 		if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
 			target_compile_definitions(fury PRIVATE FURY_TRACY_GPU)

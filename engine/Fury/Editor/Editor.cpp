@@ -297,10 +297,6 @@ void SettingsHandler_ApplyAll(ImGuiContext*, ImGuiSettingsHandler*) {
 	// Apply the persisted theme once ImGui finishes loading the ini.
 	ApplyPersistedTheme();
 
-	// Compute-shader user switch (change: add-fft-ocean), default on;
-	// FURY_COMPUTE_SHADER still overrides per run.
-	Engine::SetComputeShadersEnabled(GetImportFlag("compute_shaders", true));
-
 	// Tracy profiler switch (change: add-tracy-profiler), default on;
 	// FURY_TRACY=0 still overrides per run.
 	Engine::SetTracyEnabled(g_TracyEnabled);

@@ -329,6 +329,48 @@ screenshots, or GUI should use the Lua launcher path with `--screenshot`
 ./fury help exec
 ```
 
+### `fury kraut` — generate and import Kraut trees
+
+```
+fury kraut generate <descriptor.tree> [--seed N] [--out dir]
+fury kraut import   <tree.glb> [output.json|.bin]
+```
+
+The Kraut-CLI toolchain (vendored `engine/ThirdParty/Kraut` submodule) is built
+by the `kraut_tools` CMake target and the binaries land next to the fury
+executables (the FBX2glTF distribution pattern). Configure with
+`-DFURY_WITH_KRAUT=OFF` to skip the toolchain entirely, or
+`-DFURY_WITH_KRAUT_PREVIEW=OFF` to build KrautCLI without KrautPreview (no SDL2
+fetch; atlas baking and previews are skipped at runtime with a warning).
+
+**generate** runs KrautCLI's glb export: `<stem>.glb` carries per-LOD meshes
+(`<stem>_LOD<n>`, LOD 0 = full detail), a billboard quad (`<stem>_Billboard`),
+`COLOR_0` wind weights (R=sway, G=flutter, B=phase, A=color variation), PBR
+materials, and `asset.extras.kraut` (LOD thresholds, billboard atlas grid,
+seed/descriptor provenance). Referenced textures are copied next to the glb —
+`.dds` references resolve to `.tga`/`.png` siblings because the engine's
+STB-based loader cannot read DDS. KrautPreview then bakes
+`<stem>_BillboardAtlas.png` (cylindrical billboard atlas; cell *k* is the view
+from azimuth `((k+0.5)/cols - 0.5) * 2pi` around the trunk's +Z) and
+`<stem>_tier<n>.png` preview screenshots. Deterministic per descriptor + seed.
+
+**import** reads a Kraut-exported glb into an engine scene fragment
+(`.json`/`.bin`): the LOD chain keeps the extras' thresholds, the billboard
+quad becomes the flagged terminal tier (atlas dims in the material's
+`u_billboard_atlas` uniform), foliage materials get two-sided + MASK + wind
+flags, and the tree's root nodes are scaled meters -> centimeters (glTF is
+meters; the engine's world unit is cm). Default output: `<tree>.bin` next to
+the glb. glbs without kraut extras fall back to the importer's synthesized
+linear LOD thresholds and get no billboard tier.
+
+```
+./fury kraut generate engine/ThirdParty/Kraut/Data/Content/Trees/PalmTree2.tree --seed 7 --out /tmp/palm
+./fury kraut import /tmp/palm/PalmTree2.glb /tmp/palm/PalmTree2.bin
+```
+
+Exit codes follow the global table; the tool's load failure (missing
+descriptor) maps to 1, generation/export failures to 2.
+
 ### `fury help` — print help
 
 ```

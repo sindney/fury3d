@@ -13,6 +13,7 @@
 #include "Fury/EntityManager.h"
 #include "Fury/Scene.h"
 #include "Fury/MeshRender.h"
+#include "Fury/InstancedMeshRender.h"
 #include "Fury/Mesh.h"
 #include "Fury/Material.h"
 #include "Fury/Transform.h"
@@ -39,7 +40,8 @@ namespace fury
 		{ "SkyAtmosphere",    []() -> Component::Ptr { return SkyAtmosphere::Create(); } },
 		{ "Terrain",          []() -> Component::Ptr { return Terrain::Create(); } },
 		{ "OceanComponent",   []() -> Component::Ptr { return OceanComponent::Create(); } },
-		{ "BuoyancyComponent", []() -> Component::Ptr { return BuoyancyComponent::Create(); } }
+		{ "BuoyancyComponent", []() -> Component::Ptr { return BuoyancyComponent::Create(); } },
+		{ "InstancedMeshRender", []() -> Component::Ptr { return InstancedMeshRender::Create(nullptr, nullptr); } }
 	};
 
 	SceneNode::Ptr SceneNode::Create(const std::string &name)

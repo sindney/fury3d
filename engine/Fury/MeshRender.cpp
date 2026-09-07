@@ -9,6 +9,8 @@
 #include "Fury/Camera.h"
 
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
 namespace fury
 {
@@ -273,35 +275,35 @@ namespace fury
 			m_ActiveLod = 0;
 			return;
 		}
-		if (!cameraNode)
-		{
-			m_ActiveLod = count - 1;
-			return;
-		}
-		auto camComp = cameraNode->GetComponent<Camera>();
-		if (!camComp)
-		{
-			m_ActiveLod = count - 1;
-			return;
-		}
 
-		// Project the AABB's 8 corners through the camera and take
-		// the max screen-space distance from the projected center.
 		// Coverage is computed from the world-space AABB so that
 		// meshes translated/rotated/scaled away from the origin still
-		// yield correct screen-coverage values.
+		// yield correct screen-coverage values. A degenerate (zero
+		// radius) bounds maps to full coverage -> LOD 0.
 		auto owner = m_Owner.lock();
 		BoxBounds aabb = (owner && !owner->GetWorldAABB().GetInfinite()) ? owner->GetWorldAABB() : base->GetAABB();
-		auto mn = aabb.GetMin();
-		auto mx = aabb.GetMax();
+		float coverage = ComputeCoverageForBounds(aabb, cameraNode);
+		if (owner && coverage >= 0.0f)
+			coverage *= ComputeLodJitter(owner->GetWorldPosition());
+		m_ActiveLod = PickLodForCoverage(*base, coverage);
+	}
+
+	float MeshRender::ComputeCoverageForBounds(const BoxBounds &worldAabb,
+		const std::shared_ptr<SceneNode> &cameraNode)
+	{
+		if (!cameraNode)
+			return -1.0f;
+		auto camComp = cameraNode->GetComponent<Camera>();
+		if (!camComp)
+			return -1.0f;
+
+		auto mn = worldAabb.GetMin();
+		auto mx = worldAabb.GetMax();
 		auto center = (mn + mx) * 0.5f;
 		auto size = mx - mn;
 		float radius = 0.5f * std::sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
 		if (radius < 1e-6f)
-		{
-			m_ActiveLod = 0;
-			return;
-		}
+			return 1.0f;
 
 		// View-space distance from the AABB center to the camera
 		// origin. Combined with the perspective half-FOV tangent,
@@ -315,26 +317,69 @@ namespace fury
 		float fov = camComp->GetFov();
 		float halfFovTan = std::tan(fov * 0.5f);
 		if (halfFovTan < 1e-6f)
-		{
-			m_ActiveLod = count - 1;
-			return;
-		}
+			return -1.0f;
 		// Coverage as the model's apparent height / viewport height.
 		float coverage = (radius / distance) / halfFovTan;
 		if (coverage > 1.0f) coverage = 1.0f;
+		return coverage;
+	}
 
-		// Pick the deepest LOD whose threshold is still >= coverage.
-		// thresholds are in non-increasing order so we walk from
-		// LOD 0 down and stop at the first match.
+	unsigned int MeshRender::PickLodForCoverage(const Mesh &mesh, float coverage)
+	{
+		const unsigned int count = mesh.GetLodCount();
+		if (count <= 1)
+			return 0;
+		if (coverage < 0.0f)
+			return count - 1;
+
+		// threshold(i) is the coverage below which tier i activates
+		// (Mesh.h contract); tier 0 owns [threshold(1), 1.0]. Walk
+		// deep->shallow: each tier whose threshold the coverage still
+		// meets promotes the pick one slot shallower. (The historical
+		// shallow->deep walk compared against threshold(i) directly,
+		// which shifted every boundary one tier deeper and left tier 0
+		// reachable only at the coverage=1.0 clamp.)
 		unsigned int picked = count - 1;
-		for (unsigned int i = 0; i < count; ++i)
+		for (unsigned int i = count - 1; i >= 1; --i)
 		{
-			if (coverage >= base->GetLodThreshold(i))
+			if (coverage >= mesh.GetLodThreshold(i))
+				picked = i - 1;
+		}
+		return picked;
+	}
+
+	float MeshRender::ComputeLodJitter(const Vector4 &worldPos)
+	{
+		// Transition band, default +/-15%. FNV-1a over the cm-quantized
+		// position keeps the jitter stable per object across frames while
+		// decorrelating neighbors; moving an object re-seeds it.
+		// FURY_LOD_JITTER overrides the band: 0 disables (A/B baseline),
+		// any other float is the band fraction (e.g. 0.3 = +/-30%).
+		static const float kBand = []()
+		{
+			const char *env = std::getenv("FURY_LOD_JITTER");
+			if (env == nullptr)
+				return 0.15f;
+			float v = static_cast<float>(std::atof(env));
+			return (v >= 0.0f && v < 0.95f) ? v : 0.15f;
+		}();
+		if (kBand <= 0.0f)
+			return 1.0f;
+		unsigned int h = 2166136261u;
+		const int q[3] = {
+			static_cast<int>(worldPos.x),
+			static_cast<int>(worldPos.y),
+			static_cast<int>(worldPos.z)
+		};
+		for (int c = 0; c < 3; ++c)
+		{
+			for (int b = 0; b < 4; ++b)
 			{
-				picked = i;
-				break;
+				h ^= static_cast<unsigned int>((q[c] >> (b * 8)) & 0xff);
+				h *= 16777619u;
 			}
 		}
-		m_ActiveLod = picked;
+		float h01 = static_cast<float>(h) / 4294967295.0f;
+		return 1.0f + kBand * (2.0f * h01 - 1.0f);
 	}
 }

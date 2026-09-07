@@ -200,7 +200,12 @@ namespace fury
 		// Shadow-receive variant bit -- pipeline JSONs pair "shadow"
 		// with a SHADOW define so the shadow block compiles only in
 		// the *_shadow_shader variants (see Forward.glsl).
-		std::make_pair(ShaderTexture::SHADOW, "shadow")
+		std::make_pair(ShaderTexture::SHADOW, "shadow"),
+		std::make_pair(ShaderTexture::TWO_SIDED, "two_sided"),
+		std::make_pair(ShaderTexture::WIND, "wind"),
+		std::make_pair(ShaderTexture::BILLBOARD, "billboard"),
+		std::make_pair(ShaderTexture::INSTANCED, "instanced"),
+		std::make_pair(ShaderTexture::INSTANCE_SSBO, "instance_ssbo")
 	};
 
 	const std::vector<unsigned int> EnumUtil::m_LineMode =

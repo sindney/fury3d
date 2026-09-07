@@ -116,8 +116,17 @@ namespace fury
 			}
 			else
 			{
-				FURYW << "Shader " << str << " not found!";
-				return false;
+				// Warn but keep going: capability-gated variants
+				// (INSTANCE_SSBO shaders on GL < 4.3) are intentionally
+				// absent from the manager; dropping the rest of the list
+				// would silently strip the pass's remaining shaders.
+				// The intentional-absence case is debug-level, not a
+				// warning, so pipeline loads stay quiet on GL 3.3/4.1.
+				if (str.size() > 5 && str.compare(str.size() - 5, 5, "_ssbo") == 0)
+					FURYD << "Shader " << str << " not found (SSBO-gated; expected on this context)";
+				else
+					FURYW << "Shader " << str << " not found!";
+				return true;
 			}
 		});
 

@@ -1,0 +1,20 @@
+{
+ "trees": [
+  {
+   "name": "PalmTree2",
+   "seed": 7,
+   "fragment": "Engine/Trees/PalmTree2/PalmTree2.bin",
+   "glb": "Engine/Trees/PalmTree2/PalmTree2.glb",
+   "atlas": "Engine/Trees/PalmTree2/PalmTree2_BillboardAtlas.png",
+   "sizeKB": 3312
+  },
+  {
+   "name": "Tree1",
+   "seed": 42,
+   "fragment": "Engine/Trees/Tree1/Tree1.bin",
+   "glb": "Engine/Trees/Tree1/Tree1.glb",
+   "atlas": "Engine/Trees/Tree1/Tree1_BillboardAtlas.png",
+   "sizeKB": 4255
+  }
+ ]
+}

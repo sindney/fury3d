@@ -1,5 +1,7 @@
 #version 330
 
+#include "VegetationCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -10,6 +12,33 @@ in vec3 vertex_normal;
 in ivec4 bone_ids;
 in vec3 bone_weights;
 uniform mat4 bone_matrices[35];
+#endif
+
+#ifdef WIND
+// Kraut wind weights (sway / flutter / phase / variation).
+in vec4 vertex_color;
+uniform float u_time = 0.0;
+uniform vec4 u_wind_params = vec4(1.0, 0.0, 1.0, 1.0);
+#endif
+
+#if defined(INSTANCED) && !defined(INSTANCE_SSBO)
+// Divisor-VBO instance stream (GL 3.3/4.1 fallback path).
+in vec4 instance_row0;
+in vec4 instance_row1;
+in vec4 instance_row2;
+in vec4 instance_row3;
+#endif
+#if defined(INSTANCED) && defined(INSTANCE_SSBO)
+// SSBO instance stream (GL 4.3+ preferred path), indexed by gl_InstanceID.
+layout(std430, binding = 2) buffer InstanceBuffer { mat4 instance_matrices[]; };
+#endif
+
+#ifdef BILLBOARD
+uniform vec3 camera_pos;
+uniform vec2 u_billboard_atlas = vec2(8.0, 1.0);
+// Shading-normal up bias (0 = camera-facing). Tuned 0.28 default tracks
+// the mesh tiers' sun response; per-material override for art direction.
+uniform float u_billboard_up_bias = 0.28;
 #endif
 
 out vec3 out_normal;
@@ -29,15 +58,38 @@ void main()
 	bone_matrix += bone_matrices[bone_ids[3]] * (1.0f - bone_weights[0] - bone_weights[1] - bone_weights[2]);
 	vec4 worldPos = world_matrix * bone_matrix * vec4(vertex_position, 1.0);
 	out_normal = normalize(invert_view_matrix * world_matrix * bone_matrix * vec4(vertex_normal, 0.0)).xyz;
+	out_uv = vertex_uv;
 #else
-	vec4 worldPos = world_matrix * vec4(vertex_position, 1.0);
-	out_normal = normalize(invert_view_matrix * world_matrix * vec4(vertex_normal, 0.0)).xyz;
+
+#if defined(INSTANCED) && defined(INSTANCE_SSBO)
+	mat4 worldMat = instance_matrices[gl_InstanceID];
+#elif defined(INSTANCED)
+	mat4 worldMat = mat4(instance_row0, instance_row1, instance_row2, instance_row3);
+#else
+	mat4 worldMat = world_matrix;
 #endif
-	
+
+#ifdef BILLBOARD
+	vec3 bbPos;
+	vec3 bbNormal;
+	vec2 bbUV;
+	VegetationBillboard(worldMat, camera_pos, vertex_position, vertex_uv, u_billboard_atlas, u_billboard_up_bias, bbPos, bbNormal, bbUV);
+	vec4 worldPos = vec4(bbPos, 1.0);
+	out_normal = normalize(invert_view_matrix * vec4(bbNormal, 0.0)).xyz;
+	out_uv = bbUV;
+#else
+	vec4 worldPos = worldMat * vec4(vertex_position, 1.0);
+#ifdef WIND
+	worldPos.xyz += VegetationWindOffset(vertex_color, worldPos.xyz, u_time, u_wind_params);
+#endif
+	out_normal = normalize(invert_view_matrix * worldMat * vec4(vertex_normal, 0.0)).xyz;
+	out_uv = vertex_uv;
+#endif
+#endif
+
 	vec4 viewPos = invert_view_matrix * worldPos;
 	out_depth = -viewPos.z;
-	out_uv = vertex_uv;
-	
+
 	gl_Position = projection_matrix * viewPos;
 }
 
@@ -77,7 +129,7 @@ uniform float roughness_factor = -1.0;
 uniform float shininess = 32.0;
 #endif
 
-#ifdef WITH_EDITOR
+#ifdef WITH_DBG_OVERLAY
 // LOD-debug tint. Reset to vec4(0) each frame the toggle is off
 // (PrelightPipeline::DrawUnit) so prior state doesn't leak.
 uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
@@ -96,10 +148,17 @@ void main()
 		discard;
 #endif
 
-	rt0.rgb = (out_normal.rgb + 1) * 0.5;
+	// Two-sided foliage: keep the card's geometric normal for BOTH faces
+	// (culling is disabled per-draw for these materials in
+	// PrelightPipeline::DrawUnit). Flipping to face the camera reads flat
+	// at low sun -- every visible leaf lights uniformly and the canopy
+	// loses all depth. The unflipped normal gives dark undersides from
+	// below and sun-lit undersides (thin-leaf translucency) when backlit.
+	vec3 nrm = out_normal;
+	rt0.rgb = (nrm + 1) * 0.5;
 
 	vec3 finalDiffuse = texel.rgb * diffuse_factor + ambient_color * ambient_factor;
-#ifdef WITH_EDITOR
+#ifdef WITH_DBG_OVERLAY
 	if (lod_debug_color.a > 0.0)
 		finalDiffuse *= lod_debug_color.rgb;
 #endif

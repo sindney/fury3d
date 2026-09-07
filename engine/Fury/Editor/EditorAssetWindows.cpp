@@ -268,6 +268,15 @@ void RenderMaterialEditorBody(const std::shared_ptr<Material>& mat) {
 		mat->SetOpaque(opaque);
 	ImGui::SameLine();
 	ImGui::Text("Texture Flags: 0x%08X", mat->GetTextureFlags());
+
+	// Vegetation flags (kraut trees): two-sided lighting + wind sway.
+	bool twoSided = mat->GetTwoSided();
+	if (ImGui::Checkbox("Two Sided", &twoSided))
+		mat->SetTwoSided(twoSided);
+	ImGui::SameLine();
+	bool windEnabled = mat->GetWindEnabled();
+	if (ImGui::Checkbox("Wind Enabled", &windEnabled))
+		mat->SetWindEnabled(windEnabled);
 	ImGui::Separator();
 
 	// Textures.

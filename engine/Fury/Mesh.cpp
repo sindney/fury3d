@@ -3,7 +3,9 @@
 
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
+#include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Joint.h"
 #include "Fury/EntityManager.h"
@@ -86,6 +88,7 @@ namespace fury
 		Normals("vertex_normal", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
+		Colors("vertex_color", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Weights("bone_weights", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		IDs("bone_ids", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
 		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW)
@@ -119,6 +122,9 @@ namespace fury
 		LoadArray(wrapper, "normals", Normals.Data);
 		LoadArray(wrapper, "tangents", Tangents.Data);
 		LoadArray(wrapper, "uvs", UVs.Data);
+
+		// Per-vertex colors -- optional. Kraut trees pack wind weights here.
+		LoadArray(wrapper, "colors", Colors.Data);
 
 		// Per-vertex skin data -- optional. Absent on static meshes; present (with the
 		// joints array below) on skinned meshes. Each vertex carries 4 bone indices
@@ -210,6 +216,17 @@ namespace fury
 		// object; `lod_thresholds` is the parallel screen-coverage
 		// array.
 		LoadArray(wrapper, "lod_thresholds", m_LodThresholds);
+		LoadArray(wrapper, "lod_billboard_flags", m_LodBillboardFlags);
+		// Billboard tier material, resolved by name. Materials load
+		// before meshes in Scene::Load, so the scene manager has them.
+		std::string billboardMat;
+		if (LoadMemberValue(wrapper, "lod_billboard_material", billboardMat))
+		{
+			if (Scene::Active && Scene::Manager())
+				m_BillboardMaterial = Scene::Manager()->Get<Material>(billboardMat);
+			if (m_BillboardMaterial.expired())
+				FURYW << "Mesh::Load: billboard material '" << billboardMat << "' not found";
+		}
 		LoadArray(wrapper, "lod_meshes", [&](const void* node) -> bool
 		{
 			auto lod = Mesh::Create("");
@@ -221,6 +238,12 @@ namespace fury
 			FURYE << "Mesh::Load: failed to load an entry in 'lod_meshes'";
 			return false;
 		});
+
+		if (!m_LodBillboardFlags.empty() && m_LodBillboardFlags.size() != m_LodMeshes.size())
+		{
+			FURYE << "Mesh::Load: lod_billboard_flags size != lod_meshes size, dropping flags!";
+			m_LodBillboardFlags.clear();
+		}
 
 		return true;
 	}
@@ -254,6 +277,12 @@ namespace fury
 		{
 			SaveKey(wrapper, "uvs");
 			SaveArray(wrapper, UVs.Data);
+		}
+
+		if (Colors.Data.size() > 0)
+		{
+			SaveKey(wrapper, "colors");
+			SaveArray(wrapper, Colors.Data);
 		}
 
 		// Per-vertex skin data + joint tree. Emitted only when present so static-mesh
@@ -337,6 +366,16 @@ namespace fury
 			});
 			SaveKey(wrapper, "lod_thresholds");
 			SaveArray(wrapper, m_LodThresholds);
+			if (!m_LodBillboardFlags.empty())
+			{
+				SaveKey(wrapper, "lod_billboard_flags");
+				SaveArray(wrapper, m_LodBillboardFlags);
+			}
+			if (auto bbMat = m_BillboardMaterial.lock())
+			{
+				SaveKey(wrapper, "lod_billboard_material");
+				SaveValue(wrapper, bbMat->GetName());
+			}
 		}
 
 		if (object)
@@ -408,6 +447,7 @@ namespace fury
 		Normals.UpdateBuffer();
 		Tangents.UpdateBuffer();
 		UVs.UpdateBuffer();
+		Colors.UpdateBuffer();
 		Weights.UpdateBuffer();
 		IDs.UpdateBuffer();
 		Indices.UpdateBuffer();
@@ -455,6 +495,7 @@ namespace fury
 		Normals.DeleteBuffer();
 		Tangents.DeleteBuffer();
 		UVs.DeleteBuffer();
+		Colors.DeleteBuffer();
 		Weights.DeleteBuffer();
 		IDs.DeleteBuffer();
 		Indices.DeleteBuffer();
@@ -587,12 +628,19 @@ namespace fury
 	}
 
 	void Mesh::SetLodMeshes(const std::vector<std::shared_ptr<Mesh>> &meshes,
-							 const std::vector<float> &thresholds)
+							 const std::vector<float> &thresholds,
+							 const std::vector<bool> &billboardFlags)
 	{
 		if (meshes.size() != thresholds.size())
 		{
 			FURYE << "Mesh::SetLodMeshes: mesh count (" << meshes.size()
 				  << ") != threshold count (" << thresholds.size() << ")";
+			return;
+		}
+		if (!billboardFlags.empty() && billboardFlags.size() != meshes.size())
+		{
+			FURYE << "Mesh::SetLodMeshes: billboard flag count (" << billboardFlags.size()
+				  << ") != mesh count (" << meshes.size() << ")";
 			return;
 		}
 		for (size_t i = 1; i < thresholds.size(); ++i)
@@ -606,12 +654,42 @@ namespace fury
 		}
 		m_LodMeshes = meshes;
 		m_LodThresholds = thresholds;
+		m_LodBillboardFlags = billboardFlags;
+	}
+
+	bool Mesh::IsLodBillboard(unsigned int i) const
+	{
+		if (i == 0 || m_LodBillboardFlags.empty()) return false;
+		if (i <= m_LodBillboardFlags.size()) return m_LodBillboardFlags[i - 1];
+		return false;
+	}
+
+	void Mesh::SetLodBillboardFlags(const std::vector<bool> &flags)
+	{
+		if (!flags.empty() && flags.size() != m_LodMeshes.size())
+		{
+			FURYE << "Mesh::SetLodBillboardFlags: flag count (" << flags.size()
+				  << ") != lod mesh count (" << m_LodMeshes.size() << ")";
+			return;
+		}
+		m_LodBillboardFlags = flags;
+	}
+
+	void Mesh::SetBillboardMaterial(const std::shared_ptr<Material> &material)
+	{
+		m_BillboardMaterial = material;
+	}
+
+	std::shared_ptr<Material> Mesh::GetBillboardMaterial() const
+	{
+		return m_BillboardMaterial.lock();
 	}
 
 	void Mesh::ClearLodChain()
 	{
 		m_LodMeshes.clear();
 		m_LodThresholds.clear();
+		m_LodBillboardFlags.clear();
 	}
 
 	// LodGroup class

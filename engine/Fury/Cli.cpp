@@ -21,6 +21,7 @@
 #include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/GltfImporter.h"
+#include "Fury/KrautConverter.h"
 #include "Fury/Log.h"
 #include "Fury/LuaBindings.h"
 #include "Fury/Material.h"
@@ -37,6 +38,8 @@
 #include "Fury/Texture.h"
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
+
+#include <rapidjson/document.h>
 
 #include <sol/sol.hpp>
 
@@ -78,6 +81,7 @@ namespace fury
 			"                 plus scene -> scene (.json <-> .bin)\n"
 			"  info           print a CPU-side summary of a scene or asset file\n"
 			"  exec           load a scene and run a Lua script against it (headless)\n"
+			"  kraut          generate and import Kraut trees (glb bridge, vegetation)\n"
 			"  render-mesh    render a specific mesh from a scene to a PNG (needs GL)\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
@@ -194,6 +198,36 @@ namespace fury
 			"\n"
 			"EXIT CODES: 0 success, 1 user error (bad args / file / Lua error),\n"
 			"2 internal error (uncaught C++ exception).\n";
+
+		constexpr const char *kKrautHelp =
+			"fury kraut -- generate and import Kraut trees (add-kraut-vegetation)\n"
+			"\n"
+			"USAGE\n"
+			"  fury kraut generate <descriptor.tree> [--seed N] [--out dir]\n"
+			"  fury kraut import   <tree.glb> [output.json|.bin]\n"
+			"\n"
+			"GENERATE\n"
+			"  Runs the vendored KrautCLI tool (next to the fury executable):\n"
+			"  exports <stem>.glb with per-LOD meshes (<stem>_LOD<n>), a billboard\n"
+			"  quad (<stem>_Billboard), COLOR_0 wind weights, PBR materials, and\n"
+			"  asset.extras.kraut metadata. Referenced textures are copied next to\n"
+			"  the glb (DDS references resolve to TGA/PNG siblings). KrautPreview\n"
+			"  then bakes <stem>_BillboardAtlas.png (cylindrical billboard atlas)\n"
+			"  and <stem>_tier<n>.png preview screenshots.\n"
+			"\n"
+			"  --seed N   override the descriptor's random seed (deterministic\n"
+			"             per descriptor+seed)\n"
+			"  --out dir  output directory (default: current directory)\n"
+			"\n"
+			"IMPORT\n"
+			"  Imports a Kraut-exported glb into an engine scene fragment\n"
+			"  (.json/.bin): the LOD chain (with extras' thresholds + billboard\n"
+			"  terminal tier), foliage materials (two-sided alpha-cut + wind), and\n"
+			"  a meters -> centimeters scale on the tree's root nodes.\n"
+			"  Default output: <tree>.bin next to the glb.\n"
+			"\n"
+			"EXIT CODES: 0 success, 1 user error (bad args / missing files),\n"
+			"2 internal error (tool or import failure).\n";
 
 		// Tiny RAII helper: swap Scene::Active to the provided scene on
 		// construction, restore the previous value on destruction. Used by
@@ -328,6 +362,7 @@ namespace fury
 			if (topic == "convert") { std::cout << kConvertHelp; return 0; }
 			if (topic == "info")    { std::cout << kInfoHelp;    return 0; }
 			if (topic == "exec")    { std::cout << kExecHelp;    return 0; }
+			if (topic == "kraut")   { std::cout << kKrautHelp;   return 0; }
 			if (topic == "version") { std::cout << kVersionHelp; return 0; }
 			std::cerr << "fury help: unknown topic '" << topic << "'\n\n" << kTopHelp;
 			return 1;
@@ -808,6 +843,192 @@ namespace fury
 			return rc;
 		}
 
+		// `fury kraut generate` -- KrautCLI glb export + texture copies +
+		// KrautPreview billboard atlas + per-LOD preview screenshots.
+		int DoKrautGenerate(int argc, char **argv)
+		{
+			if (argc < 4 || WantsHelp(argv[3]))
+			{
+				std::cout << kKrautHelp;
+				return argc < 4 ? 1 : 0;
+			}
+			const std::string descriptor = argv[3];
+
+			unsigned int seed = 0;
+			bool seedGiven = false;
+			std::string outDir = ".";
+			for (int i = 4; i < argc; ++i)
+			{
+				if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc)
+				{
+					seed = static_cast<unsigned int>(std::strtoul(argv[++i], nullptr, 10));
+					seedGiven = true;
+				}
+				else if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+				{
+					outDir = argv[++i];
+				}
+				else
+				{
+					std::cerr << "fury kraut generate: unknown argument '" << argv[i] << "'\n";
+					return 1;
+				}
+			}
+
+			{
+				std::error_code ec;
+				if (!std::filesystem::exists(descriptor, ec))
+				{
+					std::cerr << "fury kraut generate: descriptor '" << descriptor << "' does not exist\n";
+					return 1;
+				}
+				std::filesystem::create_directories(outDir, ec);
+			}
+
+			// 1. glb export (KrautCLI)
+			auto res = KrautConverter::ExportGlb(descriptor, seed, seedGiven, outDir);
+			if (res.exit_code == -1)
+			{
+				std::cerr << res.stderr_capture << "\n";
+				return 2;
+			}
+			if (!res.ok())
+			{
+				if (!res.stdout_capture.empty()) std::cerr << res.stdout_capture;
+				if (!res.stderr_capture.empty()) std::cerr << res.stderr_capture << "\n";
+				// tool exit 1/2 = bad input -> user error; 3/4 = generate/export failure
+				return res.exit_code <= 2 ? 1 : 2;
+			}
+			std::cout << "fury kraut generate: wrote " << res.output_path << "\n";
+
+			// Copy referenced textures next to the glb (the export's JSON
+			// summary lists uri + resolved source per texture).
+			const std::string glbDir = DirOf(res.output_path);
+			if (!res.stdout_capture.empty())
+			{
+				rapidjson::Document doc;
+				doc.Parse(res.stdout_capture.c_str());
+				if (!doc.HasParseError() && doc.IsObject() && doc.HasMember("textures") && doc["textures"].IsArray())
+				{
+					for (const auto &tex : doc["textures"].GetArray())
+					{
+						if (!tex.IsObject() || !tex.HasMember("uri") || !tex.HasMember("source"))
+							continue;
+						const std::string uri = tex["uri"].GetString();
+						const std::string src = tex["source"].GetString();
+						if (src.empty())
+						{
+							std::cerr << "fury kraut generate: warning: texture '" << uri
+								<< "' unresolved by KrautCLI (copy it manually next to the glb)\n";
+							continue;
+						}
+						const std::string dst = glbDir + "/" + uri;
+						std::error_code ec;
+						if (!std::filesystem::equivalent(src, dst, ec))
+							std::filesystem::copy_file(src, dst,
+								std::filesystem::copy_options::overwrite_existing, ec);
+						if (ec)
+							std::cerr << "fury kraut generate: warning: failed to copy texture "
+								<< src << " -> " << dst << ": " << ec.message() << "\n";
+						else
+							std::cout << "  texture: " << uri << "\n";
+					}
+				}
+			}
+
+			// 2. Billboard atlas (KrautPreview). Missing preview binary is
+			// non-fatal: the glb still imports (the billboard tier renders
+			// with a missing-texture warning until the atlas lands).
+			auto atlas = KrautConverter::BakeAtlas(descriptor, seed, seedGiven, glbDir, 8);
+			if (atlas.ok())
+				std::cout << "  atlas: " << atlas.output_path << "\n";
+			else if (!atlas.stderr_capture.empty())
+				std::cerr << "fury kraut generate: warning: " << atlas.stderr_capture << "\n";
+
+			// 3. Per-LOD preview screenshots (nicety; same non-fatal rule).
+			auto previews = KrautConverter::PreviewScreenshots(descriptor, seed, seedGiven, glbDir);
+			if (previews.ok())
+				std::cout << "  previews: " << previews.output_path << " (per-tier series)\n";
+
+			return 0;
+		}
+
+		// `fury kraut import` -- kraut glb -> engine scene fragment. The
+		// kraut postprocess (extras.kraut) runs inside GltfImporter::Import.
+		int DoKrautImport(int argc, char **argv)
+		{
+			if (argc < 4 || WantsHelp(argv[3]))
+			{
+				std::cout << kKrautHelp;
+				return argc < 4 ? 1 : 0;
+			}
+			const std::string input = argv[3];
+			std::string output;
+			for (int i = 4; i < argc; ++i)
+			{
+				if (argv[i][0] != '-' && output.empty())
+					output = argv[i];
+				else
+				{
+					std::cerr << "fury kraut import: unknown argument '" << argv[i] << "'\n";
+					return 1;
+				}
+			}
+			if (output.empty())
+				output = DirOf(input) + "/" + StemNoExt(input) + ".bin";
+			const std::string out_ext = ToLowerExt(output);
+
+			if (ToLowerExt(input) != ".glb")
+			{
+				std::cerr << "fury kraut import: input must be a .glb (KrautCLI export --format glb)\n";
+				return 1;
+			}
+			if (out_ext != ".bin" && out_ext != ".json")
+			{
+				std::cerr << "fury kraut import: output must end in .bin or .json\n";
+				return 1;
+			}
+			{
+				std::error_code ec;
+				if (!std::filesystem::exists(input, ec))
+				{
+					std::cerr << "fury kraut import: input '" << input << "' does not exist\n";
+					return 1;
+				}
+			}
+
+			Scene::Active = nullptr;
+			GltfImporter::Options opts;
+			// Vegetation targets the HDR/PBR pipeline: pull in the PBR
+			// material fields (metallic/roughness) on import.
+			opts.hdr_target = true;
+			auto scene = GltfImporter::Import(input, StemNoExt(input),
+				DirOf(input).empty() ? std::string{} : DirOf(input) + "/", opts);
+			if (!scene)
+			{
+				std::cerr << "fury kraut import: gltf import of '" << input << "' failed\n";
+				return 2;
+			}
+			Scene::Active = scene;
+			int rc = WriteSceneByExt(scene, output);
+			Scene::Active = nullptr;
+			return rc == 0 ? 0 : 2;
+		}
+
+		int DoKraut(int argc, char **argv)
+		{
+			if (argc < 3 || WantsHelp(argv[2]))
+			{
+				std::cout << kKrautHelp;
+				return argc < 3 ? 1 : 0;
+			}
+			const std::string verb = argv[2];
+			if (verb == "generate") return DoKrautGenerate(argc, argv);
+			if (verb == "import")   return DoKrautImport(argc, argv);
+			std::cerr << "fury kraut: unknown verb '" << verb << "' (expected generate|import)\n";
+			return 1;
+		}
+
 		int InfoEngineScene(const std::string &path, const std::string &ext)
 		{
 			std::error_code ec;
@@ -967,7 +1188,7 @@ namespace fury
 	{
 		if (!arg0) return false;
 		const char *tokens[] = {
-			"convert", "info", "exec", "help", "--help", "-h", "version", "--version", nullptr,
+			"convert", "info", "exec", "kraut", "help", "--help", "-h", "version", "--version", nullptr,
 		};
 		for (const char **t = tokens; *t; ++t)
 			if (std::strcmp(arg0, *t) == 0) return true;
@@ -1161,6 +1382,7 @@ namespace fury
 			if (sub == "convert")                                  return DoConvert(argc, argv);
 			if (sub == "info")                                     return DoInfo(argc, argv);
 			if (sub == "exec")                                     return DoExec(argc, argv);
+			if (sub == "kraut")                                    return DoKraut(argc, argv);
 			std::cerr << "fury: unknown subcommand '" << sub << "'\n\n" << kTopHelp;
 			return 1;
 		}

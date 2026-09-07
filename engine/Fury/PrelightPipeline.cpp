@@ -17,12 +17,15 @@
 #endif
 
 #include "Fury/Camera.h"
+#include "Fury/Engine.h"
 #include "Fury/Log.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/Frustum.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
+#include "Fury/InstancedMeshRender.h"
+#include "Fury/InstancedMeshStreamer.h"
 #include "Fury/Light.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Material.h"
@@ -51,10 +54,6 @@
 #include "Fury/Shader.h"
 #include "Fury/SphereBounds.h"
 #include "Fury/Texture.h"
-
-#if WITH_EDITOR
-#include "Fury/Editor/EditorDebug.h"
-#endif
 
 namespace fury
 {
@@ -138,6 +137,20 @@ namespace fury
 			query->Sort(m_CurrentCamera->GetWorldPosition());
 		}
 
+		// Per-instance frustum culling + HISM LOD bucketing for instanced
+		// components. Runs once per frame; the OPAQUE pass consumes the
+		// batches via DrawInstancedUnits.
+		if (!query->instancedNodes.empty())
+		{
+			FURY_ZONE_NAMED("InstancedCulling");
+			auto camFrustum = m_CurrentCamera->GetComponent<Camera>()->GetFrustum();
+			for (const auto &node : query->instancedNodes)
+			{
+				if (auto instanced = node->GetComponent<InstancedMeshRender>())
+					instanced->BuildVisibleBatches(camFrustum, m_CurrentCamera);
+			}
+		}
+
 		// draw passes
 
 		Texture::Ptr finalBuffer = nullptr;
@@ -185,6 +198,7 @@ namespace fury
 				pass->Bind();
 				for (const auto &unit : query->opaqueUnits)
 					DrawUnit(pass, unit);
+				DrawInstancedUnits(pass, query);
 			}
 			else if (drawMode == DrawMode::TRANSPARENT)
 			{
@@ -509,7 +523,9 @@ namespace fury
 		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
 			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS,
 			PipelineSwitch::EDITOR_GRID }, true) ||
-			(PhysicsWorld::Exists() && PhysicsWorld::Instance()->HasBuoyancyDebugDraw()))
+			(IsSwitchOn(PipelineSwitch::BUOYANCY_DEBUG) &&
+				PhysicsWorld::Exists() &&
+				!PhysicsWorld::Instance()->GetBuoyancies().empty()))
 		{
 			// When an offscreen RenderTarget is set, the final composite
 			// pass rendered into it (see Pass::Bind). The last pass's
@@ -580,6 +596,23 @@ namespace fury
 			if (active) mesh = active;
 		}
 
+		// Billboard terminal tier: drawn via the BILLBOARD variant
+		// (camera-facing quad + atlas cell selection in the VS). The
+		// unit's (subMesh, material) pair keys to LOD 0's submesh layout,
+		// which the quad doesn't share: draw the quad's submesh 0 with
+		// the mesh's billboard material, and only for the first unit
+		// (the other LOD-0 units would double-draw the quad).
+		auto baseMesh = render ? render->GetMesh() : mesh;
+		const bool billboard = render && baseMesh && baseMesh->IsLodBillboard(render->GetActiveLod());
+		if (billboard)
+		{
+			if (unit.subMesh > 0)
+				return;
+			if (auto bbMat = baseMesh->GetBillboardMaterial())
+				material = bbMat;
+		}
+		const int drawSubMesh = billboard ? 0 : unit.subMesh;
+
 		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
 
 		if (shader == nullptr)
@@ -596,16 +629,35 @@ namespace fury
 				if (auto light = lightNode->GetComponent<Light>())
 					if (light->GetCastShadows())
 						textureFlags |= (unsigned int)ShaderTexture::SHADOW;
-			shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
-				textureFlags);
+			// Vegetation variant bits from the material flags / LOD tier.
+			if (material->GetTwoSided())
+				textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
+			if (material->GetWindEnabled())
+				textureFlags |= (unsigned int)ShaderTexture::WIND;
+			if (billboard)
+				textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
+					(unsigned int)ShaderTexture::TWO_SIDED |
+					(unsigned int)ShaderTexture::ALPHA_TEST;
+			ShaderType shaderType = mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH;
+			shader = pass->GetShader(shaderType, textureFlags);
 
 			// Fall back in steps: first without the shadow bit, then
-			// without alpha-test (passes that never declare them).
+			// without wind (billboard/alpha combos stay intact), then
+			// without the vegetation bits, then without alpha-test.
+			// BILLBOARD is never dropped -- a billboard tier without its
+			// shader is skipped.
 			if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::SHADOW))
-				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
+				shader = pass->GetShader(shaderType,
 					textureFlags & ~(unsigned int)ShaderTexture::SHADOW);
 			if (shader == nullptr)
-				shader = pass->GetShader(mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH,
+				shader = pass->GetShader(shaderType,
+					textureFlags & ~(unsigned int)ShaderTexture::SHADOW & ~(unsigned int)ShaderTexture::WIND);
+			if (shader == nullptr)
+				shader = pass->GetShader(shaderType,
+					textureFlags & ~(unsigned int)ShaderTexture::SHADOW &
+						~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
+			if (shader == nullptr && !billboard)
+				shader = pass->GetShader(shaderType,
 					material->GetTextureFlags());
 		}
 
@@ -648,6 +700,17 @@ namespace fury
 			// material changes.)
 			shader->BindFloat("u_alpha_cutoff",
 				material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
+		}
+
+		// Wind sway uniforms. Bound per draw (u_time advances every
+		// frame); silent no-op on shaders without the WIND variant.
+		if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND)
+		{
+			shader->BindFloat("u_time", Engine::GetTime());
+			Vector4 windParams(1.0f, 0.0f, 1.0f, 1.0f);
+			if (Scene::Active && Scene::Active->GetRenderSettings())
+				windParams = Scene::Active->GetRenderSettings()->GetWindParams();
+			shader->BindFloat("u_wind_params", windParams.x, windParams.y, windParams.z, windParams.w);
 		}
 
 		// Forward transparent shading: u_light_type 0 = ambient/emissive
@@ -749,7 +812,8 @@ namespace fury
 		// so a "do nothing" here would leave the previous frame's green
 		// baked in. The shader's `lod_debug_color.a > 0.0` gate treats
 		// alpha = 0 as "no override" and passes the diffuse through.
-#if WITH_EDITOR
+		// WITH_DBG_OVERLAY: headless builds included; stripped in Shipping.
+#if WITH_DBG_OVERLAY
 		if (m_Switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
 		{
 			Color lodColor = GetLodDebugColor(render->GetActiveLod());
@@ -761,10 +825,19 @@ namespace fury
 		}
 #endif
 
+		// Two-sided materials (foliage) disable backface culling for this
+		// unit only; restored right after the draw so the pass's cull
+		// mode still governs the next unit.
+		const bool cullOff = material->GetTwoSided() || billboard;
+		if (cullOff)
+			glDisable(GL_CULL_FACE);
+
 		if (mesh->GetSubMeshCount() > 0)
 		{
-			auto subMesh = mesh->GetSubMeshAt(unit.subMesh);
-			shader->BindSubMesh(mesh, unit.subMesh);
+			auto subMesh = mesh->GetSubMeshAt(drawSubMesh);
+			if (subMesh == nullptr)
+				return;
+			shader->BindSubMesh(mesh, drawSubMesh);
 			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
@@ -776,6 +849,15 @@ namespace fury
 			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
 
+		if (cullOff)
+		{
+			if (pass->GetCullMode() != CullMode::NONE)
+			{
+				glEnable(GL_CULL_FACE);
+				glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
+			}
+		}
+
 		//shader->UnBind();
 
 		// TODO: Maybe subMeshCount ?
@@ -785,6 +867,124 @@ namespace fury
 			RenderUtil::Instance()->IncreaseMeshCount();
 
 		RenderUtil::Instance()->IncreaseDrawCall();
+	}
+
+	void PrelightPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query)
+	{
+		if (query->instancedNodes.empty())
+			return;
+
+		const bool useSSBO = InstancedMeshStreamer::Get().UseSSBO();
+		auto &streamer = InstancedMeshStreamer::Get();
+
+		for (const auto &node : query->instancedNodes)
+		{
+			auto instanced = node->GetComponent<InstancedMeshRender>();
+			if (instanced == nullptr || !instanced->GetRenderable())
+				continue;
+			auto baseMesh = instanced->GetMesh();
+			if (baseMesh == nullptr)
+				continue;
+
+			for (const auto &batch : instanced->GetBatches())
+			{
+				auto tierMesh = baseMesh->GetLodMesh(batch.LodTier);
+				if (tierMesh == nullptr || batch.WorldMatrices.empty())
+					continue;
+
+				const unsigned int subCount = tierMesh->GetSubMeshCount();
+				const unsigned int drawSlots = subCount > 0 ? subCount : 1;
+				for (unsigned int sm = 0; sm < drawSlots; ++sm)
+				{
+					auto material = instanced->GetMaterial(subCount > 0 ? sm : 0);
+					// Billboard bucket: the quad's material comes from the
+					// mesh (the component's slots key to LOD 0's submeshes).
+					if (batch.Billboard)
+						if (auto bbMat = baseMesh->GetBillboardMaterial())
+							material = bbMat;
+					if (material == nullptr)
+						continue;
+
+					unsigned int textureFlags = material->GetTextureFlags();
+					if (material->GetAlphaMode() == AlphaMode::MASK)
+						textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
+					if (material->GetTwoSided())
+						textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
+					if (material->GetWindEnabled())
+						textureFlags |= (unsigned int)ShaderTexture::WIND;
+					if (batch.Billboard)
+						textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
+							(unsigned int)ShaderTexture::TWO_SIDED |
+							(unsigned int)ShaderTexture::ALPHA_TEST;
+					textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
+					if (useSSBO)
+						textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
+
+					// Fallback order: drop the SSBO bit (divisor variant of
+					// the same shader), then wind, then the remaining
+					// vegetation bits. INSTANCED is never dropped -- a
+					// non-instanced shader would draw the whole batch at
+					// one transform.
+					auto shader = pass->GetShader(ShaderType::STATIC_MESH, textureFlags);
+					if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::INSTANCE_SSBO))
+						shader = pass->GetShader(ShaderType::STATIC_MESH,
+							textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO);
+					if (shader == nullptr)
+						shader = pass->GetShader(ShaderType::STATIC_MESH,
+							textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO & ~(unsigned int)ShaderTexture::WIND);
+					if (shader == nullptr)
+						shader = pass->GetShader(ShaderType::STATIC_MESH,
+							textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO &
+								~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
+					if (shader == nullptr)
+					{
+						FURYW << "Failed to draw instanced " << node->GetName() << ", shader not found!";
+						continue;
+					}
+
+					shader->Bind();
+					shader->BindCamera(m_CurrentCamera);
+					shader->BindMaterial(material);
+					shader->BindFloat("u_alpha_cutoff",
+						material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
+
+					if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND)
+					{
+						shader->BindFloat("u_time", Engine::GetTime());
+						Vector4 windParams(1.0f, 0.0f, 1.0f, 1.0f);
+						if (Scene::Active && Scene::Active->GetRenderSettings())
+							windParams = Scene::Active->GetRenderSettings()->GetWindParams();
+						shader->BindFloat("u_wind_params", windParams.x, windParams.y, windParams.z, windParams.w);
+					}
+
+#if WITH_DBG_OVERLAY
+					// LOD debug tint per tier (billboard tier gets its own
+					// palette slot via its tier index).
+					if (m_Switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
+					{
+						Color lodColor = GetLodDebugColor(batch.LodTier);
+						shader->BindFloat("lod_debug_color", lodColor.r, lodColor.g, lodColor.b, lodColor.a);
+					}
+					else
+					{
+						shader->BindFloat("lod_debug_color", 0.0f, 0.0f, 0.0f, 0.0f);
+					}
+#endif
+
+					const bool cullOff = material->GetTwoSided() || batch.Billboard;
+					if (cullOff)
+						glDisable(GL_CULL_FACE);
+
+					streamer.DrawInstanced(shader, tierMesh, subCount > 0 ? (int)sm : -1, batch.WorldMatrices);
+
+					if (cullOff && pass->GetCullMode() != CullMode::NONE)
+					{
+						glEnable(GL_CULL_FACE);
+						glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
+					}
+				}
+			}
+		}
 	}
 
 	void PrelightPipeline::DrawPointLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)

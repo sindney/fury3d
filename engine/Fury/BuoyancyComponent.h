@@ -69,9 +69,6 @@ namespace fury
 		const std::string &GetOceanNodeName() const { return m_OceanNodeName; }
 		void SetOceanNodeName(const std::string &name);
 
-		bool GetDebugDraw() const { return m_DebugDraw; }
-		void SetDebugDraw(bool v) { m_DebugDraw = v; }
-
 		// PhysicsWorld::TickFixed hook (pre-step). No-op without a live
 		// body / ocean, or with zero float points.
 		void TickBuoyancy(float fixedDt);
@@ -103,8 +100,6 @@ namespace fury
 		float m_RightingStrength = 0.0f;
 
 		std::string m_OceanNodeName = "Ocean";
-
-		bool m_DebugDraw = false;
 
 		// transient
 		std::weak_ptr<OceanComponent> m_Ocean;

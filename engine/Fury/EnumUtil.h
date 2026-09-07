@@ -169,7 +169,18 @@ namespace fury
 		ALPHA_TEST = 0x0010,
 		// Shadow-receive variant bit ("shadow" + SHADOW define) -- set
 		// per-draw when the light casts shadows, not by the material.
-		SHADOW = 0x0020
+		SHADOW = 0x0020,
+		// Material::m_TwoSided -- cull off + back-face normal flip.
+		TWO_SIDED = 0x0040,
+		// Material::m_WindEnabled -- vertex-color-weighted sway (VS).
+		WIND = 0x0080,
+		// Mesh::IsLodBillboard tier -- camera-facing quad + atlas cell.
+		BILLBOARD = 0x0100,
+		// Instanced draw -- world matrix from the instance stream.
+		INSTANCED = 0x0200,
+		// INSTANCED sub-variant: read instances from SSBO (GL 4.3+)
+		// instead of divisor attributes.
+		INSTANCE_SSBO = 0x0400
 	};
 
 	enum class LineMode : unsigned int

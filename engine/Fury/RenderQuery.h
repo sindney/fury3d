@@ -56,6 +56,11 @@ namespace fury
 
 		std::vector<std::shared_ptr<SceneNode>> lightNodes;
 
+		// InstancedMeshRender nodes, drawn as instanced units (separate
+		// from opaqueUnits so the per-mesh path is untouched when no
+		// instancing components exist).
+		std::vector<std::shared_ptr<SceneNode>> instancedNodes;
+
 		void AddRenderable(const std::shared_ptr<SceneNode> &node);
 
 		void AddParticle(const std::shared_ptr<SceneNode> &node);
@@ -63,6 +68,8 @@ namespace fury
 		void AddOcean(const std::shared_ptr<SceneNode> &node);
 
 		void AddLight(const std::shared_ptr<SceneNode> &node);
+
+		void AddInstanced(const std::shared_ptr<SceneNode> &node);
 
 		void Sort(Vector4 camPos);
 
