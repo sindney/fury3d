@@ -29,6 +29,12 @@ Fury3D 是一个使用 C++17 与 OpenGL 编写的跨平台 3D 渲染引擎，附
 * **级联阴影贴图**（太阳光）+ 标准的聚光、点光阴影贴图。
 * **OcTree 空间索引** — 默认立方体自动扩张，Profiler 中带 Spatial 面板。
 * **LZ4 压缩的场景格式**（`.bin`）— 编辑器默认保存格式；`.json` 也可用，便于人工阅读调试。
+* **Tracy 性能分析**（CPU 区段，可选 OpenGL GPU 区段，基于 timer query）— 支持在线采样或通过 `tracy-capture` 离线采集；与引擎逐帧 packet 集成。已 vendor；通过 `FURY_WITH_TRACY[_GPU]` 开关。
+* **渲染线程** — 单独的 GL 线程从游戏线程拉取 `FramePacket` 快照；绘制命令缓存对相同 packet 去重，整帧直接跳过。
+* **Kraut 植被** — vendor 的 `kraut`（已 pin 的 fork）提供 billboard-atlas 树 + ISM/HISM 实例化；草地从高度图 / splat 蒙板自动生成；编辑器带实例列表与 LOD 分桶叠层。
+* **大气天空** — Rayleigh + Mie 单次散射，太阳方向驱动；着色器内含深度雾与地平线融合。
+* **高度图地形** — 16 位 `.r16` 高度场，分块 LOD + splat 混合着色器；CPU 驱动的物理高度场碰撞体。
+* **FFT 海洋** — 环形 LOD 无穷海洋 + CPU 驱动的 FFT 波浪采样（Gerstner 波带），天空耦合的泡沫，通过 SSR 实现反射。
 
 ## 截图
 
@@ -190,3 +196,5 @@ cd examples
 * [nativefiledialog-extended](https://github.com/samhocevar/nativefiledialog) — 跨平台文件对话框
 * [RenderDoc](https://github.com/baldurk/renderdoc) — OpenGL 调试工具
 * [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) - 示例资源
+* [Kraut-CLI](https://github.com/sindney/Kraut-CLI) — billboard-atlas 植被生成（Kraut-CLI fork）
+* [Tracy](https://github.com/wolfpld/tracy) — 实时 CPU / GPU 性能分析器

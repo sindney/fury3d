@@ -29,6 +29,12 @@ Works on Windows and macOS. Designed for study — the editor, importers, and sh
 * **Cascaded shadow maps** for the sun, plus standard spot/point shadow maps.
 * **OcTree spatial** with default-cube auto-wrap and Profiler Spatial section.
 * **LZ4-compressed scene format** (`.bin`) — the editor's default save form; `.json` available for human-readable debugging.
+* **Tracy profiler** (CPU zones, optional OpenGL GPU zones via timer queries) — sample live or via `tracy-capture`; integrates with the engine's per-frame packet. Vendored; gated by `FURY_WITH_TRACY[_GPU]`.
+* **Render thread** — a dedicated GL thread pulls `FramePacket` snapshots off the game thread; draw-command cache deduplicates identical packets to skip the entire frame.
+* **Kraut vegetation** — vendor of `kraut` (pinned fork) for billboard-atlas trees + ISM/HISM instancing; grass layer generated from heightmap/splat gates; editor clipper instance list + LOD bucket overlay.
+* **Atmospheric sky** — Rayleigh + Mie single-scattering with sun direction; depth fog and horizon blend driven by the sky shader.
+* **Heightmap terrain** — 16-bit `.r16` height fields with chunk LOD + splat-blend shader; CPU-driven physics heightfield collider.
+* **FFT ocean** — tiled ring-LOD infinite ocean + CPU-driven FFT wave sampling (Gerstner bands), sky-coupled foam, reflection-via-SSR.
 
 ## Screenshots
 
@@ -190,3 +196,5 @@ Run `./fury help <subcommand>` for full flags; see `docs/CLI.md` for the referen
 * [nativefiledialog-extended](https://github.com/samhocevar/nativefiledialog) — cross-platform file dialogs
 * [RenderDoc](https://github.com/baldurk/renderdoc) — OpenGL debugging
 * [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) - Sample assets
+* [Kraut](https://github.com/sindney/Kraut-CLI) — billboard-atlas vegetation pipeline (Kraut-CLI fork)
+* [Tracy](https://github.com/wolfpld/tracy) — real-time CPU/GPU profiler
