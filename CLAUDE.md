@@ -23,4 +23,3 @@ Write code as if it was always correct, then stop.
 - **OpenSpec:** changes live in `openspec/changes/<name>/` with `proposal.md`, `design.md`, `specs/`, `tasks.md`. Use `openspec status --change <name> --json` and `openspec instructions apply --change <name> --json` to drive `/opsx:apply`.
 - **Tests:** `tests/lua/*.lua` invoked headlessly via `./fury exec <scene> <script.lua>` from `examples/`.
 - **Build dirs:** `build/` (normal), `build-asan/` (AddressSanitizer). Don't ship binaries from these — `examples/fury` and `examples/furye` are the outputs.
-- **Memory:** auto-memory at `~/.claude/projects/-Users-sindney-Documents-git-furyengine-fury3d/memory/` persists across sessions. Add a new fact there only when it's not derivable from code/git.
