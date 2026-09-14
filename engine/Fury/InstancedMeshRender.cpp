@@ -297,6 +297,43 @@ namespace fury
 		return BoxBounds(mn, mx);
 	}
 
+	std::shared_ptr<const InstancedRenderCaches> InstancedMeshRender::SnapshotRenderCaches()
+	{
+		auto mesh = m_Mesh.lock();
+		auto owner = m_Owner.lock();
+		if (!mesh || !owner || m_Instances.empty())
+			return nullptr;
+
+		const Matrix4 &nodeWorld = owner->GetWorldMatrix();
+
+		// Rebuild the published snapshot only when instances were edited
+		// or the owner node moved; the packet then just shares it.
+		bool stale = m_MatrixCacheDirty || m_ShadowMatricesDirty ||
+			!m_PublishedCaches ||
+			m_PublishedCaches->worlds.size() != m_Instances.size() ||
+			std::memcmp(m_CacheNodeWorld.Raw, nodeWorld.Raw, sizeof(float) * 16) != 0;
+		if (!stale)
+			return m_PublishedCaches;
+
+		m_MatrixCacheDirty = false;
+		m_ShadowMatricesDirty = false;
+		m_CacheNodeWorld = nodeWorld;
+		m_ShadowMatrices.clear();   // legacy member: shadow draws read caches now
+
+		auto caches = std::make_shared<InstancedRenderCaches>();
+		caches->worlds.resize(m_Instances.size());
+		caches->aabbs.resize(m_Instances.size());
+		const BoxBounds &meshAabb = mesh->GetAABB();
+		for (size_t i = 0; i < m_Instances.size(); ++i)
+		{
+			Matrix4 worldMat = nodeWorld * ComposeLocalMatrix(m_Instances[i]);
+			caches->worlds[i] = worldMat;
+			caches->aabbs[i] = worldMat.Multiply(meshAabb);
+		}
+		m_PublishedCaches = caches;
+		return caches;
+	}
+
 	void InstancedMeshRender::BuildVisibleBatches(const Frustum &frustum, const std::shared_ptr<SceneNode> &cameraNode)
 	{
 		m_Batches.clear();
@@ -305,47 +342,53 @@ namespace fury
 		if (!mesh || !owner || m_Instances.empty())
 			return;
 
-		const Matrix4 &nodeWorld = owner->GetWorldMatrix();
-		const BoxBounds &meshAabb = mesh->GetAABB();
-		const unsigned int lodCount = mesh->GetLodCount();
+		PacketInstanced pk;
+		pk.mesh = mesh;
+		for (unsigned int i = 0; i < GetMaterialCount(); ++i)
+			pk.materials.push_back(GetMaterial(i));
+		pk.castShadows = m_CastShadows;
+		pk.cullDistance = m_CullDistance;
+		pk.hierarchical = m_Hierarchical;
+		pk.shadowLodTier = GetShadowLodTier();
+		pk.aggregateAABB = owner->GetWorldAABB();
+		pk.caches = SnapshotRenderCaches();
+		if (!pk.caches)
+			return;
 
-		// Rebuild the world matrix/AABB cache only when instances were
-		// edited or the owner node moved -- the per-frame path below is
-		// then just a frustum test + coverage eval per instance.
-		bool cacheStale = m_MatrixCacheDirty ||
-			m_WorldMatrixCache.size() != m_Instances.size() ||
-			std::memcmp(m_CacheNodeWorld.Raw, nodeWorld.Raw, sizeof(float) * 16) != 0;
-		if (cacheStale)
-		{
-			m_MatrixCacheDirty = false;
-			m_CacheNodeWorld = nodeWorld;
-			m_WorldMatrixCache.resize(m_Instances.size());
-			m_WorldAABBCache.resize(m_Instances.size());
-			for (size_t i = 0; i < m_Instances.size(); ++i)
-			{
-				Matrix4 worldMat = nodeWorld * ComposeLocalMatrix(m_Instances[i]);
-				m_WorldMatrixCache[i] = worldMat;
-				m_WorldAABBCache[i] = worldMat.Multiply(meshAabb);
-			}
-		}
+		BuildInstancedBatches(pk, frustum, BuildPacketCamera(cameraNode), m_Batches);
+	}
+
+	// Per-instance cull + LOD bucket over packet data (render thread).
+	void BuildInstancedBatches(const PacketInstanced &pk, const Frustum &frustum,
+		const PacketCamera &cam, std::vector<InstanceBatch> &outBatches)
+	{
+		outBatches.clear();
+		auto mesh = pk.mesh;
+		if (!mesh || !pk.caches || pk.caches->worlds.empty())
+			return;
+
+		const unsigned int lodCount = mesh->GetLodCount();
 
 		// ISM mode picks one tier for the whole component from the
 		// aggregate bounds; HISM buckets per instance below.
 		unsigned int ismTier = 0;
-		if (!m_Hierarchical)
+		if (!pk.hierarchical)
 		{
-			float coverage = MeshRender::ComputeCoverageForBounds(owner->GetWorldAABB(), cameraNode);
+			float coverage = MeshRender::ComputeCoverageForBounds(pk.aggregateAABB,
+				cam.invertWorldMatrix, cam.fov);
 			ismTier = MeshRender::PickLodForCoverage(*mesh, coverage);
 			if (ismTier >= lodCount) ismTier = lodCount - 1;
 		}
 
 		std::unordered_map<unsigned int, unsigned int> tierToBatch;
-		const bool hasCullDist = m_CullDistance > 0.0f;
-		const float cullDistSq = m_CullDistance * m_CullDistance;
-		const Vector4 camPos = cameraNode ? cameraNode->GetWorldPosition() : Vector4(0.0f, 0.0f, 0.0f);
-		for (size_t i = 0; i < m_Instances.size(); ++i)
+		const bool hasCullDist = pk.cullDistance > 0.0f;
+		const float cullDistSq = pk.cullDistance * pk.cullDistance;
+		const Vector4 camPos = cam.worldPos;
+		const auto &worlds = pk.caches->worlds;
+		const auto &aabbs = pk.caches->aabbs;
+		for (size_t i = 0; i < worlds.size(); ++i)
 		{
-			const Matrix4 &worldMat = m_WorldMatrixCache[i];
+			const Matrix4 &worldMat = worlds[i];
 			const Vector4 worldPos(worldMat.Raw[12], worldMat.Raw[13], worldMat.Raw[14]);
 			// Draw-distance cap first (cheap). The cap is jittered per
 			// instance (same position hash as the LOD dither) so the kill
@@ -358,14 +401,15 @@ namespace fury
 					continue;
 			}
 
-			const BoxBounds &worldBox = m_WorldAABBCache[i];
+			const BoxBounds &worldBox = aabbs[i];
 			if (!frustum.IsInsideFast(worldBox))
 				continue;
 
 			unsigned int tier = ismTier;
-			if (m_Hierarchical)
+			if (pk.hierarchical)
 			{
-				float coverage = MeshRender::ComputeCoverageForBounds(worldBox, cameraNode);
+				float coverage = MeshRender::ComputeCoverageForBounds(worldBox,
+					cam.invertWorldMatrix, cam.fov);
 				// dithered transitions: each instance swaps tiers at a
 				// slightly different distance (no double draws, no pop)
 				coverage *= MeshRender::ComputeLodJitter(worldPos);
@@ -378,13 +422,13 @@ namespace fury
 				InstanceBatch batch;
 				batch.LodTier = tier;
 				batch.Billboard = mesh->IsLodBillboard(tier);
-				m_Batches.push_back(std::move(batch));
-				it = tierToBatch.emplace(tier, static_cast<unsigned int>(m_Batches.size()) - 1).first;
+				outBatches.push_back(std::move(batch));
+				it = tierToBatch.emplace(tier, static_cast<unsigned int>(outBatches.size()) - 1).first;
 			}
-			m_Batches[it->second].WorldMatrices.push_back(m_WorldMatrixCache[i]);
+			outBatches[it->second].WorldMatrices.push_back(worldMat);
 		}
 
-		std::sort(m_Batches.begin(), m_Batches.end(),
+		std::sort(outBatches.begin(), outBatches.end(),
 			[](const InstanceBatch &a, const InstanceBatch &b) { return a.LodTier < b.LodTier; });
 	}
 

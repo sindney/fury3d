@@ -15,10 +15,14 @@ namespace fury
 
 	class SceneNode;
 
+	struct PacketCamera;
+
+	struct PacketLight;
+
 	class Texture;
 
 	// always bind shader first. then material and meshes.
-	class FURY_API Shader : public Entity
+	class FURY_API Shader : public Entity, public std::enable_shared_from_this<Shader>
 	{
 	public:
 
@@ -94,7 +98,13 @@ namespace fury
 
 		void BindCamera(const std::shared_ptr<SceneNode> &camNode);
 
+		// Packet variants (render-thread path): same uniforms from copied
+		// frame data instead of live nodes.
+		void BindCameraData(const PacketCamera &cam);
+
 		void BindLight(const std::shared_ptr<SceneNode> &lightNode);
+
+		void BindLightData(const PacketLight &light);
 
 		// bind texture to 1st texture
 		void BindTexture(const std::shared_ptr<Texture> &texture);
@@ -109,6 +119,10 @@ namespace fury
 		void BindMaterial(const std::shared_ptr<Material> &material);
 
 		void BindMesh(const std::shared_ptr<Mesh> &mesh);
+
+		// palette != nullptr: bind those joint matrices instead of reading
+		// the mesh's live Joint objects (render-thread path).
+		void BindMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 *palette, int paletteCount);
 
 		void BindSubMesh(const std::shared_ptr<Mesh> &mesh, unsigned int index);
 
@@ -156,7 +170,26 @@ namespace fury
 
 		void BindMeshData(const std::shared_ptr<Mesh> &mesh);
 
+		// palette != nullptr: bind those joint matrices instead of reading
+		// the mesh's live Joint objects (render-thread path).
+		void BindMeshData(const std::shared_ptr<Mesh> &mesh, const Matrix4 *palette, int paletteCount);
+
+	public:
+
 		int GetUniformLocation(const std::string &name) const;
+
+		// Location-cached binds for the draw-command cache replay.
+		void BindFloatLocation(int location, float x);
+		void BindFloatLocation(int location, float x, float y);
+		void BindFloatLocation(int location, float x, float y, float z);
+		void BindFloatLocation(int location, float x, float y, float z, float w);
+		void BindIntLocation(int location, int x);
+		void BindMatrixLocation(int location, const float *matrix);
+		void BindMatricesLocation(int location, int count, const float *matrices);
+		// glActiveTexture(GL_TEXTURE0 + unitOffset) + bind + sampler uniform;
+		// returns the next unit offset.
+		int BindTextureAt(int unitOffset, int location, const std::shared_ptr<Texture> &texture);
+		void SetTextureUnitCursor(int unitOffset);
 
 		void GetVersionInfo(const std::string &source, std::string &versionStr, std::string &mainStr);
 

@@ -56,6 +56,7 @@
 #include "Fury/PrelightPipeline.h"
 #include "Fury/Quaternion.h"
 #include "Fury/RenderUtil.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
@@ -2250,6 +2251,12 @@ namespace fury
 					sol::object tracy = o["tracy"];
 					if (tracy.valid() && tracy.get_type() == sol::type::boolean)
 						Engine::SetTracyEnabled(tracy.as<bool>());
+					// render_thread = false forces the synchronous render
+					// path (debug). Resolution order lives in
+					// RenderThread::ResolveEnabled.
+					sol::object rt = o["render_thread"];
+					if (rt.valid() && rt.get_type() == sol::type::boolean)
+						opts.render_thread = rt.as<bool>() ? 1 : 0;
 				}
 
 				// Layer launcher-supplied options over the script's. Launcher
@@ -2270,6 +2277,11 @@ namespace fury
 					opts.screenshot_frame = s_launcher_options->screenshot_frame;
 					opts.exit_code_out = &s_launcher_options->exit_code;
 				}
+
+				// CLI --render-thread=0|1 wins over env and lua (resolution
+				// order in RenderThread::ResolveEnabled).
+				if (s_launcher_options && s_launcher_options->render_thread != -1)
+					RenderThread::SetCommandLineOverride(s_launcher_options->render_thread);
 
 				Engine::Run(*window, cb, opts);
 

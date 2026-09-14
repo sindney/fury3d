@@ -3,10 +3,12 @@
 #include <cmath>
 #include <cstdlib>
 #include <functional>
+#include <mutex>
 
 #include "Fury/Engine.h"
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
+#include "Fury/FramePacket.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
@@ -25,6 +27,10 @@ namespace fury
 	namespace
 	{
 		std::weak_ptr<SkyAtmosphere> s_ActiveSky;
+
+		// Guards sky LUT texture publishes: EnsureResources runs on the GL
+		// thread, SnapshotRenderTextures reads on the game thread.
+		std::mutex s_SkyResourceMutex;
 
 		const char* kShaderDir = "Resource/Shader/Atmosphere/";
 
@@ -46,7 +52,7 @@ namespace fury
 			tex->CreateFromImage(path, srgb, true);
 			// a failed load must not come back as a live object: binding a
 			// dirty texture silently aliases the sampler to unit 0's texture
-			if (tex->GetID() == 0)
+			if (!tex->IsContentValid())
 				return nullptr;
 			if (em)
 				em->Add(tex);
@@ -436,24 +442,24 @@ namespace fury
 		return found;
 	}
 
-	void SkyAtmosphere::BindAtmosphereUniforms(const std::shared_ptr<Shader> &shader) const
+	void SkyAtmosphere::BindAtmosphereUniforms(const std::shared_ptr<Shader> &shader, const SkyParams &params) const
 	{
-		shader->BindFloat("u_bottom_radius", m_BottomRadiusKm);
-		shader->BindFloat("u_top_radius", m_TopRadiusKm);
-		shader->BindFloat("u_rayleigh_scat", m_RayleighScat.x, m_RayleighScat.y, m_RayleighScat.z);
-		shader->BindFloat("u_rayleigh_density_exp_scale", m_RayleighExpScale);
-		shader->BindFloat("u_mie_scat", m_MieScat);
-		shader->BindFloat("u_mie_ext", m_MieExt);
-		shader->BindFloat("u_mie_density_exp_scale", m_MieExpScale);
-		shader->BindFloat("u_mie_g", m_MieG);
-		shader->BindFloat("u_ozone_ext", m_OzoneExt.x, m_OzoneExt.y, m_OzoneExt.z);
-		shader->BindFloat("u_ozone_center_km", m_OzoneCenterKm);
-		shader->BindFloat("u_ozone_width_km", m_OzoneWidthKm);
-		shader->BindFloat("u_ground_albedo", m_GroundAlbedo.x, m_GroundAlbedo.y, m_GroundAlbedo.z);
-		shader->BindFloat("u_sun_dir", m_SunDir.x, m_SunDir.y, m_SunDir.z);
-		shader->BindFloat("u_sun_color", m_SunColor.r, m_SunColor.g, m_SunColor.b);
-		shader->BindFloat("u_sun_intensity", m_SunIntensitySky);
-		shader->BindFloat("u_view_height", m_ViewHeightKm);
+		shader->BindFloat("u_bottom_radius", params.bottomRadiusKm);
+		shader->BindFloat("u_top_radius", params.topRadiusKm);
+		shader->BindFloat("u_rayleigh_scat", params.rayleighScat.x, params.rayleighScat.y, params.rayleighScat.z);
+		shader->BindFloat("u_rayleigh_density_exp_scale", params.rayleighExpScale);
+		shader->BindFloat("u_mie_scat", params.mieScat);
+		shader->BindFloat("u_mie_ext", params.mieExt);
+		shader->BindFloat("u_mie_density_exp_scale", params.mieExpScale);
+		shader->BindFloat("u_mie_g", params.mieG);
+		shader->BindFloat("u_ozone_ext", params.ozoneExt.x, params.ozoneExt.y, params.ozoneExt.z);
+		shader->BindFloat("u_ozone_center_km", params.ozoneCenterKm);
+		shader->BindFloat("u_ozone_width_km", params.ozoneWidthKm);
+		shader->BindFloat("u_ground_albedo", params.groundAlbedo.x, params.groundAlbedo.y, params.groundAlbedo.z);
+		shader->BindFloat("u_sun_dir", params.sunDir.x, params.sunDir.y, params.sunDir.z);
+		shader->BindFloat("u_sun_color", params.sunColor.r, params.sunColor.g, params.sunColor.b);
+		shader->BindFloat("u_sun_intensity", params.sunIntensitySky);
+		shader->BindFloat("u_view_height", params.viewHeightKm);
 	}
 
 	bool SkyAtmosphere::EnsureResources()
@@ -462,6 +468,10 @@ namespace fury
 			return true;
 		if (_ptrc_glGenTextures == nullptr)
 			return false;   // headless (fury exec): no GL
+
+		// Members are published under the mutex: the game thread copies
+		// them into frame packets while this runs on the GL thread.
+		std::lock_guard<std::mutex> resourceLock(s_SkyResourceMutex);
 
 		auto makeLut = [](const char* name, int w, int h, int d, TextureType type)
 		{
@@ -534,39 +544,39 @@ namespace fury
 		pass->UnBind();
 	}
 
-	void SkyAtmosphere::RenderTransmittanceLut()
+	void SkyAtmosphere::RenderTransmittanceLut(const SkyParams &params)
 	{
 		m_TransmittanceShader->Bind();
-		BindAtmosphereUniforms(m_TransmittanceShader);
+		BindAtmosphereUniforms(m_TransmittanceShader, params);
 		DrawLutQuad(m_TransmittancePass, m_TransmittanceShader);
 		m_TransmittanceShader->UnBind();
 	}
 
-	void SkyAtmosphere::RenderMultiScatterLut()
+	void SkyAtmosphere::RenderMultiScatterLut(const SkyParams &params)
 	{
 		m_MultiScatterShader->Bind();
-		BindAtmosphereUniforms(m_MultiScatterShader);
+		BindAtmosphereUniforms(m_MultiScatterShader, params);
 		m_MultiScatterShader->BindTexture("u_transmittance_lut", m_TransmittanceLut);
 		DrawLutQuad(m_MultiScatterPass, m_MultiScatterShader);
 		m_MultiScatterShader->UnBind();
 	}
 
-	void SkyAtmosphere::RenderSkyViewLut()
+	void SkyAtmosphere::RenderSkyViewLut(const SkyParams &params)
 	{
 		m_SkyViewShader->Bind();
-		BindAtmosphereUniforms(m_SkyViewShader);
+		BindAtmosphereUniforms(m_SkyViewShader, params);
 		m_SkyViewShader->BindTexture("u_transmittance_lut", m_TransmittanceLut);
 		m_SkyViewShader->BindTexture("u_multiscatter_lut", m_MultiScatterLut);
 		DrawLutQuad(m_SkyViewPass, m_SkyViewShader);
 		m_SkyViewShader->UnBind();
 	}
 
-	void SkyAtmosphere::RenderCameraVolume(const std::shared_ptr<SceneNode> &camNode)
+	void SkyAtmosphere::RenderCameraVolume(const SkyParams &params, const PacketCamera &cam)
 	{
 		m_CameraVolumePass->Bind();
 		m_CameraVolumeShader->Bind();
-		m_CameraVolumeShader->BindCamera(camNode);
-		BindAtmosphereUniforms(m_CameraVolumeShader);
+		m_CameraVolumeShader->BindCameraData(cam);
+		BindAtmosphereUniforms(m_CameraVolumeShader, params);
 		m_CameraVolumeShader->BindTexture("u_transmittance_lut", m_TransmittanceLut);
 		m_CameraVolumeShader->BindTexture("u_multiscatter_lut", m_MultiScatterLut);
 
@@ -582,63 +592,121 @@ namespace fury
 		m_CameraVolumePass->UnBind();
 	}
 
-	void SkyAtmosphere::RenderCloudTarget(const std::shared_ptr<SceneNode> &camNode)
+	void SkyAtmosphere::RenderCloudTarget(const SkyParams &params, const PacketCamera &cam)
 	{
 		m_CloudShader->Bind();
-		BindAtmosphereUniforms(m_CloudShader);
-		m_CloudShader->BindCamera(camNode);
+		BindAtmosphereUniforms(m_CloudShader, params);
+		m_CloudShader->BindCameraData(cam);
 		m_CloudShader->BindTexture("u_transmittance_lut", m_TransmittanceLut);
 		m_CloudShader->BindTexture("u_cloud_noise",
 			m_CloudNoise ? m_CloudNoise : GetDummyTexture2D());
-		m_CloudShader->BindFloat("u_cloud_coverage", m_CloudCoverage);
-		m_CloudShader->BindFloat("u_cloud_alt_km", m_CloudAltKm);
-		m_CloudShader->BindFloat("u_cloud_thick_km", m_CloudThickKm);
-		m_CloudShader->BindFloat("u_cloud_scale", m_CloudScale);
-		m_CloudShader->BindFloat("u_cloud_density", m_CloudDensity);
-		m_CloudShader->BindFloat("u_wind_offset_km", m_WindOffsetKm.x, m_WindOffsetKm.y);
-		m_CloudShader->BindFloat("u_daylight", m_Daylight);
-		m_CloudShader->BindFloat("u_cloud_fade_km", m_CloudFadeKm);
+		m_CloudShader->BindFloat("u_cloud_coverage", params.cloudCoverage);
+		m_CloudShader->BindFloat("u_cloud_alt_km", params.cloudAltKm);
+		m_CloudShader->BindFloat("u_cloud_thick_km", params.cloudThickKm);
+		m_CloudShader->BindFloat("u_cloud_scale", params.cloudScale);
+		m_CloudShader->BindFloat("u_cloud_density", params.cloudDensity);
+		m_CloudShader->BindFloat("u_wind_offset_km", params.windOffsetKm.x, params.windOffsetKm.y);
+		m_CloudShader->BindFloat("u_daylight", params.daylight);
+		m_CloudShader->BindFloat("u_cloud_fade_km", params.cloudFadeKm);
 		DrawLutQuad(m_CloudPass, m_CloudShader);
 		m_CloudShader->UnBind();
 	}
 
-	void SkyAtmosphere::EnsureLuts(const std::shared_ptr<SceneNode> &camNode)
+	SkyParams SkyAtmosphere::SnapshotParams() const
+	{
+		SkyParams p;
+		p.enabled = m_Enabled;
+		p.bottomRadiusKm = m_BottomRadiusKm;
+		p.topRadiusKm = m_TopRadiusKm;
+		p.rayleighScat = m_RayleighScat;
+		p.rayleighExpScale = m_RayleighExpScale;
+		p.mieScat = m_MieScat;
+		p.mieExt = m_MieExt;
+		p.mieExpScale = m_MieExpScale;
+		p.mieG = m_MieG;
+		p.ozoneExt = m_OzoneExt;
+		p.ozoneCenterKm = m_OzoneCenterKm;
+		p.ozoneWidthKm = m_OzoneWidthKm;
+		p.groundAlbedo = m_GroundAlbedo;
+		p.sunAngularRadius = m_SunAngularRadius;
+		p.sunDiscIntensity = m_SunDiscIntensity;
+		p.sunIntensity = m_SunIntensity;
+		p.apRangeKm = m_ApRangeKm;
+		p.moonEnabled = m_MoonEnabled;
+		p.moonAngularRadius = m_MoonAngularRadius;
+		p.moonIntensity = m_MoonIntensity;
+		p.cloudsEnabled = m_CloudsEnabled;
+		p.cloudCoverage = m_CloudCoverage;
+		p.cloudAltKm = m_CloudAltKm;
+		p.cloudThickKm = m_CloudThickKm;
+		p.cloudScale = m_CloudScale;
+		p.cloudDensity = m_CloudDensity;
+		p.cloudWindSpeedCm = m_CloudWindSpeedCm;
+		p.cloudFadeKm = m_CloudFadeKm;
+		p.sunDir = m_SunDir;
+		p.moonDir = m_MoonDir;
+		p.sunColor = m_SunColor;
+		p.sunIntensitySky = m_SunIntensitySky;
+		p.sunIntensityCur = m_SunIntensityCur;
+		p.daylight = m_Daylight;
+		p.windOffsetKm = m_WindOffsetKm;
+		// The game thread claims the dirty flag into the snapshot; an edit
+		// landing mid-flight re-arms it for the next frame.
+		p.staticDirty = m_StaticDirty;
+		m_StaticDirty = false;
+		return p;
+	}
+
+	SkyParams SkyAtmosphere::GatherSkyParams(float cameraWorldY)
+	{
+		EvaluateSunAndLight();
+		m_ViewHeightKm = std::max(0.005f, cameraWorldY * 1e-5f);
+		SkyParams p = SnapshotParams();
+		p.viewHeightKm = m_ViewHeightKm;
+		return p;
+	}
+
+	void SkyAtmosphere::SnapshotRenderTextures(PacketSky &out) const
+	{
+		std::lock_guard<std::mutex> lock(s_SkyResourceMutex);
+		out.transmittanceLut = m_TransmittanceLut;
+		out.multiScatterLut = m_MultiScatterLut;
+		out.skyViewLut = m_SkyViewLut;
+		out.cameraVolume = m_CameraVolume;
+		out.cloudTarget = m_CloudTarget;
+		out.moonTexture = m_MoonTexture;
+	}
+
+	void SkyAtmosphere::EnsureLutsRender(const SkyParams &params, const PacketCamera &cam)
 	{
 		if (!EnsureResources())
 			return;
 
-		EvaluateSunAndLight();
-
-		m_ViewHeightKm = 0.06f;
-		if (camNode)
-			m_ViewHeightKm = std::max(0.005f, camNode->GetWorldPosition().y * 1e-5f);
-
 		const bool skyDebug = std::getenv("FURY_SKY_DEBUG") != nullptr;
 
-		if (m_StaticDirty)
+		if (params.staticDirty)
 		{
-			RenderTransmittanceLut();
-			RenderMultiScatterLut();
-			m_StaticDirty = false;
+			RenderTransmittanceLut(params);
+			RenderMultiScatterLut(params);
 			m_LastSunDir = Vector4(0, 0, 0, 0);   // force view lut refresh
 			if (skyDebug)
 				FURYD << "SkyAtmosphere: static LUTs rendered";
 		}
 
-		Vector4 sunDelta = m_SunDir - m_LastSunDir;
-		if (sunDelta.SquareLength() > 1e-8f || std::fabs(m_ViewHeightKm - m_LastViewHeightKm) > 1e-5f)
+		Vector4 sunDelta = params.sunDir - m_LastSunDir;
+		if (sunDelta.SquareLength() > 1e-8f || std::fabs(params.viewHeightKm - m_LastViewHeightKm) > 1e-5f)
 		{
-			RenderSkyViewLut();
-			m_LastSunDir = m_SunDir;
-			m_LastViewHeightKm = m_ViewHeightKm;
+			RenderSkyViewLut(params);
+			m_LastSunDir = params.sunDir;
+			m_LastViewHeightKm = params.viewHeightKm;
 			if (skyDebug)
-				FURYD << "SkyAtmosphere: sky-view LUT rendered (sun " << m_SunDir.y << ")";
+				FURYD << "SkyAtmosphere: sky-view LUT rendered (sun " << params.sunDir.y << ")";
 		}
 
-		if (camNode)
-			RenderCameraVolume(camNode);
+		if (cam.valid)
+			RenderCameraVolume(params, cam);
 
-		if (m_CloudsEnabled && camNode)
-			RenderCloudTarget(camNode);
+		if (params.cloudsEnabled && cam.valid)
+			RenderCloudTarget(params, cam);
 	}
 }

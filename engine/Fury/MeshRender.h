@@ -99,6 +99,9 @@ namespace fury
 		// tier 0 owns [threshold(1), 1.0].
 		static float ComputeCoverageForBounds(const BoxBounds &worldAabb,
 			const std::shared_ptr<SceneNode> &cameraNode);
+		// Data-driven overload (render thread): same math from packet data.
+		static float ComputeCoverageForBounds(const BoxBounds &worldAabb,
+			const Matrix4 &camInvWorld, float fov);
 		static unsigned int PickLodForCoverage(const Mesh &mesh, float coverage);
 
 		// Dithered LOD transitions: stable per-object jitter of the

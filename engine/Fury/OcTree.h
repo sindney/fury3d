@@ -115,6 +115,11 @@ namespace fury
 		// bracketed the call with renderUtil.BeginDrawLines / EndDrawLines.
 		void DrawDebugBounds(RenderUtil &renderUtil) const;
 
+		// Frame-packet gather path: copies (node bounds, depth) for every
+		// node with content; the render thread draws them (depth palette
+		// lives at the draw site).
+		void CollectDebugBounds(std::vector<std::pair<BoxBounds, unsigned int>> &out) const;
+
 	protected:
 
 		void AddSceneNode(const std::shared_ptr<SceneNode> &sceneNode, const std::shared_ptr<OcTreeNode> &treeNode, unsigned int depth);

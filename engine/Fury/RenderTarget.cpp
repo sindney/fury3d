@@ -1,4 +1,5 @@
 #include "Fury/RenderTarget.h"
+#include "Fury/RenderThread.h"
 
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
@@ -29,6 +30,58 @@ namespace fury
 		if (m_FBO != 0 && width == m_Width && height == m_Height)
 			return true;
 
+		// Foreign-thread callers (editor game thread): rebuild the CPU
+		// side now (texture objects exist immediately and self-marshal
+		// their GL uploads), then wire the FBO on the GL thread after
+		// those uploads land (FIFO job order guarantees it).
+		if (!RenderThread::Get().MayUseGL())
+		{
+			if (m_FBOPending.load() && width == m_Width && height == m_Height)
+				return true;
+
+			Release();
+			m_Color = Texture::Create(m_Name + "_color");
+			m_Color->SetFilterMode(FilterMode::LINEAR);
+			m_Color->SetWrapMode(WrapMode::CLAMP_TO_EDGE);
+			m_Color->CreateEmpty(width, height, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, false);
+			m_Depth = Texture::Create(m_Name + "_depth");
+			m_Depth->SetFilterMode(FilterMode::NEAREST);
+			m_Depth->SetWrapMode(WrapMode::CLAMP_TO_EDGE);
+			m_Depth->CreateEmpty(width, height, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D, false);
+			m_Width = width;
+			m_Height = height;
+			m_FBOPending.store(true);
+
+			// RenderTarget is owned by the editor viewport static (process
+			// lifetime); textures ride as shared_ptr captures.
+			auto color = m_Color;
+			auto depth = m_Depth;
+			RenderThread::Get().EnqueueJob([this, color, depth]() {
+				unsigned int fbo = 0;
+				glGenFramebuffers(1, &fbo);
+				glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+					GL_TEXTURE_2D, color->GetID(), 0);
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+					GL_TEXTURE_2D, depth->GetID(), 0);
+				GLenum drawBufs[1] = { GL_COLOR_ATTACHMENT0 };
+				glDrawBuffers(1, drawBufs);
+				GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				if (status != GL_FRAMEBUFFER_COMPLETE)
+				{
+					FURYE << "RenderTarget '" << m_Name << "' FBO incomplete, status=0x" << std::hex << status;
+					glDeleteFramebuffers(1, &fbo);
+				}
+				else
+				{
+					m_FBO = fbo;
+				}
+				m_FBOPending.store(false);
+			});
+			return true;
+		}
+		FURY_GL_THREAD_GUARD();
 		// Tear down any existing allocation so we can rebuild at the
 		// new size. Texture::CreateEmpty re-uploads at the new dims.
 		Release();
@@ -77,7 +130,8 @@ namespace fury
 	{
 		if (m_FBO != 0)
 		{
-			glDeleteFramebuffers(1, &m_FBO);
+			unsigned int fbo = m_FBO;
+			RenderThread::Get().EnqueueJob([fbo]() { glDeleteFramebuffers(1, &fbo); });
 			m_FBO = 0;
 		}
 		m_Color.reset();

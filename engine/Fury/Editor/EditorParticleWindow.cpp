@@ -25,6 +25,9 @@
 #include "Fury/Vector4.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/Editor3DPreview.h"
+#include "Fury/Editor/EditorRenderJobs.h"
+#include "Fury/FramePacket.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Editor/EditorAssetPicker.h"
 #include "ImGui/imgui.h"
 
@@ -80,15 +83,6 @@ namespace fury
 					static_cast<int>(size.y - 2.0f * pad.y + 0.5f));
 				const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
 
-				auto &rt = EnsureRT(popup_id, w, h);
-				if (rt.fbo == 0)
-				{
-					ImGui::BeginChild("preview", size, false, ImGuiWindowFlags_NoScrollbar);
-					ImGui::TextDisabled("(3D preview - FBO incomplete)");
-					ImGui::EndChild();
-					return;
-				}
-
 				// Frame on a default radius (emitter AABB is not
 				// directly tracked; use a fixed 1m sphere that
 				// covers the wood-pile scene's emitters).
@@ -107,41 +101,65 @@ namespace fury
 
 				auto vp = ComputeViewProj(os, aabb_center, radius, aspect);
 
-				glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
-				glViewport(0, 0, w, h);
-				glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				glEnable(GL_DEPTH_TEST);
+				// Bake the billboard mesh + resolve the draw inputs on the
+				// game thread (particle pool is game state), then draw on
+				// the GL thread.
+				PacketCamera cam;
+				cam.valid = true;
+				cam.worldPos = Vector4(0.0f, 0.0f, 0.0f, 1.0f);
+				cam.invertWorldMatrix = vp.view;
+				cam.projectionMatrix = vp.proj;
+				cam.nearClip = 0.0f;
+				cam.farClip = 1000.0f;
 
-				// Sync the renderer's mesh from the live pool + draw.
-				// Camera axes = rows 0/1 of the view matrix (the camera's
-				// right/up in world space). Explicit view/proj overload:
-				// the particle shader binds camera matrices by name, so
-				// a null camera would leave them at whatever the scene
-				// pass last set.
-				Vector4 camRight(vp.view.Raw[0], vp.view.Raw[4], vp.view.Raw[8], 0.0f);
-				Vector4 camUp(vp.view.Raw[1], vp.view.Raw[5], vp.view.Raw[9], 0.0f);
-				renderer->UpdateMesh(camRight, camUp);
-				glEnable(GL_BLEND);
-				glDepthMask(GL_FALSE);
-				if (renderer->GetBlendMode() == ParticleBlend::ADDITIVE)
-					glBlendFunc(GL_ONE, GL_ONE);
-				else
-					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-				renderer->Draw(vp.view, vp.proj);
-				glDepthMask(GL_TRUE);
-				glDisable(GL_BLEND);
+				const std::string key = "ParticlePreview:" + popup_id;
+				PacketParticles pk;
+				if (renderer->GatherPacket(pk, cam, RenderThread::Get().CurrentFrameIndex()) > 0)
+				{
+					// Preview draws at the origin the orbit frames on.
+					Matrix4 id;
+					id.Identity();
+					pk.worldMatrix = id;
+					pk.worldPos = Vector4(0.0f, 0.0f, 0.0f, 1.0f);
 
-				DrawGroundGrid(vp.view, vp.proj, aabb_center, 0.0f, radius);
+					const auto view = vp.view;
+					const auto proj = vp.proj;
+					const auto center = aabb_center;
+					RenderThread::Get().EnqueueJob([key, w, h, pk, cam, view, proj, center, radius]() mutable {
+						auto &surface = AcquireSurface(key, w, h);
+						if (surface.fbo == 0)
+							return;
 
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glDisable(GL_DEPTH_TEST);
+						glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
+						glViewport(0, 0, w, h);
+						glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+						glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+						glEnable(GL_DEPTH_TEST);
+
+						glEnable(GL_BLEND);
+						glDepthMask(GL_FALSE);
+						if (pk.blendMode == ParticleBlend::ADDITIVE)
+							glBlendFunc(GL_ONE, GL_ONE);
+						else
+							glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+						ParticleRenderer::DrawPacket(pk, cam, nullptr);
+						glDepthMask(GL_TRUE);
+						glDisable(GL_BLEND);
+
+						DrawGroundGrid(view, proj, center, 0.0f, radius);
+
+						glBindFramebuffer(GL_FRAMEBUFFER, 0);
+						glDisable(GL_DEPTH_TEST);
+
+						PublishSurface(key, surface.color);
+					});
+				}
 
 				ImGui::BeginChild("preview", size, false, ImGuiWindowFlags_NoScrollbar);
 				ImGui::SetCursorPos(pad);
 				const ImVec2 img_size(size.x - 2.0f * pad.x,
 					size.y - 2.0f * pad.y);
-				ImGui::Image((ImTextureID)(intptr_t)rt.colorRT->GetID(),
+				ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(key),
 					img_size, ImVec2(0, 1), ImVec2(1, 0));
 
 				const bool hovered = ImGui::IsItemHovered() || ImGui::IsWindowHovered();

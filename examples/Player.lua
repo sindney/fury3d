@@ -160,7 +160,13 @@ local function on_update(dt)
     Pipeline.GetActive():Execute(octree)
 end
 
+local run_options = {}
+-- Headless bench hook: FURY_MAX_FPS=0 runs uncapped (nil leaves the cap).
+if os.getenv("FURY_MAX_FPS") == "0" then
+    run_options.max_fps = false
+end
+
 Engine.run({
     on_init     = on_init,
     on_update   = on_update,
-})
+}, run_options)

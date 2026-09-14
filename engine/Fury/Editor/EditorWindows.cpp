@@ -9,6 +9,7 @@
 #include "Fury/ParticleSystem.h"
 #include "Fury/Camera.h"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorRenderJobs.h"
 #include "Fury/Editor/EditorAssetPicker.h"
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
@@ -39,6 +40,7 @@
 #include "Fury/SceneManager.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/InstancedMeshRender.h"
@@ -101,6 +103,8 @@ bool g_ShowGrid = true;
 // applied by Engine::SetTracyEnabled). Default ON = armed; with
 // TRACY_ON_DEMAND an armed profiler still idles until a client connects.
 bool g_TracyEnabled = true;
+// Persisted render-thread default (next launch's ResolveEnabled input).
+int g_RenderThreadIni = 1;
 
 // Chain index whose per-effect settings dialog ("EffectSettings"
 // modal) is open; -1 = closed. Set by the chain editor's Edit
@@ -296,6 +300,20 @@ void RenderSettingsWindow(bool* open) {
 				ImGui::EndDisabled();
 				ImGui::TextDisabled("(unavailable: build with -DFURY_WITH_TRACY=ON)");
 #endif
+			}
+
+			// Render-thread default for the NEXT launch (the toggle
+			// resolves before the frame loop starts; persists via ini).
+			{
+				extern int g_RenderThreadIni;
+				bool rtOn = (g_RenderThreadIni != 0);
+				if (ImGui::Checkbox("Render Thread", &rtOn))
+				{
+					g_RenderThreadIni = rtOn ? 1 : 0;
+					RenderThread::SetIniDefault(g_RenderThreadIni);
+				}
+				ImGui::TextDisabled("Rendering on a dedicated thread; applies at next launch.%s",
+					RenderThread::ResolveEnabled(-1) ? " (currently ON)" : " (currently OFF)");
 			}
 
 			ImGui::Spacing();
@@ -803,39 +821,46 @@ void RenderProfilerShadowsTab() {
 		switch (light->GetType()) {
 		case LightType::DIRECTIONAL:
 			if (Pipeline::Active->IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP)) {
-				static auto img0 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-				static auto img1 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-				static auto img2 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-				static auto img3 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-				static auto blitShader = Shader::Create("EditorBlitArrayShader", ShaderType::OTHER);
-
-				if (blitShader->GetDirty()) {
-					const char* blit_vs =
-						"in vec3 vertex_position;"
-						"out vec2 out_uv;"
-						"void main()"
-						"{"
-						"	out_uv = vertex_position.xy * 0.5 + 0.5;"
-						"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
-						"}";
-					const char* blit_fs =
-						"uniform sampler2DArray src;"
-						"uniform float index;"
-						"in vec2 out_uv;"
-						"out vec4 fragment_output;"
-						"void main()"
-						"{"
-						"	fragment_output = texture(src, vec3(out_uv, index));"
-						"}";
-					blitShader->Compile(blit_vs, blit_fs, "");
-				}
-
-				auto render = RenderUtil::Instance();
-				std::shared_ptr<Texture> slices[4] = {img0, img1, img2, img3};
-				for (int i = 0; i < 4; ++i) {
-					blitShader->Bind();
-					blitShader->BindFloat("index", (float)i);
-					render->Blit(shadowTex, slices[i], blitShader);
+				// Blit each cascade slice to a displayable RGBA8 on the
+				// GL thread (GetTemporary + Blit are GL-thread-only).
+				const std::string baseKey = "ShadowCsm:" +
+					std::to_string(static_cast<unsigned long long>(
+						reinterpret_cast<uintptr_t>(lightNode.get()))) + ":";
+				for (int i = 0; i < 4; ++i)
+				{
+					const std::string key = baseKey + std::to_string(i);
+					RenderThread::Get().EnqueueJob([key, shadowTex, i]() {
+						auto &surface = AcquireSurface(key, 128, 128);
+						if (surface.fbo == 0)
+							return;
+						static std::shared_ptr<Shader> blitShader;
+						if (!blitShader)
+						{
+							blitShader = Shader::Create("EditorBlitArrayShader", ShaderType::OTHER);
+							const char* blit_vs =
+								"in vec3 vertex_position;"
+								"out vec2 out_uv;"
+								"void main()"
+								"{"
+								"	out_uv = vertex_position.xy * 0.5 + 0.5;"
+								"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
+								"}";
+							const char* blit_fs =
+								"uniform sampler2DArray src;"
+								"uniform float index;"
+								"in vec2 out_uv;"
+								"out vec4 fragment_output;"
+								"void main()"
+								"{"
+								"	fragment_output = texture(src, vec3(out_uv, index));"
+								"}";
+							blitShader->Compile(blit_vs, blit_fs, "");
+						}
+						blitShader->Bind();
+						blitShader->BindFloat("index", (float)i);
+						RenderUtil::Instance()->Blit(shadowTex, surface.color, blitShader);
+						PublishSurface(key, surface.color);
+					});
 				}
 
 				ImGui::BeginGroup();
@@ -844,12 +869,12 @@ void RenderProfilerShadowsTab() {
 					// ImGui item ID; the 4-Image grid (2x2 slice faces)
 					// would otherwise collide on the empty-label ID.
 					ImGui::PushID(row * 2);
-					ImGui::Image((ImTextureID)(intptr_t)slices[row * 2]->GetID(),
+					ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(baseKey + std::to_string(row * 2)),
 								 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
 					ImGui::PopID();
 					ImGui::SameLine(140);
 					ImGui::PushID(row * 2 + 1);
-					ImGui::Image((ImTextureID)(intptr_t)slices[row * 2 + 1]->GetID(),
+					ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(baseKey + std::to_string(row * 2 + 1)),
 								 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
 					ImGui::PopID();
 				}
@@ -866,38 +891,7 @@ void RenderProfilerShadowsTab() {
 			break;
 
 		case LightType::POINT: {
-			static auto img0 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-			static auto img1 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-			static auto img2 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-			static auto img3 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-			static auto img4 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-			static auto img5 = Texture::GetTemporary(128, 128, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-			static auto blitShader = Shader::Create("EditorBlitCubeShader", ShaderType::OTHER);
-
-			if (blitShader->GetDirty()) {
-				const char* blit_vs =
-					"in vec3 vertex_position;"
-					"out vec2 out_uv;"
-					"void main()"
-					"{"
-					"	out_uv = vertex_position.xy * 0.5 + 0.5;"
-					"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
-					"}";
-				const char* blit_fs =
-					"uniform samplerCube src;"
-					"uniform mat4 matrix;"
-					"in vec2 out_uv;"
-					"out vec4 fragment_output;"
-					"void main()"
-					"{"
-					"   vec4 dir = matrix * vec4(out_uv.x, 1.0 - out_uv.y, 1.0, 1.0);"
-					"	fragment_output = texture(src, dir.xyz);"
-					"}";
-				blitShader->Compile(blit_vs, blit_fs, "");
-			}
-
-			// Use the light's actual world position so the cube faces
-			// are oriented around the light, not around the origin.
+			// Blit each cube face to a displayable RGBA8 on the GL thread.
 			Vector4 lightPos(
 				lightNode->GetWorldPosition().x,
 				lightNode->GetWorldPosition().y,
@@ -911,12 +905,46 @@ void RenderProfilerShadowsTab() {
 			dirMatrices[4].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, 1.0f), Vector4(0.0f, -1.0f, 0.0f));
 			dirMatrices[5].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, -1.0f), Vector4(0.0f, -1.0f, 0.0f));
 
-			auto render = RenderUtil::Instance();
-			std::shared_ptr<Texture> faces[6] = {img0, img1, img2, img3, img4, img5};
-			for (int i = 0; i < 6; ++i) {
-				blitShader->Bind();
-				blitShader->BindMatrix("matrix", dirMatrices[i]);
-				render->Blit(shadowTex, faces[i], blitShader);
+			const std::string baseKey = "ShadowCube:" +
+				std::to_string(static_cast<unsigned long long>(
+					reinterpret_cast<uintptr_t>(lightNode.get()))) + ":";
+			for (int i = 0; i < 6; ++i)
+			{
+				const std::string key = baseKey + std::to_string(i);
+				const Matrix4 matrix = dirMatrices[i];
+				RenderThread::Get().EnqueueJob([key, shadowTex, matrix]() {
+					auto &surface = AcquireSurface(key, 128, 128);
+					if (surface.fbo == 0)
+						return;
+					static std::shared_ptr<Shader> blitShader;
+					if (!blitShader)
+					{
+						blitShader = Shader::Create("EditorBlitCubeShader", ShaderType::OTHER);
+						const char* blit_vs =
+							"in vec3 vertex_position;"
+							"out vec2 out_uv;"
+							"void main()"
+							"{"
+							"	out_uv = vertex_position.xy * 0.5 + 0.5;"
+							"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);"
+							"}";
+						const char* blit_fs =
+							"uniform samplerCube src;"
+							"uniform mat4 matrix;"
+							"in vec2 out_uv;"
+							"out vec4 fragment_output;"
+							"void main()"
+							"{"
+							"   vec4 dir = matrix * vec4(out_uv.x, 1.0 - out_uv.y, 1.0, 1.0);"
+							"	fragment_output = texture(src, dir.xyz);"
+							"}";
+						blitShader->Compile(blit_vs, blit_fs, "");
+					}
+					blitShader->Bind();
+					blitShader->BindMatrix("matrix", matrix);
+					RenderUtil::Instance()->Blit(shadowTex, surface.color, blitShader);
+					PublishSurface(key, surface.color);
+				});
 			}
 
 			ImGui::BeginGroup();
@@ -925,16 +953,18 @@ void RenderProfilerShadowsTab() {
 				// ImGui item ID; the 6-Image grid (3x2 cube faces)
 				// would otherwise collide on the empty-label ID.
 				ImGui::PushID(row * 2);
-				ImGui::Image((ImTextureID)(intptr_t)faces[row * 2]->GetID(),
+				ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(baseKey + std::to_string(row * 2)),
 							 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
 				ImGui::PopID();
 				ImGui::SameLine(140);
 				ImGui::PushID(row * 2 + 1);
-				ImGui::Image((ImTextureID)(intptr_t)faces[row * 2 + 1]->GetID(),
+				ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(baseKey + std::to_string(row * 2 + 1)),
 							 ImVec2(128, 128), ImVec2(0, 1), ImVec2(1, 0));
 				ImGui::PopID();
 			}
 			ImGui::EndGroup();
+			break;
+
 			break;
 		}
 		}
@@ -1732,6 +1762,35 @@ bool IsTileSelected(const TileEntry& tile) {
 		   g_SelectedAsset->second == tile.name;
 }
 
+// Drop duplicate (type, name) entries before they reach the grid.
+// Legacy scenes can carry several same-name copies of one asset
+// (terrain re-registrations piling up in the EntityManager); each
+// would get the same tile ID and trip ImGui's ID-conflict check,
+// and the first copy can be a dead load (black thumbnail). Keep
+// one tile per (type, name); for textures upgrade to the first
+// content-valid copy so the preview shows real pixels.
+void DedupeTiles(std::vector<TileEntry>& tiles) {
+	std::unordered_map<std::string, size_t> indexOf;
+	std::vector<TileEntry> out;
+	out.reserve(tiles.size());
+	for (const auto& tile : tiles) {
+		const std::string key = std::string(tile.type.name()) + ":" + tile.name;
+		auto it = indexOf.find(key);
+		if (it == indexOf.end()) {
+			indexOf.emplace(key, out.size());
+			out.push_back(tile);
+			continue;
+		}
+		if (tile.type == typeid(Texture)) {
+			auto cur = std::static_pointer_cast<Texture>(out[it->second].ptr);
+			auto alt = std::static_pointer_cast<Texture>(tile.ptr);
+			if (!cur->IsContentValid() && alt->IsContentValid())
+				out[it->second] = tile;
+		}
+	}
+	tiles.swap(out);
+}
+
 // Material thumbnail per task 4.5. Returns true if a
 // thumbnail was drawn (caller skips the default placeholder).
 void RenderMaterialThumbnail(const std::shared_ptr<Material>& mat,
@@ -1955,11 +2014,21 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		// Texture tile -- render the texture's own GL image as the
 		// thumbnail. Textures are first-class assets now, registered
 		// in the EntityManager by Scene::Load and GltfImporter.
+		// GetID()==0 while the upload is queued (render thread) or
+		// after a failed load: sample black, so draw the placeholder.
 		auto tex = std::static_pointer_cast<Texture>(tile.ptr);
-		ImGui::SetCursorScreenPos(thumb_min);
-		ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
-					 ImVec2(kTileThumbnail, kTileThumbnail),
-					 ImVec2(0, 1), ImVec2(1, 0));
+		if (tex->GetID() != 0) {
+			ImGui::SetCursorScreenPos(thumb_min);
+			ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
+						 ImVec2(kTileThumbnail, kTileThumbnail),
+						 ImVec2(0, 1), ImVec2(1, 0));
+		} else {
+			ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
+			ImVec2 p0 = ImGui::GetItemRectMin();
+			ImVec2 p1 = ImGui::GetItemRectMax();
+			ImGui::GetWindowDrawList()->AddRectFilled(p0, p1,
+													  ImGui::GetColorU32(ImVec4(0.25f, 0.25f, 0.28f, 1.0f)));
+		}
 	} else if (tile.type == typeid(AnimationClip)) {
 		// AnimationClip tile -- no GPU thumbnail; render a flat
 		// placeholder rect. The top-left badge (added below) already
@@ -2315,6 +2384,9 @@ void RenderContentBrowserWindow(bool* open) {
 	// Collect every Mesh and Material into a name-sorted list.
 	std::vector<TileEntry> tiles;
 	CollectTiles(tiles);
+	// Same-name duplicates share a tile ID and can preview dead
+	// copies; keep one tile per (type, name) (see DedupeTiles).
+	DedupeTiles(tiles);
 	if (tiles.empty()) {
 		ImGui::TextDisabled("(no assets in active scene)");
 		ImGui::End();

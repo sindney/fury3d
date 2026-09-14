@@ -7,6 +7,7 @@
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/FramePacket.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -28,10 +29,13 @@ namespace fury
 	{
 		m_TypeIndex = typeid(ParticleRenderer);
 
-		m_DynamicMesh = Mesh::Create("ParticleDynamicMesh:" + m_Name);
-		m_DynamicMesh->Positions.SetBufferUsage(GL_DYNAMIC_DRAW);
-		m_DynamicMesh->UVs.SetBufferUsage(GL_DYNAMIC_DRAW);
-		m_DynamicMesh->Indices.SetBufferUsage(GL_DYNAMIC_DRAW);
+		for (int i = 0; i < 2; ++i)
+		{
+			m_DynamicMeshes[i] = Mesh::Create("ParticleDynamicMesh:" + m_Name);
+			m_DynamicMeshes[i]->Positions.SetBufferUsage(GL_DYNAMIC_DRAW);
+			m_DynamicMeshes[i]->UVs.SetBufferUsage(GL_DYNAMIC_DRAW);
+			m_DynamicMeshes[i]->Indices.SetBufferUsage(GL_DYNAMIC_DRAW);
+		}
 	}
 
 	bool ParticleRenderer::Load(const void *wrapper, bool object)
@@ -158,9 +162,15 @@ namespace fury
 
 	unsigned int ParticleRenderer::UpdateMesh(const Vector4 &camRight, const Vector4 &camUp)
 	{
+		return BakeMesh(camRight, camUp, 0);
+	}
+
+	unsigned int ParticleRenderer::BakeMesh(const Vector4 &camRight, const Vector4 &camUp, unsigned int parity)
+	{
 		ResolveSystem();
 		auto system = m_System.lock();
-		if (!system || !m_DynamicMesh) return 0;
+		auto dynamicMesh = m_DynamicMeshes[parity & 1];
+		if (!system || !dynamicMesh) return 0;
 
 		const auto &particles = system->GetParticles();
 
@@ -225,17 +235,17 @@ namespace fury
 			++alive;
 		}
 
-		m_DynamicMesh->Positions.Data = std::move(positions);
-		m_DynamicMesh->UVs.Data = std::move(uvs);
-		m_DynamicMesh->Indices.Data = std::move(indices);
-		m_DynamicMesh->Positions.SetDirty();
-		m_DynamicMesh->UVs.SetDirty();
-		m_DynamicMesh->Indices.SetDirty();
+		dynamicMesh->Positions.Data = std::move(positions);
+		dynamicMesh->UVs.Data = std::move(uvs);
+		dynamicMesh->Indices.Data = std::move(indices);
+		dynamicMesh->Positions.SetDirty();
+		dynamicMesh->UVs.SetDirty();
+		dynamicMesh->Indices.SetDirty();
 		// Mesh-level dirty flag (inherited Buffer::m_Dirty) is what
 		// actually triggers Shader::BindMesh's UpdateBuffer -- without
 		// it, per-buffer flags make BindMesh's post-upload check fail
 		// and the draw silently reuses a stale/zero VAO.
-		m_DynamicMesh->SetDirty();
+		dynamicMesh->SetDirty();
 
 		// Sync blend mode from the system's RendererModule.
 		m_BlendMode = system->GetRenderer().blendMode;
@@ -257,8 +267,8 @@ namespace fury
 			}
 			return nullptr;
 		}
-		if (!m_DynamicMesh) return nullptr;
-		if (!m_DynamicMesh->Indices.Data.size())
+		if (!m_DynamicMeshes[0]) return nullptr;
+		if (!m_DynamicMeshes[0]->Indices.Data.size())
 		{
 			if (!m_WarnedNoSystem)
 			{
@@ -296,50 +306,17 @@ namespace fury
 		// unit, so FinishDraw's shadow-map binds land on units 1+
 		// (the unit-only overload would leave them overwriting unit 0).
 		shader->BindTexture("diffuse", diffuseTex);
-		shader->BindMesh(m_DynamicMesh);
+		shader->BindMesh(m_DynamicMeshes[0]);
 		return shader;
 	}
 
-	void ParticleRenderer::FinishDraw(const std::shared_ptr<Shader> &shader, const ParticleShadowInfo *shadow)
+	// Shadow-receive binds shared by FinishDraw (legacy) and DrawPacket
+	// (render thread). Only meaningful on the SHADOW shader variant.
+	static void BindParticleShadows(const std::shared_ptr<Shader> &shader,
+		const ParticleShadowInfo *shadow)
 	{
-		// v1 single per-emitter tint: average of the first few live
-		// particles' colors (per-particle color is CPU-side only).
-		auto system = m_System.lock();
-		Color tint(0.0f, 0.0f, 0.0f, 0.0f);
-		unsigned int n = 0;
-		if (system)
-		{
-			for (const auto &p : system->GetParticles())
-			{
-				if (!p.alive) continue;
-				tint.r += p.color.r;
-				tint.g += p.color.g;
-				tint.b += p.color.b;
-				tint.a += p.color.a;
-				if (++n >= 16) break;
-			}
-		}
-		if (n > 0)
-		{
-			tint.r /= static_cast<float>(n);
-			tint.g /= static_cast<float>(n);
-			tint.b /= static_cast<float>(n);
-			tint.a /= static_cast<float>(n);
-		}
-		else
-		{
-			tint = Color::White;
-		}
-		shader->BindFloat("u_Tint", tint.r, tint.g, tint.b, tint.a);
-
-		// Shadow binds -- only meaningful on the SHADOW variant picked
-		// in BindForDraw (the plain variant declares no shadow
-		// uniforms; every bind below is a silent no-op there).
-		// anyCaster = some light casts AND has a live map this frame:
-		// without one there's nothing to receive from (stay full
-		// bright); with one but no COVERING source, u_shadow_type 0
-		// makes the shader floor to u_shadow_floor.
-		if (shader == GetParticleShader(true))
+		if (shader != GetParticleShader(true))
+			return;
 		{
 			const float receive = (shadow && shadow->anyCaster) ? 1.0f : 0.0f;
 			int shadowType = 0;
@@ -385,16 +362,60 @@ namespace fury
 			}
 			shader->BindFloat("u_receive_shadows", receive);
 		}
+	}
+
+
+	void ParticleRenderer::FinishDraw(const std::shared_ptr<Shader> &shader, const ParticleShadowInfo *shadow)
+	{
+		// v1 single per-emitter tint: average of the first few live
+		// particles' colors (per-particle color is CPU-side only).
+		auto system = m_System.lock();
+		Color tint(0.0f, 0.0f, 0.0f, 0.0f);
+		unsigned int n = 0;
+		if (system)
+		{
+			for (const auto &p : system->GetParticles())
+			{
+				if (!p.alive) continue;
+				tint.r += p.color.r;
+				tint.g += p.color.g;
+				tint.b += p.color.b;
+				tint.a += p.color.a;
+				if (++n >= 16) break;
+			}
+		}
+		if (n > 0)
+		{
+			tint.r /= static_cast<float>(n);
+			tint.g /= static_cast<float>(n);
+			tint.b /= static_cast<float>(n);
+			tint.a /= static_cast<float>(n);
+		}
+		else
+		{
+			tint = Color::White;
+		}
+		shader->BindFloat("u_Tint", tint.r, tint.g, tint.b, tint.a);
+
+		// Shadow binds -- only meaningful on the SHADOW variant picked
+		// in BindForDraw (the plain variant declares no shadow
+		// uniforms; every bind below is a silent no-op there).
+		// anyCaster = some light casts AND has a live map this frame:
+		// without one there's nothing to receive from (stay full
+		// bright); with one but no COVERING source, u_shadow_type 0
+		// makes the shader floor to u_shadow_floor.
+		BindParticleShadows(shader, shadow);
 
 		glDrawElements(GL_TRIANGLES,
-			static_cast<GLsizei>(m_DynamicMesh->Indices.Data.size()),
+			static_cast<GLsizei>(m_DynamicMeshes[0]->Indices.Data.size()),
 			GL_UNSIGNED_INT, 0);
 
 		RenderUtil::Instance()->IncreaseDrawCall();
-		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(m_DynamicMesh->Indices.Data.size()));
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(m_DynamicMeshes[0]->Indices.Data.size()));
 
 		shader->UnBind();
 	}
+
 
 	void ParticleRenderer::Draw(const std::shared_ptr<SceneNode> &cameraNode, const ParticleShadowInfo *shadow)
 	{
@@ -413,6 +434,111 @@ namespace fury
 		}
 
 		FinishDraw(shader, shadow);
+	}
+
+	unsigned int ParticleRenderer::GatherPacket(PacketParticles &out, const PacketCamera &cam,
+		std::uint64_t frameIndex)
+	{
+		ResolveSystem();
+		auto system = m_System.lock();
+		if (!system)
+			return 0;
+
+		// Camera axes in world space: columns 0/1 of the camera's world
+		// matrix (same source the old pass code used).
+		Vector4 camRight(cam.worldMatrix.Raw[0], cam.worldMatrix.Raw[1], cam.worldMatrix.Raw[2], 0.0f);
+		Vector4 camUp(cam.worldMatrix.Raw[4], cam.worldMatrix.Raw[5], cam.worldMatrix.Raw[6], 0.0f);
+
+		const unsigned int parity = static_cast<unsigned int>(frameIndex & 1);
+		unsigned int alive = BakeMesh(camRight, camUp, parity);
+		if (alive == 0)
+			return 0;
+
+		// Material resolution: the bound system's RendererModule is the
+		// authoring source of truth; the component slot is the fallback.
+		auto material = m_Material.lock();
+		if (Scene::Active && Scene::Active->GetEntityManager())
+		{
+			const auto &matName = system->GetRenderer().materialName;
+			if (!matName.empty())
+				if (auto sysMat = Scene::Active->GetEntityManager()->Get<Material>(matName))
+					material = sysMat;
+		}
+		auto diffuse = std::dynamic_pointer_cast<Texture>(
+			material ? material->GetTexture(Material::DIFFUSE_TEXTURE) : nullptr);
+		if (!diffuse)
+			return 0;
+
+		// v1 single per-emitter tint: average of the first few live
+		// particles' colors (per-particle color is CPU-side only).
+		Color tint(0.0f, 0.0f, 0.0f, 0.0f);
+		unsigned int n = 0;
+		for (const auto &p : system->GetParticles())
+		{
+			if (!p.alive) continue;
+			tint.r += p.color.r;
+			tint.g += p.color.g;
+			tint.b += p.color.b;
+			tint.a += p.color.a;
+			if (++n >= 16) break;
+		}
+		if (n > 0)
+		{
+			tint.r /= static_cast<float>(n);
+			tint.g /= static_cast<float>(n);
+			tint.b /= static_cast<float>(n);
+			tint.a /= static_cast<float>(n);
+		}
+		else
+		{
+			tint = Color::White;
+		}
+
+		if (auto owner = m_Owner.lock())
+		{
+			out.worldMatrix = owner->GetWorldMatrix();
+			out.worldPos = owner->GetWorldPosition();
+			out.nodeKey = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(owner.get()));
+			out.name = owner->GetName();
+		}
+		out.mesh = m_DynamicMeshes[parity];
+		out.diffuse = diffuse;
+		out.tint = tint;
+		out.receiveShadows = system->GetRenderer().receiveShadows;
+		out.blendMode = m_BlendMode;
+		out.aliveCount = alive;
+		return alive;
+	}
+
+	void ParticleRenderer::DrawPacket(const PacketParticles &pk, const PacketCamera &cam,
+		const ParticleShadowInfo *shadow)
+	{
+		if (pk.aliveCount == 0 || !pk.mesh || !pk.diffuse)
+			return;
+
+		auto shader = GetParticleShader(pk.blendMode == ParticleBlend::ALPHA && pk.receiveShadows);
+		if (!shader)
+			return;
+
+		shader->Bind();
+		// Named bind: sets the sampler uniform AND advances the texture
+		// unit, so the shadow-map binds land on units 1+.
+		shader->BindTexture("diffuse", pk.diffuse);
+		shader->BindMesh(pk.mesh);
+		shader->BindCameraData(cam);
+		shader->BindMatrix(Matrix4::WORLD_MATRIX, pk.worldMatrix);
+
+		shader->BindFloat("u_Tint", pk.tint.r, pk.tint.g, pk.tint.b, pk.tint.a);
+		BindParticleShadows(shader, shadow);
+
+		glDrawElements(GL_TRIANGLES,
+			static_cast<GLsizei>(pk.mesh->Indices.Data.size()),
+			GL_UNSIGNED_INT, 0);
+
+		RenderUtil::Instance()->IncreaseDrawCall();
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(pk.mesh->Indices.Data.size()));
+
+		shader->UnBind();
 	}
 
 	void ParticleRenderer::Draw(const Matrix4 &view, const Matrix4 &proj)

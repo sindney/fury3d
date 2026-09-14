@@ -42,6 +42,8 @@ namespace fury
 
 	class RenderQuery;
 
+	struct FramePacket;
+
 	class RenderTarget;
 
 	enum class PipelineSwitch : unsigned int
@@ -183,6 +185,10 @@ namespace fury
 		virtual void Save(void* wrapper, bool object = true) override;
 
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) = 0;
+
+		// GL thread: execute a gathered frame packet. Default no-op lets
+		// non-prelight pipelines skip the packet path.
+		virtual void ExecutePacket(FramePacket &packet);
 		
 		// basiclly saves all pipeline && pass's textures, shaders
 		std::shared_ptr<EntityManager> GetEntityManager() const;
@@ -236,6 +242,11 @@ namespace fury
 		// AFTER Pipeline::Execute and before the next Execute.
 		std::shared_ptr<Texture> GetLastShadowTexture(const SceneNode &lightNode) const;
 
+		// Game thread: refresh the per-light shadow cache from a render
+		// result (render-threaded mode produces these on the GL thread).
+		void UpdateShadowTextureCache(
+			const std::unordered_map<std::uint64_t, std::shared_ptr<Texture>> &byLightKey);
+
 		std::shared_ptr<SceneNode> GetCurrentCamera() const;
 
 		void SetCurrentCamera(const std::shared_ptr<SceneNode> &ptr);
@@ -261,22 +272,25 @@ namespace fury
 
 		Matrix4 GetCropMatrix(Matrix4 lightMatrix, Frustum frustum, std::vector<std::shared_ptr<SceneNode>> &casters);
 
-		std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		// GL thread, packet-driven variants. The shadow plan (caster lists,
+		// crop matrices, splits) is precomputed in the packet's PacketLight
+		// by the game-thread gather.
+		std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> DrawCascadedShadowMap(FramePacket &packet, int lightIndex);
 
-		std::pair<std::shared_ptr<Texture>, Matrix4> DrawDirLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawDirLightShadowMap(FramePacket &packet, int lightIndex);
 
-		std::pair<std::shared_ptr<Texture>, Matrix4> DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawPointLightShadowMap(FramePacket &packet, int lightIndex);
 
-		std::pair<std::shared_ptr<Texture>, Matrix4> DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node);
+		std::pair<std::shared_ptr<Texture>, Matrix4> DrawSpotLightShadowMap(FramePacket &packet, int lightIndex);
 
 		// end shaodw mapping
 
 	protected:
 
-		void DrawDebug(const std::shared_ptr<RenderQuery> &query);
+		void DrawDebug(FramePacket &packet);
 
 		// Screen-space reference grid (EDITOR_GRID switch).
-		void DrawEditorGrid();
+		void DrawEditorGrid(FramePacket &packet);
 
 		void SortPassByIndex();
 	};

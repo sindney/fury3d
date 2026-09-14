@@ -296,6 +296,13 @@ namespace fury
 		auto camComp = cameraNode->GetComponent<Camera>();
 		if (!camComp)
 			return -1.0f;
+		return ComputeCoverageForBounds(worldAabb, cameraNode->GetInvertWorldMatrix(),
+			camComp->GetFov());
+	}
+
+	float MeshRender::ComputeCoverageForBounds(const BoxBounds &worldAabb,
+		const Matrix4 &camInvWorld, float fov)
+	{
 
 		auto mn = worldAabb.GetMin();
 		auto mx = worldAabb.GetMax();
@@ -309,12 +316,10 @@ namespace fury
 		// origin. Combined with the perspective half-FOV tangent,
 		// gives the fraction of the viewport the model's bounding
 		// sphere fills vertically.
-		auto viewMatrix = cameraNode->GetInvertWorldMatrix();
-		auto centerView = viewMatrix.Multiply(center);
+		auto centerView = camInvWorld.Multiply(center);
 		float distance = std::fabs(centerView.z);
 		if (distance < 1e-3f) distance = 1e-3f;
 
-		float fov = camComp->GetFov();
 		float halfFovTan = std::tan(fov * 0.5f);
 		if (halfFovTan < 1e-6f)
 			return -1.0f;

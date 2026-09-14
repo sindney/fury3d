@@ -291,6 +291,7 @@ namespace fury
 
 	void Material::SetTexture(const std::string &name, const Texture::Ptr &ptr)
 	{
+		++m_RenderVersion;
 		auto it = m_Textures.find(name);
 		if (it != m_Textures.end())
 		{
@@ -338,6 +339,7 @@ namespace fury
 
 	void Material::SetUniform(const std::string &name, const std::shared_ptr<UniformBase> &ptr)
 	{
+		++m_RenderVersion;
 		auto it = m_Uniforms.find(name);
 		if (it != m_Uniforms.end())
 		{
@@ -368,6 +370,7 @@ namespace fury
 
 	void Material::SetShaderForPass(unsigned int index, const std::shared_ptr<Shader> &shader)
 	{
+		++m_RenderVersion;
 		if (index >= m_Shaders.size())
 			m_Shaders.resize(index + 1);
 
@@ -389,6 +392,7 @@ namespace fury
 
 	void Material::SetOpaque(bool value)
 	{
+		++m_RenderVersion;
 		m_Opaque = value;
 		m_AlphaMode = value ? AlphaMode::OPAQUE : AlphaMode::BLEND;
 	}
@@ -400,6 +404,7 @@ namespace fury
 
 	void Material::SetAlphaMode(AlphaMode mode)
 	{
+		++m_RenderVersion;
 		m_AlphaMode = mode;
 		m_Opaque = (mode != AlphaMode::BLEND);
 	}
@@ -411,6 +416,7 @@ namespace fury
 
 	void Material::SetAlphaCutoff(float value)
 	{
+		++m_RenderVersion;
 		m_AlphaCutoff = value;
 	}
 }

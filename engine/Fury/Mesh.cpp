@@ -5,6 +5,7 @@
 #include "Fury/GLLoader.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Joint.h"
@@ -41,7 +42,8 @@ namespace fury
 
 		if (m_VAO != 0)
 		{
-			glDeleteVertexArrays(1, &m_VAO);
+			unsigned int vao = m_VAO;
+			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
 			m_VAO = 0;
 		}
 
@@ -59,7 +61,8 @@ namespace fury
 
 		if (m_VAO != 0)
 		{
-			glDeleteVertexArrays(1, &m_VAO);
+			unsigned int vao = m_VAO;
+			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
 			m_VAO = 0;
 		}
 
@@ -443,6 +446,12 @@ namespace fury
 
 	void Mesh::UpdateBuffer()
 	{
+		if (!RenderThread::Get().MayUseGL())
+		{
+			DispatchGL(this, [this]() { UpdateBuffer(); });
+			return;
+		}
+		FURY_GL_THREAD_GUARD();
 		Positions.UpdateBuffer();
 		Normals.UpdateBuffer();
 		Tangents.UpdateBuffer();
@@ -464,7 +473,8 @@ namespace fury
 
 		if (m_VAO != 0)
 		{
-			glDeleteVertexArrays(1, &m_VAO);
+			unsigned int vao = m_VAO;
+			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
 			m_VAO = 0;
 		}
 
@@ -488,7 +498,8 @@ namespace fury
 
 		if (m_VAO != 0)
 		{
-			glDeleteVertexArrays(1, &m_VAO);
+			unsigned int vao = m_VAO;
+			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
 			m_VAO = 0;
 		}
 		Positions.DeleteBuffer();

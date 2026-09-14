@@ -1,6 +1,7 @@
 #include "Fury/ArrayBuffers.h"
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
+#include "Fury/RenderThread.h"
 
 namespace fury
 {
@@ -67,9 +68,13 @@ namespace fury
 	void ArrayBuffer<DataType>::DeleteBuffer()
 	{
 		m_Dirty = true;
-		
+
 		if (m_ID != 0)
-			glDeleteBuffers(1, &m_ID);
+		{
+			// GL handles die on the GL thread (direct-exec there).
+			unsigned int id = m_ID;
+			RenderThread::Get().EnqueueJob([id]() { glDeleteBuffers(1, &id); });
+		}
 		m_ID = 0;
 	}
 

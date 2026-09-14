@@ -106,6 +106,8 @@ namespace fury
 
 		unsigned int m_ID;
 
+		unsigned int m_RenderVersion = 0;
+
 	public:
 
 		Material(const std::string &name);
@@ -125,6 +127,10 @@ namespace fury
 		std::shared_ptr<Texture> GetTexture(const std::string &name) const;
 
 		void SetTexture(const std::string &name, const std::shared_ptr<Texture> &ptr);
+
+		// Bumped by every bind-affecting setter; the draw-command cache
+		// rebuilds entries whose stored version is stale.
+		unsigned int GetRenderVersion() const { return m_RenderVersion; }
 
 		unsigned int GetTextureCount() const;
 
@@ -161,11 +167,11 @@ namespace fury
 
 		bool GetTwoSided() const { return m_TwoSided; }
 
-		void SetTwoSided(bool value) { m_TwoSided = value; }
+		void SetTwoSided(bool value) { m_TwoSided = value; ++m_RenderVersion; }
 
 		bool GetWindEnabled() const { return m_WindEnabled; }
 
-		void SetWindEnabled(bool value) { m_WindEnabled = value; }
+		void SetWindEnabled(bool value) { m_WindEnabled = value; ++m_RenderVersion; }
 
 		// get this material's unique identifier for rendering.
 		unsigned int GetID() const;

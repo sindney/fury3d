@@ -13,6 +13,7 @@
 #include "Fury/Log.h"
 #include "Fury/MeshRender.h"
 #include "Fury/Pipeline.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 
@@ -74,6 +75,8 @@ extern float g_SnapScale;
 extern bool g_ShowGrid;
 // Defined in EditorWindows.cpp next to g_ShowGrid; persisted Tracy toggle.
 extern bool g_TracyEnabled;
+// Persisted render-thread default (EditorWindows.cpp).
+extern int g_RenderThreadIni;
 
 // Public-ish accessors used by the window rendering code, kept in
 // this TU so we don't multiply globals.
@@ -233,6 +236,16 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
+	// Render-thread default (applied at startup; resolution order in
+	// RenderThread::ResolveEnabled). Runtime switching is not supported
+	// mid-session -- the toggle resolves before the first frame.
+	int rt = -1;
+	if (std::sscanf(line, "RenderThread=%d", &rt) == 1 && (rt == 0 || rt == 1)) {
+		RenderThread::SetIniDefault(rt);
+		g_RenderThreadIni = rt;
+		return;
+	}
+
 	// Import flags -- one line per flag: ImportFlag=<name>=<0|1>.
 	// Persisted so toggles in Settings -> Import survive a restart.
 	char flagname[128];
@@ -316,6 +329,7 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Layout=%d\n", kCurrentLayoutVersion);
 	buf->appendf("ShowGrid=%d\n", g_ShowGrid ? 1 : 0);
 	buf->appendf("Tracy=%d\n", g_TracyEnabled ? 1 : 0);
+	buf->appendf("RenderThread=%d\n", g_RenderThreadIni);
 	// Import flags -- one line per flag so adding/removing flags
 	// doesn't break the format.
 	for (const auto& kv : g_ImportFlags)
@@ -780,6 +794,9 @@ void Initialize() {
 	s_HadIniOnStartup = std::filesystem::exists("imgui.ini", ec);
 
 	RegisterSettingsHandler();
+
+	// Load persisted settings now (they otherwise land at the first ImGui frame).
+	ImGui::LoadIniSettingsFromDisk(ImGui::GetIO().IniFilename);
 	ApplyPersistedTheme();
 	HookEngineLog();
 

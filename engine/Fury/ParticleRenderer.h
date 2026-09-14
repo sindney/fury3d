@@ -10,7 +10,7 @@
 #include "Fury/ParticleModules.h"
 #include "Fury/Vector4.h"
 
-namespace fury { class Material; class SceneNode; class Texture; class Shader; class ParticleSystem; }
+namespace fury { class Material; class SceneNode; class Texture; class Shader; class ParticleSystem; struct PacketParticles; struct PacketCamera; }
 
 namespace fury
 {
@@ -95,7 +95,7 @@ namespace fury
 		ParticleBlend GetBlendMode() const { return m_BlendMode; }
 		void SetBlendMode(ParticleBlend mode) { m_BlendMode = mode; }
 
-		std::shared_ptr<Mesh> GetDynamicMesh() const { return m_DynamicMesh; }
+		std::shared_ptr<Mesh> GetDynamicMesh() const { return m_DynamicMeshes[0]; }
 
 		// Pack the bound system's live pool into the dynamic mesh as
 		// camera-facing quads (CPU billboarding). camRight/camUp are the
@@ -105,6 +105,17 @@ namespace fury
 		// RotationOverLifetime (rotation around the view axis).
 		// Returns the alive count.
 		unsigned int UpdateMesh(const Vector4 &camRight, const Vector4 &camUp);
+
+		// Frame-packet path: bakes into the parity buffer (frameIndex&1)
+		// and fills the packet record (game thread). The render thread
+		// uploads/draws the returned mesh while the next frame bakes the
+		// other buffer.
+		unsigned int GatherPacket(PacketParticles &out, const PacketCamera &cam,
+			std::uint64_t frameIndex);
+
+		// Render-thread draw of a gathered packet (pipeline path).
+		static void DrawPacket(const PacketParticles &pk, const PacketCamera &cam,
+			const ParticleShadowInfo *shadow);
 
 		// Render the dynamic mesh with the ParticleShader. The cameraNode
 		// overload is the pipeline path (binds camera + owner world matrix).
@@ -122,6 +133,10 @@ namespace fury
 		// Lazy lookup of the ParticleSystem asset by name.
 		void ResolveSystem();
 
+		// Billboard bake into m_DynamicMeshes[parity&1]; UpdateMesh wraps
+		// parity 0 (legacy/editor path).
+		unsigned int BakeMesh(const Vector4 &camRight, const Vector4 &camUp, unsigned int parity);
+
 		// Shared head of Draw: validates system/mesh/texture, binds the
 		// shader + diffuse texture + mesh. Returns the shader (nullptr =
 		// skip the draw; caller must not touch GL state further).
@@ -136,7 +151,9 @@ namespace fury
 		std::string m_SystemName;
 		mutable std::weak_ptr<ParticleSystem> m_System;
 		std::weak_ptr<Material> m_Material;
-		Mesh::Ptr m_DynamicMesh;
+		// Double-buffered by frame parity (game writes one, render draws
+		// the other). m_DynamicMesh aliases slot 0 for the legacy entries.
+		Mesh::Ptr m_DynamicMeshes[2];
 		ParticleBlend m_BlendMode = ParticleBlend::ALPHA;
 		bool m_WarnedNoSystem = false;
 		bool m_BoundsApplied = false;

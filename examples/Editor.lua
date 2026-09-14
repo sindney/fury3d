@@ -849,7 +849,28 @@ local function camera_basis()
     return fwd, rgt
 end
 
+-- Test hook: FURY_OPEN_SCENE=<path>[,<frame>] opens the given scene
+-- mid-run at the frame (default 20) -- the File>Open path, headlessly.
+local open_probe_scene = os.getenv("FURY_OPEN_SCENE")
+local open_probe_frame = 20
+if open_probe_scene then
+    local pth, fr = open_probe_scene:match("^(.+),(%d+)$")
+    if pth then
+        open_probe_scene = pth
+        open_probe_frame = tonumber(fr)
+    end
+end
+local open_probe_fired = false
+local probe_frame_count = 0
+
 local function on_update(dt)
+    probe_frame_count = probe_frame_count + 1
+    if open_probe_scene and not open_probe_fired and probe_frame_count >= open_probe_frame then
+        open_probe_fired = true
+        io.stderr:write("probe: opening " .. open_probe_scene .. " at frame " .. probe_frame_count .. "\n")
+        open_scene_at_path(open_probe_scene)
+    end
+
     local input  = InputUtil.Instance()
     local has_kb = not Gui.WantCaptureKeyboard()
     -- The Viewport window is a real ImGui window, so hovering it sets

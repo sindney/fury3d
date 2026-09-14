@@ -19,6 +19,93 @@ namespace fury
 
 	class Texture;
 
+	struct PacketCamera;
+
+	struct PacketSky;
+
+	// Value snapshot of every field the LUT renders and pass bindings read.
+	// Gathered on the game thread (SnapshotParams); consumed on the render
+	// thread so the render path never races TickUpdate/editor writes.
+	struct SkyParams
+	{
+		bool enabled = true;
+
+		float bottomRadiusKm = 6360.0f;
+
+		float topRadiusKm = 6460.0f;
+
+		Vector4 rayleighScat = Vector4(5.802e-3f, 13.558e-3f, 33.1e-3f, 0.0f);
+
+		float rayleighExpScale = -0.125f;
+
+		float mieScat = 3.996e-3f;
+
+		float mieExt = 4.40e-3f;
+
+		float mieExpScale = -0.8333f;
+
+		float mieG = 0.8f;
+
+		Vector4 ozoneExt = Vector4(0.650e-3f, 1.881e-3f, 0.085e-3f, 0.0f);
+
+		float ozoneCenterKm = 25.0f;
+
+		float ozoneWidthKm = 15.0f;
+
+		Vector4 groundAlbedo = Vector4(0.3f, 0.3f, 0.3f, 0.0f);
+
+		float sunAngularRadius = 0.004675f;
+
+		float sunDiscIntensity = 20.0f;
+
+		float sunIntensity = 3.0f;
+
+		float apRangeKm = 5.0f;
+
+		bool moonEnabled = true;
+
+		float moonAngularRadius = 0.0047f;
+
+		float moonIntensity = 0.12f;
+
+		bool cloudsEnabled = false;
+
+		float cloudCoverage = 0.45f;
+
+		float cloudAltKm = 0.15f;
+
+		float cloudThickKm = 0.12f;
+
+		float cloudScale = 0.35f;
+
+		float cloudDensity = 18.0f;
+
+		float cloudWindSpeedCm = 200.0f;
+
+		float cloudFadeKm = 2.5f;
+
+		// runtime state (TickUpdate output)
+		Vector4 sunDir = Vector4(0.0f, 1.0f, 0.0f, 0.0f);
+
+		Vector4 moonDir = Vector4(0.0f, -1.0f, 0.0f, 0.0f);
+
+		Color sunColor = Color::White;
+
+		float sunIntensitySky = 3.0f;
+
+		float sunIntensityCur = 3.0f;
+
+		float daylight = 1.0f;
+
+		float viewHeightKm = 0.0f;
+
+		Vector4 windOffsetKm;
+
+		// Set by the game thread on param edits; consumed (cleared) by the
+		// render thread's LUT refresh.
+		bool staticDirty = false;
+	};
+
 	// Precomputed-LUT sky atmosphere (GL 3.3 fragment-pass port of the UE
 	// SkyAtmosphere technique, EGSR 2020). Owns the transmittance /
 	// multi-scatter / sky-view LUTs, the aerial-perspective camera volume and
@@ -122,8 +209,23 @@ namespace fury
 		void SetCloudThicknessKm(float v) { m_CloudThickKm = v; }
 
 		// --- render hooks (PrelightPipeline) ---
-		// Renders any stale LUTs/volume/cloud target for this frame.
-		void EnsureLuts(const std::shared_ptr<SceneNode> &camNode);
+		// Render-thread entry: LUT refresh from a params/camera snapshot (no
+		// scene reads, no EvaluateSunAndLight -- the game thread owns sun
+		// state via GatherSkyFrame).
+		void EnsureLutsRender(const SkyParams &params, const PacketCamera &cam);
+
+		// Game-thread snapshot of the render-relevant fields.
+		SkyParams SnapshotParams() const;
+
+		// Game thread, once per frame at packet gather: evaluates ToD sun
+		// state (drives the bound light), computes view height from the
+		// camera, and returns the param snapshot.
+		SkyParams GatherSkyParams(float cameraWorldY);
+
+		// Copies the LUT/moon/cloud texture ptrs into the packet sky
+		// (mutex-guarded: EnsureResources publishes them from the GL
+		// thread on first use).
+		void SnapshotRenderTextures(PacketSky &out) const;
 
 		// Resolved sun state for this frame (world, toward the sun).
 		Vector4 GetSunDirection() const { return m_SunDir; }
@@ -152,7 +254,7 @@ namespace fury
 
 		// Binds every u_* atmosphere uniform on the shader (sampler targets
 		// are the caller's job).
-		void BindAtmosphereUniforms(const std::shared_ptr<Shader> &shader) const;
+		void BindAtmosphereUniforms(const std::shared_ptr<Shader> &shader, const SkyParams &params) const;
 
 	protected:
 
@@ -177,15 +279,15 @@ namespace fury
 
 		bool EnsureResources();
 
-		void RenderTransmittanceLut();
+		void RenderTransmittanceLut(const SkyParams &params);
 
-		void RenderMultiScatterLut();
+		void RenderMultiScatterLut(const SkyParams &params);
 
-		void RenderSkyViewLut();
+		void RenderSkyViewLut(const SkyParams &params);
 
-		void RenderCameraVolume(const std::shared_ptr<SceneNode> &camNode);
+		void RenderCameraVolume(const SkyParams &params, const PacketCamera &cam);
 
-		void RenderCloudTarget(const std::shared_ptr<SceneNode> &camNode);
+		void RenderCloudTarget(const SkyParams &params, const PacketCamera &cam);
 
 		void DrawLutQuad(const std::shared_ptr<Pass> &pass, const std::shared_ptr<Shader> &shader);
 
@@ -244,7 +346,12 @@ namespace fury
 		Vector4 m_WindOffsetKm = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 
 		bool m_ResourcesCreated = false;
-		bool m_StaticDirty = true;
+
+		// Game thread sets on param edits; render thread clears after LUT
+		// refresh. Atomic: the two threads never touch it simultaneously
+		// in a defined order otherwise.
+		// Game-thread only: setters/editor mark it, SnapshotParams consumes.
+		mutable bool m_StaticDirty = true;
 		Vector4 m_LastSunDir = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 		float m_LastViewHeightKm = -1.0f;
 

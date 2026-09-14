@@ -25,6 +25,8 @@
 #include "Fury/Vector4.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/Editor3DPreview.h"
+#include "Fury/Editor/EditorRenderJobs.h"
+#include "Fury/RenderThread.h"
 #include "ImGui/imgui.h"
 
 namespace fury
@@ -163,15 +165,6 @@ namespace fury
 				const int h = std::max(32, static_cast<int>(size.y - 2.0f * pad.y + 0.5f));
 				const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
 
-				auto &rt = EnsureRT(popup_id, w, h);
-				if (rt.fbo == 0)
-				{
-					ImGui::BeginChild("preview", size, false, ImGuiWindowFlags_NoScrollbar);
-					ImGui::TextDisabled("(3D preview - FBO incomplete)");
-					ImGui::EndChild();
-					return;
-				}
-
 				const BoxBounds aabb = frameMesh->GetAABB();
 				const Vector4 mn = aabb.GetMin(), mx = aabb.GetMax();
 				const Vector4 center((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f, 1.0f);
@@ -188,107 +181,124 @@ namespace fury
 
 				auto vp = ComputeViewProj(os, center, radius, aspect);
 
-				glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
-				glViewport(0, 0, w, h);
-				glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				glEnable(GL_DEPTH_TEST);
+				const std::string key = "BodySetupPreview:" + popup_id;
+				const auto view = vp.view;
+				const auto proj = vp.proj;
+				const auto shapeType = body ? body->GetShapeType() : BodySetup::ShapeType::Box;
+				const auto halfExtents = body ? body->GetHalfExtents() : Vector4(0.0f, 0.0f, 0.0f);
+				const float shapeRadius = body ? body->GetRadius() : 0.0f;
+				const float gridY = mn.y;
+				RenderThread::Get().EnqueueJob(
+					[key, w, h, renderMesh, collisionMesh, body, shapeType, halfExtents,
+						shapeRadius, view, proj, center, gridY, radius]() {
+					auto &surface = AcquireSurface(key, w, h);
+					if (surface.fbo == 0)
+						return;
 
-				// Solid render mesh (bind pose for skinned - fine for
-				// collision authoring).
-				if (renderMesh)
-				{
-					if (renderMesh->GetDirty())
-						renderMesh->UpdateBuffer();
+					glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
+					glViewport(0, 0, w, h);
+					glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+					glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+					glEnable(GL_DEPTH_TEST);
 
-					auto shader = GetSimpleLambertShader();
-					shader->Bind();
-					Matrix4 world;
-					world.Identity();
-					shader->BindMatrix("_WorldMatrix", world);
-					shader->BindMatrix("_ViewMatrix", vp.view);
-					shader->BindMatrix("_ProjectionMatrix", vp.proj);
-
-					const unsigned int subCount = renderMesh->GetSubMeshCount();
-					shader->BindMesh(renderMesh);
-					if (subCount == 0)
+					// Solid render mesh (bind pose for skinned - fine for
+					// collision authoring).
+					if (renderMesh)
 					{
-						glDrawElements(GL_TRIANGLES,
-							static_cast<GLsizei>(renderMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-					}
-					else
-					{
-						for (unsigned int i = 0; i < subCount; ++i)
+						if (renderMesh->GetDirty())
+							renderMesh->UpdateBuffer();
+
+						auto shader = GetSimpleLambertShader();
+						shader->Bind();
+						Matrix4 world;
+						world.Identity();
+						shader->BindMatrix("_WorldMatrix", world);
+						shader->BindMatrix("_ViewMatrix", view);
+						shader->BindMatrix("_ProjectionMatrix", proj);
+
+						const unsigned int subCount = renderMesh->GetSubMeshCount();
+						shader->BindMesh(renderMesh);
+						if (subCount == 0)
 						{
-							auto sm = renderMesh->GetSubMeshAt(i);
-							if (!sm) continue;
-							shader->BindSubMesh(renderMesh, i);
 							glDrawElements(GL_TRIANGLES,
-								static_cast<GLsizei>(sm->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+								static_cast<GLsizei>(renderMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 						}
-					}
-				}
-
-				// Collision wireframe overlay.
-				if (body)
-				{
-					auto lineShader = EnsureLineShader();
-					lineShader->Bind();
-					lineShader->BindMatrix("_ViewMatrix", vp.view);
-					lineShader->BindMatrix("_ProjectionMatrix", vp.proj);
-					Matrix4 identity;
-					identity.Identity();
-					lineShader->BindMatrix("_OffsetMat", identity);
-
-					if (body->GetShapeType() == BodySetup::ShapeType::Mesh)
-					{
-						if (collisionMesh)
-						{
-							if (collisionMesh->GetDirty())
-								collisionMesh->UpdateBuffer();
-							lineShader->BindFloat("_Color", kShapeColor.r, kShapeColor.g, kShapeColor.b, kShapeColor.a);
-							glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-							lineShader->BindMesh(collisionMesh);
-							const unsigned int subCount = collisionMesh->GetSubMeshCount();
-							if (subCount == 0)
-							{
-								glDrawElements(GL_TRIANGLES,
-									static_cast<GLsizei>(collisionMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-							}
-							else
-							{
-								for (unsigned int i = 0; i < subCount; ++i)
-								{
-									auto sm = collisionMesh->GetSubMeshAt(i);
-									if (!sm) continue;
-									lineShader->BindSubMesh(collisionMesh, i);
-									glDrawElements(GL_TRIANGLES,
-										static_cast<GLsizei>(sm->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-								}
-							}
-							glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-						}
-					}
-					else
-					{
-						std::vector<float> verts;
-						if (body->GetShapeType() == BodySetup::ShapeType::Box)
-							PushBoxLines(verts, body->GetHalfExtents());
 						else
-							PushSphereLines(verts, body->GetRadius());
-						DrawLineSegments(verts, kShapeColor);
+						{
+							for (unsigned int i = 0; i < subCount; ++i)
+							{
+								auto sm = renderMesh->GetSubMeshAt(i);
+								if (!sm) continue;
+								shader->BindSubMesh(renderMesh, i);
+								glDrawElements(GL_TRIANGLES,
+									static_cast<GLsizei>(sm->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+							}
+						}
 					}
-				}
 
-				DrawGroundGrid(vp.view, vp.proj, center, mn.y, radius);
+					// Collision wireframe overlay.
+					if (body)
+					{
+						auto lineShader = EnsureLineShader();
+						lineShader->Bind();
+						lineShader->BindMatrix("_ViewMatrix", view);
+						lineShader->BindMatrix("_ProjectionMatrix", proj);
+						Matrix4 identity;
+						identity.Identity();
+						lineShader->BindMatrix("_OffsetMat", identity);
 
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glDisable(GL_DEPTH_TEST);
+						if (shapeType == BodySetup::ShapeType::Mesh)
+						{
+							if (collisionMesh)
+							{
+								if (collisionMesh->GetDirty())
+									collisionMesh->UpdateBuffer();
+								lineShader->BindFloat("_Color", kShapeColor.r, kShapeColor.g, kShapeColor.b, kShapeColor.a);
+								glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+								lineShader->BindMesh(collisionMesh);
+								const unsigned int subCount = collisionMesh->GetSubMeshCount();
+								if (subCount == 0)
+								{
+									glDrawElements(GL_TRIANGLES,
+										static_cast<GLsizei>(collisionMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+								}
+								else
+								{
+									for (unsigned int i = 0; i < subCount; ++i)
+									{
+										auto sm = collisionMesh->GetSubMeshAt(i);
+										if (!sm) continue;
+										lineShader->BindSubMesh(collisionMesh, i);
+										glDrawElements(GL_TRIANGLES,
+											static_cast<GLsizei>(sm->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+									}
+								}
+								glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+							}
+						}
+						else
+						{
+							std::vector<float> verts;
+							if (shapeType == BodySetup::ShapeType::Box)
+								PushBoxLines(verts, halfExtents);
+							else
+								PushSphereLines(verts, shapeRadius);
+							DrawLineSegments(verts, kShapeColor);
+						}
+					}
+
+					DrawGroundGrid(view, proj, center, gridY, radius);
+
+					glBindFramebuffer(GL_FRAMEBUFFER, 0);
+					glDisable(GL_DEPTH_TEST);
+
+					PublishSurface(key, surface.color);
+				});
 
 				ImGui::BeginChild("preview", size, false, ImGuiWindowFlags_NoScrollbar);
 				ImGui::SetCursorPos(pad);
 				const ImVec2 img_size(size.x - 2.0f * pad.x, size.y - 2.0f * pad.y);
-				ImGui::Image((ImTextureID)(intptr_t)rt.colorRT->GetID(),
+				ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(key),
 					img_size, ImVec2(0, 1), ImVec2(1, 0));
 
 				if (ImGui::IsItemHovered() || ImGui::IsWindowHovered())

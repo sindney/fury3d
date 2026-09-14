@@ -6,6 +6,7 @@
 #include <float.h>
 #include <functional>
 #include <memory>
+#include <memory>
 
 #include <SFML/Window/Window.hpp>
 #include <SFML/Window/Event.hpp>
@@ -29,6 +30,13 @@ namespace fury
 		void FURY_API ShowDefault(float dt);
 
 		void FURY_API Render();
+
+		// Render-thread split: BuildDrawDataSnapshot runs on the game
+		// thread (calls ImGui::Render + deep-clones draw data), the clone
+		// rides the frame packet, and RenderSnapshot submits it to GL on
+		// the render thread.
+		std::shared_ptr<void> FURY_API BuildDrawDataSnapshot();
+		void FURY_API RenderSnapshot(const std::shared_ptr<void> &frame);
 
 		// ImGui input-capture queries, exposed so Lua scripts can gate camera
 		// motion when the cursor/keyboard is over an ImGui widget.

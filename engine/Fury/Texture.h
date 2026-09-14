@@ -16,7 +16,7 @@ namespace fury
 {
 	// note that if you don't create texture from Texture's static creators.
 	// then the new texture is not added to BufferManager, add that texture if you need.
-	class FURY_API Texture : public Entity, public Buffer
+	class FURY_API Texture : public Entity, public Buffer, public std::enable_shared_from_this<Texture>
 	{
 	protected:
 
@@ -125,6 +125,13 @@ namespace fury
 		bool IsSRGB() const;
 
 		TextureFormat GetFormat() const;
+
+		// True when the texture has decoded content (file/memory loaded),
+		// regardless of whether the GL upload has landed yet. The
+		// "bind a dummy on failed load" decision must use this, NOT
+		// GetID() -- uploads are queued on foreign threads now, so
+		// GetID()==0 can also mean "upload pending".
+		bool IsContentValid() const { return m_Format != TextureFormat::UNKNOW; }
 
 		TextureType GetType() const;
 

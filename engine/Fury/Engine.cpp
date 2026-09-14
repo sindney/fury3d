@@ -20,6 +20,7 @@
 #include "Fury/Pipeline.h"
 #include "Fury/Profiler.h"
 #include "Fury/RenderUtil.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
@@ -91,21 +92,16 @@ namespace fury
 		// Read the SFML window's back-buffer and write it to `path` as an
 		// 8-bit RGBA PNG. Used by the --screenshot debug capture path.
 		// Returns true on success.
-		bool WriteBackBufferAsPng(const std::string &path, sf::Window &window)
+		// Flip GL-origin rows and write as PNG.
+		bool WritePixelsAsPng(const std::string &path,
+			const std::vector<unsigned char> &pixels, unsigned int w, unsigned int h)
 		{
-			const sf::Vector2u sz = window.getSize();
-			const unsigned int w = sz.x;
-			const unsigned int h = sz.y;
 			if (w == 0 || h == 0)
 			{
-				FURYE << "WriteBackBufferAsPng: window has zero size";
+				FURYE << "WritePixelsAsPng: zero size";
 				return false;
 			}
 			const std::size_t row_bytes = static_cast<std::size_t>(w) * 4;
-			std::vector<unsigned char> pixels(row_bytes * h);
-			glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
-				GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
 			// OpenGL's read origin is bottom-left, PNG's is top-left.
 			std::vector<unsigned char> flipped(pixels.size());
 			for (unsigned int y = 0; y < h; ++y)
@@ -114,7 +110,6 @@ namespace fury
 					&pixels[(h - 1 - y) * row_bytes],
 					row_bytes);
 			}
-
 			const int rc = stbi_write_png(path.c_str(),
 				static_cast<int>(w), static_cast<int>(h),
 				4, flipped.data(), static_cast<int>(row_bytes));
@@ -241,6 +236,14 @@ namespace fury
 		RenderUtil::Initialize();
 
 		BufferManager::Initialize();
+
+		// Build the dummy fallback textures eagerly (GL is current on this
+		// thread; afterwards the GetDummyTexture* getters are GL-free and
+		// callable from any thread -- e.g. Terrain::Load mid-run).
+		(void)GetDummyCubeTexture();
+		(void)GetDummyTexture2D();
+		(void)GetDummyTexture2DArray();
+		(void)GetDummyTexture3D();
 
 		PhysicsWorld::Initialize();
 		PhysicsWorld::Instance()->Subscribe();
@@ -513,6 +516,28 @@ namespace fury
 		Editor::Initialize();
 #endif
 
+		const bool renderThread = RenderThread::ResolveEnabled(opts.render_thread);
+		FURYD << "render thread: " << (renderThread ? "on" : "off");
+		auto &renderThreadInst = RenderThread::Get();
+		// One frame body, two schedulings: render thread when enabled,
+		// inline on this thread when not.
+		FrameExecutor frameExecutor = [&window](FramePacket &packet)
+		{
+			RenderUtil::Instance()->BeginFrame();
+			if (packet.pipeline)
+				packet.pipeline->ExecutePacket(packet);
+			for (auto &job : packet.overlayJobs)
+				job();
+			Gui::RenderSnapshot(packet.guiFrame);
+			RenderUtil::Instance()->EndFrame();
+			window.display();
+			FURY_GPU_COLLECT();
+			FURY_FRAME;
+		};
+		renderThreadInst.SetExecutor(frameExecutor);
+		if (renderThread)
+			renderThreadInst.Start(window, frameExecutor);
+
 #if PLATFORM_WINDOWS
 		InstallResizeCursorHook(window);
 #endif
@@ -541,7 +566,7 @@ namespace fury
 
 		while (window.isOpen() && running)
 		{
-			RenderUtil::Instance()->BeginFrame();
+			renderThreadInst.BeginLoopFrame();
 
 			while (const std::optional event = window.pollEvent())
 			{
@@ -619,22 +644,43 @@ namespace fury
 			Editor::TickPostRender();
 		}
 
-		// Flush ImGui draw lists to the default framebuffer LAST so the
-		// editor (and any script-side floating windows) composite on top
-		// of the 3D scene -- including the Viewport window's ImGui::Image,
-		// which samples the scene's offscreen render target. This runs
-		// after TickPostRender so the selection overlay (drawn into the
-		// render target) is visible inside the Viewport window this frame.
+		// Build the GUI draw data on the game thread (the GL submission
+		// happens inside the frame executor on the GL thread). ImGui
+		// composites on top of the 3D scene -- including the Viewport
+		// window's ImGui::Image, which samples the scene's offscreen
+		// render target.
+		std::shared_ptr<void> guiFrame;
 		{
 			FURY_ZONE_NAMED("Gui::Render");
-			Gui::Render();
+			guiFrame = Gui::BuildDrawDataSnapshot();
 		}
 
-		window.display();
-		FURY_GPU_COLLECT();
-		FURY_FRAME;
-
-			RenderUtil::Instance()->EndFrame();
+		// Loop tail: take the packet staged by Pipeline::Execute (or an
+		// empty GUI-only one) and submit it -- to the render thread, or
+		// inline right here when threading is off (identical executor).
+		FramePacket *packet = renderThreadInst.TakeStagedPacket();
+		if (packet == nullptr)
+		{
+			packet = renderThreadInst.AcquirePacket();
+			packet->Reset();
+		}
+		packet->guiFrame = guiFrame;
+		{
+			FURY_ZONE_NAMED("SubmitFrame");
+			if (renderThread)
+				renderThreadInst.SubmitFrame(packet);
+			else
+				renderThreadInst.ExecuteInline(*packet);
+		}
+		{
+			FURY_ZONE_NAMED("RenderThread::Poll");
+			FrameResult frameResult;
+			while (renderThreadInst.PollFrameResult(frameResult))
+			{
+				if (!frameResult.shadowTextures.empty() && Pipeline::Active)
+					Pipeline::Active->UpdateShadowTextureCache(frameResult.shadowTextures);
+			}
+		}
 
 			// End-of-frame summary of dropped key events. One FURYW
 			// line per overflow frame; an active IME can produce
@@ -646,10 +692,32 @@ namespace fury
 				s_DroppedUnknownKeys = 0;
 			}
 
+			// Post-present back-buffer capture: inline readback when
+			// single-threaded, round-trip through the render thread
+			// when threaded.
+			auto captureBackBuffer = [&](std::vector<unsigned char> &pixels,
+				unsigned int &w, unsigned int &h) -> bool
+			{
+				if (renderThread)
+				{
+					RenderThread::ReadbackRequest rb;
+					if (!renderThreadInst.CaptureBackBuffer(rb))
+						return false;
+					pixels = std::move(*rb.pixels);
+					w = rb.w;
+					h = rb.h;
+					return true;
+				}
+				return ReadBackBuffer(pixels, w, h, window);
+			};
+
 			++frame_index;
 			if (!opts.screenshot_path.empty() && frame_index == opts.screenshot_frame)
 			{
-				const bool ok = WriteBackBufferAsPng(opts.screenshot_path, window);
+				std::vector<unsigned char> pixels;
+				unsigned int w = 0, h = 0;
+				const bool ok = captureBackBuffer(pixels, w, h)
+					&& WritePixelsAsPng(opts.screenshot_path, pixels, w, h);
 				if (ok)
 				{
 					FURYI << "captured screenshot to " << opts.screenshot_path
@@ -675,7 +743,7 @@ namespace fury
 			{
 				std::vector<unsigned char> pix;
 				unsigned int w = 0, h = 0;
-				if (ReadBackBuffer(pix, w, h, window))
+				if (captureBackBuffer(pix, w, h))
 				{
 					if (seriesFrames.empty())
 					{
@@ -709,6 +777,9 @@ namespace fury
 			}
 		}
 
-		if (cb.OnShutdown) cb.OnShutdown();
+		if (renderThread)
+		renderThreadInst.Stop();
+
+	if (cb.OnShutdown) cb.OnShutdown();
 	}
 }

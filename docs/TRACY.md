@@ -66,10 +66,17 @@ Tracy's OpenGL backend warns at compile time: "OpenGL timestamps are unreliable 
 
 ## What you get
 
-- **Frame marks**: one per presented frame (after `window.display()`).
-- **Threads**: `main`, `worker-N` (ThreadUtil pool); Jolt job threads appear unnamed.
-- **CPU zones**: main-loop phases (`FixedUpdate`, `Lua+Render`, `Gui::*`, `Editor::*`), `PhysicsWorld::TickFixed` (with inner `Jolt::Update`), `Animator::*`, `PrelightPipeline::Execute` with a `Culling` zone and one dynamically-named zone per pipeline pass, shadow-map draws, `DrawSky`, `DrawOcean`, `RunPostProcessChain`.
+- **Frame marks**: one per presented frame (after `window.display()` on the GL-owning thread; the `render` thread's timeline when render threading is enabled).
+- **Threads**: `main`, `render` (render thread, when enabled), `worker-N` (ThreadUtil pool); Jolt job threads appear unnamed.
+- **CPU zones**: main-loop phases (`FixedUpdate`, `Lua+Render`, `Gui::*`, `Editor::*`), `PhysicsWorld::TickFixed` (with inner `Jolt::Update`), `Animator::*`, frame gather on the game thread (`GatherFrame` with `Culling`, `GatherLights`, `GatherInstanced`, `GatherParticles`, `ResolveUnits`) and packet execution on the render thread (`ExecutePacket` with `InstancedCulling` and one dynamically-named zone per pipeline pass, `RunPostProcessChain`).
+- **Plots**: `drawcmd_hits` / `drawcmd_rebuilds` (draw-command cache) and `draw_calls` per frame.
 - **GPU zones** (when `FURY_WITH_TRACY_GPU`): one per pipeline pass, aligned with the CPU timeline.
+
+## Render thread in a capture
+
+With render threading enabled (default; `--render-thread=0|1` to toggle) the split is directly visible: the game thread gathers the next frame while the render thread submits the current one.
+
+![Tracy capture of the ocean island stress scene: left, render threading on (game thread gather overlapping the render thread's pass execution); right, threading off (serial).](../screenshots/render_thread_tracy.png)
 
 ## Notes for instrumentation authors
 

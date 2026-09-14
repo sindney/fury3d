@@ -35,6 +35,10 @@ namespace fury
 		// When true, the system DPI is multiplied with `gui_scale`.
 		bool dpi_aware_override = false;
 
+		// Render-thread toggle from the Lua options table. -1 = unset
+		// (resolve via RenderThread: CLI > env > this > ini > default ON).
+		int render_thread = -1;
+
 		// Screenshot capture (debug). When `screenshot_path` is non-empty,
 		// the engine reads the back-buffer after frame `screenshot_frame`,
 		// writes a PNG to disk, and stops the main loop. `exit_code_out`

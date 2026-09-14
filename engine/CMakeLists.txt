@@ -86,8 +86,13 @@ endif()
 # ImReflect (vendored at ThirdParty/ImReflect) uses C++17 template-template
 # parameters with defaulted template arguments — accepted by P0522 but
 # Clang gates it behind -frelaxed-template-template-args until C++20.
+# The flag was removed in newer Clang (Apple Clang 21+), so probe first.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frelaxed-template-template-args")
+	include(CheckCXXCompilerFlag)
+	check_cxx_compiler_flag("-frelaxed-template-template-args" FURY_HAS_RELAXED_TTA)
+	if(FURY_HAS_RELAXED_TTA)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frelaxed-template-template-args")
+	endif()
 endif()
 
 # Default to building static binaries. Set BUILD_SHARED_LIBS=ON to instead get
@@ -101,6 +106,13 @@ option(BUILD_SHARED_LIBS "Build the engine as a shared library instead of an exe
 # bounds/buoyancy overlays move here later) live behind WITH_DBG_OVERLAY so
 # they exist in every flavor except Shipping.
 option(FURY_SHIPPING "Strip development-only features (defines FURY_BUILD_SHIPPING)" OFF)
+
+# AddressSanitizer for the engine + example targets (dev/debug use).
+option(FURY_WITH_ASAN "Build with AddressSanitizer instrumentation" OFF)
+if(FURY_WITH_ASAN AND NOT MSVC)
+	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+	add_link_options(-fsanitize=address)
+endif()
 option(FURY_WITH_DBG_OVERLAY "Compile visual debug overlays (LOD tier tint, ...)" ON)
 if(FURY_SHIPPING AND FURY_WITH_DBG_OVERLAY)
 	message(STATUS "FURY_SHIPPING=ON: forcing FURY_WITH_DBG_OVERLAY=OFF")
@@ -326,6 +338,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/EnumUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/FbxConverter.cpp
 	${PROJECT_SOURCE_DIR}/Fury/FileUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/FramePacket.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Frustum.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GLLoader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GltfImporter.cpp
@@ -361,6 +374,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/RenderQuery.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderSettings.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderTarget.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RenderThread.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SkyAtmosphere.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Heightmap.cpp
@@ -393,6 +407,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorNodeProperties.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorParticleWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPicking.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorRenderJobs.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSelectionViz.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSkyWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorTerrainWindow.cpp

@@ -2,7 +2,10 @@
 
 #include <cmath>
 
+#include "Fury/RenderThread.h"
 #include "Fury/RenderUtil.h"
+
+#include "Fury/FramePacket.h"
 #include "Fury/BoxBounds.h"
 #include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
@@ -17,8 +20,14 @@
 
 namespace fury
 {
+	namespace
+	{
+		void EnsureDummyTextures();
+	}
+
 	RenderUtil::RenderUtil()
 	{
+
 		// blit shader
 		{
 			const char *blit_vs = 
@@ -137,6 +146,21 @@ namespace fury
 		m_DrawCall++;
 	}
 
+	void RenderUtil::BeginDrawLines(const PacketCamera &camera)
+	{
+		if (m_DrawingLine || m_LineVAO == 0 || m_LineVBO == 0 || m_DebugShader->GetDirty())
+			return;
+
+		m_DrawingLine = true;
+
+		m_DebugShader->Bind();
+		m_DebugShader->BindCameraData(camera);
+		m_DebugShader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
+
+		glBindVertexArray(m_LineVAO);
+		glBindBuffer(GL_ARRAY_BUFFER, m_LineVBO);
+	}
+
 	void RenderUtil::BeginDrawLines(const std::shared_ptr<SceneNode> &camera)
 	{
 		if (m_DrawingLine || m_LineVAO == 0 || m_LineVBO == 0 || m_DebugShader->GetDirty())
@@ -229,6 +253,19 @@ namespace fury
 		m_DebugShader->UnBind();
 	}
 
+	void RenderUtil::BeginDrawMeshs(const PacketCamera &camera)
+	{
+		if (m_DebugShader->GetDirty() || m_DrawingMesh)
+			return;
+
+		m_DrawingMesh = true;
+
+		m_DebugShader->Bind();
+		m_DebugShader->BindCameraData(camera);
+
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	}
+
 	void RenderUtil::BeginDrawMeshs(const std::shared_ptr<SceneNode> &camera)
 	{
 		if (m_DebugShader->GetDirty() || m_DrawingMesh)
@@ -273,11 +310,11 @@ namespace fury
 
 	void RenderUtil::EndFrame()
 	{
-		m_LastDrawCall = m_DrawCall;
-		m_LastMeshCount = m_MeshCount;
-		m_LastTriangleCount = m_TriangleCount;
-		m_LastSkinnedMeshCount = m_SkinnedMeshCount;
-		m_LastLightCount = m_LightCount;
+		m_LastDrawCall = m_DrawCall.load();
+		m_LastMeshCount = m_MeshCount.load();
+		m_LastTriangleCount = m_TriangleCount.load();
+		m_LastSkinnedMeshCount = m_SkinnedMeshCount.load();
+		m_LastLightCount = m_LightCount.load();
 
 		m_DrawCall = 0;
 		m_MeshCount = 0;
@@ -384,38 +421,68 @@ namespace fury
 		return shader;
 	}
 
+	namespace
+	{
+		std::shared_ptr<Texture> s_DummyCube;
+
+		std::shared_ptr<Texture> s_Dummy2D;
+
+		std::shared_ptr<Texture> s_Dummy2DArray;
+
+		std::shared_ptr<Texture> s_Dummy3D;
+
+		// Eagerly built in RenderUtil's ctor (GL is guaranteed current on
+		// the main thread there), so the getters below are GL-free and any
+		// thread may call them (e.g. Terrain::Load on the game thread).
+		void EnsureDummyTextures()
+		{
+			if (!s_DummyCube)
+			{
+				s_DummyCube = Texture::Create("DummyCube");
+				s_DummyCube->CreateEmpty(1, 1, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP, false);
+			}
+			if (!s_Dummy2D)
+			{
+				s_Dummy2D = Texture::Create("Dummy2D");
+				s_Dummy2D->CreateEmpty(1, 1, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, false);
+			}
+			if (!s_Dummy2DArray)
+			{
+				// 1x1x4 DEPTH24 -- the sampler-target match is what matters.
+				s_Dummy2DArray = Texture::Create("Dummy2DArray");
+				s_Dummy2DArray->CreateEmpty(1, 1, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY, false);
+			}
+			if (!s_Dummy3D)
+			{
+				// 1x1x1 RGBA8 -- the sampler-target match is what matters.
+				s_Dummy3D = Texture::Create("Dummy3D");
+				s_Dummy3D->CreateEmpty(1, 1, 1, TextureFormat::RGBA8, TextureType::TEXTURE_3D, false);
+			}
+		}
+	}
+
 	std::shared_ptr<Texture> GetDummyCubeTexture()
 	{
-		static auto tex = Texture::Create("DummyCube");
-		if (tex->GetID() == 0)
-			tex->CreateEmpty(1, 1, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP, false);
-		return tex;
+		EnsureDummyTextures();
+		return s_DummyCube;
 	}
 
 	std::shared_ptr<Texture> GetDummyTexture2D()
 	{
-		static auto tex = Texture::Create("Dummy2D");
-		if (tex->GetID() == 0)
-			tex->CreateEmpty(1, 1, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, false);
-		return tex;
+		EnsureDummyTextures();
+		return s_Dummy2D;
 	}
 
 	std::shared_ptr<Texture> GetDummyTexture2DArray()
 	{
-		// 1x1x4 DEPTH24 -- the sampler-target match is what matters.
-		static auto tex = Texture::Create("Dummy2DArray");
-		if (tex->GetID() == 0)
-			tex->CreateEmpty(1, 1, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY, false);
-		return tex;
+		EnsureDummyTextures();
+		return s_Dummy2DArray;
 	}
 
 	std::shared_ptr<Texture> GetDummyTexture3D()
 	{
-		// 1x1x1 RGBA8 -- the sampler-target match is what matters.
-		static auto tex = Texture::Create("Dummy3D");
-		if (tex->GetID() == 0)
-			tex->CreateEmpty(1, 1, 1, TextureFormat::RGBA8, TextureType::TEXTURE_3D, false);
-		return tex;
+		EnsureDummyTextures();
+		return s_Dummy3D;
 	}
 
 	std::shared_ptr<Shader> GetParticleShader(bool shadow)
@@ -437,7 +504,8 @@ namespace fury
 		return shader;
 	}
 
-	float RenderMeshLambert(const std::shared_ptr<Mesh> &mesh, int w, int h)
+	float RenderMeshLambert(const std::shared_ptr<Mesh> &mesh, int w, int h,
+		const std::vector<Matrix4> *palette)
 	{
 		if (!mesh) return 0.0f;
 
@@ -489,10 +557,18 @@ namespace fury
 		shader->BindMatrix("_ViewMatrix", view);
 		shader->BindMatrix("_ProjectionMatrix", proj);
 
+		const bool bindPalette = palette != nullptr && !palette->empty();
+		auto bindMesh = [&]() {
+			if (bindPalette)
+				shader->BindMesh(mesh, palette->data(), static_cast<int>(palette->size()));
+			else
+				shader->BindMesh(mesh);
+		};
+
 		auto submeshCount = mesh->GetSubMeshCount();
 		if (submeshCount == 0)
 		{
-			shader->BindMesh(mesh);
+			bindMesh();
 			glDrawElements(GL_TRIANGLES,
 				static_cast<GLsizei>(mesh->Indices.Data.size()),
 				GL_UNSIGNED_INT, 0);
@@ -501,7 +577,7 @@ namespace fury
 		{
 			// BindMesh binds the mesh's VAO (position/normal/uv attributes);
 			// BindSubMesh only swaps the index buffer.
-			shader->BindMesh(mesh);
+			bindMesh();
 			for (unsigned int i = 0; i < submeshCount; ++i)
 			{
 				auto sm = mesh->GetSubMeshAt(i);

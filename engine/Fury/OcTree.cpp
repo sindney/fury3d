@@ -69,6 +69,34 @@ namespace fury
 		return m_TypeIndex;
 	}
 
+	void OcTree::CollectDebugBounds(std::vector<std::pair<BoxBounds, unsigned int>> &out) const
+	{
+		out.clear();
+		if (m_Root == nullptr)
+			return;
+
+		std::deque<std::pair<OcTreeNode*, unsigned int>> stack;
+		stack.push_back(std::make_pair(m_Root.get(), 0u));
+
+		while (!stack.empty())
+		{
+			auto pair = stack.back();
+			stack.pop_back();
+
+			OcTreeNode *node = pair.first;
+			unsigned int depth = pair.second;
+
+			if (node->GetTotalSceneNodeCount() > 0)
+				out.push_back(std::make_pair(node->GetAABB(), depth));
+
+			for (int i = 0; i < 8; ++i)
+			{
+				if (node->m_Childs[i] != nullptr)
+					stack.push_back(std::make_pair(node->m_Childs[i].get(), depth + 1));
+			}
+		}
+	}
+
 	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode)
 	{
 		BoxBounds nodeBounds = sceneNode->GetWorldAABB();

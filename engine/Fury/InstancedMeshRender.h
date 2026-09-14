@@ -2,6 +2,7 @@
 #define _FURY_INSTANCED_MESH_RENDER_H_
 
 #include "Fury/Component.h"
+#include "Fury/FramePacket.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Quaternion.h"
 #include "Fury/Vector4.h"
@@ -40,12 +41,8 @@ namespace fury
 		};
 
 		// One LOD tier's visible instance stream for the current frame.
-		struct InstanceBatch
-		{
-			unsigned int LodTier = 0;
-			bool Billboard = false;
-			std::vector<Matrix4> WorldMatrices;
-		};
+		// (Shared with FramePacket; defined there.)
+		using InstanceBatch = fury::InstanceBatch;
 
 		static Ptr Create(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Material> &material);
 
@@ -71,13 +68,8 @@ namespace fury
 		// Per-frame visible batches, rebuilt by BuildVisibleBatches.
 		std::vector<InstanceBatch> m_Batches;
 
-		// Cached per-instance world matrices + AABBs. Instances are static
-		// by design, so the expensive compose/box-transform runs only when
-		// the instance list or the owner node's world matrix changes --
-		// BuildVisibleBatches then costs a frustum test + coverage per
-		// instance per frame (45k instances: ~30ms -> few ms).
-		std::vector<Matrix4> m_WorldMatrixCache;
-		std::vector<BoxBounds> m_WorldAABBCache;
+		// Cache-build bookkeeping for the published InstancedRenderCaches
+		// (instances are static by design; rebuilds are rare).
 		Matrix4 m_CacheNodeWorld;      // owner world matrix the cache was built with
 		bool m_MatrixCacheDirty = true;
 
@@ -86,6 +78,10 @@ namespace fury
 		std::vector<Matrix4> m_ShadowMatrices;
 
 		bool m_ShadowMatricesDirty = true;
+
+		// Published render caches, replaced on rebuild only. The render
+		// thread holds the previous snapshot alive via the frame packet.
+		std::shared_ptr<const InstancedRenderCaches> m_PublishedCaches;
 
 	public:
 
@@ -154,6 +150,11 @@ namespace fury
 		void BuildVisibleBatches(const Frustum &frustum, const std::shared_ptr<SceneNode> &cameraNode);
 
 		const std::vector<InstanceBatch> &GetBatches() const { return m_Batches; }
+
+		// Game thread: ensure the published render caches are fresh
+		// (rebuilds when instances/owner transform changed) and return
+		// them. Null when the component has nothing to draw.
+		std::shared_ptr<const InstancedRenderCaches> SnapshotRenderCaches();
 
 		// Shadow casting: all instances at the deepest non-billboard
 		// tier (billboards never cast). Lazily rebuilt.

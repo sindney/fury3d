@@ -39,6 +39,7 @@ namespace fury
 #define FURY_ZONE_DYNAMIC(name) ZoneNamed(___tracy_scoped_zone, fury::profiler::Armed()); ZoneName(name, std::strlen(name))
 #define FURY_FRAME if (!fury::profiler::Armed()) {} else FrameMark
 #define FURY_SET_THREAD_NAME(name) tracy::SetThreadName(name)
+#define FURY_PLOT(name, value) if (!fury::profiler::Armed()) {} else TracyPlot(name, value)
 
 #ifdef FURY_TRACY_GPU
 #define FURY_GPU_CONTEXT() TracyGpuContext
@@ -63,5 +64,6 @@ namespace fury
 #define FURY_GPU_ZONE(name)
 #define FURY_GPU_ZONE_DYNAMIC(name)
 #define FURY_GPU_COLLECT()
+#define FURY_PLOT(name, value)
 
 #endif

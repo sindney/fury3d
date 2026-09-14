@@ -26,6 +26,7 @@
 #include <SFML/Window.hpp>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -37,9 +38,11 @@
 #include <Fury/Editor/Editor.h>
 #include <Fury/FileUtil.h>
 #include <Fury/Fury.h>
+#include <Fury/GLLoader.h>
 #include <Fury/Gui.h>
 #include <Fury/LuaBindings.h>
 #include <Fury/PhysicsWorld.h>
+#include <Fury/RenderThread.h>
 
 #undef near
 #undef far
@@ -191,6 +194,23 @@ namespace
 				out_options.auto_focus = true;
 				continue;
 			}
+			if (std::strcmp(a, "--render-thread") == 0
+				|| std::strncmp(a, "--render-thread=", 16) == 0)
+			{
+				// Accepts "--render-thread 0|1" and "--render-thread=0|1".
+				const char *value = nullptr;
+				if (a[15] == '=')
+					value = a + 16;
+				else if (i + 1 < argc)
+					value = argv[++i];
+				if (value == nullptr || (value[0] != '0' && value[0] != '1') || value[1] != '\0')
+				{
+					std::cerr << "fury: --render-thread requires 0 or 1\n";
+					return false;
+				}
+				out_options.render_thread = value[0] - '0';
+				continue;
+			}
 			out_filtered.push_back(a);
 		}
 		return true;
@@ -221,6 +241,31 @@ int main(int argc, char *argv[])
 		return rc;
 	}
 
+
+	// `fury render-thread-smoke [N]`: standalone render-thread context-handoff
+	// check. Render thread clears+swaps N frames with a center-pixel readback
+	// assert per frame; main thread pumps events. No engine init.
+	if (argc >= 2 && std::strcmp(argv[1], "render-thread-smoke") == 0) {
+		int frames = 120;
+		if (argc >= 3) {
+			frames = std::atoi(argv[2]);
+			if (frames < 1) frames = 1;
+			if (frames > 100000) frames = 100000;
+		}
+		sf::Window window;
+		if (!CreateWindowNegotiated(window, sf::VideoMode({256, 256}),
+				"Fury3d-rt-smoke", sf::Style::None)) {
+			std::cerr << "fury render-thread-smoke: window creation failed\n";
+			return 1;
+		}
+		window.setVerticalSyncEnabled(false);
+		(void)window.setActive();
+		if (gl::LoadGLFunctions() != 1) {
+			std::cerr << "fury render-thread-smoke: GL function load failed\n";
+			return 1;
+		}
+		return fury::RenderThread::RunSmokeTest(window, frames);
+	}
 
 	// Fast-path: if argv[1] looks like a CLI subcommand, take the offline
 	// path. No window, no engine, no Lua. Exit code from Cli::Run propagates.

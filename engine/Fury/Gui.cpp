@@ -7,10 +7,13 @@
 // /wd4127 in CMakeLists.txt.
 #include "ImGui/imconfig.h"
 #include "ImGui/imgui.h"
+// For ImDrawListSharedData (draw-data snapshot clones own one each).
+#include "ImGui/imgui_internal.h"
 #include "ImGui/backends/imgui_impl_opengl3.h"
 #include "ImGui/backends/imgui_impl_sfml3.h"
 
 #include "Fury/Gui.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Log.h"
 
 #include <SFML/Window.hpp>
@@ -69,6 +72,16 @@ namespace fury
 				return false;
 			}
 
+			// Pre-bake one full frame on the main thread (GL is current
+			// here, before the render-thread handoff): the font atlas
+			// uploads and the backend's device objects get created up
+			// front, so neither lands on the render thread later.
+			ImGui_ImplSFML3_NewFrame(m_Window, 1.0f / 60.0f);
+			ImGui::NewFrame();
+			ImGui::Render();
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
 			return true;
 		}
 
@@ -91,7 +104,11 @@ namespace fury
 		void NewFrame(float frameTime)
 		{
 			if (ImGui::GetCurrentContext() == nullptr) return;
-			ImGui_ImplOpenGL3_NewFrame();
+			// The GL backend's NewFrame is one-time device setup; after the
+			// pre-bake it is a no-op. Post-handoff it must not run on the
+			// game thread (it is a GL call).
+			if (RenderThread::Get().MayUseGL())
+				ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplSFML3_NewFrame(m_Window, frameTime);
 			ImGui::NewFrame();
 		}
@@ -213,9 +230,70 @@ namespace fury
 
 		void Render()
 		{
+			FURY_GL_THREAD_GUARD();
 			if (ImGui::GetCurrentContext() == nullptr) return;
 			ImGui::Render();
 			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		}
+
+		// Deep-cloned draw data for one frame. Owned by the caller; the
+		// ImGui-owned source lists are recycled next NewFrame. The lists
+		// are allocated OUTSIDE ImGui's shared-data registry (a fresh
+		// shared data each) so context teardown never sees them.
+		struct GuiFrameData
+		{
+			ImDrawData drawData;
+			std::vector<ImDrawList*> lists;
+			~GuiFrameData()
+			{
+				for (auto *l : lists)
+					delete l;
+			}
+		};
+
+		std::shared_ptr<void> BuildDrawDataSnapshot()
+		{
+			if (ImGui::GetCurrentContext() == nullptr) return nullptr;
+			ImGui::Render();
+			ImDrawData *src = ImGui::GetDrawData();
+			if (src == nullptr || !src->Valid) return nullptr;
+
+			auto out = std::make_shared<GuiFrameData>();
+			out->drawData.Valid = true;
+			out->drawData.DisplayPos = src->DisplayPos;
+			out->drawData.DisplaySize = src->DisplaySize;
+			out->drawData.FramebufferScale = src->FramebufferScale;
+			out->drawData.OwnerViewport = src->OwnerViewport;
+			out->drawData.Textures = src->Textures;
+			for (int i = 0; i < src->CmdListsCount; ++i)
+			{
+				const ImDrawList *sl = src->CmdLists[i];
+				// Own shared data per clone: the source's shared data
+				// tracks its lists and asserts non-empty at context
+				// teardown; a fresh one never does.
+				ImDrawList *dl = new ImDrawList(new ImDrawListSharedData());
+				dl->CmdBuffer = sl->CmdBuffer;
+				dl->IdxBuffer = sl->IdxBuffer;
+				dl->VtxBuffer = sl->VtxBuffer;
+				dl->Flags = sl->Flags;
+				// The source list is fully written (post-Render); keep the
+				// write pointers consistent or AddDrawList asserts.
+				dl->_VtxWritePtr = dl->VtxBuffer.Data + dl->VtxBuffer.Size;
+				dl->_IdxWritePtr = dl->IdxBuffer.Data + dl->IdxBuffer.Size;
+
+				out->lists.push_back(dl);
+				out->drawData.AddDrawList(dl);
+			}
+			return out;
+		}
+
+		void RenderSnapshot(const std::shared_ptr<void> &frame)
+		{
+			if (ImGui::GetCurrentContext() == nullptr) return;
+			auto *data = static_cast<GuiFrameData*>(frame.get());
+			if (data == nullptr || !data->drawData.Valid) return;
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplOpenGL3_RenderDrawData(&data->drawData);
 		}
 	}
 }

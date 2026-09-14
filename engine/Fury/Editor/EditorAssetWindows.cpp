@@ -22,6 +22,8 @@
 #include "Fury/Vector4.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/Editor3DPreview.h"
+#include "Fury/Editor/EditorRenderJobs.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Editor/EditorBodySetupWindow.h"
 #include "Fury/Editor/EditorSkyWindow.h"
@@ -66,9 +68,6 @@ std::unordered_set<std::string> g_OpenMaterialEditors;
 // mesh's vertex data changes; `diskLoaded` tracks whether the FBO has been
 // populated from the disk cache this session.
 struct ThumbnailCacheEntry {
-	GLuint fbo = 0;
-	std::shared_ptr<Texture> colorRT;
-	std::shared_ptr<Texture> depthRT;
 	size_t bufferId = 0;			// the BufferId the RT was rendered with
 	uint64_t contentHash = 0;		// 0 = not yet hashed
 	bool hashInFlight = false;		// an async hash is in flight
@@ -214,47 +213,69 @@ namespace
 	}
 } // namespace ThumbnailDiskCache helpers
 
-// Render `mesh` into the 128x128 thumbnail FBO. Allocates the FBO + RTs on
-// first call; reuses them after. Camera + shader live in RenderMeshLambert
-// (shared with the `fury render-mesh` CLI).
-void RenderMeshToThumbnail(const std::shared_ptr<Mesh>& mesh,
-						   ThumbnailCacheEntry& entry) {
+// GL thread: render `mesh` into the 128x128 thumbnail surface and
+// publish it. On a disk-cache miss also reads back and queues the PNG
+// encode (WritePngAsync's ThreadUtil enqueue is thread-safe).
+void RenderThumbnailJob(const std::shared_ptr<Mesh>& mesh, const std::string& key,
+						bool cacheHit, uint64_t contentHash, const std::vector<Matrix4>& palette) {
 	if (!mesh) return;
 
-	if (entry.fbo == 0)
-	{
-		glGenFramebuffers(1, &entry.fbo);
-		entry.colorRT = Texture::GetTemporary(128, 128, 1,
-			TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		entry.depthRT = Texture::GetTemporary(128, 128, 1,
-			TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
-		glBindFramebuffer(GL_FRAMEBUFFER, entry.fbo);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			GL_TEXTURE_2D, entry.colorRT->GetID(), 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-			GL_TEXTURE_2D, entry.depthRT->GetID(), 0);
-		const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE)
-		{
-			FURYW << "RenderMeshToThumbnail: FBO incomplete (0x"
-				  << std::hex << status << std::dec << ") for mesh '"
-				  << mesh->GetName() << "'";
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			return;
-		}
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	}
+	auto &surface = AcquireSurface(key, 128, 128);
+	if (surface.fbo == 0) return;
 
-	glBindFramebuffer(GL_FRAMEBUFFER, entry.fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
 	glViewport(0, 0, 128, 128);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glEnable(GL_DEPTH_TEST);
 
-	RenderMeshLambert(mesh, 128, 128);
+	RenderMeshLambert(mesh, 128, 128, palette.empty() ? nullptr : &palette);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDisable(GL_DEPTH_TEST);
+
+	if (!cacheHit)
+	{
+		std::vector<unsigned char> pixels(128 * 128 * 4);
+		glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
+		glReadPixels(0, 0, 128, 128, GL_RGBA, GL_UNSIGNED_BYTE,
+					 pixels.data());
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// Flip rows: GL origin is bottom-left, PNG is top-left.
+		std::vector<unsigned char> flipped(pixels.size());
+		const size_t row_bytes = 128 * 4;
+		for (int y = 0; y < 128; ++y) {
+			std::memcpy(&flipped[y * row_bytes],
+						&pixels[(127 - y) * row_bytes],
+						row_bytes);
+		}
+		const std::string path = GetCachePath(contentHash);
+		const std::string name = mesh->GetName();
+		WritePngAsync(path, std::move(flipped), 128, 128, name);
+	}
+
+	PublishSurface(key, surface.color);
+}
+
+// Game thread: snapshot the skinned palette (if any) and submit the
+// thumbnail render job.
+void SubmitThumbnailJob(const std::shared_ptr<Mesh>& mesh, size_t bufferId,
+						bool cacheHit, uint64_t contentHash) {
+	std::vector<Matrix4> palette;
+	if (mesh->IsSkinnedMesh())
+	{
+		unsigned int jointCount = mesh->GetJointCount();
+		palette.reserve(jointCount);
+		for (unsigned int i = 0; i < jointCount; ++i)
+		{
+			auto joint = mesh->GetJointAt(i);
+			palette.push_back(joint ? joint->GetFinalMatrix() : Matrix4());
+		}
+	}
+	const std::string key = "MeshThumb:" + std::to_string(bufferId);
+	RenderThread::Get().EnqueueJob([mesh, key, cacheHit, contentHash, palette = std::move(palette)]() mutable {
+		RenderThumbnailJob(mesh, key, cacheHit, contentHash, palette);
+	});
 }
 
 // ---- Material editor body (task 6.3) ----
@@ -701,95 +722,45 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 // ImGui::Image. The mesh is placed at world origin; the orbit camera frames on
 // the mesh's local AABB so any mesh renders at any scale. LMB = orbit,
 // wheel = zoom, RMB = pan.
-void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
-					   const std::string& popup_id, const ImVec2& size,
-					   const std::shared_ptr<Mesh>& display_mesh) {
-	const std::shared_ptr<Mesh>& render_mesh =
-		(display_mesh && display_mesh->GetSubMeshCount() >= 0) ? display_mesh : mesh;
-	if (!render_mesh) {
-		ImGui::BeginChild("preview", size, true,
-						  ImGuiWindowFlags_NoScrollbar);
-		ImGui::GetWindowDrawList()->AddRectFilled(
-			ImGui::GetCursorScreenPos(),
-			ImVec2(ImGui::GetCursorScreenPos().x + size.x,
-				   ImGui::GetCursorScreenPos().y + size.y),
-			ImGui::GetColorU32(ImVec4(0.2f, 0.2f, 0.22f, 1.0f)));
-		ImGui::TextDisabled("(3D preview - no mesh)");
-		ImGui::EndChild();
-		return;
-	}
+// Everything the render-side mesh preview needs, captured on the game
+// thread (grid/AABB data is precomputed here so the job reads no
+// editor globals).
+struct MeshPreviewRequest
+{
+	std::shared_ptr<Mesh> mesh;
 
-	const ImVec2 pad(8.0f, 8.0f);
-	const int w = std::max(32,
-		static_cast<int>(size.x - 2.0f * pad.x + 0.5f));
-	const int h = std::max(32,
-		static_cast<int>(size.y - 2.0f * pad.y + 0.5f));
-	const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
-
-	bool rt_resized = false;
-	auto& rt = EnsureRT(popup_id, w, h, &rt_resized);
-	if (rt.fbo == 0) {
-		ImGui::BeginChild("preview", size, false, ImGuiWindowFlags_NoScrollbar);
-		ImGui::TextDisabled("(3D preview - FBO incomplete)");
-		ImGui::EndChild();
-		return;
-	}
-
-	// Frame on the mesh's local AABB (mesh placed at world origin).
-	auto aabb = render_mesh->GetAABB();
-	auto mn = aabb.GetMin();
-	auto mx = aabb.GetMax();
-	Vector4 aabb_center((mn.x + mx.x) * 0.5f,
-						(mn.y + mx.y) * 0.5f,
-						(mn.z + mx.z) * 0.5f, 1.0f);
-	Vector4 aabb_size(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, 0);
-	float radius = 0.5f * std::sqrt(
-		aabb_size.x * aabb_size.x + aabb_size.y * aabb_size.y + aabb_size.z * aabb_size.z);
-	// Degenerate AABB fallback; tiny-but-valid meshes keep their real radius.
-	if (radius < 1e-6f) radius = 0.5f;
-
-	OrbitState& os = OrbitFor(popup_id);
-	// Re-frame on first appearance, on FBO resize (aspect changes), or
-	// when the displayed mesh switches (e.g. user picks a different LOD
-	// in the dropdown -- each LOD has its own AABB and the previous
-	// orbit's target / distance would frame the wrong geometry).
-	const bool mesh_changed = (os.framed_mesh != render_mesh.get());
-	if (!os.initialized || rt_resized || mesh_changed) {
-		const float fov0 = 45.0f * 0.0174532925f;
-		const float adjusted_dist = (radius * 0.6f) /
-			(std::tan(fov0 * 0.5f) * std::min(1.0f, aspect));
-		// Preserve the user's manual zoom fraction across resizes / mesh
-		// switches (only meaningful if we'd already framed the same mesh).
-		const float zoom_factor = (os.initialized && !mesh_changed)
-			? (os.distance / std::max(1e-6f, os.initialDistance))
-			: 1.0f;
-		os.initialDistance = adjusted_dist;
-		os.distance = adjusted_dist * zoom_factor;
-		os.target = aabb_center;
-		os.framed_mesh = render_mesh.get();
-		os.initialized = true;
-	}
-
-	const float fov = 45.0f * 0.0174532925f;
-	Matrix4 proj;
-	// Near/far sized to the bounding sphere so any scale renders without clipping.
-	proj.PerspectiveFov(fov, aspect,
-		std::max(radius * 0.05f, 1e-5f), os.distance + radius * 5.0f);
-
-	const float cx = std::cos(os.pitch) * std::cos(os.yaw);
-	const float cy = std::sin(os.pitch);
-	const float cz = std::cos(os.pitch) * std::sin(os.yaw);
-	const Vector4 eye(os.target.x + cx * os.distance,
-		os.target.y + cy * os.distance,
-		os.target.z + cz * os.distance, 1.0f);
 	Matrix4 view;
-	view.LookAt(eye, os.target, Vector4(0, 1, 0, 0));
 
-	if (render_mesh->GetDirty())
-		render_mesh->UpdateBuffer();
+	Matrix4 proj;
 
-	glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
-	glViewport(0, 0, w, h);
+	Vector4 aabbCenter;
+
+	Vector4 aabbMn;
+
+	Vector4 aabbMx;
+
+	float radius = 0.5f;
+
+	std::string key;
+
+	int w = 0;
+
+	int h = 0;
+};
+
+// GL thread: draws the mesh + ground grid + AABB wireframe into the
+// preview surface, then publishes it.
+void RenderMeshPreviewJob(const MeshPreviewRequest &req)
+{
+	auto &surface = AcquireSurface(req.key, req.w, req.h);
+	if (surface.fbo == 0 || !req.mesh)
+		return;
+
+	if (req.mesh->GetDirty())
+		req.mesh->UpdateBuffer();
+
+	glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
+	glViewport(0, 0, req.w, req.h);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glEnable(GL_DEPTH_TEST);
@@ -799,21 +770,21 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	Matrix4 world;
 	world.Identity();
 	shader->BindMatrix("_WorldMatrix", world);
-	shader->BindMatrix("_ViewMatrix", view);
-	shader->BindMatrix("_ProjectionMatrix", proj);
+	shader->BindMatrix("_ViewMatrix", req.view);
+	shader->BindMatrix("_ProjectionMatrix", req.proj);
 
-	auto submeshCount = render_mesh->GetSubMeshCount();
+	auto submeshCount = req.mesh->GetSubMeshCount();
 	if (submeshCount == 0) {
-		shader->BindMesh(render_mesh);
+		shader->BindMesh(req.mesh);
 		glDrawElements(GL_TRIANGLES,
-					   static_cast<GLsizei>(render_mesh->Indices.Data.size()),
+					   static_cast<GLsizei>(req.mesh->Indices.Data.size()),
 					   GL_UNSIGNED_INT, 0);
 	} else {
-		shader->BindMesh(render_mesh);
+		shader->BindMesh(req.mesh);
 		for (unsigned int i = 0; i < submeshCount; ++i) {
-			auto sm = render_mesh->GetSubMeshAt(i);
+			auto sm = req.mesh->GetSubMeshAt(i);
 			if (!sm) continue;
-			shader->BindSubMesh(render_mesh, i);
+			shader->BindSubMesh(req.mesh, i);
 			glDrawElements(GL_TRIANGLES,
 						   static_cast<GLsizei>(sm->Indices.Data.size()),
 						   GL_UNSIGNED_INT, 0);
@@ -843,7 +814,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 			line_shader->Compile(vs, fs, "");
 		}
 		// Grid scales with the mesh's bounding radius (no fixed floor).
-		const float grid_extent = radius * 2.0f;
+		const float grid_extent = req.radius * 2.0f;
 		const float grid_step = grid_extent / 5.0f;
 		const int grid_lines_per_axis =
 			static_cast<int>((2.0f * grid_extent) / grid_step) + 1;
@@ -877,6 +848,8 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 			cached_extent = grid_extent;
 		}
 		// AABB wireframe (8 corners, 12 edges), rebuilt per frame.
+		const auto &mn = req.aabbMn;
+		const auto &mx = req.aabbMx;
 		const float aabbVerts[24 * 3] = {
 			mn.x, mn.y, mn.z,  mx.x, mn.y, mn.z,
 			mx.x, mn.y, mn.z,  mx.x, mn.y, mx.z,
@@ -905,19 +878,20 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 			glBindVertexArray(0);
 		} else {
 			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
-			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(aabbVerts), aabbVerts);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(aabbVerts),
+						 aabbVerts, GL_DYNAMIC_DRAW);
 		}
 
 		line_shader->Bind();
-		line_shader->BindMatrix("_ViewMatrix", view);
-		line_shader->BindMatrix("_ProjectionMatrix", proj);
+		line_shader->BindMatrix("_ViewMatrix", req.view);
+		line_shader->BindMatrix("_ProjectionMatrix", req.proj);
 
 		// Grid offset: AABB center XZ, AABB bottom Y.
 		Matrix4 gridOffMat;
 		gridOffMat.Identity();
-		gridOffMat.Raw[12] = aabb_center.x;
+		gridOffMat.Raw[12] = req.aabbCenter.x;
 		gridOffMat.Raw[13] = mn.y;
-		gridOffMat.Raw[14] = aabb_center.z;
+		gridOffMat.Raw[14] = req.aabbCenter.z;
 		line_shader->BindMatrix("_OffsetMat", gridOffMat);
 		glBindVertexArray(grid_vao);
 		glLineWidth(1.0f);
@@ -937,17 +911,117 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDisable(GL_DEPTH_TEST);
 
+	PublishSurface(req.key, surface.color);
+}
+
+// Game thread: compute the preview frame inputs, submit the render
+// job, and sample the latest published texture.
+void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
+					   const std::string& popup_id, const ImVec2& size,
+					   const std::shared_ptr<Mesh>& display_mesh) {
+	const std::shared_ptr<Mesh>& render_mesh =
+		(display_mesh && display_mesh->GetSubMeshCount() >= 0) ? display_mesh : mesh;
+	if (!render_mesh) {
+		ImGui::BeginChild("preview", size, true,
+						  ImGuiWindowFlags_NoScrollbar);
+		ImGui::GetWindowDrawList()->AddRectFilled(
+			ImGui::GetCursorScreenPos(),
+			ImVec2(ImGui::GetCursorScreenPos().x + size.x,
+				   ImGui::GetCursorScreenPos().y + size.y),
+			ImGui::GetColorU32(ImVec4(0.2f, 0.2f, 0.22f, 1.0f)));
+		ImGui::TextDisabled("(3D preview - no mesh)");
+		ImGui::EndChild();
+		return;
+	}
+
+	const ImVec2 pad(8.0f, 8.0f);
+	const int w = std::max(32,
+		static_cast<int>(size.x - 2.0f * pad.x + 0.5f));
+	const int h = std::max(32,
+		static_cast<int>(size.y - 2.0f * pad.y + 0.5f));
+	const float aspect = (h > 0) ? (static_cast<float>(w) / static_cast<float>(h)) : 1.0f;
+
+	// Frame on the mesh's local AABB (mesh placed at world origin).
+	auto aabb = render_mesh->GetAABB();
+	auto mn = aabb.GetMin();
+	auto mx = aabb.GetMax();
+	Vector4 aabb_center((mn.x + mx.x) * 0.5f,
+						(mn.y + mx.y) * 0.5f,
+						(mn.z + mx.z) * 0.5f, 1.0f);
+	Vector4 aabb_size(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, 0);
+	float radius = 0.5f * std::sqrt(
+		aabb_size.x * aabb_size.x + aabb_size.y * aabb_size.y + aabb_size.z * aabb_size.z);
+	// Degenerate AABB fallback; tiny-but-valid meshes keep their real radius.
+	if (radius < 1e-6f) radius = 0.5f;
+
+	OrbitState& os = OrbitFor(popup_id);
+	// Re-frame on first appearance, on preview-resize (aspect changes),
+	// or when the displayed mesh switches (e.g. user picks a different
+	// LOD in the dropdown -- each LOD has its own AABB and the previous
+	// orbit's target / distance would frame the wrong geometry).
+	static std::unordered_map<std::string, std::pair<int, int>> g_PreviewSizes;
+	auto &lastSize = g_PreviewSizes[popup_id];
+	const bool rt_resized = (lastSize.first != w || lastSize.second != h);
+	lastSize = { w, h };
+	const bool mesh_changed = (os.framed_mesh != render_mesh.get());
+	if (!os.initialized || rt_resized || mesh_changed) {
+		const float fov0 = 45.0f * 0.0174532925f;
+		const float adjusted_dist = (radius * 0.6f) /
+			(std::tan(fov0 * 0.5f) * std::min(1.0f, aspect));
+		// Preserve the user's manual zoom fraction across resizes / mesh
+		// switches (only meaningful if we'd already framed the same mesh).
+		const float zoom_factor = (os.initialized && !mesh_changed)
+			? (os.distance / std::max(1e-6f, os.initialDistance))
+			: 1.0f;
+		os.initialDistance = adjusted_dist;
+		os.distance = adjusted_dist * zoom_factor;
+		os.target = aabb_center;
+		os.framed_mesh = render_mesh.get();
+		os.initialized = true;
+	}
+
+	const float fov = 45.0f * 0.0174532925f;
+	Matrix4 proj;
+	// Near/far sized to the bounding sphere so any scale renders without clipping.
+	proj.PerspectiveFov(fov, aspect,
+		std::max(radius * 0.05f, 1e-5f), os.distance + radius * 5.0f);
+
+	const float cx = std::cos(os.pitch) * std::cos(os.yaw);
+	const float cy = std::sin(os.pitch);
+	const float cz = std::cos(os.pitch) * std::sin(os.yaw);
+	const Vector4 eye(os.target.x + cx * os.distance,
+		os.target.y + cy * os.distance,
+		os.target.z + cz * os.distance, 1.0f);
+	Matrix4 view;
+	view.LookAt(eye, os.target, Vector4(0, 1, 0, 0));
+
+	// Submit the render as a GL-thread job; the published texture is
+	// sampled below (lands the same frame when single-threaded).
+	MeshPreviewRequest req;
+	req.mesh = render_mesh;
+	req.view = view;
+	req.proj = proj;
+	req.aabbCenter = aabb_center;
+	req.aabbMn = mn;
+	req.aabbMx = mx;
+	req.radius = radius;
+	req.key = "MeshPreview:" + popup_id;
+	req.w = w;
+	req.h = h;
+	RenderThread::Get().EnqueueJob([req]() { RenderMeshPreviewJob(req); });
+
 	ImGui::BeginChild("preview", size, false,
 					  ImGuiWindowFlags_NoScrollbar);
 	ImGui::SetCursorPos(pad);
 	const ImVec2 img_size(size.x - 2.0f * pad.x,
 						   size.y - 2.0f * pad.y);
-	ImGui::Image((ImTextureID)(intptr_t)rt.colorRT->GetID(),
+	ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(req.key),
 				 img_size, ImVec2(0, 1), ImVec2(1, 0));
 
 	// Camera input: orbit (LMB), zoom (wheel), pan (RMB). Speeds scale with
 	// the mesh's bounding radius so any scale handles the same.
 	const bool hovered = ImGui::IsItemHovered() || ImGui::IsWindowHovered();
+
 	if (hovered) {
 		const ImGuiIO& io = ImGui::GetIO();
 		if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
@@ -1106,12 +1180,7 @@ unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 				  << bufferId << " (" << entry.contentHash << " -> " << h << ")";
 			entry.contentHash = h;
 			entry.diskLoaded = false;
-			if (entry.fbo) {
-				glDeleteFramebuffers(1, &entry.fbo);
-				entry.fbo = 0;
-			}
-			entry.colorRT.reset();
-			entry.depthRT.reset();
+			ResetDisplaySlot("MeshThumb:" + std::to_string(bufferId));
 		}
 	}
 
@@ -1129,51 +1198,24 @@ unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 	// On a disk-cache hit, re-render (cheap). On a miss, render + queue a
 	// PNG encode.
 	if (!entry.diskLoaded && entry.contentHash != 0) {
-		if (IsCached(entry.contentHash))
-		{
-			RenderMeshToThumbnail(mesh, entry);
+		const bool cacheHit = IsCached(entry.contentHash);
+		SubmitThumbnailJob(mesh, bufferId, cacheHit, entry.contentHash);
+		if (cacheHit)
 			FURYD << "Mesh thumbnail: cache hit for BufferId "
 				  << bufferId << " (hash "
 				  << FormatHashHex(entry.contentHash) << ")";
-			entry.diskLoaded = true;
-		}
-		else
-		{
-			RenderMeshToThumbnail(mesh, entry);
-			std::vector<unsigned char> pixels(128 * 128 * 4);
-			glBindFramebuffer(GL_FRAMEBUFFER, entry.fbo);
-			glReadPixels(0, 0, 128, 128, GL_RGBA, GL_UNSIGNED_BYTE,
-						 pixels.data());
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			// Flip rows: GL origin is bottom-left, PNG is top-left.
-			std::vector<unsigned char> flipped(pixels.size());
-			const size_t row_bytes = 128 * 4;
-			for (int y = 0; y < 128; ++y) {
-				std::memcpy(&flipped[y * row_bytes],
-							&pixels[(127 - y) * row_bytes],
-							row_bytes);
-			}
-			const std::string path = GetCachePath(entry.contentHash);
-			const std::string name = mesh->GetName();
-			WritePngAsync(path, std::move(flipped), 128, 128, name);
-			entry.diskLoaded = true;
-		}
+		entry.diskLoaded = true;
 	}
 
-	// Fast path: return the cached color RT id.
+	// Fast path: the published thumbnail texture (0 until the job lands).
 	entry.wasDirtyLastFrame = isDirty;
-	if (entry.colorRT && entry.colorRT->GetID() != 0)
-		return entry.colorRT->GetID();
-	return 0;
+	return DisplayTextureId("MeshThumb:" + std::to_string(bufferId));
 }
 
 void EvictStaleMeshThumbnails(const std::unordered_set<size_t>& liveIds) {
 	for (auto it = g_MeshThumbnails.begin(); it != g_MeshThumbnails.end();) {
 		if (liveIds.count(it->first) == 0) {
-			if (it->second.fbo)
-				glDeleteFramebuffers(1, &it->second.fbo);
-			it->second.colorRT.reset();
-			it->second.depthRT.reset();
+			ResetDisplaySlot("MeshThumb:" + std::to_string(it->first));
 			it = g_MeshThumbnails.erase(it);
 		} else {
 			++it;
@@ -1205,12 +1247,7 @@ void RefreshMeshThumbnailNow(const std::shared_ptr<Mesh>& mesh) {
 	it->second.contentHash = 0;
 	it->second.diskLoaded = false;
 	it->second.hashInFlight = false;
-	if (it->second.fbo) {
-		glDeleteFramebuffers(1, &it->second.fbo);
-		it->second.fbo = 0;
-	}
-	it->second.colorRT.reset();
-	it->second.depthRT.reset();
+	ResetDisplaySlot("MeshThumb:" + std::to_string(mesh->GetBufferId()));
 }
 
 void WarmDiskCacheIndex() {

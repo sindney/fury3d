@@ -8,6 +8,7 @@
 #include "Fury/FileUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/Texture.h"
+#include "Fury/RenderThread.h"
 #include "Fury/EnumUtil.h"
 
 // stb_image.h is a single-header library: every inline definition is parsed in
@@ -39,6 +40,7 @@ namespace fury
 
 	Texture::Ptr Texture::GetTemporary(int width, int height, int depth, TextureFormat format, TextureType type)
 	{
+		FURY_GL_THREAD_GUARD();
 		auto key = GetKeyFromParams(width, height, depth, format, type);
 		auto it = m_TexturePool.find(key);
 		if (it != m_TexturePool.end())
@@ -59,6 +61,7 @@ namespace fury
 
 	void Texture::ReleaseTemporary(const std::shared_ptr<Texture> &ptr)
 	{
+		FURY_GL_THREAD_GUARD();
 		auto key = Texture::GetKeyFromPtr(ptr);
 		auto it = m_TexturePool.find(key);
 		if (it == m_TexturePool.end())
@@ -222,9 +225,14 @@ namespace fury
 
 	void Texture::CreateFromImage(const std::string &filePath, bool srgb, bool mipMap)
 	{
+		// Path resolution + decode + bookkeeping run on the CALLING thread:
+		// Scene::ResolveAsset depends on the active scene's working dir,
+		// which only the caller's context knows (mid-run scene opens must
+		// not resolve paths on the render thread). Only the GL upload is
+		// dispatched to the GL thread.
 		DeleteBuffer();
 
-		int channels;
+		int channels = 0;
 		std::vector<unsigned char> pixels;
 
 		// Resolve via Scene::ResolveAsset (Engine/ prefix routes to the
@@ -247,81 +255,91 @@ namespace fury
 		// whether LoadImage succeeds below.
 		m_FilePath = filePath;
 
-		// CLI / no-GL-context path: set the serialization shape (path,
-		// width/height, format) so `fury info` can report sensible
-		// counts, but skip the GPU upload (which would dereference a
-		// null function pointer when LoadGLFunctions hasn't run).
-		if (_ptrc_glGenTextures == nullptr)
+		if (!FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
+			return;
+
+		unsigned int internalFormat, imageFormat;
+		switch (channels)
 		{
-			if (FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
-			{
-				m_Format = srgb
-					? (channels == 3 ? TextureFormat::SRGB8 : TextureFormat::SRGB8_ALPHA8)
-					: (channels == 3 ? TextureFormat::RGB8 : TextureFormat::RGBA8);
-				m_Depth = 0;
-				m_Mipmap = mipMap;
-				m_Dirty = true;
-			}
+		case 3:
+			m_Format = srgb ? TextureFormat::SRGB8 : TextureFormat::RGB8;
+			internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
+			imageFormat = GL_RGB;
+			break;
+		case 4:
+			m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
+			internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+			imageFormat = GL_RGBA;
+			break;
+		default:
+			m_Format = TextureFormat::UNKNOW;
+			FURYW << channels << " channel image not supported!";
 			return;
 		}
 
-		if (FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
+		m_Depth = 0;
+		m_Mipmap = mipMap;
+
+		// CLI / no-GL-context path: the serialization shape (path,
+		// width/height, format) is set, the GPU upload is skipped.
+		if (_ptrc_glGenTextures == nullptr)
 		{
-			unsigned int internalFormat, imageFormat;
+			m_Dirty = true;
+			return;
+		}
 
-			switch (channels)
-			{
-			case 3:
-				m_Format = srgb ? TextureFormat::SRGB8 : TextureFormat::RGB8;
-				internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
-				imageFormat = GL_RGB;
-				break;
-			case 4:
-				m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
-				internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
-				imageFormat = GL_RGBA;
-				break;
-			default:
-				m_Format = TextureFormat::UNKNOW;
-				FURYW << channels << " channel image not supported!";
-				return;
-			}
-
-			m_Depth = 0;
-			m_Mipmap = mipMap;
-			m_Dirty = false;
+		// GL upload on the GL thread (immediate there, queued from foreign
+		// threads; skipped if this texture dies first). Filter/wrap/border
+		// values are captured at call time.
+		const unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
+		const unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
+		const Color borderColor = m_BorderColor;
+		const unsigned int texTarget = m_TypeUint;
+		const bool genMips = m_Mipmap;
+		const int w = m_Width;
+		const int h = m_Height;
+		DispatchGL(this, [this, pixels = std::move(pixels), internalFormat, imageFormat,
+			filterMode, wrapMode, borderColor, texTarget, genMips, w, h]() mutable
+		{
+			FURY_GL_THREAD_GUARD();
 
 			glGenTextures(1, &m_ID);
-			glBindTexture(m_TypeUint, m_ID);
+			glBindTexture(texTarget, m_ID);
 
-			glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
-			glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, &pixels[0]);
+			glTexStorage2D(texTarget, genMips ? FURY_MIPMAP_LEVEL : 1, internalFormat, w, h);
+			glTexSubImage2D(texTarget, 0, 0, 0, w, h, imageFormat, GL_UNSIGNED_BYTE, pixels.data());
 
-			unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-			unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
+			glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, filterMode);
+			glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, filterMode);
+			glTexParameteri(texTarget, GL_TEXTURE_WRAP_S, wrapMode);
+			glTexParameteri(texTarget, GL_TEXTURE_WRAP_T, wrapMode);
+			glTexParameteri(texTarget, GL_TEXTURE_WRAP_R, wrapMode);
 
-			glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-			glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, filterMode);
-			glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
-			glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
-			glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
+			float color[] = { borderColor.r, borderColor.g, borderColor.b, borderColor.a };
+			glTexParameterfv(texTarget, GL_TEXTURE_BORDER_COLOR, color);
 
-			float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-			glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
+			if (genMips)
+				glGenerateMipmap(texTarget);
 
-			if (m_Mipmap)
-				glGenerateMipmap(m_TypeUint);
+			glBindTexture(texTarget, 0);
 
-			glBindTexture(m_TypeUint, 0);
-
-			FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
-
+			m_Dirty = false;
 			IncreaseMemory();
-		}
+
+			FURYD << m_Name << " [" << w << " x " << h << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
+		});
 	}
 
 	void Texture::CreateFromMemory(const unsigned char *bytes, size_t len, bool srgb, bool mipMap)
 	{
+		if (!RenderThread::Get().MayUseGL())
+		{
+			std::vector<unsigned char> copy(bytes, bytes + len);
+			DispatchGL(this, [this, copy = std::move(copy), srgb, mipMap]() mutable {
+				CreateFromMemory(copy.data(), copy.size(), srgb, mipMap);
+			});
+			return;
+		}
 		if (bytes == nullptr || len == 0)
 		{
 			FURYE << "Texture::CreateFromMemory: empty input buffer";
@@ -441,6 +459,13 @@ namespace fury
 
 	void Texture::CreateEmpty(int width, int height, int depth, TextureFormat format, TextureType type, bool mipMap)
 	{
+		if (!RenderThread::Get().MayUseGL())
+		{
+			DispatchGL(this, [this, width, height, depth, format, type, mipMap]() {
+				CreateEmpty(width, height, depth, format, type, mipMap);
+			});
+			return;
+		}
 		DeleteBuffer();
 
 		if (format == TextureFormat::UNKNOW)
@@ -514,6 +539,9 @@ namespace fury
 
 	void Texture::UpdateBuffer()
 	{
+		// CreateFromImage decodes on this (calling) thread and dispatches
+		// only its GL upload; CreateEmpty dispatches itself. No
+		// self-re-dispatch: path resolution must stay on the caller.
 		if (m_ID > 0 || !m_Dirty)
 			return;
 
@@ -532,7 +560,11 @@ namespace fury
 		if (m_ID != 0)
 		{
 			DecreaseMemory();
-			glDeleteTextures(1, &m_ID);
+			// GL handles die on the GL thread (direct-exec there, queued
+			// from foreign threads). Captured by value: this object may
+			// already be gone when a queued delete runs.
+			unsigned int id = m_ID;
+			RenderThread::Get().EnqueueJob([id]() { glDeleteTextures(1, &id); });
 			m_ID = 0;
 			m_Width = m_Height = 0;
 			m_Format = TextureFormat::UNKNOW;

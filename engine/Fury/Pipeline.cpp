@@ -28,6 +28,8 @@
 #include "Fury/MeshRender.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/Pipeline.h"
+
+#include "Fury/FramePacket.h"
 #include "Fury/Pass.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
@@ -593,33 +595,10 @@ namespace fury
 			}
 		};
 
-		// Shadow-pass LOD policy: billboard-terminated chains (kraut trees)
-		// demote to the deepest non-billboard tier -- their LOD 0 is the
-		// expensive full-detail mesh and the deep tier shadows fine.
-		// Plain LOD chains (terrain, meshopt props) keep LOD 0: their
-		// coarse tiers deviate from the rendered surface by meters, which
-		// reads as self-shadow blotches on open slopes.
-		std::shared_ptr<Mesh> PickShadowLodMesh(const std::shared_ptr<Mesh> &base)
+		void BindShadowWindUniforms(const std::shared_ptr<Shader> &shader,
+			float engineTime, const Vector4 &windParams)
 		{
-			if (!base)
-				return nullptr;
-			unsigned int count = base->GetLodCount();
-			if (count <= 1 || !base->IsLodBillboard(count - 1))
-				return base;
-			for (unsigned int i = count; i-- > 1;)
-			{
-				if (!base->IsLodBillboard(i))
-					return base->GetLodMesh(i);
-			}
-			return base;
-		}
-
-		void BindShadowWindUniforms(const std::shared_ptr<Shader> &shader)
-		{
-			shader->BindFloat("u_time", Engine::GetTime());
-			Vector4 windParams(1.0f, 0.0f, 1.0f, 1.0f);
-			if (Scene::Active && Scene::Active->GetRenderSettings())
-				windParams = Scene::Active->GetRenderSettings()->GetWindParams();
+			shader->BindFloat("u_time", engineTime);
 			shader->BindFloat("u_wind_params", windParams.x, windParams.y, windParams.z, windParams.w);
 		}
 
@@ -630,26 +609,20 @@ namespace fury
 		// Tracks the last bound program so per-submesh shader switches
 		// stay cheap. Returns the draw-call count.
 		int DrawShadowCasterGeometry(
-			const std::shared_ptr<SceneNode> &caster,
+			const PacketCaster &caster,
 			const ShadowDepthShaders &shaders,
 			const std::function<void(const std::shared_ptr<Shader>&)> &bindShader,
-			const std::function<void(const std::shared_ptr<Shader>&)> &bindProj)
+			const std::function<void(const std::shared_ptr<Shader>&)> &bindProj,
+			float engineTime, const Vector4 &windParams)
 		{
-			auto casterRender = caster->GetComponent<MeshRender>();
-			if (!casterRender)
-				return 0;
-			auto casterMesh = PickShadowLodMesh(casterRender->GetMesh());
+			auto casterMesh = caster.mesh;   // shadow LOD picked at gather
 			if (!casterMesh)
 				return 0;
 
 			// Match the legacy fallback: a skinned mesh without a skin
 			// depth shader draws as static (bind pose at the node).
-			const bool skinned = casterMesh->IsSkinnedMesh() && shaders.Skin != nullptr;
+			const bool skinned = caster.skinned && shaders.Skin != nullptr;
 			Matrix4 identityWorld;
-			Matrix4 world;
-			if (!skinned)
-				world = caster->GetWorldMatrix();
-
 			const unsigned int subCount = casterMesh->GetSubMeshCount();
 
 			// Whole-mesh draw when nothing material-dependent splits the
@@ -658,18 +631,21 @@ namespace fury
 			if (skinned || subCount == 0)
 			{
 				bool wind = false;
-				if (!skinned)
-					if (auto mat = casterRender->GetMaterial())
-						wind = mat->GetWindEnabled();
+				if (!skinned && !caster.materials.empty() && caster.materials[0])
+					wind = caster.materials[0]->GetWindEnabled();
 				auto shader = shaders.Pick(skinned, false, wind);
 				if (!shader)
 					return 0;
 				bindShader(shader);
 				bindProj(shader);
-				shader->BindMesh(casterMesh);
-				shader->BindMatrix(Matrix4::WORLD_MATRIX, skinned ? identityWorld : world);
+				if (skinned)
+					shader->BindMesh(casterMesh, caster.skinPalette.data(),
+						static_cast<int>(caster.skinPalette.size()));
+				else
+					shader->BindMesh(casterMesh);
+				shader->BindMatrix(Matrix4::WORLD_MATRIX, skinned ? identityWorld : caster.worldMatrix);
 				if (wind)
-					BindShadowWindUniforms(shader);
+					BindShadowWindUniforms(shader, engineTime, windParams);
 				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 				return 1;
@@ -680,7 +656,7 @@ namespace fury
 			int draws = 0;
 			for (unsigned int sm = 0; sm < subCount; ++sm)
 			{
-				auto material = casterRender->GetMaterial(sm);
+				auto material = sm < caster.materials.size() ? caster.materials[sm] : nullptr;
 				const bool alphaTest = material && material->GetAlphaMode() == AlphaMode::MASK &&
 					material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
 				const bool wind = material && material->GetWindEnabled();
@@ -690,7 +666,7 @@ namespace fury
 				bindShader(shader);
 				bindProj(shader);
 				shader->BindMesh(casterMesh);
-				shader->BindMatrix(Matrix4::WORLD_MATRIX, world);
+				shader->BindMatrix(Matrix4::WORLD_MATRIX, caster.worldMatrix);
 				if (alphaTest)
 				{
 					material->UpdateBuffer();
@@ -698,7 +674,7 @@ namespace fury
 					shader->BindFloat("u_alpha_cutoff", material->GetAlphaCutoff());
 				}
 				if (wind)
-					BindShadowWindUniforms(shader);
+					BindShadowWindUniforms(shader, engineTime, windParams);
 				shader->BindSubMesh(casterMesh, sm);
 				auto subMesh = casterMesh->GetSubMeshAt(sm);
 				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
@@ -735,19 +711,19 @@ namespace fury
 		// instanced draw per submesh. bindShader/bindProj match
 		// DrawShadowCasterGeometry's contract.
 		void DrawInstancedShadowCaster(
-			const std::shared_ptr<SceneNode> &caster,
-			const std::shared_ptr<InstancedMeshRender> &instanced,
+			const PacketInstanced &pk,
 			const ShadowDepthShaders &shaders,
 			const std::function<void(const std::shared_ptr<Shader>&)> &bindShader,
-			const std::function<void(const std::shared_ptr<Shader>&)> &bindProj)
+			const std::function<void(const std::shared_ptr<Shader>&)> &bindProj,
+			float engineTime, const Vector4 &windParams)
 		{
-			auto baseMesh = instanced->GetMesh();
-			if (!baseMesh)
+			auto baseMesh = pk.mesh;
+			if (!baseMesh || !pk.caches)
 				return;
-			auto mesh = baseMesh->GetLodMesh(instanced->GetShadowLodTier());
+			auto mesh = baseMesh->GetLodMesh(pk.shadowLodTier);
 			if (!mesh || mesh->IsSkinnedMesh())
 				return;
-			const auto &matrices = instanced->GetShadowMatrices();
+			const auto &matrices = pk.caches->worlds;
 			if (matrices.empty())
 				return;
 
@@ -755,7 +731,9 @@ namespace fury
 			const unsigned int slots = subCount > 0 ? subCount : 1;
 			for (unsigned int sm = 0; sm < slots; ++sm)
 			{
-				auto material = instanced->GetMaterial(subCount > 0 ? sm : 0);
+				auto material = subCount > 0
+					? (sm < pk.materials.size() ? pk.materials[sm] : nullptr)
+					: (pk.materials.empty() ? nullptr : pk.materials[0]);
 				const bool alphaTest = material && material->GetAlphaMode() == AlphaMode::MASK &&
 					material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
 				const bool wind = material && material->GetWindEnabled();
@@ -771,80 +749,28 @@ namespace fury
 					shader->BindFloat("u_alpha_cutoff", material->GetAlphaCutoff());
 				}
 				if (wind)
-					BindShadowWindUniforms(shader);
+					BindShadowWindUniforms(shader, engineTime, windParams);
 				InstancedMeshStreamer::Get().DrawInstanced(shader, mesh,
 					subCount > 0 ? static_cast<int>(sm) : -1, matrices);
 			}
 		}
+
 	}
 
-	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		(void)pass;
 		const int numSplit = 4;
-
-		// depth shader set is resolved per pass below (incl. foliage
-		// and instanced variants)
-		auto camera = m_CurrentCamera->GetComponent<Camera>();
+		auto &plight = packet.lights[lightIndex];
 
 		// map size from the scene's render settings (default 1024)
-		int csmSize = 1024;
-		if (Scene::Active && Scene::Active->GetRenderSettings())
-			csmSize = Scene::Active->GetRenderSettings()->GetCsmMapSize();
+		int csmSize = packet.csmMapSize;
 
 		auto depth_buffer = Texture::GetTemporary(csmSize, csmSize, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
-		// for debug
-		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
-
-		Matrix4 lightMatrix;
-		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
-		lightMatrix = lightMatrix * node->GetInvertWorldMatrix();
-
-		// build frustums (splits from render settings: shadow far range +
-		// linear/log blend; the light shader's cascade picker matches)
-		std::array<Frustum, numSplit> frustums;
-		float splits[numSplit];
-		if (Scene::Active && Scene::Active->GetRenderSettings())
-			Scene::Active->GetRenderSettings()->ComputeCsmSplits(camera->GetNear(), camera->GetFar(), splits);
-		else
-			for (int i = 0; i < numSplit; i++)
-				splits[i] = camera->GetNear() + (camera->GetFar() - camera->GetNear()) * (i + 1) / numSplit;
-		float curNear = camera->GetNear();
-		for (int i = 0; i < numSplit; i++)
-		{
-			frustums[i] = camera->GetFrustum(curNear, splits[i]);
-			curNear = splits[i];
-		}
-
-		// find shadow casters
-		fury::SceneManager::SceneNodes casterAll;
-		sceneManager->GetVisibleShadowCasters(camera->GetFrustum(), casterAll);
-
-		std::array<fury::SceneManager::SceneNodes, numSplit> casterArrays;
-		for (int i = 0; i < numSplit; i++)
-		{
-			auto &casters = casterArrays[i];
-			auto &frustum = frustums[i];
-			FilterNodes(frustum, casterAll, casters);
-		}
-
-		// use camera aabb to include more possible shadow casters to cast shadows.
-		if (camera->GetShadowBounds(false).GetExtents().SquareLength() > 0)
-			sceneManager->GetVisibleShadowCasters(camera->GetShadowBounds(), casterArrays[0], false);
-
-		// build projection/crop matrices
-		std::array<Matrix4, numSplit> projMatrices;
-		for (int i = 0; i < numSplit; i++)
-		{
-			auto &matrix = projMatrices[i];
-			auto &frustum = frustums[i];
-			auto &casters = casterArrays[i];
-			matrix = GetCropMatrix(lightMatrix, frustum, casters);
-		}
+		const Matrix4 &lightMatrix = plight.lightMatrix;
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -879,21 +805,23 @@ namespace fury
 			{
 				m_SharedPass->SetArrayTextureLayer(i);
 
-				auto &casters = casterArrays[i];
+				auto &casters = plight.csmCasters[i];
 				for (auto &caster : casters)
 				{
 					// Instanced casters: one instanced draw per submesh at
 					// the shadow LOD tier.
-					if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+					if (caster.instancedIndex >= 0)
 					{
-						auto projI = projMatrices[i];
-						DrawInstancedShadowCaster(caster, instanced, depthShaders, bindDepthShader,
-							[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::PROJECTION_MATRIX, &projI.Raw[0]); });
+						auto projI = plight.csmProj[i];
+						DrawInstancedShadowCaster(packet.instanced[caster.instancedIndex], depthShaders, bindDepthShader,
+							[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::PROJECTION_MATRIX, &projI.Raw[0]); },
+							packet.engineTime, packet.windParams);
 						continue;
 					}
-					auto proj = projMatrices[i];
+					auto proj = plight.csmProj[i];
 					int draws = DrawShadowCasterGeometry(caster, depthShaders, bindDepthShader,
-						[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::PROJECTION_MATRIX, &proj.Raw[0]); });
+						[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::PROJECTION_MATRIX, &proj.Raw[0]); },
+						packet.engineTime, packet.windParams);
 					for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 				}
 			}
@@ -906,43 +834,21 @@ namespace fury
 
 		std::vector<Matrix4> matrices;
 		for (int i = 0; i < numSplit; i++)
-			matrices.push_back(m_OffsetMatrix * projMatrices[i] * lightMatrix * m_CurrentCamera->GetWorldMatrix());
+			matrices.push_back(m_OffsetMatrix * plight.csmProj[i] * lightMatrix * packet.camera.worldMatrix);
 
-		m_LastShadowTextures[node.get()] = depth_buffer;
 		return std::make_pair(depth_buffer, matrices);
 	}
 
-	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawDirLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawDirLightShadowMap(FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		(void)pass;
-		// get pointers (depth shader set resolved per pass below)
+		auto &plight = packet.lights[lightIndex];
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
-		// for debug
-		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
-
-		auto camera = m_CurrentCamera->GetComponent<Camera>();
-
-		Matrix4 lightMatrix;
-		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
-		lightMatrix = lightMatrix * node->GetInvertWorldMatrix();
-
-		// gen camera frustum
-		auto camFrustum = camera->GetFrustum(camera->GetNear(), camera->GetShadowFar());
-
-		// find shadow casters
-		fury::SceneManager::SceneNodes casters;
-		sceneManager->GetVisibleShadowCasters(camFrustum, casters, false);
-
-		// use camera aabb to include more possible shadow casters to cast shadows.
-		if (camera->GetShadowBounds(false).GetExtents().SquareLength() > 0)
-			sceneManager->GetVisibleShadowCasters(camera->GetShadowBounds(), casters, false);
-
-		// gen projection matrix for light.
-		Matrix4 projMatrix = GetCropMatrix(lightMatrix, camFrustum, casters);
+		const Matrix4 &lightMatrix = plight.lightMatrix;
+		const Matrix4 &projMatrix = plight.singleProj;
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -976,20 +882,20 @@ namespace fury
 				boundShader = s.get();
 			};
 
-			for (auto &caster : casters)
+			for (auto &caster : plight.casters)
 			{
 				// Instanced casters: one instanced draw per submesh at
 				// the shadow LOD tier. The spot pass queries renderables
 				// (not casters), so honor the flag here.
-				if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+				if (caster.instancedIndex >= 0)
 				{
-					if (instanced->GetCastShadows())
-						DrawInstancedShadowCaster(caster, instanced, depthShaders, bindDepthShader,
-							[](const std::shared_ptr<Shader>&) {});
+					if (packet.instanced[caster.instancedIndex].castShadows)
+						DrawInstancedShadowCaster(packet.instanced[caster.instancedIndex], depthShaders, bindDepthShader,
+							[](const std::shared_ptr<Shader>&) {}, packet.engineTime, packet.windParams);
 					continue;
 				}
 				int draws = DrawShadowCasterGeometry(caster, depthShaders, bindDepthShader,
-					[](const std::shared_ptr<Shader>&) {});
+					[](const std::shared_ptr<Shader>&) {}, packet.engineTime, packet.windParams);
 				for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 			}
 
@@ -999,45 +905,22 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
-		m_LastShadowTextures[node.get()] = depth_buffer;
-		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
+		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * packet.camera.worldMatrix);
 	}
 
-	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		(void)pass;
+		auto &plight = packet.lights[lightIndex];
 		auto depth_shader = GetShaderByName("cube_depth_shader");
 		auto depth_buffer = Texture::GetTemporary(512, 512, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_CUBE_MAP);
 
-		// for debug
-		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
-
-		auto camera = m_CurrentCamera->GetComponent<Camera>();
-
-		auto light = node->GetComponent<Light>();
-		auto radius = light->GetEffectiveRadius();
-		auto lightSphere = SphereBounds(node->GetWorldPosition(), radius);
-
-		// TODO: filter casters for all six directions.
-		fury::SceneManager::SceneNodes casters;
-		sceneManager->GetVisibleShadowCasters(lightSphere, casters);
+		const float radius = plight.effectiveRadius;
+		const Vector4 lightPos = plight.worldPos;
 
 		float aspect = (float)depth_buffer->GetWidth() / depth_buffer->GetHeight();
 		Matrix4 projMatrix;
 		projMatrix.PerspectiveFov(MathUtil::DegToRad * 90.0f, aspect, 1.0f, radius);
-
-		// dir matrices that points camera to all 6 directions.
-		// right, left, top, bottom, back, front
-		std::array<Matrix4, 6> dirMatrices;
-
-		auto lightPos = node->GetWorldPosition();
-		dirMatrices[0].LookAt(lightPos, lightPos + Vector4(1.0f, 0.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f));
-		dirMatrices[1].LookAt(lightPos, lightPos + Vector4(-1.0f, 0.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f));
-		dirMatrices[2].LookAt(lightPos, lightPos + Vector4(0.0f, 1.0f, 0.0f), Vector4(0.0f, 0.0f, 1.0f));
-		dirMatrices[3].LookAt(lightPos, lightPos + Vector4(0.0f, -1.0f, 0.0f), Vector4(0.0f, 0.0f, -1.0f));
-		dirMatrices[4].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, 1.0f), Vector4(0.0f, -1.0f, 0.0f));
-		dirMatrices[5].LookAt(lightPos, lightPos + Vector4(0.0f, 0.0f, -1.0f), Vector4(0.0f, -1.0f, 0.0f));
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -1051,9 +934,6 @@ namespace fury
 			m_SharedPass->SetCullMode(CullMode::BACK);
 
 			m_SharedPass->Bind();
-
-			/*glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(factor, units);*/
 
 			depth_shader->Bind();
 			depth_shader->BindMatrix(Matrix4::PROJECTION_MATRIX, &projMatrix.Raw[0]);
@@ -1081,67 +961,46 @@ namespace fury
 				m_SharedPass->SetCubeTextureIndex(i);
 				m_SharedPass->Clear(m_SharedPass->GetClearMode(), m_SharedPass->GetClearColor());
 
-				for (auto &caster : casters)
+				for (auto &caster : plight.casters)
 				{
-					auto ivm = dirMatrices[i];
+					auto ivm = plight.cubeViews[i];
 
 					// Instanced casters: one instanced draw per submesh.
-					if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+					if (caster.instancedIndex >= 0)
 					{
-						if (instanced->GetCastShadows())
-							DrawInstancedShadowCaster(caster, instanced, depthShaders, bindCubeShader,
-								[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]); });
+						if (packet.instanced[caster.instancedIndex].castShadows)
+							DrawInstancedShadowCaster(packet.instanced[caster.instancedIndex], depthShaders, bindCubeShader,
+								[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]); },
+								packet.engineTime, packet.windParams);
 						continue;
 					}
 
 					int draws = DrawShadowCasterGeometry(caster, depthShaders, bindCubeShader,
-						[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]); });
+						[&](const std::shared_ptr<Shader>& s) { s->BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &ivm.Raw[0]); },
+						packet.engineTime, packet.windParams);
 					for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 				}
 			}
 
-			//glDisable(GL_POLYGON_OFFSET_FILL);
 			depth_shader->UnBind();
 
 			m_SharedPass->UnBind();
 		}
 
-		m_LastShadowTextures[node.get()] = depth_buffer;
-		return std::make_pair(depth_buffer, m_CurrentCamera->GetWorldMatrix());
+		return std::make_pair(depth_buffer, packet.camera.worldMatrix);
 	}
 
-	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawSpotLightShadowMap(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawSpotLightShadowMap(FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		(void)pass;
-		// get pointers (depth shader set resolved per pass below)
+		auto &plight = packet.lights[lightIndex];
 		auto depth_buffer = Texture::GetTemporary(1024, 1024, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
-
-		// for debug
-		Pipeline::Active->GetEntityManager()->Add(depth_buffer);
 
 		depth_buffer->SetBorderColor(Color::White);
 		depth_buffer->SetWrapMode(WrapMode::CLAMP_TO_BORDER);
 
-		auto light = node->GetComponent<Light>();
-		auto radius = light->GetEffectiveRadius();
-
-		Matrix4 lightMatrix;
-		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
-		lightMatrix = lightMatrix * node->GetInvertWorldMatrix();
-
-		Frustum frustum;
-		frustum.Setup(light->GetOutterAngle(), 1.0f, 1.0f, radius);
-		frustum.Transform(lightMatrix.Inverse());
-
-		// gen projection matrix for light.
-		float aspect = (float)depth_buffer->GetWidth() / depth_buffer->GetHeight();
-		Matrix4 projMatrix;
-		projMatrix.PerspectiveFov(light->GetOutterAngle(), aspect, 1.0f, radius);
-
-		// find shadow casters
-		fury::SceneManager::SceneNodes casters;
-		sceneManager->GetVisibleRenderables(frustum, casters);
+		const Matrix4 &lightMatrix = plight.lightMatrix;
+		const Matrix4 &projMatrix = plight.singleProj;
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -1175,20 +1034,20 @@ namespace fury
 				boundShader = s.get();
 			};
 
-			for (auto &caster : casters)
+			for (auto &caster : plight.casters)
 			{
 				// Instanced casters: one instanced draw per submesh at
 				// the shadow LOD tier. The spot pass queries renderables
 				// (not casters), so honor the flag here.
-				if (auto instanced = caster->GetComponent<InstancedMeshRender>())
+				if (caster.instancedIndex >= 0)
 				{
-					if (instanced->GetCastShadows())
-						DrawInstancedShadowCaster(caster, instanced, depthShaders, bindDepthShader,
-							[](const std::shared_ptr<Shader>&) {});
+					if (packet.instanced[caster.instancedIndex].castShadows)
+						DrawInstancedShadowCaster(packet.instanced[caster.instancedIndex], depthShaders, bindDepthShader,
+							[](const std::shared_ptr<Shader>&) {}, packet.engineTime, packet.windParams);
 					continue;
 				}
 				int draws = DrawShadowCasterGeometry(caster, depthShaders, bindDepthShader,
-					[](const std::shared_ptr<Shader>&) {});
+					[](const std::shared_ptr<Shader>&) {}, packet.engineTime, packet.windParams);
 				for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 			}
 
@@ -1198,109 +1057,101 @@ namespace fury
 			m_SharedPass->UnBind();
 		}
 
-		m_LastShadowTextures[node.get()] = depth_buffer;
-		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * m_CurrentCamera->GetWorldMatrix());
+		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * packet.camera.worldMatrix);
 	}
 
-	void Pipeline::DrawDebug(const std::shared_ptr<RenderQuery> &query)
+	void Pipeline::UpdateShadowTextureCache(
+		const std::unordered_map<std::uint64_t, std::shared_ptr<Texture>> &byLightKey)
 	{
-		ASSERT_MSG(m_CurrentCamera != nullptr, "PrelightPipeline.m_CurrentCamera not found!");
+		for (const auto &kv : byLightKey)
+			m_LastShadowTextures[reinterpret_cast<SceneNode *>(
+				static_cast<uintptr_t>(kv.first))] = kv.second;
+	}
+
+	void Pipeline::ExecutePacket(FramePacket &)
+	{
+		// Non-prelight pipelines have no packet path.
+	}
+
+	void Pipeline::DrawDebug(FramePacket &packet)
+	{
+		ASSERT_MSG(packet.camera.valid, "FramePacket.camera not valid!");
 
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		// Reference grid first: screen-space pass with no depth
 		// interaction, so the bounds lines below composite over it.
-		DrawEditorGrid();
+		DrawEditorGrid(packet);
 
 		glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
 		glCullFace(GL_BACK);
 		glDisable(GL_BLEND);
 
-		auto meshBoundsOn = IsSwitchOn(PipelineSwitch::MESH_BOUNDS);
-		auto customBoundsOn = IsSwitchOn(PipelineSwitch::CUSTOM_BOUNDS);
-		auto lightBoundsOn = IsSwitchOn(PipelineSwitch::LIGHT_BOUNDS);
+		auto meshBoundsOn = packet.switches.test((size_t)PipelineSwitch::MESH_BOUNDS);
+		auto customBoundsOn = packet.switches.test((size_t)PipelineSwitch::CUSTOM_BOUNDS);
+		auto lightBoundsOn = packet.switches.test((size_t)PipelineSwitch::LIGHT_BOUNDS);
 
 		auto renderUtil = RenderUtil::Instance();
-		renderUtil->BeginDrawLines(m_CurrentCamera);
+		renderUtil->BeginDrawLines(packet.camera);
 
 		if (meshBoundsOn)
 		{
-			for (auto node : query->renderableNodes)
-				renderUtil->DrawBoxBounds(node->GetWorldAABB(), Color::White);
+			for (const auto &bounds : packet.debug.meshBounds)
+				renderUtil->DrawBoxBounds(bounds, Color::White);
 		}
 
 		if (customBoundsOn)
 		{
-			for (const auto &bounds : m_DebugFrustum)
+			for (const auto &bounds : packet.debug.customFrusta)
 				renderUtil->DrawFrustum(bounds, Color::Green);
 
-			for (const auto &bounds : m_DebugBoxBounds)
+			for (const auto &bounds : packet.debug.customBoxes)
 				renderUtil->DrawBoxBounds(bounds, Color::Green);
 		}
 
-		if (IsSwitchOn(PipelineSwitch::OCTREE_BOUNDS) && Scene::Active)
+		if (packet.switches.test((size_t)PipelineSwitch::OCTREE_BOUNDS))
 		{
-			if (auto tree = std::dynamic_pointer_cast<OcTree>(Scene::Active->GetSceneManager()))
-				tree->DrawDebugBounds(*renderUtil);
+			// Depth palette mirrors OcTree::DrawDebugBounds.
+			static const Color kPalette[6] = {
+				Color::White, Color::Yellow, Color::Green,
+				Color::Cyan, Color::Blue, Color::Magenta,
+			};
+			for (const auto &entry : packet.debug.octreeBounds)
+				renderUtil->DrawBoxBounds(entry.first, kPalette[entry.second % 6]);
 		}
 
-		// Buoyancy float-point markers, gated solely on the global
-		// BUOYANCY_DEBUG switch (Debug views dropdown, off by default).
-		// Simulating bodies color by last submersion (green dry -> red
-		// submerged).
-		if (IsSwitchOn(PipelineSwitch::BUOYANCY_DEBUG) && PhysicsWorld::Exists())
+		// Buoyancy float-point markers, gathered into the packet when the
+		// BUOYANCY_DEBUG switch is on.
+		for (const auto &mark : packet.debug.buoyMarks)
 		{
-			bool simulating = PhysicsWorld::Instance()->IsSimulationEnabled();
-			for (const auto &weak : PhysicsWorld::Instance()->GetBuoyancies())
-			{
-				auto buoyancy = weak.lock();
-				if (!buoyancy)
-					continue;
-				auto node = buoyancy->GetOwner();
-				if (!node)
-					continue;
-
-				Matrix4 world = node->GetWorldMatrix();
-				const auto &points = buoyancy->GetFloatPoints();
-				for (unsigned int i = 0; i < points.size(); i++)
-				{
-					Vector4 center = world.Multiply(points[i].Offset);
-					float r = points[i].Radius;
-					Color color = Color(0.2f, 0.8f, 0.9f, 1.0f); // editor: cyan
-					if (simulating)
-					{
-						float s = buoyancy->GetLastSubmersion(i);
-						color = Color(0.2f + 0.75f * s, 0.9f - 0.65f * s, 0.2f, 1.0f);
-					}
-					float lines[18] = {
-						center.x - r, center.y, center.z, center.x + r, center.y, center.z,
-						center.x, center.y - r, center.z, center.x, center.y + r, center.z,
-						center.x, center.y, center.z - r, center.x, center.y, center.z + r
-					};
-					renderUtil->DrawLines(lines, 18, color, LineMode::LINES);
-				}
-			}
+			const float r = mark.radius;
+			const Vector4 &center = mark.center;
+			float lines[18] = {
+				center.x - r, center.y, center.z, center.x + r, center.y, center.z,
+				center.x, center.y - r, center.z, center.x, center.y + r, center.z,
+				center.x, center.y, center.z - r, center.x, center.y, center.z + r
+			};
+			renderUtil->DrawLines(lines, 18, mark.color, LineMode::LINES);
 		}
 
 		renderUtil->EndDrawLines();
 
-		renderUtil->BeginDrawMeshs(m_CurrentCamera);
+		renderUtil->BeginDrawMeshs(packet.camera);
 
 		if (lightBoundsOn)
 		{
-			for (auto node : query->lightNodes)
+			for (const auto &light : packet.lights)
 			{
-				auto light = node->GetComponent<Light>();
-				if (light->GetType() == LightType::SPOT)
+				if (light.type == LightType::SPOT)
 				{
-					renderUtil->DrawMesh(light->GetMesh(), node->GetWorldMatrix(), light->GetColor());
+					renderUtil->DrawMesh(light.volumeMesh, light.worldMatrix, light.color);
 				}
-				else if (light->GetType() == LightType::POINT)
+				else if (light.type == LightType::POINT)
 				{
-					Matrix4 worldMatrix = node->GetWorldMatrix();
-					worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
-					renderUtil->DrawMesh(light->GetMesh(), worldMatrix, light->GetColor());
+					Matrix4 worldMatrix = light.worldMatrix;
+					worldMatrix.AppendScale(Vector4(light.radius, 0.0f));
+					renderUtil->DrawMesh(light.volumeMesh, worldMatrix, light.color);
 				}
 			}
 		}
@@ -1310,15 +1161,15 @@ namespace fury
 		glDisable(GL_DEPTH_TEST);
 	}
 
-	void Pipeline::DrawEditorGrid()
+	void Pipeline::DrawEditorGrid(FramePacket &packet)
 	{
-		if (!IsSwitchOn(PipelineSwitch::EDITOR_GRID))
+		if (!packet.switches.test((size_t)PipelineSwitch::EDITOR_GRID))
 			return;
 
 		// Needs the deferred depth texture to occlude grid lines
 		// behind geometry; pipelines without one skip the grid.
 		auto depth = GetTextureByName("gbuffer_depth");
-		if (!depth || !m_CurrentCamera)
+		if (!depth || !packet.camera.valid)
 			return;
 
 		static std::shared_ptr<Shader> gridShader;
@@ -1387,13 +1238,13 @@ namespace fury
 		auto quad = MeshUtil::GetUnitQuad();
 		gridShader->Bind();
 		gridShader->BindMesh(quad);
-		gridShader->BindCamera(m_CurrentCamera);
+		gridShader->BindCameraData(packet.camera);
 		gridShader->BindTexture("gbuffer_depth", depth);
 		gridShader->BindFloat("u_rt_size", (float)vp[2], (float)vp[3]);
 		// NOTE: BindCamera's "invert_view_matrix" is the VIEW matrix
 		// (world->view) in this engine's naming, not view->world -- the
 		// world ray needs the camera's world matrix, bound explicitly.
-		gridShader->BindMatrix("camera_world_matrix", m_CurrentCamera->GetWorldMatrix());
+		gridShader->BindMatrix("camera_world_matrix", packet.camera.worldMatrix);
 
 		glDisable(GL_DEPTH_TEST);
 		glDepthMask(GL_FALSE);

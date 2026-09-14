@@ -1,6 +1,7 @@
 #ifndef _FURY_RENDER_TARGET_H_
 #define _FURY_RENDER_TARGET_H_
 
+#include <atomic>
 #include <memory>
 
 #include "Fury/Macros.h"
@@ -60,6 +61,9 @@ namespace fury
 		std::string m_Name;
 
 		unsigned int m_FBO = 0;
+
+		// True while a deferred (game-thread) FBO build is in flight.
+		std::atomic<bool> m_FBOPending{ false };
 
 		std::shared_ptr<Texture> m_Color;
 		std::shared_ptr<Texture> m_Depth;

@@ -36,6 +36,7 @@
 
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
@@ -426,11 +427,19 @@ bool FileUtil::LoadFile(const Serializable::Ptr& source, const std::string& file
 			return false;
 		}
 
+		// Pre-load quiesce: a scene/pipeline being replaced may still be
+		// referenced by the frame in flight on the render thread.
+		RenderThread::Get().Flush();
+
 		ActiveSceneScope scene_scope(source);
 		if (!source->Load(&dom)) {
 			FURYE << "Serialization failed!";
 			return false;
 		}
+
+		// Loads may have queued GL uploads on the render thread; drain
+		// before the caller consumes the scene (no-op single-threaded).
+		RenderThread::Get().Flush();
 
 		FURYD << filePath << " successfully deserialized!";
 		return true;
@@ -506,11 +515,19 @@ bool FileUtil::LoadCompressedFile(const std::shared_ptr<Serializable>& source, c
 			return false;
 		}
 
+		// Pre-load quiesce: a scene/pipeline being replaced may still be
+		// referenced by the frame in flight on the render thread.
+		RenderThread::Get().Flush();
+
 		ActiveSceneScope scene_scope(source);
 		if (!source->Load(&dom)) {
 			FURYE << "Deserialization failed!";
 			return false;
 		}
+
+		// Loads may have queued GL uploads on the render thread; drain
+		// before the caller consumes the scene (no-op single-threaded).
+		RenderThread::Get().Flush();
 
 		FURYD << filePath << " successfully deserialized!";
 		return true;

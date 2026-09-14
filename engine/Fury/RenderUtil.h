@@ -1,6 +1,7 @@
 #ifndef _FURY_RENDER_UTIL_H_
 #define _FURY_RENDER_UTIL_H_
 
+#include <atomic>
 #include <vector>
 
 #include <SFML/Window/Keyboard.hpp>
@@ -25,6 +26,8 @@ namespace fury
 
 	class SceneNode;
 
+	struct PacketCamera;
+
 	class Shader;
 
 	class Texture;
@@ -47,28 +50,30 @@ namespace fury
 
 		unsigned int m_LineVBO = 0;
 
-		unsigned int m_DrawCall = 0;
+		// Counters are bumped on the GL thread and read by the editor UI
+		// on the game thread (render-threaded mode).
+		std::atomic<unsigned int> m_DrawCall{ 0 };
 
-		unsigned int m_MeshCount = 0;
+		std::atomic<unsigned int> m_MeshCount{ 0 };
 
-		unsigned int m_TriangleCount = 0;
+		std::atomic<unsigned int> m_TriangleCount{ 0 };
 
-		unsigned int m_SkinnedMeshCount = 0;
+		std::atomic<unsigned int> m_SkinnedMeshCount{ 0 };
 
-		unsigned int m_LightCount = 0;
+		std::atomic<unsigned int> m_LightCount{ 0 };
 
 		// Snapshot of the last fully-completed frame's counters. Public getters
 		// return these so the GUI can read stable values regardless of when in
 		// the frame it queries.
-		unsigned int m_LastDrawCall = 0;
+		std::atomic<unsigned int> m_LastDrawCall{ 0 };
 
-		unsigned int m_LastMeshCount = 0;
+		std::atomic<unsigned int> m_LastMeshCount{ 0 };
 
-		unsigned int m_LastTriangleCount = 0;
+		std::atomic<unsigned int> m_LastTriangleCount{ 0 };
 
-		unsigned int m_LastSkinnedMeshCount = 0;
+		std::atomic<unsigned int> m_LastSkinnedMeshCount{ 0 };
 
-		unsigned int m_LastLightCount = 0;
+		std::atomic<unsigned int> m_LastLightCount{ 0 };
 
 		sf::Clock m_FrameClock;
 
@@ -97,6 +102,9 @@ namespace fury
 
 		void BeginDrawLines(const std::shared_ptr<SceneNode> &camera);
 
+		// Packet-camera overloads for the render-thread path.
+		void BeginDrawLines(const PacketCamera &camera);
+
 		void DrawLines(const float* positions, unsigned int size, Color color, LineMode lineMode = LineMode::LINES);
 
 		void DrawBoxBounds(const BoxBounds &aabb, Color color);
@@ -106,6 +114,7 @@ namespace fury
 		void EndDrawLines();
 
 		void BeginDrawMeshs(const std::shared_ptr<SceneNode> &camera);
+		void BeginDrawMeshs(const PacketCamera &camera);
 
 		void DrawMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &worldMatrix, Color color);
 
@@ -160,7 +169,10 @@ namespace fury
 	// Renders `mesh` into the currently-bound FBO (caller owns FBO + viewport
 	// + clear) with the simple-Lambert shader, using a fixed orbit camera
 	// framed on the mesh's local AABB. Returns the bounding-sphere radius.
-	float RenderMeshLambert(const std::shared_ptr<Mesh> &mesh, int w, int h);
+	// palette != nullptr: bind those joint matrices for skinned meshes
+	// instead of reading live Joint objects (render-thread path).
+	float RenderMeshLambert(const std::shared_ptr<Mesh> &mesh, int w, int h,
+		const std::vector<Matrix4> *palette = nullptr);
 }
 
 #endif // _FURY_RENDER_UTIL_H_

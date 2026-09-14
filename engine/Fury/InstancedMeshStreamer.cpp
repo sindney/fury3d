@@ -1,4 +1,5 @@
 #include "Fury/InstancedMeshStreamer.h"
+#include "Fury/RenderThread.h"
 
 #include <cstdlib>
 
@@ -64,6 +65,7 @@ namespace fury
 		const std::shared_ptr<Mesh> &mesh, int subMesh,
 		const std::vector<Matrix4> &matrices)
 	{
+		FURY_GL_THREAD_GUARD();
 		if (matrices.empty() || mesh == nullptr || shader == nullptr)
 			return;
 

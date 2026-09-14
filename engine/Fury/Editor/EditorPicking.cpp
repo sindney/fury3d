@@ -5,6 +5,8 @@
 
 #include "Fury/Camera.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/FramePacket.h"
+#include "Fury/Joint.h"
 #include "Fury/GLLoader.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
@@ -13,12 +15,14 @@
 #include "Fury/MeshRender.h"
 #include "Fury/Pipeline.h"
 #include "Fury/RenderQuery.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -54,6 +58,12 @@ namespace fury
 				ImVec2       g_PendingClickPx  = ImVec2(0, 0);
 				int          g_CapturedW       = 0;
 				int          g_CapturedH       = 0;
+
+				// Render-side pick results, posted by the overlay job and
+				// consumed by TickPostRender on the game thread.
+				std::atomic<unsigned int>   g_PickResultId{ 0 };
+				std::atomic<std::uint64_t>  g_PickResultSeq{ 0 };
+				std::uint64_t               g_ConsumedSeq = 0;
 
 				GLuint                 g_PickFBO   = 0;
 				std::shared_ptr<Texture> g_PickColor; // R32UI
@@ -175,26 +185,53 @@ namespace fury
 					return true;
 				}
 
-				// Draw all renderable nodes into the picking FBO. Each node's
-				// 1-based ID is written to the R32UI color attachment via
-				// node_id. After this returns, glReadPixels can resolve a
-				// 1x1 region back to the topmost node ID.
-				void DoIdPass(const std::shared_ptr<SceneNode>& cameraNode)
+				// Everything the render-side id pass needs, captured on the
+				// game thread (no scene reads on the GL thread).
+				struct IdPassUnit
+				{
+					std::shared_ptr<Mesh> mesh;
+
+					Matrix4 world;
+
+					std::vector<Matrix4> palette;
+
+					unsigned int id = 0;
+				};
+
+				struct IdPassRequest
+				{
+					PacketCamera camera;
+
+					int w = 0;
+
+					int h = 0;
+
+					int readX = 0;
+
+					int readY = 0;
+
+					std::vector<IdPassUnit> units;
+				};
+
+				// Render-thread side of the pick: draw every unit's mesh
+				// with the id shader into the pick FBO, then read back the
+				// single uint under the captured cursor and post it.
+				void ExecuteIdPass(const IdPassRequest &req)
 				{
 					EnsureShaders();
+					if (!EnsureFBO(req.w, req.h))
+					{
+						g_PickResultId.store(0);
+						++g_PickResultSeq;
+						return;
+					}
 
-					auto sceneMgr = Scene::Active->GetSceneManager();
-					auto camera = cameraNode->GetComponent<Camera>();
-
-					// Rebuild the ID table from the current frustum's
-					// renderable set. Match what PrelightPipeline::Execute
-					// already does so the picked surfaces are exactly the
-					// ones the user sees.
-					RenderQuery::Ptr query = RenderQuery::Create();
-					sceneMgr->GetRenderQuery(camera->GetFrustum(), query);
-
-					g_IdTable.clear();
-					g_IdTable.reserve(query->renderableNodes.size());
+					// Snapshot existing GL state so we don't disturb the
+					// frame in flight more than necessary.
+					GLint prev_fbo = 0;
+					glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
+					GLint prev_viewport[4] = { 0, 0, 0, 0 };
+					glGetIntegerv(GL_VIEWPORT, prev_viewport);
 
 					glBindFramebuffer(GL_FRAMEBUFFER, g_PickFBO);
 					glViewport(0, 0, g_PickW, g_PickH);
@@ -209,28 +246,27 @@ namespace fury
 					glDisable(GL_BLEND);
 					glDisable(GL_CULL_FACE);
 
-					for (const auto& node : query->renderableNodes)
+					for (const auto &unit : req.units)
 					{
-						auto meshRender = node->GetComponent<MeshRender>();
-						if (!meshRender) continue;
-						auto mesh = meshRender->GetMesh();
-						if (!mesh) continue;
-
-						g_IdTable.push_back(node);
-						const unsigned int id = static_cast<unsigned int>(g_IdTable.size()); // 1-based
-
-						auto& shader = mesh->IsSkinnedMesh() ? g_IdShaderSkinned : g_IdShaderStatic;
+						auto &mesh = unit.mesh;
+						auto &shader = mesh->IsSkinnedMesh() ? g_IdShaderSkinned : g_IdShaderStatic;
 						shader->Bind();
-						shader->BindCamera(cameraNode);
+						shader->BindCameraData(req.camera);
 						// Skinned vertices reach world space via Final = J_i W * ibm;
 						// identity world_matrix so the mesh node transform isn't
 						// double-applied (matches the gbuffer skin path).
 						if (mesh->IsSkinnedMesh())
+						{
 							shader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
+							shader->BindMesh(mesh, unit.palette.data(),
+								static_cast<int>(unit.palette.size()));
+						}
 						else
-							shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
-						shader->BindUInt("node_id", id);
-						shader->BindMesh(mesh);
+						{
+							shader->BindMatrix(Matrix4::WORLD_MATRIX, unit.world);
+							shader->BindMesh(mesh);
+						}
+						shader->BindUInt("node_id", unit.id);
 
 						if (mesh->GetSubMeshCount() > 0)
 						{
@@ -251,126 +287,170 @@ namespace fury
 						shader->UnBind();
 					}
 
-					glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				}
-
-				// Read a single uint at the captured cursor, map back to a
-				// SceneNode, and write through to g_SelectedSceneNode. The
-				// FBO must still hold the result of the previous frame's
-				// id-pass when this runs.
-				void DoReadback()
-				{
-					if (g_PickFBO == 0) return;
-
-					// Y-flip from ImGui top-origin to GL bottom-origin.
-					int x = static_cast<int>(g_PendingClickPx.x);
-					int y = g_CapturedH - 1 - static_cast<int>(g_PendingClickPx.y);
-					if (x < 0 || y < 0 || x >= g_CapturedW || y >= g_CapturedH)
-						return;
-
+					// Readback in the same job: the FBO holds this frame's
+					// id pass right here.
 					GLuint id = 0;
 					glBindFramebuffer(GL_READ_FRAMEBUFFER, g_PickFBO);
 					glReadBuffer(GL_COLOR_ATTACHMENT0);
-					glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &id);
-					glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-
-				if (id == 0)
-				{
-					SetSelectedSceneNode(nullptr);
-					return;
-				}
-
-				if (id - 1 >= g_IdTable.size())
-					return; // out of range -- id_table changed; leave selection alone
-
-				if (auto locked = g_IdTable[id - 1].lock())
-				{
-					SceneNode* picked = locked.get();
-					SetSelectedSceneNode(picked);
-					Editor::RevealInInspector(picked);
-				}
-					// else: node was destroyed between request and readback -- silently no-op.
-				}
-			} // namespace
-
-			void RequestPickAt(ImVec2 viewport_px)
-			{
-				// Fold an in-flight request: replace it with the latest click
-				// rather than queuing. The user's most recent click is what
-				// they expect to hit.
-				g_PendingClickPx = viewport_px;
-				g_State = State::RenderRequested;
-			}
-
-			bool IsPickInFlight()
-			{
-				return g_State != State::Idle;
-			}
-
-			void TickPostRender()
-			{
-				if (g_State == State::Idle) return;
-
-				// Discard the request if the runtime is not in a state where
-				// the id-pass would be meaningful.
-				if (Scene::Active == nullptr || Pipeline::Active == nullptr)
-				{
-					g_State = State::Idle;
-					return;
-				}
-
-				auto cameraNode = Pipeline::Active->GetCurrentCamera();
-				if (!cameraNode || !cameraNode->GetComponent<Camera>())
-				{
-					g_State = State::Idle;
-					return;
-				}
-
-			if (g_State == State::RenderRequested)
-			{
-				// Size the picking FBO to the Viewport window's content
-				// rect (not the full SFML window). When the viewport is
-				// hidden / collapsed, discard the pick -- there's nothing
-				// on screen to pick.
-				if (!g_ViewportVisible)
-				{
-					g_State = State::Idle;
-					return;
-				}
-				int w = static_cast<int>(g_ViewportContentSize.x);
-				int h = static_cast<int>(g_ViewportContentSize.y);
-				if (!EnsureFBO(w, h))
-				{
-					g_State = State::Idle;
-					return;
-				}
-				g_CapturedW = w;
-				g_CapturedH = h;
-
-					// Snapshot existing GL state so we don't disturb the
-					// next frame's user pipeline more than necessary.
-					GLint prev_fbo = 0;
-					glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-					GLint prev_viewport[4] = { 0, 0, 0, 0 };
-					glGetIntegerv(GL_VIEWPORT, prev_viewport);
-
-					DoIdPass(cameraNode);
+					glReadPixels(req.readX, req.readY, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &id);
 
 					glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
 					glViewport(prev_viewport[0], prev_viewport[1],
 						prev_viewport[2], prev_viewport[3]);
 
-					g_State = State::AwaitingReadback;
-					return;
+					g_PickResultId.store(id);
+					++g_PickResultSeq;
 				}
 
-				if (g_State == State::AwaitingReadback)
+			} // namespace (anonymous)
+
+			void RequestPickAt(ImVec2 viewport_px)
 				{
-					DoReadback();
-					g_State = State::Idle;
-					return;
+					// Fold an in-flight request: replace it with the latest click
+					// rather than queuing. The user's most recent click is what
+					// they expect to hit.
+					g_PendingClickPx = viewport_px;
+					g_State = State::RenderRequested;
 				}
-			}
+
+				bool IsPickInFlight()
+				{
+					return g_State != State::Idle;
+				}
+
+				void TickPostRender()
+				{
+					if (g_State == State::Idle) return;
+
+					// Discard the request if the runtime is not in a state where
+					// the id-pass would be meaningful.
+					if (Scene::Active == nullptr || Pipeline::Active == nullptr)
+					{
+						g_State = State::Idle;
+						return;
+					}
+
+					auto cameraNode = Pipeline::Active->GetCurrentCamera();
+					if (!cameraNode || !cameraNode->GetComponent<Camera>())
+					{
+						g_State = State::Idle;
+						return;
+					}
+
+					if (g_State == State::RenderRequested)
+					{
+						// Size the picking FBO to the Viewport window's content
+						// rect (not the full SFML window). When the viewport is
+						// hidden / collapsed, discard the pick -- there's nothing
+						// on screen to pick.
+						if (!g_ViewportVisible)
+						{
+							g_State = State::Idle;
+							return;
+						}
+						int w = static_cast<int>(g_ViewportContentSize.x);
+						int h = static_cast<int>(g_ViewportContentSize.y);
+						if (w <= 0 || h <= 0)
+						{
+							g_State = State::Idle;
+							return;
+						}
+
+						auto &rt = RenderThread::Get();
+						FramePacket *packet = rt.PeekStagedPacket();
+						if (packet == nullptr)
+						{
+							// No staged frame to carry the job; retry next frame.
+							return;
+						}
+
+						// Build the request on the game thread: the same
+						// renderable set PrelightPipeline::Execute drew, so
+						// the picked surfaces match what the user sees.
+						auto sceneMgr = Scene::Active->GetSceneManager();
+						auto camera = cameraNode->GetComponent<Camera>();
+						RenderQuery::Ptr query = RenderQuery::Create();
+						sceneMgr->GetRenderQuery(camera->GetFrustum(), query);
+
+						IdPassRequest req;
+						req.camera = BuildPacketCamera(cameraNode);
+						req.w = w;
+						req.h = h;
+						// Y-flip from ImGui top-origin to GL bottom-origin.
+						req.readX = static_cast<int>(g_PendingClickPx.x);
+						req.readY = h - 1 - static_cast<int>(g_PendingClickPx.y);
+
+						g_IdTable.clear();
+						g_IdTable.reserve(query->renderableNodes.size());
+						for (const auto &node : query->renderableNodes)
+						{
+							auto meshRender = node->GetComponent<MeshRender>();
+							if (!meshRender) continue;
+							auto mesh = meshRender->GetMesh();
+							if (!mesh) continue;
+
+							IdPassUnit unit;
+							unit.mesh = mesh;
+							unit.world = node->GetWorldMatrix();
+							if (mesh->IsSkinnedMesh())
+							{
+								unsigned int jointCount = mesh->GetJointCount();
+								unit.palette.reserve(jointCount);
+								for (unsigned int i = 0; i < jointCount; ++i)
+								{
+									auto joint = mesh->GetJointAt(i);
+									unit.palette.push_back(joint ? joint->GetFinalMatrix() : Matrix4());
+								}
+							}
+
+							g_IdTable.push_back(node);
+							unit.id = static_cast<unsigned int>(g_IdTable.size()); // 1-based
+							req.units.push_back(std::move(unit));
+						}
+
+						if (req.readX < 0 || req.readY < 0 || req.readX >= w || req.readY >= h)
+						{
+							g_State = State::Idle;
+							return;
+						}
+
+						g_ConsumedSeq = g_PickResultSeq.load();
+						packet->overlayJobs.emplace_back([req]() { ExecuteIdPass(req); });
+						g_State = State::AwaitingReadback;
+						return;
+					}
+
+					if (g_State == State::AwaitingReadback)
+					{
+						// The overlay job posts (id, seq); consume when fresh.
+						if (g_PickResultSeq.load() == g_ConsumedSeq)
+							return;
+
+						const unsigned int id = g_PickResultId.load();
+						if (id == 0)
+						{
+							SetSelectedSceneNode(nullptr);
+							g_State = State::Idle;
+							return;
+						}
+
+						if (id - 1 >= g_IdTable.size())
+						{
+							g_State = State::Idle;
+							return; // out of range -- id_table changed; leave selection alone
+						}
+
+						if (auto locked = g_IdTable[id - 1].lock())
+						{
+							SceneNode* picked = locked.get();
+							SetSelectedSceneNode(picked);
+							Editor::RevealInInspector(picked);
+						}
+						// else: node was destroyed between request and readback -- silently no-op.
+						g_State = State::Idle;
+						return;
+					}
+				}
 		} // namespace Picking
 
 	// Defined in EditorSelectionViz.cpp.

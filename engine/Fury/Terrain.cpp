@@ -43,7 +43,7 @@ namespace fury
 			tex->CreateFromImage(path, srgb, true);
 			// failed load: return null so callers bind a dummy instead of a
 			// dirty texture (which silently aliases unit 0's texture)
-			if (tex->GetID() == 0)
+			if (!tex->IsContentValid())
 				return nullptr;
 			// terrain textures minify to the horizon; trilinear or they shimmer
 			tex->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);

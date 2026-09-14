@@ -9,6 +9,9 @@
 #include "Fury/Mesh.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
+
+#include "Fury/FramePacket.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
 
@@ -244,6 +247,17 @@ namespace fury
 
 	bool Shader::LoadAndCompile(const std::string &shaderPath, bool useGeomShader)
 	{
+		if (!RenderThread::Get().MayUseGL())
+		{
+			// Deferred compile: report success optimistically; failure
+			// surfaces as a missing program on first bind (same as a
+			// compile error today) plus the error log from the GL thread.
+			DispatchGL(this, [this, shaderPath, useGeomShader]() {
+				LoadAndCompile(shaderPath, useGeomShader);
+			});
+			return true;
+		}
+		FURY_GL_THREAD_GUARD();
 		m_UseGeomShader = useGeomShader;
 
 		std::string dataStr;
@@ -440,6 +454,14 @@ namespace fury
 
 	bool Shader::LoadAndCompileCompute(const std::string &shaderPath)
 	{
+		if (!RenderThread::Get().MayUseGL())
+		{
+			DispatchGL(this, [this, shaderPath]() {
+				LoadAndCompileCompute(shaderPath);
+			});
+			return true;
+		}
+
 		std::string dataStr;
 		if (!FileUtil::LoadString(shaderPath, dataStr))
 		{
@@ -569,7 +591,8 @@ namespace fury
 	{
 		if (m_Program != 0)
 		{
-			glDeleteProgram(m_Program);
+			unsigned int program = m_Program;
+			RenderThread::Get().EnqueueJob([program]() { glDeleteProgram(program); });
 			m_Program = 0;
 		}
 
@@ -622,6 +645,28 @@ namespace fury
 			BindFloat("light_falloff", light->GetFalloff());
 			BindFloat("light_radius", light->GetEffectiveRadius());
 		}
+	}
+
+	void Shader::BindCameraData(const PacketCamera &cam)
+	{
+		BindFloat("camera_pos", cam.worldPos.x, cam.worldPos.y, cam.worldPos.z);
+		BindFloat("camera_far", cam.farClip);
+		BindFloat("camera_near", cam.nearClip);
+		BindMatrix(Matrix4::INVERT_VIEW_MATRIX, &cam.invertWorldMatrix.Raw[0]);
+		BindMatrix(Matrix4::PROJECTION_MATRIX, &cam.projectionMatrix.Raw[0]);
+	}
+
+	void Shader::BindLightData(const PacketLight &light)
+	{
+		static float pi = 3.141592653f;
+		BindFloat("light_pos", light.worldPos.x, light.worldPos.y, light.worldPos.z);
+		BindFloat("light_dir", light.worldDir.x, light.worldDir.y, light.worldDir.z);
+		BindFloat("light_color", light.color.r / pi, light.color.g / pi, light.color.b / pi);
+		BindFloat("light_intensity", light.intensity);
+		BindFloat("light_innerangle", light.innerAngle);
+		BindFloat("light_outterangle", light.outterAngle);
+		BindFloat("light_falloff", light.falloff);
+		BindFloat("light_radius", light.effectiveRadius);
 	}
 
 	void Shader::BindTexture(const std::shared_ptr<Texture> &texture)
@@ -691,6 +736,11 @@ namespace fury
 	}
 
 	void Shader::BindMeshData(const std::shared_ptr<Mesh> &mesh)
+	{
+		BindMeshData(mesh, nullptr, 0);
+	}
+
+	void Shader::BindMeshData(const std::shared_ptr<Mesh> &mesh, const Matrix4 *palette, int paletteCount)
 	{
 		int posFlag = glGetAttribLocation(m_Program, mesh->Positions.Name.c_str());
 		int normalFlag = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
@@ -851,26 +901,50 @@ namespace fury
 					jointCount = 35;
 				}
 
-				std::vector<float> raw(jointCount * 16);
-
-				for (int i = 0; i < jointCount; i++)
+				if (palette != nullptr && paletteCount > 0)
 				{
-				auto joint = mesh->GetJointAt(i);
-				// Picking can run mid-reimport when a joint slot is null -- use identity.
-				Matrix4 matrix = joint ? joint->GetFinalMatrix() : Matrix4();
-					int index = i * 16;
-
-					for (int j = 0; j < 16; j++)
-					{
-						raw[index + j] = matrix.Raw[j];
-					}
+					// Render-thread path: copied palette from the packet.
+					BindMatrices("bone_matrices",
+						std::min(jointCount, paletteCount), (const float*)palette);
 				}
+				else
+				{
+					std::vector<float> raw(jointCount * 16);
 
-				BindMatrices("bone_matrices", jointCount, &raw[0]);
+					for (int i = 0; i < jointCount; i++)
+					{
+					auto joint = mesh->GetJointAt(i);
+					// Picking can run mid-reimport when a joint slot is null -- use identity.
+					Matrix4 matrix = joint ? joint->GetFinalMatrix() : Matrix4();
+						int index = i * 16;
+
+						for (int j = 0; j < 16; j++)
+						{
+							raw[index + j] = matrix.Raw[j];
+						}
+					}
+
+					BindMatrices("bone_matrices", jointCount, &raw[0]);
+				}
 			}
 		}
 		
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+
+	void Shader::BindMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 *palette, int paletteCount)
+	{
+		if (mesh->GetDirty())
+			mesh->UpdateBuffer();
+
+		const bool parent_indices_relevant = (mesh->GetSubMeshCount() == 0);
+		if (m_Dirty || mesh->GetDirty() ||
+			(parent_indices_relevant && mesh->Indices.GetDirty()))
+			return;
+
+		BindMeshData(mesh, palette, paletteCount);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->Indices.GetID());
 	}
 
 	void Shader::BindMesh(const std::shared_ptr<Mesh> &mesh)
@@ -1117,6 +1191,56 @@ namespace fury
 
 		glBindVertexArray(0);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	}
+
+	void Shader::BindFloatLocation(int location, float x)
+	{
+		if (location != -1) glUniform1f(location, x);
+	}
+
+	void Shader::BindFloatLocation(int location, float x, float y)
+	{
+		if (location != -1) glUniform2f(location, x, y);
+	}
+
+	void Shader::BindFloatLocation(int location, float x, float y, float z)
+	{
+		if (location != -1) glUniform3f(location, x, y, z);
+	}
+
+	void Shader::BindFloatLocation(int location, float x, float y, float z, float w)
+	{
+		if (location != -1) glUniform4f(location, x, y, z, w);
+	}
+
+	void Shader::BindIntLocation(int location, int x)
+	{
+		if (location != -1) glUniform1i(location, x);
+	}
+
+	void Shader::BindMatrixLocation(int location, const float *matrix)
+	{
+		if (location != -1) glUniformMatrix4fv(location, 1, GL_FALSE, matrix);
+	}
+
+	void Shader::BindMatricesLocation(int location, int count, const float *matrices)
+	{
+		if (location != -1) glUniformMatrix4fv(location, count, GL_FALSE, matrices);
+	}
+
+	int Shader::BindTextureAt(int unitOffset, int location, const std::shared_ptr<Texture> &texture)
+	{
+		if (location == -1 || texture == nullptr)
+			return unitOffset;
+		glActiveTexture(GL_TEXTURE0 + unitOffset);
+		glBindTexture(texture->GetTypeUint(), texture->GetID());
+		glUniform1i(location, unitOffset);
+		return unitOffset + 1;
+	}
+
+	void Shader::SetTextureUnitCursor(int unitOffset)
+	{
+		m_TextureID = GL_TEXTURE0 + unitOffset;
 	}
 
 	int Shader::GetUniformLocation(const std::string &name) const

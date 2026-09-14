@@ -135,6 +135,54 @@ namespace fury
 	}
 
 	template<typename Datatype, unsigned int Size>
+	void Uniform<Datatype, Size>::BindLocation(int location)
+	{
+		if (location == -1)
+			return;
+
+		if (std::is_floating_point<Datatype>::value)
+		{
+			switch (Size)
+			{
+			case 1:
+				glUniform1f(location, (float)m_Data[0]);
+				break;
+			case 2:
+				glUniform2f(location, (float)m_Data[0], (float)m_Data[1]);
+				break;
+			case 3:
+				glUniform3f(location, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2]);
+				break;
+			case 4:
+				glUniform4f(location, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2], (float)m_Data[3]);
+				break;
+			default:
+				break;
+			}
+		}
+		else
+		{
+			switch (Size)
+			{
+			case 1:
+				glUniform1i(location, (int)m_Data[0]);
+				break;
+			case 2:
+				glUniform2i(location, (int)m_Data[0], (int)m_Data[1]);
+				break;
+			case 3:
+				glUniform3i(location, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2]);
+				break;
+			case 4:
+				glUniform4i(location, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2], (int)m_Data[3]);
+				break;
+			default:
+				break;
+			}
+		}
+	}
+
+	template<typename Datatype, unsigned int Size>
 	bool Uniform<Datatype, Size>::Load(const void* wrapper, bool object)
 	{
 		if (object && !IsObject(wrapper))

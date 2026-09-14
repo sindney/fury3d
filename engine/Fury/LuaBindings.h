@@ -33,6 +33,9 @@ namespace fury
 			// bounds) after load -- same math as the editor's
 			// frame-selection, applied automatically.
 			bool auto_focus = false;
+			// --render-thread=0|1 CLI override. -1 = unset (falls through to
+			// FURY_RENDER_THREAD env, then the script's option, then ini).
+			int render_thread = -1;
 			// Sentinel `-1` means the engine never wrote a result. Engine::Run
 			// writes 0 (capture success) or 1 (capture failure) once a capture
 			// is requested via screenshot_path.

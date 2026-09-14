@@ -16,13 +16,16 @@
 #define FURY_SHADOW_REJECTF(...)
 #endif
 
+#include "Fury/BuoyancyComponent.h"
 #include "Fury/Camera.h"
 #include "Fury/Engine.h"
 #include "Fury/Log.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/FramePacket.h"
 #include "Fury/Frustum.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
+#include "Fury/Joint.h"
 #include "Fury/InputUtil.h"
 #include "Fury/InstancedMeshRender.h"
 #include "Fury/InstancedMeshStreamer.h"
@@ -41,9 +44,11 @@
 #include "Fury/Profiler.h"
 #include "Fury/PrelightPipeline.h"
 #include "Fury/RenderSettings.h"
+#include "Fury/RenderThread.h"
 #include "Fury/RenderTarget.h"
 #include "Fury/SkyAtmosphere.h"
 #include "Fury/OceanComponent.h"
+#include "Fury/OcTree.h"
 #include "Fury/PhysicsWorld.h"
 #include "Fury/OceanWaves.h"
 #include "Fury/RenderQuery.h"
@@ -57,6 +62,66 @@
 
 namespace fury
 {
+namespace
+{
+	// FURY_DRAWCMD_CACHE=0 disables the draw-command cache (debug A/B).
+	const bool kDrawCmdCache = std::getenv("FURY_DRAWCMD_CACHE") == nullptr
+		|| std::getenv("FURY_DRAWCMD_CACHE")[0] != '0';
+
+	// Shared shader-variant resolution for DrawUnit / the draw-command
+	// cache (identical rules, identical fallback order).
+	std::shared_ptr<Shader> ResolveUnitShader(const std::shared_ptr<Pass> &pass,
+		const std::shared_ptr<Material> &material, const std::shared_ptr<Mesh> &mesh,
+		bool billboard, bool shadowBit)
+	{
+		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
+		if (shader != nullptr)
+			return shader;
+
+		// MASK materials request the ALPHA_TEST shader variant so
+		// the discard branch compiles only where it's needed.
+		unsigned int textureFlags = material->GetTextureFlags();
+		if (material->GetAlphaMode() == AlphaMode::MASK)
+			textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
+		// Shadow-receive variant when this draw's light casts
+		// (transparent additive loop) -- the shadow samplers/compares
+		// compile only into the *_shadow_shader variants.
+		if (shadowBit)
+			textureFlags |= (unsigned int)ShaderTexture::SHADOW;
+		// Vegetation variant bits from the material flags / LOD tier.
+		if (material->GetTwoSided())
+			textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
+		if (material->GetWindEnabled())
+			textureFlags |= (unsigned int)ShaderTexture::WIND;
+		if (billboard)
+			textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
+				(unsigned int)ShaderTexture::TWO_SIDED |
+				(unsigned int)ShaderTexture::ALPHA_TEST;
+		ShaderType shaderType = mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH;
+		shader = pass->GetShader(shaderType, textureFlags);
+
+		// Fall back in steps: first without the shadow bit, then
+		// without wind (billboard/alpha combos stay intact), then
+		// without the vegetation bits, then without alpha-test.
+		// BILLBOARD is never dropped -- a billboard tier without its
+		// shader is skipped.
+		if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::SHADOW))
+			shader = pass->GetShader(shaderType,
+				textureFlags & ~(unsigned int)ShaderTexture::SHADOW);
+		if (shader == nullptr)
+			shader = pass->GetShader(shaderType,
+				textureFlags & ~(unsigned int)ShaderTexture::SHADOW & ~(unsigned int)ShaderTexture::WIND);
+		if (shader == nullptr)
+			shader = pass->GetShader(shaderType,
+				textureFlags & ~(unsigned int)ShaderTexture::SHADOW &
+					~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
+		if (shader == nullptr && !billboard)
+			shader = pass->GetShader(shaderType,
+				material->GetTextureFlags());
+		return shader;
+	}
+}
+
 	PrelightPipeline::Ptr PrelightPipeline::Create(const std::string &name)
 	{
 		return std::make_shared<PrelightPipeline>(name);
@@ -105,63 +170,516 @@ namespace fury
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
-		FURY_ZONE;
+		// Game thread: gather + stage. Execution (this same code path) runs
+		// at the loop tail -- on the render thread when threaded, inline
+		// on this thread when not.
+		ASSERT_MSG(Pipeline::Active.get() == this, "Pipeline::Execute on a non-active pipeline");
+		auto &rt = RenderThread::Get();
+		FramePacket *packet = rt.AcquirePacket();
+		GatherFrame(sceneManager, *packet);
+		rt.StagePacket(packet);
+	}
+
+	PacketUnit PrelightPipeline::ResolveUnit(const RenderUnit &unit)
+	{
+		PacketUnit out;
+		auto &node = unit.node;
+		out.nodeKey = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(node.get()));
+		out.worldMatrix = node->GetWorldMatrix();
+		out.worldBounds = node->GetWorldAABB();
+		out.worldPos = node->GetWorldPosition();
+
+		// LOD selection lives at gather: the pass path draws what the
+		// packet resolved (previously UpdateActiveLod ran per draw).
+		auto render = node->GetComponent<MeshRender>();
+		auto mesh = unit.mesh;
+		auto material = unit.material;
+		if (render)
+		{
+			render->UpdateActiveLod(m_CurrentCamera);
+			if (auto active = render->GetActiveMesh())
+				mesh = active;
+			out.lodIndex = static_cast<int>(render->GetActiveLod());
+
+			// Billboard terminal tier: quad submesh 0 with the mesh's
+			// billboard material, and only for the first unit.
+			auto baseMesh = render->GetMesh();
+			if (baseMesh && baseMesh->IsLodBillboard(render->GetActiveLod()))
+			{
+				out.billboard = true;
+				if (auto bbMat = baseMesh->GetBillboardMaterial())
+					material = bbMat;
+			}
+		}
+		out.subMesh = out.billboard ? 0 : unit.subMesh;
+		out.mesh = mesh;
+		out.material = material;
+
+		// Skinned palette copy: the draw binds these instead of reading
+		// live Joint objects on the GL thread.
+		if (mesh && mesh->IsSkinnedMesh())
+		{
+			unsigned int jointCount = mesh->GetJointCount();
+			out.skinPalette.reserve(jointCount);
+			for (unsigned int i = 0; i < jointCount; ++i)
+			{
+				auto joint = mesh->GetJointAt(i);
+				out.skinPalette.push_back(joint ? joint->GetFinalMatrix() : Matrix4());
+			}
+		}
+		return out;
+	}
+
+	void PrelightPipeline::GatherLightShadowPlan(const std::shared_ptr<SceneManager> &sceneManager,
+		const std::shared_ptr<SceneNode> &lightNode, PacketLight &out, FramePacket &packet)
+	{
+		auto light = lightNode->GetComponent<Light>();
+		auto camComp = m_CurrentCamera->GetComponent<Camera>();
+		if (!light || !light->GetCastShadows() || !camComp)
+			return;
+
+		Matrix4 lightMatrix;
+		lightMatrix.Rotate(MathUtil::AxisRadToQuat(Vector4::XAxis, MathUtil::DegToRad * 90.0f));
+		lightMatrix = lightMatrix * lightNode->GetInvertWorldMatrix();
+		out.lightMatrix = lightMatrix;
+
+		// Resolves one caster node list into packet casters (instanced
+		// components become indirections into packet.instanced).
+		auto resolveCasters = [&](fury::SceneManager::SceneNodes &nodes,
+			std::vector<PacketCaster> &outList)
+		{
+			for (auto &caster : nodes)
+			{
+				PacketCaster pc;
+				pc.worldBounds = caster->GetWorldAABB();
+				pc.worldMatrix = caster->GetWorldMatrix();
+				if (auto imr = caster->GetComponent<InstancedMeshRender>())
+				{
+					// Ensure the instanced packet exists (casters can fall
+					// outside the camera frustum, so they may be missing
+					// from the query's instancedNodes).
+					int found = -1;
+					std::uint64_t key = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(caster.get()));
+					for (size_t k = 0; k < packet.instanced.size(); ++k)
+					{
+						if (packet.instanced[k].nodeKey == key)
+						{
+							found = static_cast<int>(k);
+							break;
+						}
+					}
+					if (found < 0)
+					{
+						if (auto caches = imr->SnapshotRenderCaches())
+						{
+							PacketInstanced pk;
+							pk.nodeKey = key;
+							pk.mesh = imr->GetMesh();
+							for (unsigned int mi = 0; mi < imr->GetMaterialCount(); ++mi)
+								pk.materials.push_back(imr->GetMaterial(mi));
+							pk.castShadows = imr->GetCastShadows();
+							pk.cullDistance = imr->GetCullDistance();
+							pk.hierarchical = imr->GetHierarchical();
+							pk.shadowLodTier = imr->GetShadowLodTier();
+							pk.aggregateAABB = caster->GetWorldAABB();
+							pk.caches = caches;
+							packet.instanced.push_back(std::move(pk));
+							found = static_cast<int>(packet.instanced.size()) - 1;
+						}
+					}
+					if (found >= 0)
+						pc.instancedIndex = found;
+					else
+						continue;
+					outList.push_back(std::move(pc));
+					continue;
+				}
+
+				auto render = caster->GetComponent<MeshRender>();
+				if (!render)
+					continue;
+				pc.mesh = PickShadowLodMesh(render->GetMesh());
+				if (!pc.mesh)
+					continue;
+				unsigned int subCount = pc.mesh->GetSubMeshCount();
+				if (subCount > 0)
+				{
+					for (unsigned int sm = 0; sm < subCount; ++sm)
+						pc.materials.push_back(render->GetMaterial(sm));
+				}
+				else
+				{
+					pc.materials.push_back(render->GetMaterial());
+				}
+				pc.skinned = pc.mesh->IsSkinnedMesh();
+				if (pc.skinned)
+				{
+					unsigned int jointCount = pc.mesh->GetJointCount();
+					pc.skinPalette.reserve(jointCount);
+					for (unsigned int i = 0; i < jointCount; ++i)
+					{
+						auto joint = pc.mesh->GetJointAt(i);
+						pc.skinPalette.push_back(joint ? joint->GetFinalMatrix() : Matrix4());
+					}
+				}
+				outList.push_back(std::move(pc));
+			}
+		};
+
+		const bool useCascaded = IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
+		if (out.type == LightType::DIRECTIONAL && useCascaded)
+		{
+			// 4 split frusta from the packet's splits
+			std::array<Frustum, 4> frustums;
+			float curNear = camComp->GetNear();
+			for (int i = 0; i < 4; i++)
+			{
+				frustums[i] = camComp->GetFrustum(curNear, out.csmSplits[i]);
+				curNear = out.csmSplits[i];
+			}
+
+			fury::SceneManager::SceneNodes casterAll;
+			sceneManager->GetVisibleShadowCasters(camComp->GetFrustum(), casterAll);
+
+			for (int i = 0; i < 4; i++)
+			{
+				fury::SceneManager::SceneNodes splitNodes;
+				FilterNodes(frustums[i], casterAll, splitNodes);
+				out.csmProj[i] = GetCropMatrix(lightMatrix, frustums[i], splitNodes);
+				resolveCasters(splitNodes, out.csmCasters[i]);
+			}
+
+			// camera aabb widens split 0 with more possible casters
+			if (packet.camera.hasShadowBounds)
+			{
+				fury::SceneManager::SceneNodes extra;
+				sceneManager->GetVisibleShadowCasters(packet.camera.shadowBounds, extra, false);
+				std::vector<PacketCaster> extraCasters;
+				resolveCasters(extra, extraCasters);
+				auto &dst = out.csmCasters[0];
+				dst.insert(dst.end(), extraCasters.begin(), extraCasters.end());
+			}
+		}
+		else if (out.type == LightType::DIRECTIONAL)
+		{
+			auto camFrustum = camComp->GetFrustum(camComp->GetNear(), camComp->GetShadowFar());
+			fury::SceneManager::SceneNodes casterNodes;
+			sceneManager->GetVisibleShadowCasters(camFrustum, casterNodes, false);
+			if (packet.camera.hasShadowBounds)
+				sceneManager->GetVisibleShadowCasters(packet.camera.shadowBounds, casterNodes, false);
+			out.singleProj = GetCropMatrix(lightMatrix, camFrustum, casterNodes);
+			resolveCasters(casterNodes, out.casters);
+		}
+		else if (out.type == LightType::POINT)
+		{
+			SphereBounds lightSphere(out.worldPos, out.effectiveRadius);
+			fury::SceneManager::SceneNodes casterNodes;
+			sceneManager->GetVisibleShadowCasters(lightSphere, casterNodes);
+			resolveCasters(casterNodes, out.casters);
+
+			// per-face view matrices (right, left, top, bottom, back, front)
+			static const Vector4 kDirs[6] = {
+				Vector4(1.0f, 0.0f, 0.0f), Vector4(-1.0f, 0.0f, 0.0f),
+				Vector4(0.0f, 1.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f),
+				Vector4(0.0f, 0.0f, 1.0f), Vector4(0.0f, 0.0f, -1.0f)
+			};
+			static const Vector4 kUps[6] = {
+				Vector4(0.0f, -1.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f),
+				Vector4(0.0f, 0.0f, 1.0f), Vector4(0.0f, 0.0f, -1.0f),
+				Vector4(0.0f, -1.0f, 0.0f), Vector4(0.0f, -1.0f, 0.0f)
+			};
+			for (int i = 0; i < 6; i++)
+				out.cubeViews[i].LookAt(out.worldPos, out.worldPos + kDirs[i], kUps[i]);
+		}
+		else if (out.type == LightType::SPOT)
+		{
+			Frustum frustum;
+			frustum.Setup(out.outterAngle, 1.0f, 1.0f, out.effectiveRadius);
+			frustum.Transform(lightMatrix.Inverse());
+			out.singleProj.PerspectiveFov(out.outterAngle, 1.0f, 1.0f, out.effectiveRadius);
+
+			fury::SceneManager::SceneNodes casterNodes;
+			sceneManager->GetVisibleRenderables(frustum, casterNodes);
+			resolveCasters(casterNodes, out.casters);
+		}
+	}
+
+	void PrelightPipeline::GatherFrame(const std::shared_ptr<SceneManager> &sceneManager, FramePacket &packet)
+	{
+		FURY_ZONE_NAMED("GatherFrame");
 		ASSERT_MSG(m_CurrentCamera != nullptr, "PrelightPipeline.m_CurrentCamera not found!");
+
+		packet.Reset();
+		packet.pipeline = Pipeline::Active;
+		packet.frameIndex = RenderThread::Get().CurrentFrameIndex();
+		packet.camera = BuildPacketCamera(m_CurrentCamera);
+
+		// pre
+		SortPassByIndex();
+
+		// Seed HDR / CSM / chain from the scene's renderSettings (pure CPU
+		// state on the pipeline; the packet snapshots the results below).
+		if (Scene::Active && Scene::Active->GetRenderSettings())
+		{
+			auto &rs = *Scene::Active->GetRenderSettings();
+			ApplyRenderSettings(rs);
+			packet.windParams = rs.GetWindParams();
+			packet.csmMapSize = rs.GetCsmMapSize();
+			rs.ComputeCsmSplits(packet.camera.nearClip, packet.camera.farClip, packet.csmSplits.data());
+		}
+		else
+		{
+			for (int i = 0; i < 4; i++)
+				packet.csmSplits[i] = packet.camera.nearClip +
+					(packet.camera.farClip - packet.camera.nearClip) * (i + 1) / 4.0f;
+		}
+		packet.hdrMode = m_HDRMode;
+		packet.chain = m_ActiveChain;
+		packet.chainOverrides = m_ActiveChainOverrides;
+		packet.switches = std::bitset<32>(static_cast<unsigned long>(m_Switches.to_ulong()));
+		packet.engineTime = Engine::GetTime();
+		InputUtil::Instance()->GetWindowSize(packet.windowW, packet.windowH);
+		packet.renderTarget = m_RenderTarget;
+
+		// find visible nodes
+		auto query = RenderQuery::Create();
+		{
+			FURY_ZONE_NAMED("Culling");
+			sceneManager->GetRenderQuery(packet.camera.frustum, query);
+			query->Sort(packet.camera.worldPos);
+		}
+
+		// resolve opaque/transparent units (LOD + billboard + palettes)
+		{
+			FURY_ZONE_NAMED("ResolveUnits");
+			packet.opaqueUnits.reserve(query->opaqueUnits.size());
+			for (const auto &unit : query->opaqueUnits)
+				packet.opaqueUnits.push_back(ResolveUnit(unit));
+			packet.transparentUnits.reserve(query->transparentUnits.size());
+			for (const auto &unit : query->transparentUnits)
+				packet.transparentUnits.push_back(ResolveUnit(unit));
+		}
+
+		// lights + shadow plans
+		{
+			FURY_ZONE_NAMED("GatherLights");
+			for (const auto &node : query->lightNodes)
+			{
+				auto light = node->GetComponent<Light>();
+				if (!light)
+					continue;
+				PacketLight pl;
+				pl.nodeKey = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(node.get()));
+				pl.name = node->GetName();
+				pl.type = light->GetType();
+				pl.color = light->GetColor();
+				pl.intensity = light->GetIntensity();
+				pl.innerAngle = light->GetInnerAngle();
+				pl.outterAngle = light->GetOutterAngle();
+				pl.falloff = light->GetFalloff();
+				pl.radius = light->GetRadius();
+				pl.effectiveRadius = light->GetEffectiveRadius();
+				pl.castShadows = light->GetCastShadows();
+				pl.worldMatrix = node->GetWorldMatrix();
+				pl.invertWorldMatrix = node->GetInvertWorldMatrix();
+				pl.worldPos = node->GetWorldPosition();
+				pl.worldDir = pl.worldMatrix.Multiply(Vector4(0, -1, 0, 0)).Normalized();
+				pl.volumeMesh = light->GetMesh();
+				pl.csmMapSize = packet.csmMapSize;
+				pl.csmSplits = packet.csmSplits;
+				if (pl.castShadows)
+					GatherLightShadowPlan(sceneManager, node, pl, packet);
+				packet.lights.push_back(std::move(pl));
+			}
+		}
+
+		// instanced components (camera-frustum list; shadow-only casters
+		// are appended by GatherLightShadowPlan above)
+		{
+			FURY_ZONE_NAMED("GatherInstanced");
+			for (const auto &node : query->instancedNodes)
+			{
+				auto imr = node->GetComponent<InstancedMeshRender>();
+				if (!imr || !imr->GetRenderable())
+					continue;
+				std::uint64_t key = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(node.get()));
+				bool exists = false;
+				for (auto &existing : packet.instanced)
+					if (existing.nodeKey == key) { exists = true; break; }
+				if (exists)
+					continue;
+				auto caches = imr->SnapshotRenderCaches();
+				if (!caches)
+					continue;
+				PacketInstanced pk;
+				pk.nodeKey = key;
+				pk.mesh = imr->GetMesh();
+				for (unsigned int mi = 0; mi < imr->GetMaterialCount(); ++mi)
+					pk.materials.push_back(imr->GetMaterial(mi));
+				pk.castShadows = imr->GetCastShadows();
+				pk.cullDistance = imr->GetCullDistance();
+				pk.hierarchical = imr->GetHierarchical();
+				pk.shadowLodTier = imr->GetShadowLodTier();
+				pk.aggregateAABB = node->GetWorldAABB();
+				pk.caches = caches;
+				packet.instanced.push_back(std::move(pk));
+			}
+		}
+
+		// particles: bake billboards into the parity buffer + resolve
+		{
+			FURY_ZONE_NAMED("GatherParticles");
+			for (const auto &node : query->particleNodes)
+			{
+				auto pr = node->GetComponent<ParticleRenderer>();
+				if (!pr)
+					continue;
+				PacketParticles pp;
+				if (pr->GatherPacket(pp, packet.camera, packet.frameIndex) > 0)
+					packet.particles.push_back(std::move(pp));
+			}
+		}
+
+		// oceans: camera-follow snap on the game thread, piece snapshot out
+		for (const auto &node : query->oceanNodes)
+		{
+			auto ocean = node->GetComponent<OceanComponent>();
+			if (!ocean)
+				continue;
+			ocean->UpdateCameraFollow(packet.camera.worldPos);
+			PacketOcean po;
+			po.nodeKey = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(node.get()));
+			po.nodePos = node->GetWorldPosition();
+			po.waterLevel = ocean->GetWaterLevel();
+			po.waveTime = ocean->GetWaveTime();
+			po.roughness = ocean->GetRoughness();
+			po.normalStrength = ocean->GetNormalStrength();
+			po.foamAmount = ocean->GetFoamAmount();
+			po.shoreFoamDepthCm = ocean->GetShoreFoamDepthCm();
+			po.windSpeed = ocean->GetWindSpeed();
+			po.skirtRadiusCm = ocean->GetSkirtRadiusCm();
+			po.absorb = ocean->GetAbsorbColor();
+			po.scatter = ocean->GetScatterColor();
+			po.fadeRanges = ocean->GetFadeRanges();
+			po.debugView = ocean->GetDebugView();
+			po.finite = ocean->GetMode() == OceanComponent::Mode::Finite;
+			po.waves = ocean->GetWaves();
+			if (po.finite)
+			{
+				po.finiteMesh = ocean->GetFiniteMesh();
+			}
+			else
+			{
+				for (const auto &piece : ocean->GetRingPieces())
+				{
+					PacketOceanPiece pp;
+					pp.mesh = piece.MeshPtr;
+					pp.origin = piece.Origin;
+					pp.yOffset = piece.YOffset;
+					pp.isSkirt = piece.IsSkirt;
+					po.pieces.push_back(std::move(pp));
+				}
+			}
+			packet.oceans.push_back(std::move(po));
+		}
+
+		// sky
+		if (auto sky = SkyAtmosphere::GetActive())
+		{
+			packet.sky.valid = true;
+			packet.sky.enabled = sky->GetEnabled();
+			packet.sky.owner = sky;
+			packet.sky.params = sky->GatherSkyParams(packet.camera.worldPos.y);
+			sky->SnapshotRenderTextures(packet.sky);
+		}
+
+		// debug snapshots (only when a debug switch is on)
+		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
+			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS,
+			PipelineSwitch::EDITOR_GRID }, true))
+		{
+			if (IsSwitchOn(PipelineSwitch::MESH_BOUNDS))
+				for (const auto &node : query->renderableNodes)
+					packet.debug.meshBounds.push_back(node->GetWorldAABB());
+			if (IsSwitchOn(PipelineSwitch::CUSTOM_BOUNDS))
+			{
+				packet.debug.customBoxes = m_DebugBoxBounds;
+				packet.debug.customFrusta = m_DebugFrustum;
+			}
+			if (IsSwitchOn(PipelineSwitch::OCTREE_BOUNDS) && Scene::Active)
+			{
+				if (auto tree = std::dynamic_pointer_cast<OcTree>(Scene::Active->GetSceneManager()))
+					tree->CollectDebugBounds(packet.debug.octreeBounds);
+			}
+		}
+		if (IsSwitchOn(PipelineSwitch::BUOYANCY_DEBUG) &&
+			PhysicsWorld::Exists() &&
+			!PhysicsWorld::Instance()->GetBuoyancies().empty())
+		{
+			bool simulating = PhysicsWorld::Instance()->IsSimulationEnabled();
+			for (const auto &weak : PhysicsWorld::Instance()->GetBuoyancies())
+			{
+				auto buoyancy = weak.lock();
+				if (!buoyancy)
+					continue;
+				auto node = buoyancy->GetOwner();
+				if (!node)
+					continue;
+				Matrix4 world = node->GetWorldMatrix();
+				const auto &points = buoyancy->GetFloatPoints();
+				for (unsigned int i = 0; i < points.size(); i++)
+				{
+					PacketDebug::BuoyMark mark;
+					mark.center = world.Multiply(points[i].Offset);
+					mark.radius = points[i].Radius;
+					mark.color = Color(0.2f, 0.8f, 0.9f, 1.0f);
+					if (simulating)
+					{
+						float s = buoyancy->GetLastSubmersion(i);
+						mark.color = Color(0.2f + 0.75f * s, 0.9f - 0.65f * s, 0.2f, 1.0f);
+					}
+					packet.debug.buoyMarks.push_back(mark);
+				}
+			}
+		}
+	}
+
+	void PrelightPipeline::ExecutePacket(FramePacket &packet)
+	{
+		FURY_ZONE_NAMED("ExecutePacket");
+		ASSERT_MSG(packet.camera.valid, "FramePacket.camera not valid!");
 
 		// pre
 		m_CurrentShader = nullptr;
 		m_CurrentMateral = nullptr;
 		m_CurrentMesh = nullptr;
-		SortPassByIndex();
 
-		// Seed HDR / CSM / chain from the scene's renderSettings.
-		// ApplyRenderSettings owns chain order (canonical stages)
-		// and auto-injects the tonemap when HDR is on.
-		if (Scene::Active && Scene::Active->GetRenderSettings())
-			ApplyRenderSettings(*Scene::Active->GetRenderSettings());
+		m_CacheHits = 0;
+		m_CacheRebuilds = 0;
 
-		// Drop last-frame's per-light shadow map cache. The map is
-		// populated by Draw{Dir,Point,Spot,Cascaded}LightShadowMap
-		// during the per-pass draw loop below and read by the editor's
-		// Profiler -> Shadows tab after Execute returns. Clearing here
-		// ensures light pointers from the previous frame cannot leak
-		// into the new frame.
-		m_LastShadowTextures.clear();
-		m_LastShadowMatrices.clear();
+		packet.shadowResults.clear();
+		packet.shadowResults.resize(packet.lights.size());
+		packet.frameShadowTemps.clear();
 
-		// find visible nodes
-		RenderQuery::Ptr query = RenderQuery::Create();
-		{
-			FURY_ZONE_NAMED("Culling");
-			sceneManager->GetRenderQuery(m_CurrentCamera->GetComponent<Camera>()->GetFrustum(), query);
-			query->Sort(m_CurrentCamera->GetWorldPosition());
-		}
-
-		// Per-instance frustum culling + HISM LOD bucketing for instanced
-		// components. Runs once per frame; the OPAQUE pass consumes the
-		// batches via DrawInstancedUnits.
-		if (!query->instancedNodes.empty())
+		// Per-instance frustum culling + HISM LOD bucketing on packet data
+		// (game-thread gather snapshot; runs on the GL thread now).
+		if (!packet.instanced.empty())
 		{
 			FURY_ZONE_NAMED("InstancedCulling");
-			auto camFrustum = m_CurrentCamera->GetComponent<Camera>()->GetFrustum();
-			for (const auto &node : query->instancedNodes)
-			{
-				if (auto instanced = node->GetComponent<InstancedMeshRender>())
-					instanced->BuildVisibleBatches(camFrustum, m_CurrentCamera);
-			}
+			for (auto &pk : packet.instanced)
+				BuildInstancedBatches(pk, packet.camera.frustum, packet.camera, pk.batches);
 		}
 
 		// draw passes
 
-		Texture::Ptr finalBuffer = nullptr;
 		unsigned int passCount = static_cast<int>(m_SortedPasses.size());
 
 		// The chain replaces the LAST quad pass (the screen write)
 		// but keeps intermediate quad passes (e.g. pass_combine)
 		// running so their outputs stay readable.
 		const bool chainReplacesFinal =
-			!m_ActiveChain.empty() &&
-			(!IsHDRMode() || HasHDRComposite());
+			!packet.chain.empty() &&
+			(!packet.hdrMode || HasHDRComposite());
 
 		for (unsigned int i = 0; i < passCount; i++)
 		{
@@ -174,9 +692,6 @@ namespace fury
 			auto drawMode = pass->GetDrawMode();
 
 			m_CurrentShader = pass->GetFirstShader();
-
-			if (m_CurrentCamera == nullptr)
-				continue;
 
 			// Skip only the last quad pass (the screen write);
 			// earlier quad passes must still produce their outputs
@@ -196,18 +711,18 @@ namespace fury
 			if (drawMode == DrawMode::OPAQUE)
 			{
 				pass->Bind();
-				for (const auto &unit : query->opaqueUnits)
-					DrawUnit(pass, unit);
-				DrawInstancedUnits(pass, query);
+				for (const auto &unit : packet.opaqueUnits)
+					DrawUnit(pass, unit, packet);
+				DrawInstancedUnits(pass, packet);
 			}
 			else if (drawMode == DrawMode::TRANSPARENT)
 			{
 				pass->Bind();
 
-				// Back-to-front (RenderQuery::Sort) alpha-blended base:
+				// Back-to-front (gather-side sort) alpha-blended base:
 				// ambient + emissive + albedo*alpha compositing.
-				for (const auto &unit : query->transparentUnits)
-					DrawUnit(pass, unit);
+				for (const auto &unit : packet.transparentUnits)
+					DrawUnit(pass, unit, packet);
 
 				// CPU-driven billboard particles. Drawn after
 				// transparent mesh units so they participate in
@@ -216,19 +731,8 @@ namespace fury
 				// base pass and the additive light pass, NOT into
 				// the additive loop (which would double-bright
 				// the smoke/fire).
-				if (!query->particleNodes.empty())
+				if (!packet.particles.empty())
 				{
-					// Camera axes (world space) for billboard baking --
-					// columns 0/1 of the camera's world matrix.
-					Vector4 camRight(1.0f, 0.0f, 0.0f, 0.0f);
-					Vector4 camUp(0.0f, 1.0f, 0.0f, 0.0f);
-					if (m_CurrentCamera)
-					{
-						Matrix4 cw = m_CurrentCamera->GetWorldMatrix();
-						camRight = Vector4(cw.Raw[0], cw.Raw[1], cw.Raw[2], 0.0f);
-						camUp = Vector4(cw.Raw[4], cw.Raw[5], cw.Raw[6], 0.0f);
-					}
-
 					// Picks THE dominant shadow source per emitter (one
 					// per particle draw; mesh transparents evaluate every
 					// light in the additive loop instead). Highest score
@@ -245,7 +749,7 @@ namespace fury
 						// local light and the spot path never ran),
 						// intensity x linear falloff for point/spot.
 						struct Candidate {
-							SceneNode *node;
+							int lightIndex;
 							LightType type;
 							float score;
 						};
@@ -253,14 +757,14 @@ namespace fury
 #ifdef FURY_BUILD_DEBUG
 						std::vector<std::string> rejected;
 #endif
-						for (const auto &lightNode : query->lightNodes)
+						for (int li = 0; li < (int)packet.lights.size(); ++li)
 						{
-							auto light = lightNode->GetComponent<Light>();
-							if (!light || !light->GetCastShadows()) { FURY_SHADOW_REJECTF("noCast: %s", lightNode->GetName().c_str()); continue; }
-							auto it = m_LastShadowTextures.find(lightNode.get());
-							if (it == m_LastShadowTextures.end() || !it->second) { FURY_SHADOW_REJECTF("noShadowTex: %s", lightNode->GetName().c_str()); continue; }
+							const auto &pl = packet.lights[li];
+							if (!pl.castShadows) { FURY_SHADOW_REJECTF("noCast: %s", pl.name.c_str()); continue; }
+							const auto &sr = packet.shadowResults[li];
+							if (!sr.texture) { FURY_SHADOW_REJECTF("noShadowTex: %s", pl.name.c_str()); continue; }
 							info.anyCaster = true;
-							auto wp = lightNode->GetWorldPosition();
+							auto wp = pl.worldPos;
 							float dx = wp.x - emitterPos.x;
 							float dy = wp.y - emitterPos.y;
 							float dz = wp.z - emitterPos.z;
@@ -269,118 +773,104 @@ namespace fury
 							// Influence gate: only lights that REACH
 							// this emitter may be ranked -- Particle.glsl
 							// reads an out-of-range source as fully lit.
-							if (light->GetType() == LightType::POINT)
+							if (pl.type == LightType::POINT)
 							{
-								float r = light->GetEffectiveRadius();
-								if (dist2 > r * r) { FURY_SHADOW_REJECTF("radius P: %s", lightNode->GetName().c_str()); continue; }
+								float r = pl.effectiveRadius;
+								if (dist2 > r * r) { FURY_SHADOW_REJECTF("radius P: %s", pl.name.c_str()); continue; }
 							}
-							else if (light->GetType() == LightType::SPOT)
+							else if (pl.type == LightType::SPOT)
 							{
-								float r = light->GetEffectiveRadius();
+								float r = pl.effectiveRadius;
 								if (dist2 > r * r)
 								{
 									FURY_SHADOW_REJECTF("radius S r=%.2f: %s",
-										r, lightNode->GetName().c_str());
+										r, pl.name.c_str());
 									continue;
 								}
 								// Emitter must lie within the outer cone;
 								// dx is emitter->light so the inside test
 								// flips sign: cosTheta < -cosOuter.
 								float dist = std::sqrt(dist2) + 1e-4f;
-								auto lightFwd = lightNode->GetWorldMatrix()
-									.Multiply(Vector4(0, -1, 0, 0)).Normalized();
+								const Vector4 &lightFwd = pl.worldDir;
 								float cosTheta = (dx * lightFwd.x + dy * lightFwd.y + dz * lightFwd.z) / dist;
-								float cosOuter = std::cos(light->GetOutterAngle() * 0.5f);
+								float cosOuter = std::cos(pl.outterAngle * 0.5f);
 								if (cosTheta >= -cosOuter)
 								{
 									FURY_SHADOW_REJECTF(
 										"cone S cosT=%.4f cosOuter=%.4f outAngle=%.2f fwd=(%.3f,%.3f,%.3f): %s",
-										cosTheta, cosOuter, light->GetOutterAngle(),
+										cosTheta, cosOuter, pl.outterAngle,
 										lightFwd.x, lightFwd.y, lightFwd.z,
-										lightNode->GetName().c_str());
+										pl.name.c_str());
 									continue;
 								}
 							}
 
 							float score;
-							if (light->GetType() == LightType::DIRECTIONAL)
-								score = light->GetIntensity();
+							if (pl.type == LightType::DIRECTIONAL)
+								score = pl.intensity;
 							else
-								score = light->GetIntensity()
+								score = pl.intensity
 									* std::max(0.0f, 1.0f - std::sqrt(dist2)
-										/ light->GetEffectiveRadius());
-							cands.push_back({lightNode.get(), light->GetType(), score});
+										/ pl.effectiveRadius);
+							cands.push_back({li, pl.type, score});
 						}
 						std::sort(cands.begin(), cands.end(),
 							[](const Candidate &a, const Candidate &b)
 							{ return a.score > b.score; });
 
-						auto mit_helper = [&](SceneNode *node)
-							-> const Pipeline::ShadowData *
+						auto populateFrom = [&](int lightIndex, LightType t)
 						{
-							auto mit = m_LastShadowMatrices.find(node);
-							return (mit != m_LastShadowMatrices.end())
-								? &mit->second : nullptr;
-						};
-						auto populateFrom = [&](SceneNode *node, LightType t)
-						{
-							info.texture = m_LastShadowTextures[node];
-							auto *sd = mit_helper(node);
+							const auto &pl = packet.lights[lightIndex];
+							const auto &sr = packet.shadowResults[lightIndex];
+							info.texture = sr.texture;
 							// Cached matrices map camera-view -> shadow
 							// UV (deferred convention); particles feed
 							// world pos, so append the camera's
 							// invert-world to chain world->view->shadow UV.
-							const Matrix4 viewFromWorld = m_CurrentCamera
-								? m_CurrentCamera->GetInvertWorldMatrix()
-								: Matrix4();
+							const Matrix4 &viewFromWorld = packet.camera.invertWorldMatrix;
 							if (t == LightType::POINT)
 							{
-								auto light = node->GetComponent<Light>();
-								auto wp = node->GetWorldPosition();
 								info.type = 1;
-								info.lightPos = Vector4(wp.x, wp.y, wp.z, 0);
-								info.lightRadius = light->GetEffectiveRadius();
+								info.lightPos = Vector4(pl.worldPos.x, pl.worldPos.y, pl.worldPos.z, 0);
+								info.lightRadius = pl.effectiveRadius;
 							}
 							else if (t == LightType::SPOT)
 							{
-								auto light = node->GetComponent<Light>();
-								auto wp = node->GetWorldPosition();
 								info.type = 4;
-								info.matrix = sd ? (sd->single * viewFromWorld) : Matrix4();
+								info.matrix = sr.single * viewFromWorld;
 								// Cone-test inputs: Particle.glsl is
 								// emissive, so the cone falloff lives in
 								// the shadow factor.
-								info.lightPos = Vector4(wp.x, wp.y, wp.z, 0);
-								info.lightDir = node->GetWorldMatrix()
-									.Multiply(Vector4(0, -1, 0, 0)).Normalized();
-								info.coneHalfInner = light->GetInnerAngle() * 0.5f;
-								info.coneHalfOuter = light->GetOutterAngle() * 0.5f;
+								info.lightPos = Vector4(pl.worldPos.x, pl.worldPos.y, pl.worldPos.z, 0);
+								info.lightDir = pl.worldDir;
+								info.coneHalfInner = pl.innerAngle * 0.5f;
+								info.coneHalfOuter = pl.outterAngle * 0.5f;
 							}
 							else if (t == LightType::DIRECTIONAL)
 							{
-								if (IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP)
-									&& sd && !sd->csm.empty())
+								if (packet.switches.test((size_t)PipelineSwitch::CASCADED_SHADOW_MAP)
+									&& !sr.csm.empty())
 								{
 									info.type = 3;
-									for (int i = 0; i < 4; i++)
-										info.csmMatrices[i] = sd->csm[i] * viewFromWorld;
-									info.shadowFar = sd->shadowFar;
+									for (int c = 0; c < 4; c++)
+										info.csmMatrices[c] = sr.csm[c] * viewFromWorld;
+									info.shadowFar = sr.shadowFar;
 								}
 								else
 								{
 									info.type = 2;
-									info.matrix = sd ? (sd->single * viewFromWorld) : Matrix4();
+									info.matrix = sr.single * viewFromWorld;
 								}
 							}
 						};
 
-						SceneNode *pickedNode = nullptr;
+						int pickedIndex = -1;
 						LightType pickedType = LightType::POINT;
 						if (!cands.empty())
 						{
-							pickedNode = cands.front().node;
+							pickedIndex = cands.front().lightIndex;
 							pickedType = cands.front().type;
-							populateFrom(pickedNode, pickedType);
+							populateFrom(pickedIndex, pickedType);
 						}
 
 #ifdef FURY_BUILD_DEBUG
@@ -394,15 +884,15 @@ namespace fury
 							std::fprintf(stderr,
 								"[shadowpick] emitter(%.0f,%.0f,%.0f) -> %s type=%d\n",
 								emitterPos.x, emitterPos.y, emitterPos.z,
-								pickedNode ? pickedNode->GetName().c_str() : "(none)",
+								pickedIndex >= 0 ? packet.lights[pickedIndex].name.c_str() : "(none)",
 								info.type);
-							if (pickedNode && pickedType == LightType::SPOT)
+							if (pickedIndex >= 0 && pickedType == LightType::SPOT)
 							{
-								auto l = pickedNode->GetComponent<Light>();
+								const auto &l = packet.lights[pickedIndex];
 								std::fprintf(stderr,
 									"    spot inner=%.4f outter=%.4f rad (%.1f/%.1f deg)\n",
-									l->GetInnerAngle(), l->GetOutterAngle(),
-									l->GetInnerAngle() * 57.2958f, l->GetOutterAngle() * 57.2958f);
+									l.innerAngle, l.outterAngle,
+									l.innerAngle * 57.2958f, l.outterAngle * 57.2958f);
 							}
 							for (const auto &r : rejected)
 								std::fprintf(stderr, "    reject %s\n", r.c_str());
@@ -413,18 +903,13 @@ namespace fury
 					GLint prevSrc, prevDst;
 					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
 					glGetIntegerv(GL_BLEND_DST_RGB, &prevDst);
-					for (const auto &node : query->particleNodes)
+					for (const auto &pp : packet.particles)
 					{
-						auto pr = node->GetComponent<ParticleRenderer>();
-						if (!pr) continue;
-						// Sync mesh to live pool, then issue draw
-						// with the configured blend mode.
-						pr->UpdateMesh(camRight, camUp);
 						// Mirror the renderer's blend mode onto GL
 						// state. Particle renderers don't bind the
 						// pipeline's Pass blend -- each emitter has
 						// its own ALPHA/ADDITIVE choice.
-						if (pr->GetBlendMode() == ParticleBlend::ADDITIVE)
+						if (pp.blendMode == ParticleBlend::ADDITIVE)
 							glBlendFunc(GL_ONE, GL_ONE);
 						else
 							glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -435,9 +920,8 @@ namespace fury
 						// Per-renderer shadow selection -- pick the
 						// dominant casting light for THIS emitter.
 						ParticleShadowInfo shadowInfo;
-						auto wp = node->GetWorldPosition();
-						pickShadowSourceFor(wp, shadowInfo);
-						pr->Draw(m_CurrentCamera, &shadowInfo);
+						pickShadowSourceFor(pp.worldPos, shadowInfo);
+						ParticleRenderer::DrawPacket(pp, packet.camera, &shadowInfo);
 						glDepthMask(GL_TRUE);
 					}
 					glBlendFunc(prevSrc, prevDst);
@@ -445,19 +929,17 @@ namespace fury
 
 				// One additive (ONE, ONE) draw per light so
 				// transparents pick up direct lighting without light arrays. The forward shader premultiplies diffuse by alpha and leaves specular full-strength (glass highlights); per-light occlusion between transparents is ignored -- documented approximation.
-				if (!query->lightNodes.empty())
+				if (!packet.lights.empty())
 				{
 					// Additive over the pass's declared alpha blend: restore exactly when the loop exits so the deviation doesn't leak.
 					GLint prevSrc, prevDst;
 					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
 					glGetIntegerv(GL_BLEND_DST_RGB, &prevDst);
 					glBlendFunc(GL_ONE, GL_ONE);
-					for (const auto &lightNode : query->lightNodes)
+					for (int li = 0; li < (int)packet.lights.size(); ++li)
 					{
-						if (lightNode->GetComponent<Light>() == nullptr)
-							continue;
-						for (const auto &unit : query->transparentUnits)
-							DrawUnit(pass, unit, lightNode);
+						for (const auto &unit : packet.transparentUnits)
+							DrawUnit(pass, unit, packet, li);
 					}
 					glBlendFunc(prevSrc, prevDst);
 				}
@@ -465,36 +947,34 @@ namespace fury
 			else if (drawMode == DrawMode::QUAD)
 			{
 				pass->Bind();
-				DrawQuad(pass);
+				DrawQuad(pass, packet);
 			}
 			else if (drawMode == DrawMode::SKY)
 			{
 				// DrawSky owns the bind: LUT updates render into their
 				// own FBOs first, then pass_sky binds (no clear -- it
 				// would wipe hdr_composite).
-				DrawSky(pass);
+				DrawSky(pass, packet);
 			}
 			else if (drawMode == DrawMode::OCEAN)
 			{
 				// Same owned-bind pattern as DrawSky (needs a pre-pass
 				// depth copy for shore foam before the pass binds).
-				DrawOcean(pass, query);
+				DrawOcean(pass, packet);
 			}
 			else if (drawMode == DrawMode::LIGHT)
 			{
 				pass->Bind(true);
 
-				for (const auto &node : query->lightNodes)
+				for (int li = 0; li < (int)packet.lights.size(); ++li)
 				{
-					if (auto ptr = node->GetComponent<Light>())
-					{
-						if (ptr->GetType() == LightType::DIRECTIONAL)
-							DrawDirLight(sceneManager, pass, node);
-						else if (ptr->GetType() == LightType::POINT)
-							DrawPointLight(sceneManager, pass, node);
-						else
-							DrawSpotLight(sceneManager, pass, node);
-					}
+					const auto &pl = packet.lights[li];
+					if (pl.type == LightType::DIRECTIONAL)
+						DrawDirLight(pass, packet, li);
+					else if (pl.type == LightType::POINT)
+						DrawPointLight(pass, packet, li);
+					else
+						DrawSpotLight(pass, packet, li);
 				}
 			}
 
@@ -517,35 +997,35 @@ namespace fury
 		// shader's u_gamma_correct uniform (since the FBOs we bind
 		// are non-sRGB).
 		if (chainReplacesFinal)
-			RunPostProcessChain();
+			RunPostProcessChain(packet);
 
 		// draw debug
-		if (IsSwitchOn({ PipelineSwitch::CUSTOM_BOUNDS, PipelineSwitch::LIGHT_BOUNDS,
-			PipelineSwitch::MESH_BOUNDS, PipelineSwitch::OCTREE_BOUNDS,
-			PipelineSwitch::EDITOR_GRID }, true) ||
-			(IsSwitchOn(PipelineSwitch::BUOYANCY_DEBUG) &&
-				PhysicsWorld::Exists() &&
-				!PhysicsWorld::Instance()->GetBuoyancies().empty()))
+		if ((packet.switches.test((size_t)PipelineSwitch::CUSTOM_BOUNDS) ||
+			packet.switches.test((size_t)PipelineSwitch::LIGHT_BOUNDS) ||
+			packet.switches.test((size_t)PipelineSwitch::MESH_BOUNDS) ||
+			packet.switches.test((size_t)PipelineSwitch::OCTREE_BOUNDS) ||
+			packet.switches.test((size_t)PipelineSwitch::EDITOR_GRID)) ||
+			!packet.debug.buoyMarks.empty())
 		{
 			// When an offscreen RenderTarget is set, the final composite
 			// pass rendered into it (see Pass::Bind). The last pass's
 			// UnBind rebound framebuffer 0, so re-bind the RT here so the
 			// debug overlays composite over the scene inside the viewport
 			// image. Restore framebuffer 0 afterward so the caller (and
-			// Gui::Render) draw to the default framebuffer.
+			// the GUI pass) draw to the default framebuffer.
 			GLint prev_fbo = 0;
 			GLint prev_vp[4] = { 0, 0, 0, 0 };
-			if (m_RenderTarget != nullptr && m_RenderTarget->IsAllocated())
+			if (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated())
 			{
 				glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
 				glGetIntegerv(GL_VIEWPORT, prev_vp);
-				glBindFramebuffer(GL_FRAMEBUFFER, m_RenderTarget->GetFBO());
-				glViewport(0, 0, m_RenderTarget->GetWidth(), m_RenderTarget->GetHeight());
+				glBindFramebuffer(GL_FRAMEBUFFER, packet.renderTarget->GetFBO());
+				glViewport(0, 0, packet.renderTarget->GetWidth(), packet.renderTarget->GetHeight());
 			}
 
-			DrawDebug(query);
+			DrawDebug(packet);
 
-			if (m_RenderTarget != nullptr && m_RenderTarget->IsAllocated())
+			if (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated())
 			{
 				glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
 				glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
@@ -555,10 +1035,10 @@ namespace fury
 		// Buffer debug view (viewport toolbar "View SSAO/SSR"): runs
 		// the effect's DEBUG_VIEW variant into the "debug_view"
 		// texture; the editor presents it in place of the scene.
-		if (IsSwitchOn(PipelineSwitch::SSAO_VIEW))
-			DrawEffectDebugView("SSAO");
-		else if (IsSwitchOn(PipelineSwitch::SSR_VIEW))
-			DrawEffectDebugView("SSR");
+		if (packet.switches.test((size_t)PipelineSwitch::SSAO_VIEW))
+			DrawEffectDebugView("SSAO", packet);
+		else if (packet.switches.test((size_t)PipelineSwitch::SSR_VIEW))
+			DrawEffectDebugView("SSR", packet);
 		else
 			SetDebugViewTexture(nullptr);
 
@@ -570,100 +1050,213 @@ namespace fury
 		// Now that every pass (transparent shadow-receive included) is
 		// done sampling this frame's shadow maps, return them to the
 		// temporary pool.
-		for (auto &tex : m_FrameShadowTemps)
+		for (auto &tex : packet.frameShadowTemps)
 			Texture::ReleaseTemporary(tex);
-		m_FrameShadowTemps.clear();
+		packet.frameShadowTemps.clear();
+
+		FURY_PLOT("drawcmd_hits", (double)m_CacheHits);
+		FURY_PLOT("drawcmd_rebuilds", (double)m_CacheRebuilds);
+		FURY_PLOT("draw_calls", (double)RenderUtil::Instance()->GetDrawCall());
 	}
 
-	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const RenderUnit &unit,
-		const std::shared_ptr<SceneNode> &lightNode)
+	void PrelightPipeline::ReplayDrawCommand(DrawCommand &cmd, const std::shared_ptr<Pass> &pass,
+		const Matrix4 *worldMatrix, FramePacket &packet)
 	{
-		auto node = unit.node;
+		auto shader = cmd.shader;
+		auto material = cmd.material;
+
+		bool materialChanged = material != m_CurrentMateral;
+		m_CurrentMateral = material;
+
+		bool shaderChanged = materialChanged || shader != m_CurrentShader;
+		m_CurrentShader = shader;
+
+		int cursor = 0;
+		if (shaderChanged)
+		{
+			materialChanged = true;
+
+			shader->Bind();
+			shader->BindCameraData(packet.camera);
+
+			for (const auto &tb : cmd.passTextureBinds)
+				cursor = shader->BindTextureAt(cursor, tb.location, tb.texture);
+		}
+		if (materialChanged)
+		{
+			if (!shaderChanged)
+				cursor = cmd.passBoundCount;
+			for (const auto &tb : cmd.textureBinds)
+				cursor = shader->BindTextureAt(cursor, tb.location, tb.texture);
+			for (const auto &ub : cmd.uniformBinds)
+				ub.uniform->BindLocation(ub.location);
+			shader->BindFloatLocation(cmd.alphaCutoffLoc, cmd.alphaCutoff);
+		}
+		shader->SetTextureUnitCursor(cursor);
+
+		// Wind sway uniforms. Bound per draw (u_time advances every
+		// frame); silent no-op on shaders without the WIND variant.
+		if (cmd.wind)
+		{
+			shader->BindFloatLocation(cmd.timeLoc, packet.engineTime);
+			shader->BindFloatLocation(cmd.windParamsLoc, packet.windParams.x,
+				packet.windParams.y, packet.windParams.z, packet.windParams.w);
+		}
+
+		if (pass->GetDrawMode() == DrawMode::TRANSPARENT)
+			shader->BindIntLocation(cmd.lightTypeLoc, 0);
+
+		if (worldMatrix != nullptr)
+			shader->BindMatrixLocation(cmd.worldMatrixLoc, &worldMatrix->Raw[0]);
+
+	}
+
+	void PrelightPipeline::DrawUnitCached(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+		FramePacket &packet)
+	{
 		auto material = unit.material;
-
-		// LOD selection: refresh the active LOD from the camera's
-		// screen-coverage of the model's AABB, then draw the picked
-		// mesh. When the MeshRender has no LodGroup bound,
-		// GetActiveMesh() returns the original unit.mesh and
-		// UpdateActiveLod is a no-op -- preserving the pre-LOD draw
-		// path exactly.
-		auto render = node->GetComponent<MeshRender>();
-		if (render) render->UpdateActiveLod(m_CurrentCamera);
 		auto mesh = unit.mesh;
-		if (render)
-		{
-			auto active = render->GetActiveMesh();
-			if (active) mesh = active;
-		}
+		const int drawSubMesh = unit.subMesh;
+		const bool billboard = unit.billboard;
 
-		// Billboard terminal tier: drawn via the BILLBOARD variant
-		// (camera-facing quad + atlas cell selection in the VS). The
-		// unit's (subMesh, material) pair keys to LOD 0's submesh layout,
-		// which the quad doesn't share: draw the quad's submesh 0 with
-		// the mesh's billboard material, and only for the first unit
-		// (the other LOD-0 units would double-draw the quad).
-		auto baseMesh = render ? render->GetMesh() : mesh;
-		const bool billboard = render && baseMesh && baseMesh->IsLodBillboard(render->GetActiveLod());
-		if (billboard)
+		const std::uint64_t key = unit.nodeKey
+			^ (static_cast<std::uint64_t>(drawSubMesh + 1) << 48)
+			^ (static_cast<std::uint64_t>(pass->GetRenderIndex() & 0xff) << 40)
+			^ (static_cast<std::uint64_t>(unit.lodIndex & 0xff) << 56);
+		auto &cmd = m_DrawCommandCache[key];
+
+		if (cmd.shader == nullptr || cmd.material != material || cmd.mesh != mesh
+			|| cmd.materialVersion != material->GetRenderVersion())
 		{
-			if (unit.subMesh > 0)
+			++m_CacheRebuilds;
+
+			auto shader = ResolveUnitShader(pass, material, mesh, billboard, false);
+			if (shader == nullptr)
+			{
+				FURYW << "Failed to draw unit " << unit.nodeKey << ", shader not found!";
+				cmd = DrawCommand();
 				return;
-			if (auto bbMat = baseMesh->GetBillboardMaterial())
-				material = bbMat;
-		}
-		const int drawSubMesh = billboard ? 0 : unit.subMesh;
+			}
 
-		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
+			cmd = DrawCommand();
+			cmd.shader = shader;
+			cmd.material = material;
+			cmd.mesh = mesh;
+			cmd.materialVersion = material->GetRenderVersion();
+			cmd.subMesh = drawSubMesh;
+			cmd.cullOff = material->GetTwoSided() || billboard;
+			cmd.wind = (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
+			cmd.alphaCutoff = material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f;
+
+			for (const auto &kv : material->GetTextures())
+				cmd.textureBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
+			for (const auto &kv : material->GetUniforms())
+				cmd.uniformBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
+			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+			{
+				auto ptr = pass->GetTextureAt(i, true);
+				cmd.passTextureBinds.push_back({ shader->GetUniformLocation(ptr->GetName()), ptr });
+			}
+			for (const auto &tb : cmd.passTextureBinds)
+				if (tb.location != -1 && tb.texture != nullptr)
+					++cmd.passBoundCount;
+
+			cmd.worldMatrixLoc = shader->GetUniformLocation(Matrix4::WORLD_MATRIX);
+			cmd.alphaCutoffLoc = shader->GetUniformLocation("u_alpha_cutoff");
+			cmd.timeLoc = shader->GetUniformLocation("u_time");
+			cmd.windParamsLoc = shader->GetUniformLocation("u_wind_params");
+			cmd.lodDebugLoc = shader->GetUniformLocation("lod_debug_color");
+			cmd.lightTypeLoc = shader->GetUniformLocation("u_light_type");
+		}
+		else
+		{
+			++m_CacheHits;
+		}
+
+		ReplayDrawCommand(cmd, pass, &unit.worldMatrix, packet);
+
+#if WITH_DBG_OVERLAY
+		// LOD debug tint per unit tier (bound per draw: programs retain
+		// stale values otherwise, see the uncached path's note).
+		if (packet.switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
+		{
+			Color lodColor = GetLodDebugColor(static_cast<unsigned int>(unit.lodIndex));
+			cmd.shader->BindFloatLocation(cmd.lodDebugLoc, lodColor.r, lodColor.g, lodColor.b, lodColor.a);
+		}
+		else
+		{
+			cmd.shader->BindFloatLocation(cmd.lodDebugLoc, 0.0f, 0.0f, 0.0f, 0.0f);
+		}
+#endif
+
+		bool meshChanged = mesh != m_CurrentMesh;
+		m_CurrentMesh = mesh;
+		if (meshChanged)
+			cmd.shader->BindMesh(mesh);
+
+		if (cmd.cullOff)
+			glDisable(GL_CULL_FACE);
+
+		if (mesh->GetSubMeshCount() > 0)
+		{
+			auto subMesh = mesh->GetSubMeshAt(drawSubMesh);
+			if (subMesh == nullptr)
+				return;
+			cmd.shader->BindSubMesh(mesh, drawSubMesh);
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+
+			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
+		}
+		else
+		{
+			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+
+			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
+		}
+
+		if (cmd.cullOff)
+		{
+			if (pass->GetCullMode() != CullMode::NONE)
+			{
+				glEnable(GL_CULL_FACE);
+				glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
+			}
+		}
+
+		RenderUtil::Instance()->IncreaseMeshCount();
+		RenderUtil::Instance()->IncreaseDrawCall();
+	}
+
+	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+		FramePacket &packet, int lightIndex)
+	{
+		auto material = unit.material;
+		auto mesh = unit.mesh;
+		if (!mesh || !material)
+			return;
+
+		// Static opaque / transparent-base draws go through the
+		// draw-command cache; skinned units and per-light additive
+		// draws stay on the dynamic path below.
+		const bool cacheable = kDrawCmdCache &&
+			(pass->GetDrawMode() == DrawMode::OPAQUE ||
+				(pass->GetDrawMode() == DrawMode::TRANSPARENT && lightIndex < 0)) &&
+			!mesh->IsSkinnedMesh();
+		if (cacheable)
+		{
+			DrawUnitCached(pass, unit, packet);
+			return;
+		}
+
+		const int drawSubMesh = unit.subMesh;
+		const bool billboard = unit.billboard;
+
+		auto shader = ResolveUnitShader(pass, material, mesh, billboard,
+			lightIndex >= 0 && packet.lights[lightIndex].castShadows);
 
 		if (shader == nullptr)
 		{
-			// MASK materials request the ALPHA_TEST shader variant so
-			// the discard branch compiles only where it's needed.
-			unsigned int textureFlags = material->GetTextureFlags();
-			if (material->GetAlphaMode() == AlphaMode::MASK)
-				textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
-			// Shadow-receive variant when this draw's light casts
-			// (transparent additive loop) -- the shadow samplers/compares
-			// compile only into the *_shadow_shader variants.
-			if (lightNode)
-				if (auto light = lightNode->GetComponent<Light>())
-					if (light->GetCastShadows())
-						textureFlags |= (unsigned int)ShaderTexture::SHADOW;
-			// Vegetation variant bits from the material flags / LOD tier.
-			if (material->GetTwoSided())
-				textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
-			if (material->GetWindEnabled())
-				textureFlags |= (unsigned int)ShaderTexture::WIND;
-			if (billboard)
-				textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
-					(unsigned int)ShaderTexture::TWO_SIDED |
-					(unsigned int)ShaderTexture::ALPHA_TEST;
-			ShaderType shaderType = mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH;
-			shader = pass->GetShader(shaderType, textureFlags);
-
-			// Fall back in steps: first without the shadow bit, then
-			// without wind (billboard/alpha combos stay intact), then
-			// without the vegetation bits, then without alpha-test.
-			// BILLBOARD is never dropped -- a billboard tier without its
-			// shader is skipped.
-			if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::SHADOW))
-				shader = pass->GetShader(shaderType,
-					textureFlags & ~(unsigned int)ShaderTexture::SHADOW);
-			if (shader == nullptr)
-				shader = pass->GetShader(shaderType,
-					textureFlags & ~(unsigned int)ShaderTexture::SHADOW & ~(unsigned int)ShaderTexture::WIND);
-			if (shader == nullptr)
-				shader = pass->GetShader(shaderType,
-					textureFlags & ~(unsigned int)ShaderTexture::SHADOW &
-						~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
-			if (shader == nullptr && !billboard)
-				shader = pass->GetShader(shaderType,
-					material->GetTextureFlags());
-		}
-
-		if (shader == nullptr)
-		{
-			FURYW << "Failed to draw " << node->GetName() << ", shader not found!";
+			FURYW << "Failed to draw unit " << unit.nodeKey << ", shader not found!";
 			return;
 		}
 
@@ -681,7 +1274,7 @@ namespace fury
 			materialChanged = meshChanged = true;
 
 			shader->Bind();
-			shader->BindCamera(m_CurrentCamera);
+			shader->BindCameraData(packet.camera);
 
 			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 			{
@@ -706,11 +1299,9 @@ namespace fury
 		// frame); silent no-op on shaders without the WIND variant.
 		if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND)
 		{
-			shader->BindFloat("u_time", Engine::GetTime());
-			Vector4 windParams(1.0f, 0.0f, 1.0f, 1.0f);
-			if (Scene::Active && Scene::Active->GetRenderSettings())
-				windParams = Scene::Active->GetRenderSettings()->GetWindParams();
-			shader->BindFloat("u_wind_params", windParams.x, windParams.y, windParams.z, windParams.w);
+			shader->BindFloat("u_time", packet.engineTime);
+			shader->BindFloat("u_wind_params", packet.windParams.x, packet.windParams.y,
+				packet.windParams.z, packet.windParams.w);
 		}
 
 		// Forward transparent shading: u_light_type 0 = ambient/emissive
@@ -718,76 +1309,64 @@ namespace fury
 		if (pass->GetDrawMode() == DrawMode::TRANSPARENT)
 		{
 			int lightType = 0;
-			if (lightNode != nullptr)
+			if (lightIndex >= 0)
 			{
-				if (auto light = lightNode->GetComponent<Light>())
-				{
-					lightType = (int)light->GetType() + 1;
-					shader->BindLight(lightNode);
+				const auto &pl = packet.lights[lightIndex];
+				lightType = (int)pl.type + 1;
+				shader->BindLightData(pl);
 
-					// Shadow-receive for this light's direct
-					// contribution (matches the deferred path's
-					// behavior for opaques). Only the *_shadow_shader
-					// variants declare the samplers; on any other
-					// shader this block must not even bind dummies.
-					if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::SHADOW)
+				// Shadow-receive for this light's direct
+				// contribution (matches the deferred path's
+				// behavior for opaques). Only the *_shadow_shader
+				// variants declare the samplers; on any other
+				// shader this block must not even bind dummies.
+				if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::SHADOW)
+				{
+					int shadowType = 0;
+					Texture::Ptr shadowTex2D, shadowCube, shadowTexCSM;
+					if (pl.castShadows)
 					{
-						int shadowType = 0;
-						Texture::Ptr shadowTex2D, shadowCube, shadowTexCSM;
-						if (light->GetCastShadows())
+						const auto &sr = packet.shadowResults[lightIndex];
+						if (sr.texture)
 						{
-							auto it = m_LastShadowTextures.find(lightNode.get());
-							if (it != m_LastShadowTextures.end() && it->second)
+							if (pl.type == LightType::POINT)
 							{
-								if (light->GetType() == LightType::POINT)
+								shadowType = 1;
+								shadowCube = sr.texture;
+								shader->BindMatrix("shadow_matrix", &packet.camera.worldMatrix.Raw[0]);
+							}
+							else if (pl.type == LightType::DIRECTIONAL &&
+								!packet.switches.test((size_t)PipelineSwitch::CASCADED_SHADOW_MAP))
+							{
+								shadowType = 2;
+								shadowTex2D = sr.texture;
+								shader->BindMatrix("shadow_matrix", &sr.single.Raw[0]);
+							}
+							else if (pl.type == LightType::DIRECTIONAL)
+							{
+								// CSM (CASCADED_SHADOW_MAP on)
+								if (!sr.csm.empty())
 								{
-									shadowType = 1;
-									shadowCube = it->second;
-									Matrix4 camWorld = m_CurrentCamera->GetWorldMatrix();
-									shader->BindMatrix("shadow_matrix", &camWorld.Raw[0]);
-								}
-								else if (light->GetType() == LightType::DIRECTIONAL &&
-									!IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP))
-								{
-									auto mit = m_LastShadowMatrices.find(lightNode.get());
-									if (mit != m_LastShadowMatrices.end())
-									{
-										shadowType = 2;
-										shadowTex2D = it->second;
-										shader->BindMatrix("shadow_matrix", &mit->second.single.Raw[0]);
-									}
-								}
-								else if (light->GetType() == LightType::DIRECTIONAL)
-								{
-									// CSM (CASCADED_SHADOW_MAP on)
-									auto mit = m_LastShadowMatrices.find(lightNode.get());
-									if (mit != m_LastShadowMatrices.end() && !mit->second.csm.empty())
-									{
-										shadowType = 3;
-										shadowTexCSM = it->second;
-										shader->BindMatrices("shadow_matrix_csm", (int)mit->second.csm.size(), &mit->second.csm[0]);
-										shader->BindFloat("shadow_far",
-											mit->second.shadowFar.x, mit->second.shadowFar.y,
-											mit->second.shadowFar.z, mit->second.shadowFar.w);
-									}
-								}
-								else if (light->GetType() == LightType::SPOT)
-								{
-									auto mit = m_LastShadowMatrices.find(lightNode.get());
-									if (mit != m_LastShadowMatrices.end())
-									{
-										shadowType = 4;
-										shadowTex2D = it->second;
-										shader->BindMatrix("shadow_matrix", &mit->second.single.Raw[0]);
-									}
+									shadowType = 3;
+									shadowTexCSM = sr.texture;
+									shader->BindMatrices("shadow_matrix_csm", (int)sr.csm.size(), &sr.csm[0]);
+									shader->BindFloat("shadow_far",
+										sr.shadowFar.x, sr.shadowFar.y,
+										sr.shadowFar.z, sr.shadowFar.w);
 								}
 							}
+							else if (pl.type == LightType::SPOT)
+							{
+								shadowType = 4;
+								shadowTex2D = sr.texture;
+								shader->BindMatrix("shadow_matrix", &sr.single.Raw[0]);
+							}
 						}
-						shader->BindTexture("shadow_map", shadowTex2D ? shadowTex2D : GetDummyTexture2D());
-						shader->BindTexture("shadow_buffer", shadowCube ? shadowCube : GetDummyCubeTexture());
-						shader->BindTexture("shadow_buffer_csm", shadowTexCSM ? shadowTexCSM : GetDummyTexture2DArray());
-						shader->BindInt("u_shadow_type", shadowType);
 					}
+					shader->BindTexture("shadow_map", shadowTex2D ? shadowTex2D : GetDummyTexture2D());
+					shader->BindTexture("shadow_buffer", shadowCube ? shadowCube : GetDummyCubeTexture());
+					shader->BindTexture("shadow_buffer_csm", shadowTexCSM ? shadowTexCSM : GetDummyTexture2DArray());
+					shader->BindInt("u_shadow_type", shadowType);
 				}
 			}
 			shader->BindInt("u_light_type", lightType);
@@ -796,13 +1375,20 @@ namespace fury
 		// glTF-standard skinning: skinned vertices reach world space via
 		// Final = J_i W * ibm (Joint::GetFinalMatrix), so the mesh node's
 		// own world transform must NOT be applied on top -- bind identity.
-		if (mesh->IsSkinnedMesh())
+		const bool skinned = mesh->IsSkinnedMesh();
+		if (skinned)
 			shader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
 		else
-			shader->BindMatrix(Matrix4::WORLD_MATRIX, node->GetWorldMatrix());
+			shader->BindMatrix(Matrix4::WORLD_MATRIX, unit.worldMatrix);
 
 		if (meshChanged)
-			shader->BindMesh(mesh);
+		{
+			if (skinned)
+				shader->BindMesh(mesh, unit.skinPalette.data(),
+					static_cast<int>(unit.skinPalette.size()));
+			else
+				shader->BindMesh(mesh);
+		}
 
 		// Per-instance LOD debug tint. When the LOD_DEBUG_COLORS switch is
 		// on, push the active LOD's deterministic color onto the shader so
@@ -814,9 +1400,9 @@ namespace fury
 		// alpha = 0 as "no override" and passes the diffuse through.
 		// WITH_DBG_OVERLAY: headless builds included; stripped in Shipping.
 #if WITH_DBG_OVERLAY
-		if (m_Switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
+		if (packet.switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
 		{
-			Color lodColor = GetLodDebugColor(render->GetActiveLod());
+			Color lodColor = GetLodDebugColor(static_cast<unsigned int>(unit.lodIndex));
 			shader->BindFloat("lod_debug_color", lodColor.r, lodColor.g, lodColor.b, lodColor.a);
 		}
 		else
@@ -858,10 +1444,7 @@ namespace fury
 			}
 		}
 
-		//shader->UnBind();
-
-		// TODO: Maybe subMeshCount ?
-		if (mesh->IsSkinnedMesh())
+		if (skinned)
 			RenderUtil::Instance()->IncreaseSkinnedMeshCount();
 		else
 			RenderUtil::Instance()->IncreaseMeshCount();
@@ -869,24 +1452,21 @@ namespace fury
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query)
+	void PrelightPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet)
 	{
-		if (query->instancedNodes.empty())
+		if (packet.instanced.empty())
 			return;
 
 		const bool useSSBO = InstancedMeshStreamer::Get().UseSSBO();
 		auto &streamer = InstancedMeshStreamer::Get();
 
-		for (const auto &node : query->instancedNodes)
+		for (auto &pk : packet.instanced)
 		{
-			auto instanced = node->GetComponent<InstancedMeshRender>();
-			if (instanced == nullptr || !instanced->GetRenderable())
-				continue;
-			auto baseMesh = instanced->GetMesh();
+			auto baseMesh = pk.mesh;
 			if (baseMesh == nullptr)
 				continue;
 
-			for (const auto &batch : instanced->GetBatches())
+			for (const auto &batch : pk.batches)
 			{
 				auto tierMesh = baseMesh->GetLodMesh(batch.LodTier);
 				if (tierMesh == nullptr || batch.WorldMatrices.empty())
@@ -896,7 +1476,9 @@ namespace fury
 				const unsigned int drawSlots = subCount > 0 ? subCount : 1;
 				for (unsigned int sm = 0; sm < drawSlots; ++sm)
 				{
-					auto material = instanced->GetMaterial(subCount > 0 ? sm : 0);
+					auto material = subCount > 0
+						? (sm < pk.materials.size() ? pk.materials[sm] : nullptr)
+						: (pk.materials.empty() ? nullptr : pk.materials[0]);
 					// Billboard bucket: the quad's material comes from the
 					// mesh (the component's slots key to LOD 0's submeshes).
 					if (batch.Billboard)
@@ -905,79 +1487,141 @@ namespace fury
 					if (material == nullptr)
 						continue;
 
-					unsigned int textureFlags = material->GetTextureFlags();
-					if (material->GetAlphaMode() == AlphaMode::MASK)
-						textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
-					if (material->GetTwoSided())
-						textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
-					if (material->GetWindEnabled())
-						textureFlags |= (unsigned int)ShaderTexture::WIND;
-					if (batch.Billboard)
-						textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
-							(unsigned int)ShaderTexture::TWO_SIDED |
-							(unsigned int)ShaderTexture::ALPHA_TEST;
-					textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
-					if (useSSBO)
-						textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
-
-					// Fallback order: drop the SSBO bit (divisor variant of
-					// the same shader), then wind, then the remaining
-					// vegetation bits. INSTANCED is never dropped -- a
-					// non-instanced shader would draw the whole batch at
-					// one transform.
-					auto shader = pass->GetShader(ShaderType::STATIC_MESH, textureFlags);
-					if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::INSTANCE_SSBO))
-						shader = pass->GetShader(ShaderType::STATIC_MESH,
-							textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO);
-					if (shader == nullptr)
-						shader = pass->GetShader(ShaderType::STATIC_MESH,
-							textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO & ~(unsigned int)ShaderTexture::WIND);
-					if (shader == nullptr)
-						shader = pass->GetShader(ShaderType::STATIC_MESH,
-							textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO &
-								~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
-					if (shader == nullptr)
+					// Cache-off escape hatch: straight to the uncached path.
+					if (!kDrawCmdCache)
 					{
-						FURYW << "Failed to draw instanced " << node->GetName() << ", shader not found!";
+						auto shader = ResolveUnitShader(pass, material, tierMesh, batch.Billboard, false);
+						if (shader == nullptr)
+							continue;
+						shader->Bind();
+						shader->BindCameraData(packet.camera);
+						shader->BindMaterial(material);
+						shader->BindFloat("u_alpha_cutoff",
+							material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
+						if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND)
+						{
+							shader->BindFloat("u_time", packet.engineTime);
+							shader->BindFloat("u_wind_params", packet.windParams.x, packet.windParams.y,
+								packet.windParams.z, packet.windParams.w);
+						}
+						const bool cullOff2 = material->GetTwoSided() || batch.Billboard;
+						if (cullOff2)
+							glDisable(GL_CULL_FACE);
+						streamer.DrawInstanced(shader, tierMesh, subCount > 0 ? (int)sm : -1, batch.WorldMatrices);
+						if (cullOff2 && pass->GetCullMode() != CullMode::NONE)
+						{
+							glEnable(GL_CULL_FACE);
+							glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
+						}
 						continue;
 					}
 
-					shader->Bind();
-					shader->BindCamera(m_CurrentCamera);
-					shader->BindMaterial(material);
-					shader->BindFloat("u_alpha_cutoff",
-						material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
+					// Draw-command cache per (component, tier, submesh).
+					const std::uint64_t key = pk.nodeKey
+						^ (static_cast<std::uint64_t>(batch.LodTier & 0xff) << 24)
+						^ (static_cast<std::uint64_t>(sm + 1) << 40)
+						^ (static_cast<std::uint64_t>(pass->GetRenderIndex() & 0xff) << 48)
+						^ (useSSBO ? (1ull << 56) : 0);
+					auto &cmd = m_DrawCommandCache[key];
 
-					if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND)
+					if (cmd.shader == nullptr || cmd.material != material || cmd.mesh != tierMesh
+						|| cmd.materialVersion != material->GetRenderVersion())
 					{
-						shader->BindFloat("u_time", Engine::GetTime());
-						Vector4 windParams(1.0f, 0.0f, 1.0f, 1.0f);
-						if (Scene::Active && Scene::Active->GetRenderSettings())
-							windParams = Scene::Active->GetRenderSettings()->GetWindParams();
-						shader->BindFloat("u_wind_params", windParams.x, windParams.y, windParams.z, windParams.w);
+						++m_CacheRebuilds;
+
+						unsigned int textureFlags = material->GetTextureFlags();
+						if (material->GetAlphaMode() == AlphaMode::MASK)
+							textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
+						if (material->GetTwoSided())
+							textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
+						if (material->GetWindEnabled())
+							textureFlags |= (unsigned int)ShaderTexture::WIND;
+						if (batch.Billboard)
+							textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
+								(unsigned int)ShaderTexture::TWO_SIDED |
+								(unsigned int)ShaderTexture::ALPHA_TEST;
+						textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
+						if (useSSBO)
+							textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
+
+						// Fallback order: drop the SSBO bit (divisor variant of
+						// the same shader), then wind, then the remaining
+						// vegetation bits. INSTANCED is never dropped -- a
+						// non-instanced shader would draw the whole batch at
+						// one transform.
+						auto shader = pass->GetShader(ShaderType::STATIC_MESH, textureFlags);
+						if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::INSTANCE_SSBO))
+							shader = pass->GetShader(ShaderType::STATIC_MESH,
+								textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO);
+						if (shader == nullptr)
+							shader = pass->GetShader(ShaderType::STATIC_MESH,
+								textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO & ~(unsigned int)ShaderTexture::WIND);
+						if (shader == nullptr)
+							shader = pass->GetShader(ShaderType::STATIC_MESH,
+								textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO &
+									~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
+						if (shader == nullptr)
+						{
+							FURYW << "Failed to draw instanced " << pk.nodeKey << ", shader not found!";
+							cmd = DrawCommand();
+							continue;
+						}
+
+						cmd = DrawCommand();
+						cmd.shader = shader;
+						cmd.material = material;
+						cmd.mesh = tierMesh;
+						cmd.materialVersion = material->GetRenderVersion();
+						cmd.subMesh = subCount > 0 ? (int)sm : -1;
+						cmd.cullOff = material->GetTwoSided() || batch.Billboard;
+						cmd.wind = (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
+						cmd.alphaCutoff = material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f;
+
+						for (const auto &kv : material->GetTextures())
+							cmd.textureBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
+						for (const auto &kv : material->GetUniforms())
+							cmd.uniformBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
+						for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
+						{
+							auto ptr = pass->GetTextureAt(i, true);
+							cmd.passTextureBinds.push_back({ shader->GetUniformLocation(ptr->GetName()), ptr });
+						}
+						for (const auto &tb : cmd.passTextureBinds)
+							if (tb.location != -1 && tb.texture != nullptr)
+								++cmd.passBoundCount;
+
+						cmd.alphaCutoffLoc = shader->GetUniformLocation("u_alpha_cutoff");
+						cmd.timeLoc = shader->GetUniformLocation("u_time");
+						cmd.windParamsLoc = shader->GetUniformLocation("u_wind_params");
+						cmd.lodDebugLoc = shader->GetUniformLocation("lod_debug_color");
 					}
+					else
+					{
+						++m_CacheHits;
+					}
+
+					ReplayDrawCommand(cmd, pass, nullptr, packet);
 
 #if WITH_DBG_OVERLAY
 					// LOD debug tint per tier (billboard tier gets its own
 					// palette slot via its tier index).
-					if (m_Switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
+					if (packet.switches.test((size_t)PipelineSwitch::LOD_DEBUG_COLORS))
 					{
 						Color lodColor = GetLodDebugColor(batch.LodTier);
-						shader->BindFloat("lod_debug_color", lodColor.r, lodColor.g, lodColor.b, lodColor.a);
+						cmd.shader->BindFloatLocation(cmd.lodDebugLoc, lodColor.r, lodColor.g, lodColor.b, lodColor.a);
 					}
 					else
 					{
-						shader->BindFloat("lod_debug_color", 0.0f, 0.0f, 0.0f, 0.0f);
+						cmd.shader->BindFloatLocation(cmd.lodDebugLoc, 0.0f, 0.0f, 0.0f, 0.0f);
 					}
 #endif
 
-					const bool cullOff = material->GetTwoSided() || batch.Billboard;
-					if (cullOff)
+					if (cmd.cullOff)
 						glDisable(GL_CULL_FACE);
 
-					streamer.DrawInstanced(shader, tierMesh, subCount > 0 ? (int)sm : -1, batch.WorldMatrices);
+					streamer.DrawInstanced(cmd.shader, tierMesh, subCount > 0 ? (int)sm : -1, batch.WorldMatrices);
 
-					if (cullOff && pass->GetCullMode() != CullMode::NONE)
+					if (cmd.cullOff && pass->GetCullMode() != CullMode::NONE)
 					{
 						glEnable(GL_CULL_FACE);
 						glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
@@ -987,38 +1631,36 @@ namespace fury
 		}
 	}
 
-	void PrelightPipeline::DrawPointLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	void PrelightPipeline::DrawPointLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		auto light = node->GetComponent<Light>();
-		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
-		auto camPos = m_CurrentCamera->GetWorldPosition();
-		auto mesh = light->GetMesh();
-		auto worldMatrix = node->GetWorldMatrix();
+		const auto &pl = packet.lights[lightIndex];
+		auto mesh = pl.volumeMesh;
+		auto worldMatrix = pl.worldMatrix;
 
 		Shader::Ptr shader = nullptr;
-		bool castShadows = light->GetCastShadows();
+		bool castShadows = pl.castShadows;
 
 		// find correct shader.
 		shader = GetShaderByName(castShadows ? "pointlight_shadow_shader" : "pointlight_shader");
 		if (shader == nullptr)
 		{
-			FURYW << "Shader for light " << node->GetName() << " not found!";
+			FURYW << "Shader for light " << pl.name << " not found!";
 			return;
 		}
 
 		// draw shadowMap if we castShadows.
 		std::pair<Texture::Ptr, Matrix4> shadowData;
 		if (castShadows)
-			shadowData = DrawPointLightShadowMap(sceneManager, pass, node);
+			shadowData = DrawPointLightShadowMap(packet, lightIndex);
 
 		// ready to draw light volumn
 		pass->Bind(false);
 
 		// change depthTest && face culling state.
 		{
-			float camNear = (camPtr->GetFrustum().GetCurrentCorners()[0] - camPos).Length();
-			if (SphereBounds(node->GetWorldPosition(), light->GetEffectiveRadius() + camNear).IsInsideFast(camPos))
+			float camNear = (packet.camera.frustum.GetCurrentCorners()[0] - packet.camera.worldPos).Length();
+			if (SphereBounds(pl.worldPos, pl.effectiveRadius + camNear).IsInsideFast(packet.camera.worldPos))
 			{
 				glDisable(GL_DEPTH_TEST);
 				glCullFace(GL_FRONT);
@@ -1029,12 +1671,12 @@ namespace fury
 				glCullFace(GL_BACK);
 			}
 
-			worldMatrix.AppendScale(Vector4(light->GetRadius(), 0.0f));
+			worldMatrix.AppendScale(Vector4(pl.radius, 0.0f));
 		}
 
 		shader->Bind();
 
-		shader->BindCamera(m_CurrentCamera);
+		shader->BindCameraData(packet.camera);
 		shader->BindMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
 
 		if (castShadows && shadowData.first != nullptr)
@@ -1043,7 +1685,7 @@ namespace fury
 			shader->BindMatrix("shadow_matrix", &shadowData.second.Raw[0]);
 		}
 
-		shader->BindLight(node);
+		shader->BindLightData(pl);
 		shader->BindMesh(mesh);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
@@ -1061,30 +1703,33 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer (released at end of Execute --
+		// collect used shadow buffer (released at end of ExecutePacket --
 		// the transparent pass samples it for shadow-receiving)
 		if (castShadows)
-			m_FrameShadowTemps.push_back(shadowData.first);
+		{
+			packet.frameShadowTemps.push_back(shadowData.first);
+			packet.shadowResults[lightIndex].texture = shadowData.first;
+			packet.shadowResults[lightIndex].single = shadowData.second;
+		}
 	}
 
-	void PrelightPipeline::DrawDirLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	void PrelightPipeline::DrawDirLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		auto light = node->GetComponent<Light>();
-		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
-		auto mesh = light->GetMesh();
-		auto worldMatrix = node->GetWorldMatrix();
+		const auto &pl = packet.lights[lightIndex];
+		auto mesh = pl.volumeMesh;
+		auto worldMatrix = pl.worldMatrix;
 
 		Shader::Ptr shader = nullptr;
-		bool castShadows = light->GetCastShadows();
-		bool useCascaded = IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
+		bool castShadows = pl.castShadows;
+		bool useCascaded = packet.switches.test((size_t)PipelineSwitch::CASCADED_SHADOW_MAP);
 
 		// find correct shader.
 		shader = GetShaderByName(castShadows ?
 			(useCascaded ? "dirlight_csm_shader" : "dirlight_shadow_shader") : "dirlight_shader");
 		if (shader == nullptr)
 		{
-			FURYW << "Shader for light " << node->GetName() << " not found!";
+			FURYW << "Shader for light " << pl.name << " not found!";
 			return;
 		}
 
@@ -1094,9 +1739,9 @@ namespace fury
 		if (castShadows)
 		{
 			if (useCascaded)
-				cascadedShadowData = DrawCascadedShadowMap(sceneManager, pass, node);
+				cascadedShadowData = DrawCascadedShadowMap(packet, lightIndex);
 			else
-				shadowData = DrawDirLightShadowMap(sceneManager, pass, node);
+				shadowData = DrawDirLightShadowMap(packet, lightIndex);
 		}
 
 		// ready to draw light volumn
@@ -1108,7 +1753,7 @@ namespace fury
 
 		shader->Bind();
 
-		shader->BindCamera(m_CurrentCamera);
+		shader->BindCameraData(packet.camera);
 		shader->BindMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
 
 		if (castShadows)
@@ -1119,13 +1764,8 @@ namespace fury
 				// for cacasded shadow maps
 				shader->BindMatrices("shadow_matrix", static_cast<int>(cascadedShadowData.second.size()), &cascadedShadowData.second[0]);
 				// split distances from the same source the map render used
-				float splits[4];
-				if (Scene::Active && Scene::Active->GetRenderSettings())
-					Scene::Active->GetRenderSettings()->ComputeCsmSplits(camPtr->GetNear(), camPtr->GetFar(), splits);
-				else
-					for (int i = 0; i < 4; i++)
-						splits[i] = camPtr->GetNear() + (camPtr->GetFar() - camPtr->GetNear()) * (i + 1) / 4.0f;
-				shader->BindFloat("shadow_far", splits[0], splits[1], splits[2], splits[3]);
+				shader->BindFloat("shadow_far", packet.csmSplits[0], packet.csmSplits[1],
+					packet.csmSplits[2], packet.csmSplits[3]);
 			}
 			else if (shadowData.first != nullptr)
 			{
@@ -1134,7 +1774,7 @@ namespace fury
 			}
 		}
 
-		shader->BindLight(node);
+		shader->BindLightData(pl);
 		shader->BindMesh(mesh);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
@@ -1152,76 +1792,72 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer (released at end of Execute);
+		// collect used shadow buffer (released at end of ExecutePacket);
 		// cache the matrix data for the transparent pass's
 		// shadow-receive path. CSM: the 4 cascade matrices +
 		// shadow_far (linear-quarter-far split, matches the
 		// deferred SunLight.glsl CSM block).
 		if (castShadows)
 		{
+			auto &sr = packet.shadowResults[lightIndex];
 			if (useCascaded && cascadedShadowData.first != nullptr)
 			{
-				m_FrameShadowTemps.push_back(cascadedShadowData.first);
-				ShadowData data;
-				data.csm = cascadedShadowData.second;
-				auto camPtr2 = m_CurrentCamera->GetComponent<Camera>();
-				float base = camPtr2->GetFar() - camPtr2->GetNear();
+				packet.frameShadowTemps.push_back(cascadedShadowData.first);
+				sr.texture = cascadedShadowData.first;
+				sr.csm = cascadedShadowData.second;
+				float base = packet.camera.farClip - packet.camera.nearClip;
 				float avg = base / 4.0f;
-				data.shadowFar = Vector4(-avg, -avg * 2, -avg * 3, -avg * 4);
-				m_LastShadowMatrices[node.get()] = std::move(data);
+				sr.shadowFar = Vector4(-avg, -avg * 2, -avg * 3, -avg * 4);
 			}
 			else if (shadowData.first != nullptr)
 			{
-				m_FrameShadowTemps.push_back(shadowData.first);
-				ShadowData data;
-				data.single = shadowData.second;
-				m_LastShadowMatrices[node.get()] = std::move(data);
+				packet.frameShadowTemps.push_back(shadowData.first);
+				sr.texture = shadowData.first;
+				sr.single = shadowData.second;
 			}
 		}
 	}
 
-	void PrelightPipeline::DrawSpotLight(const std::shared_ptr<SceneManager> &sceneManager, const std::shared_ptr<Pass> &pass, const std::shared_ptr<SceneNode> &node)
+	void PrelightPipeline::DrawSpotLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
-		auto light = node->GetComponent<Light>();
-		auto camPtr = m_CurrentCamera->GetComponent<Camera>();
-		auto camPos = m_CurrentCamera->GetWorldPosition();
-		auto mesh = light->GetMesh();
-		auto worldMatrix = node->GetWorldMatrix();
+		const auto &pl = packet.lights[lightIndex];
+		auto mesh = pl.volumeMesh;
+		auto worldMatrix = pl.worldMatrix;
 
 		Shader::Ptr shader = nullptr;
-		bool castShadows = light->GetCastShadows();
+		bool castShadows = pl.castShadows;
 
 		// find correct shader.
 		shader = GetShaderByName(castShadows ? "spotlight_shadow_shader" : "spotlight_shader");
 		if (shader == nullptr)
 		{
-			FURYW << "Shader for light " << node->GetName() << " not found!";
+			FURYW << "Shader for light " << pl.name << " not found!";
 			return;
 		}
 
 		// draw shadowMap if we castShadows.
 		std::pair<Texture::Ptr, Matrix4> shadowData;
 		if (castShadows)
-			shadowData = DrawSpotLightShadowMap(sceneManager, pass, node);
+			shadowData = DrawSpotLightShadowMap(packet, lightIndex);
 
 		// ready to draw light volumn
 		pass->Bind(false);
 
 		// change depthTest && face culling state.
 		{
-			auto coneCenter = node->GetWorldPosition();
-			auto coneDir = worldMatrix.Multiply(Vector4(0, -1, 0, 0)).Normalized();
+			auto coneCenter = pl.worldPos;
+			auto coneDir = pl.worldDir;
 
-			float camNear = (camPtr->GetFrustum().GetCurrentCorners()[0] - camPos).Length();
-			float theta = light->GetOutterAngle() * 0.5f;
-			float height = light->GetEffectiveRadius();
+			float camNear = (packet.camera.frustum.GetCurrentCorners()[0] - packet.camera.worldPos).Length();
+			float theta = pl.outterAngle * 0.5f;
+			float height = pl.effectiveRadius;
 			float extra = camNear / std::sin(theta);
 
 			coneCenter = coneCenter - coneDir * extra;
 			height += camNear + extra;
 
-			if (MathUtil::PointInCone(coneCenter, coneDir, height, theta, camPos))
+			if (MathUtil::PointInCone(coneCenter, coneDir, height, theta, packet.camera.worldPos))
 			{
 				glDisable(GL_DEPTH_TEST);
 				glCullFace(GL_FRONT);
@@ -1235,7 +1871,7 @@ namespace fury
 
 		shader->Bind();
 
-		shader->BindCamera(m_CurrentCamera);
+		shader->BindCameraData(packet.camera);
 		shader->BindMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
 
 		if (castShadows && shadowData.first != nullptr)
@@ -1244,7 +1880,7 @@ namespace fury
 			shader->BindMatrix("shadow_matrix", &shadowData.second.Raw[0]);
 		}
 
-		shader->BindLight(node);
+		shader->BindLightData(pl);
 		shader->BindMesh(mesh);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
@@ -1262,19 +1898,19 @@ namespace fury
 
 		pass->UnBind();
 
-		// collect used shadow buffer (released at end of Execute);
+		// collect used shadow buffer (released at end of ExecutePacket);
 		// cache the spot view->shadow UV matrix for the transparent
 		// pass + particle block.
 		if (castShadows && shadowData.first != nullptr)
 		{
-			m_FrameShadowTemps.push_back(shadowData.first);
-			ShadowData data;
-			data.single = shadowData.second;
-			m_LastShadowMatrices[node.get()] = std::move(data);
+			packet.frameShadowTemps.push_back(shadowData.first);
+			auto &sr = packet.shadowResults[lightIndex];
+			sr.texture = shadowData.first;
+			sr.single = shadowData.second;
 		}
 	}
 
-	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass)
+	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass, const FramePacket &packet)
 	{
 		auto shader = m_CurrentShader;
 		auto mesh = MeshUtil::GetUnitQuad();
@@ -1288,7 +1924,7 @@ namespace fury
 		shader->Bind();
 
 		shader->BindMesh(mesh);
-		shader->BindCamera(m_CurrentCamera);
+		shader->BindCameraData(packet.camera);
 
 		// When rendering into the editor's offscreen viewport RT (a
 		// non-sRGB RGBA8 FBO), GL_FRAMEBUFFER_SRGB is a no-op, so the
@@ -1299,7 +1935,7 @@ namespace fury
 		// intermediate composites (e.g. LDR pass_combine -> ldr_composite)
 		// must stay linear.
 		shader->BindInt("u_gamma_correct",
-			(m_RenderTarget != nullptr && pass->GetTextureCount(false) == 0) ? 1 : 0);
+			(packet.renderTarget != nullptr && pass->GetTextureCount(false) == 0) ? 1 : 0);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 		{
@@ -1310,15 +1946,14 @@ namespace fury
 		// Aerial-perspective bindings for the combine pass (no-ops on
 		// shaders without these uniforms). Sampler always bound: dummy 3D
 		// when no sky is active.
-		if (auto sky = IsHDRMode() ? SkyAtmosphere::GetActive() : nullptr;
-			sky != nullptr && sky->GetEnabled() && sky->GetCameraVolume() != nullptr)
+		if (packet.hdrMode && packet.sky.valid && packet.sky.enabled && packet.sky.cameraVolume != nullptr)
 		{
 			shader->BindInt("u_atmosphere_enabled", 1);
-			shader->BindFloat("u_ap_range", sky->GetApRangeKm());
-			shader->BindTexture("u_ap_volume", sky->GetCameraVolume());
+			shader->BindFloat("u_ap_range", packet.sky.params.apRangeKm);
+			shader->BindTexture("u_ap_volume", packet.sky.cameraVolume);
 			// small sky-ambient lift while a sky drives the scene: keeps
 			// away-facing slopes from crushing to pure black (no IBL)
-			shader->BindFloat("u_ambient", 0.03f + 0.05f * sky->GetDaylight());
+			shader->BindFloat("u_ambient", 0.03f + 0.05f * packet.sky.params.daylight);
 		}
 		else
 		{
@@ -1334,30 +1969,29 @@ namespace fury
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 	}
 
-	void PrelightPipeline::DrawSky(const std::shared_ptr<Pass> &pass)
+	void PrelightPipeline::DrawSky(const std::shared_ptr<Pass> &pass, FramePacket &packet)
 	{
 		FURY_ZONE;
 		// HDR-only feature; no sky -> no draw, hdr_composite untouched.
-		if (!IsHDRMode())
+		if (!packet.hdrMode)
 			return;
-		auto sky = SkyAtmosphere::GetActive();
-		if (sky == nullptr || !sky->GetEnabled())
+		if (!packet.sky.valid || !packet.sky.enabled || !packet.sky.owner)
 			return;
 		auto shader = m_CurrentShader != nullptr ? m_CurrentShader : pass->GetFirstShader();
-		if (shader == nullptr || m_CurrentCamera == nullptr)
+		if (shader == nullptr || !packet.camera.valid)
 			return;
 
 		// LUT/volume/cloud renders bind their own FBOs, so this runs before
 		// the pass bind.
-		sky->EnsureLuts(m_CurrentCamera);
+		packet.sky.owner->EnsureLutsRender(packet.sky.params, packet.camera);
 
 		pass->Bind(false);   // never clear: hdr_composite holds the scene
 		shader->Bind();
 
 		auto mesh = MeshUtil::GetUnitQuad();
 		shader->BindMesh(mesh);
-		shader->BindCamera(m_CurrentCamera);
-		sky->BindAtmosphereUniforms(shader);
+		shader->BindCameraData(packet.camera);
+		packet.sky.owner->BindAtmosphereUniforms(shader, packet.sky.params);
 
 		for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 		{
@@ -1365,21 +1999,23 @@ namespace fury
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		shader->BindTexture("u_skyview_lut", sky->GetSkyViewLut());
-		shader->BindTexture("u_transmittance_lut", sky->GetTransmittanceLut());
-		shader->BindTexture("u_cloud_tex", sky->GetCloudsEnabled()
-			? sky->GetCloudTarget() : GetDummyTexture2D());
-		shader->BindTexture("u_moon_tex", sky->GetMoonTexture()
-			? sky->GetMoonTexture() : GetDummyTexture2D());
+		// LUT textures are read from the owner post-EnsureLutsRender: both
+		// run on this (GL) thread, so the members are stable here.
+		shader->BindTexture("u_skyview_lut", packet.sky.owner->GetSkyViewLut());
+		shader->BindTexture("u_transmittance_lut", packet.sky.owner->GetTransmittanceLut());
+		shader->BindTexture("u_cloud_tex", packet.sky.params.cloudsEnabled
+			? packet.sky.owner->GetCloudTarget() : GetDummyTexture2D());
+		shader->BindTexture("u_moon_tex", packet.sky.owner->GetMoonTexture()
+			? packet.sky.owner->GetMoonTexture() : GetDummyTexture2D());
 
-		shader->BindFloat("u_sun_ang_cos", cosf(sky->GetSunAngularRadius()));
-		shader->BindFloat("u_sun_disc_intensity", sky->GetSunDiscIntensity());
-		shader->BindFloat("u_moon_dir", sky->GetMoonDirection().x, sky->GetMoonDirection().y, sky->GetMoonDirection().z);
-		shader->BindFloat("u_moon_ang_cos", cosf(sky->GetMoonAngularRadius()));
-		shader->BindFloat("u_moon_frame_scale", 1.0f / tanf(sky->GetMoonAngularRadius()));
-		shader->BindFloat("u_moon_intensity", sky->GetMoonIntensity());
-		shader->BindInt("u_moon_enabled", sky->GetMoonEnabled() && sky->GetMoonTexture() ? 1 : 0);
-		shader->BindInt("u_clouds_enabled", sky->GetCloudsEnabled() ? 1 : 0);
+		shader->BindFloat("u_sun_ang_cos", cosf(packet.sky.params.sunAngularRadius));
+		shader->BindFloat("u_sun_disc_intensity", packet.sky.params.sunDiscIntensity);
+		shader->BindFloat("u_moon_dir", packet.sky.params.moonDir.x, packet.sky.params.moonDir.y, packet.sky.params.moonDir.z);
+		shader->BindFloat("u_moon_ang_cos", cosf(packet.sky.params.moonAngularRadius));
+		shader->BindFloat("u_moon_frame_scale", 1.0f / tanf(packet.sky.params.moonAngularRadius));
+		shader->BindFloat("u_moon_intensity", packet.sky.params.moonIntensity);
+		shader->BindInt("u_moon_enabled", packet.sky.params.moonEnabled && packet.sky.owner->GetMoonTexture() ? 1 : 0);
+		shader->BindInt("u_clouds_enabled", packet.sky.params.cloudsEnabled ? 1 : 0);
 
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
@@ -1388,13 +2024,13 @@ namespace fury
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawOcean(const std::shared_ptr<Pass> &pass, const std::shared_ptr<RenderQuery> &query)
+	void PrelightPipeline::DrawOcean(const std::shared_ptr<Pass> &pass, FramePacket &packet)
 	{
 		FURY_ZONE;
 		// HDR-only feature (same constraint as the sky pass).
-		if (!IsHDRMode())
+		if (!packet.hdrMode)
 			return;
-		if (m_CurrentCamera == nullptr || query == nullptr || query->oceanNodes.empty())
+		if (!packet.camera.valid || packet.oceans.empty())
 			return;
 		auto shader = m_CurrentShader != nullptr ? m_CurrentShader : pass->GetFirstShader();
 		if (shader == nullptr)
@@ -1427,7 +2063,7 @@ namespace fury
 
 		pass->Bind(false); // never clear: hdr_composite holds the lit scene
 		shader->Bind();
-		shader->BindCamera(m_CurrentCamera);
+		shader->BindCameraData(packet.camera);
 
 		// per-buffer blend: color0 (hdr_composite) alpha-blends; color1
 		// (gbuffer_normal) must stay replace or normals get smeared.
@@ -1450,19 +2086,18 @@ namespace fury
 			(float)pass->GetTextureAt(0, false)->GetHeight());
 
 		// dominant directional light for the sun term (BindLight uniforms)
-		SceneNode::Ptr sunNode;
-		for (const auto &lightNode : query->lightNodes)
+		int sunIndex = -1;
+		for (int li = 0; li < (int)packet.lights.size(); ++li)
 		{
-			auto light = lightNode->GetComponent<Light>();
-			if (light && light->GetType() == LightType::DIRECTIONAL)
+			if (packet.lights[li].type == LightType::DIRECTIONAL)
 			{
-				sunNode = lightNode;
+				sunIndex = li;
 				break;
 			}
 		}
-		if (sunNode)
+		if (sunIndex >= 0)
 		{
-			shader->BindLight(sunNode);
+			shader->BindLightData(packet.lights[sunIndex]);
 			shader->BindInt("u_light_valid", 1);
 		}
 		else
@@ -1470,21 +2105,18 @@ namespace fury
 			shader->BindInt("u_light_valid", 0);
 		}
 
-		// CSM shadow-receive from the frame's cached sun map (transparent
+		// CSM shadow-receive from the frame's sun map (transparent
 		// pass reads the same caches)
 		int shadowType = 0;
-		if (sunNode)
+		if (sunIndex >= 0)
 		{
-			auto texIt = m_LastShadowTextures.find(sunNode.get());
-			auto matIt = m_LastShadowMatrices.find(sunNode.get());
-			if (texIt != m_LastShadowTextures.end() && texIt->second &&
-				matIt != m_LastShadowMatrices.end() && matIt->second.csm.size() == 4)
+			const auto &sr = packet.shadowResults[sunIndex];
+			if (sr.texture && sr.csm.size() == 4)
 			{
-				shader->BindTexture("shadow_buffer_csm", texIt->second);
-				shader->BindMatrices("shadow_matrix_csm", 4, matIt->second.csm.data());
-				shader->BindFloat("shadow_far", matIt->second.shadowFar.x,
-					matIt->second.shadowFar.y, matIt->second.shadowFar.z,
-					matIt->second.shadowFar.w);
+				shader->BindTexture("shadow_buffer_csm", sr.texture);
+				shader->BindMatrices("shadow_matrix_csm", 4, sr.csm.data());
+				shader->BindFloat("shadow_far", sr.shadowFar.x,
+					sr.shadowFar.y, sr.shadowFar.z, sr.shadowFar.w);
 				shadowType = 3;
 			}
 		}
@@ -1493,23 +2125,24 @@ namespace fury
 		shader->BindInt("u_shadow_type", shadowType);
 
 		// aerial perspective volume (same source as PbrCombine)
-		auto sky = SkyAtmosphere::GetActive();
-		if (sky && sky->GetEnabled() && sky->GetCameraVolume())
+		if (packet.sky.valid && packet.sky.enabled && packet.sky.owner)
 		{
-			shader->BindTexture("u_ap_volume", sky->GetCameraVolume());
-			shader->BindFloat("u_ap_range", sky->GetApRangeKm());
-			shader->BindInt("u_atmosphere_enabled", 1);
-			// sky-view LUT: true sky color for reflections + the fog
-			// convergence target (rendered fresh in pass_sky above)
-			shader->BindTexture("u_skyview_lut", sky->GetSkyViewLut());
-			shader->BindFloat("u_bottom_radius", sky->GetBottomRadiusKm());
-			shader->BindFloat("u_view_height", sky->GetViewHeightKm());
+			// post-EnsureLutsRender members (same thread): valid once the
+			// sky pass ran this frame; dummy fallbacks otherwise.
+			auto camVolume = packet.sky.owner->GetCameraVolume();
+			auto skyView = packet.sky.owner->GetSkyViewLut();
+			shader->BindTexture("u_ap_volume", camVolume ? camVolume : GetDummyTexture3D());
+			shader->BindTexture("u_skyview_lut", skyView ? skyView : GetDummyTexture2D());
+			shader->BindInt("u_atmosphere_enabled", camVolume ? 1 : 0);
+			shader->BindFloat("u_ap_range", packet.sky.params.apRangeKm);
+			shader->BindFloat("u_bottom_radius", packet.sky.params.bottomRadiusKm);
+			shader->BindFloat("u_view_height", packet.sky.params.viewHeightKm);
 			// moonlight: the sun light dims to zero at night, but the water
 			// should keep a cool moon glint (diffuse + a capped spec path)
-			Vector4 moonDir = sky->GetMoonDirection();
-			shader->BindFloat("u_moon_dir", moonDir.x, moonDir.y, moonDir.z);
-			shader->BindFloat("u_moon_intensity", sky->GetMoonEnabled()
-				? sky->GetMoonIntensity() : 0.0f);
+			shader->BindFloat("u_moon_dir", packet.sky.params.moonDir.x,
+				packet.sky.params.moonDir.y, packet.sky.params.moonDir.z);
+			shader->BindFloat("u_moon_intensity", packet.sky.params.moonEnabled
+				? packet.sky.params.moonIntensity : 0.0f);
 		}
 		else
 		{
@@ -1522,22 +2155,16 @@ namespace fury
 			shader->BindFloat("u_moon_intensity", 0.0f);
 		}
 
-		Vector4 camPos = m_CurrentCamera->GetWorldPosition();
+		Vector4 camPos = packet.camera.worldPos;
 		// camera-radial band fades are centered on the camera (VS)
 		shader->BindFloat("u_cam_xz", camPos.x, camPos.z);
-		for (const auto &node : query->oceanNodes)
+		for (const auto &po : packet.oceans)
 		{
-			auto ocean = node->GetComponent<OceanComponent>();
-			if (!ocean)
-				continue;
-
-			ocean->UpdateCameraFollow(camPos);
-			auto waves = ocean->GetWaves();
+			auto waves = po.waves;
 			bool valid = waves && waves->IsValid();
 
-			Vector4 nodePos = node->GetWorldPosition();
-			shader->BindFloat("u_water_level", nodePos.y + ocean->GetWaterLevel());
-			shader->BindFloat("u_time", ocean->GetWaveTime());
+			shader->BindFloat("u_water_level", po.nodePos.y + po.waterLevel);
+			shader->BindFloat("u_time", po.waveTime);
 			shader->BindInt("u_waves_valid", valid ? 1 : 0);
 
 			if (valid)
@@ -1587,27 +2214,24 @@ namespace fury
 				shader->BindTexture("u_nrm_chop", GetDummyTexture2DArray());
 			}
 
-			Color absorb = ocean->GetAbsorbColor();
-			Color scatter = ocean->GetScatterColor();
-			shader->BindFloat("u_absorb_color", absorb.r, absorb.g, absorb.b);
-			shader->BindFloat("u_scatter_color", scatter.r, scatter.g, scatter.b);
-			shader->BindFloat("u_roughness", ocean->GetRoughness());
+			shader->BindFloat("u_absorb_color", po.absorb.r, po.absorb.g, po.absorb.b);
+			shader->BindFloat("u_scatter_color", po.scatter.r, po.scatter.g, po.scatter.b);
+			shader->BindFloat("u_roughness", po.roughness);
 			// always the true roughness: the SSAO water gate reads the same
 			// gbuffer alpha as SSR (SSR's own roughness < 0.95 gate is
 			// unaffected), so SSR-off water must not write 1.0 here
-			shader->BindFloat("u_ssr_roughness", ocean->GetRoughness());
-			shader->BindFloat("u_normal_strength", ocean->GetNormalStrength());
-			shader->BindFloat("u_foam_amount", ocean->GetFoamAmount());
-			shader->BindFloat("u_shore_foam_depth", ocean->GetShoreFoamDepthCm());
-			shader->BindFloat("u_wind_speed", ocean->GetWindSpeed());
-			shader->BindInt("u_debug_view", (int)ocean->GetDebugView());
+			shader->BindFloat("u_ssr_roughness", po.roughness);
+			shader->BindFloat("u_normal_strength", po.normalStrength);
+			shader->BindFloat("u_foam_amount", po.foamAmount);
+			shader->BindFloat("u_shore_foam_depth", po.shoreFoamDepthCm);
+			shader->BindFloat("u_wind_speed", po.windSpeed);
+			shader->BindInt("u_debug_view", (int)po.debugView);
 			shader->BindFloat("u_disp_debug_scale", 0.02f);
 
 			// camera-radial band fades: ranges derive from the ring radii;
 			// the legacy per-piece uniforms survive as multipliers (1 = on)
-			const Vector4 &fadeRanges = ocean->GetFadeRanges();
-			shader->BindFloat("u_fade_ranges", fadeRanges.x, fadeRanges.y,
-				fadeRanges.z, fadeRanges.w);
+			shader->BindFloat("u_fade_ranges", po.fadeRanges.x, po.fadeRanges.y,
+				po.fadeRanges.z, po.fadeRanges.w);
 			shader->BindFloat("u_swell_fade", 1.0f);
 			shader->BindFloat("u_ripple_fade", 1.0f);
 
@@ -1616,23 +2240,23 @@ namespace fury
 			// The start follows the last ring's outer radius (never below
 			// 1 km): with more rings the detailed band reaches further, and
 			// a fixed start left a hard fog band against it.
-			float fogStart = std::max(100000.0f, fadeRanges.w);
-			float fogEnd = std::max(ocean->GetSkirtRadiusCm(), fogStart * 1.01f);
+			float fogStart = std::max(100000.0f, po.fadeRanges.w);
+			float fogEnd = std::max(po.skirtRadiusCm, fogStart * 1.01f);
 			shader->BindFloat("u_fog_start", fogStart);
 			shader->BindFloat("u_fog_end", fogEnd);
 
 			// debug view 3: ring-LOD wireframe via polygon mode (no CPU
 			// line lists; restored right after this ocean's draws)
-			bool wireframe = ocean->GetDebugView() == 3;
+			bool wireframe = po.debugView == 3;
 			if (wireframe)
 				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
-			if (ocean->GetMode() == OceanComponent::Mode::Finite)
+			if (po.finite)
 			{
-				auto mesh = ocean->GetFiniteMesh();
+				auto mesh = po.finiteMesh;
 				if (!mesh)
 					continue;
-				shader->BindFloat("u_world_origin", nodePos.x, nodePos.y, nodePos.z);
+				shader->BindFloat("u_world_origin", po.nodePos.x, po.nodePos.y, po.nodePos.z);
 				shader->BindFloat("u_y_offset", 0.0f);
 				shader->BindFloat("u_debug_color", 0.2f, 0.9f, 0.9f);
 				mesh->UpdateBuffer();
@@ -1648,17 +2272,17 @@ namespace fury
 					{ 0.35f, 0.6f, 1.0f }, { 0.9f, 0.4f, 0.9f }, { 0.5f, 0.5f, 0.5f }
 				};
 				int pieceIndex = 0;
-				for (const auto &piece : ocean->GetRingPieces())
+				for (const auto &piece : po.pieces)
 				{
-					if (!piece.MeshPtr)
+					if (!piece.mesh)
 						continue;
-					const float *pc = kPieceColors[std::min<int>(piece.IsSkirt ? 5 : pieceIndex, 5)];
-					shader->BindFloat("u_world_origin", piece.Origin.x, piece.Origin.y, piece.Origin.z);
-					shader->BindFloat("u_y_offset", piece.YOffset);
+					const float *pc = kPieceColors[std::min<int>(piece.isSkirt ? 5 : pieceIndex, 5)];
+					shader->BindFloat("u_world_origin", piece.origin.x, piece.origin.y, piece.origin.z);
+					shader->BindFloat("u_y_offset", piece.yOffset);
 					shader->BindFloat("u_debug_color", pc[0], pc[1], pc[2]);
-					piece.MeshPtr->UpdateBuffer();
-					shader->BindMesh(piece.MeshPtr);
-					glDrawElements(GL_TRIANGLES, (GLsizei)piece.MeshPtr->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					piece.mesh->UpdateBuffer();
+					shader->BindMesh(piece.mesh);
+					glDrawElements(GL_TRIANGLES, (GLsizei)piece.mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
 					RenderUtil::Instance()->IncreaseDrawCall();
 					++pieceIndex;
 				}
@@ -1677,12 +2301,12 @@ namespace fury
 			Texture::ReleaseTemporary(depthCopy);
 	}
 
-	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture() const
+	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture(bool hdrMode) const
 	{
 		// hdr_composite (HDR) or ldr_composite (LDR), with fallbacks
 		// for legacy pipelines that predate the composite textures.
 		Texture::Ptr sourceTex = nullptr;
-		if (IsHDRMode())
+		if (hdrMode)
 		{
 			sourceTex = GetTextureByName("hdr_composite");
 			if (!sourceTex) sourceTex = GetTextureByName("hdr_light");
@@ -1697,14 +2321,14 @@ namespace fury
 		return sourceTex;
 	}
 
-	void PrelightPipeline::RunPostProcessChain()
+	void PrelightPipeline::RunPostProcessChain(FramePacket &packet)
 	{
 		FURY_ZONE;
-		if (m_ActiveChain.empty()) return;
-		if (m_CurrentCamera == nullptr) return;
+		if (packet.chain.empty()) return;
+		if (!packet.camera.valid) return;
 
 		// Chain input: the pipeline's lighting output texture.
-		Texture::Ptr sourceTex = GetLightingOutputTexture();
+		Texture::Ptr sourceTex = GetLightingOutputTexture(packet.hdrMode);
 		if (!sourceTex)
 		{
 			FURYW << "RunPostProcessChain: no lighting output texture "
@@ -1724,7 +2348,7 @@ namespace fury
 		Texture::Ptr readTex = sourceTex;
 
 		auto quad = MeshUtil::GetUnitQuad();
-		const bool toRT = (m_RenderTarget != nullptr && m_RenderTarget->IsAllocated());
+		const bool toRT = (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated());
 
 		// A throwaway Pass we configure once to host each temp
 		// texture as an FBO color attachment. Pass owns the FBO +
@@ -1747,28 +2371,27 @@ namespace fury
 		{
 			if (toRT)
 			{
-				glBindFramebuffer(GL_FRAMEBUFFER, m_RenderTarget->GetFBO());
-				glViewport(0, 0, m_RenderTarget->GetWidth(), m_RenderTarget->GetHeight());
+				glBindFramebuffer(GL_FRAMEBUFFER, packet.renderTarget->GetFBO());
+				glViewport(0, 0, packet.renderTarget->GetWidth(), packet.renderTarget->GetHeight());
 			}
 			else
 			{
 				// Final blit: track the live window, not the source's 1280x720.
 				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				int winW, winH;
-				InputUtil::Instance()->GetWindowSize(winW, winH);
-				glViewport(0, 0, winW > 0 ? winW : W, winH > 0 ? winH : H);
+				glViewport(0, 0, packet.windowW > 0 ? packet.windowW : W,
+					packet.windowH > 0 ? packet.windowH : H);
 			}
 		};
 
-		for (size_t i = 0; i < m_ActiveChain.size(); ++i)
+		for (size_t i = 0; i < packet.chain.size(); ++i)
 		{
-			auto &effect = m_ActiveChain[i];
+			auto &effect = packet.chain[i];
 			if (!effect) continue;
-			const bool isLast = (i + 1 == m_ActiveChain.size());
+			const bool isLast = (i + 1 == packet.chain.size());
 
 			// Compile shader on first use (cached by path+mode); LDR variants get the `LDR` define via a `|ldr`-suffixed key so effects can branch on HDR-only data -- e.g. SSR falls back to u_ldr_roughness when Lambert packs no roughness in normal.a.
 			std::string shaderKey = effect->GetShaderPath();
-			if (!IsHDRMode())
+			if (!packet.hdrMode)
 				shaderKey += "|ldr";
 			auto shader = GetShaderByName(shaderKey);
 			if (!shader)
@@ -1776,7 +2399,7 @@ namespace fury
 				shader = Shader::Create(shaderKey, ShaderType::OTHER);
 				for (const auto &d : effect->GetShaderDefines())
 					shader->AddDefine(d);
-				if (!IsHDRMode())
+				if (!packet.hdrMode)
 					shader->AddDefine("LDR");
 				if (!shader->LoadAndCompile(effect->GetShaderPath()))
 				{
@@ -1829,16 +2452,14 @@ namespace fury
 				bindScreenFBO();
 				if (toRT)
 				{
-					writeW = m_RenderTarget->GetWidth();
-					writeH = m_RenderTarget->GetHeight();
+					writeW = packet.renderTarget->GetWidth();
+					writeH = packet.renderTarget->GetHeight();
 				}
 				else
 				{
 					// u_rt_size mirrors the live viewport (FXAA/CRT need it).
-					int winW, winH;
-					InputUtil::Instance()->GetWindowSize(winW, winH);
-					writeW = winW > 0 ? winW : W;
-					writeH = winH > 0 ? winH : H;
+					writeW = packet.windowW > 0 ? packet.windowW : W;
+					writeH = packet.windowH > 0 ? packet.windowH : H;
 				}
 			}
 			else
@@ -1853,7 +2474,7 @@ namespace fury
 
 			shader->Bind();
 			shader->BindMesh(quad);
-			shader->BindCamera(m_CurrentCamera);
+			shader->BindCameraData(packet.camera);
 
 			// Chain draws are full-screen REPLACES -- never inherit
 			// pipeline state. Without this, the screen-bound final
@@ -1889,9 +2510,9 @@ namespace fury
 				if (!u) continue;
 				u->Bind(shader->GetProgram(), kv.first);
 			}
-			if (i < m_ActiveChainOverrides.size())
+			if (i < packet.chainOverrides.size())
 			{
-				for (const auto &kv : m_ActiveChainOverrides[i])
+				for (const auto &kv : packet.chainOverrides[i])
 				{
 					if (!kv.second) continue;
 					if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
@@ -1932,9 +2553,9 @@ namespace fury
 		glDisable(GL_BLEND);
 	}
 
-	void PrelightPipeline::DrawEffectDebugView(const std::string &effectName)
+	void PrelightPipeline::DrawEffectDebugView(const std::string &effectName, FramePacket &packet)
 	{
-		if (m_CurrentCamera == nullptr) return;
+		if (!packet.camera.valid) return;
 
 		auto effect = PostProcessRegistry::Get(effectName);
 		if (!effect)
@@ -1943,7 +2564,7 @@ namespace fury
 			return;
 		}
 
-		Texture::Ptr sourceTex = GetLightingOutputTexture();
+		Texture::Ptr sourceTex = GetLightingOutputTexture(packet.hdrMode);
 		if (!sourceTex)
 		{
 			SetDebugViewTexture(nullptr);
@@ -1965,7 +2586,7 @@ namespace fury
 
 		// DEBUG_VIEW variant of the effect shader (own cache key).
 		std::string shaderKey = effect->GetShaderPath() + "|debug";
-		if (!IsHDRMode()) shaderKey += "|ldr";
+		if (!packet.hdrMode) shaderKey += "|ldr";
 		auto shader = GetShaderByName(shaderKey);
 		if (!shader)
 		{
@@ -1973,7 +2594,7 @@ namespace fury
 			for (const auto &d : effect->GetShaderDefines())
 				shader->AddDefine(d);
 			shader->AddDefine("DEBUG_VIEW");
-			if (!IsHDRMode())
+			if (!packet.hdrMode)
 				shader->AddDefine("LDR");
 			if (!shader->LoadAndCompile(effect->GetShaderPath()))
 			{
@@ -2025,7 +2646,7 @@ namespace fury
 		auto quad = MeshUtil::GetUnitQuad();
 		shader->Bind();
 		shader->BindMesh(quad);
-		shader->BindCamera(m_CurrentCamera);
+		shader->BindCameraData(packet.camera);
 		shader->BindFloat("u_rt_size", (float)W, (float)H);
 		// The debug texture is displayed as-is by ImGui (non-sRGB):
 		// encode here so the view matches the viewport's brightness.
@@ -2040,27 +2661,27 @@ namespace fury
 			shader->BindTexture(kv.first, kv.second);
 
 		// Descriptor defaults, then the scene entry's overrides (so
-		// the Edit dialog tunes the debug view live).
+		// the Edit dialog tunes the debug view live). The packet's
+		// chain/overrides come from the same renderSettings the old
+		// code re-read here.
 		for (const auto &kv : effect->GetUniforms())
 		{
 			auto &u = kv.second;
 			if (!u) continue;
 			u->Bind(shader->GetProgram(), kv.first);
 		}
-		if (Scene::Active && Scene::Active->GetRenderSettings())
+		for (size_t ci = 0; ci < packet.chain.size() && ci < packet.chainOverrides.size(); ++ci)
 		{
-			for (const auto &entry : Scene::Active->GetRenderSettings()->GetChain())
+			if (!packet.chain[ci] || packet.chain[ci]->GetName() != effectName)
+				continue;
+			for (const auto &kv : packet.chainOverrides[ci])
 			{
-				if (entry.effectName != effectName) continue;
-				for (const auto &kv : entry.uniformOverrides)
-				{
-					if (!kv.second) continue;
-					if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
-						continue;
-					kv.second->Bind(shader->GetProgram(), kv.first);
-				}
-				break;
+				if (!kv.second) continue;
+				if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
+					continue;
+				kv.second->Bind(shader->GetProgram(), kv.first);
 			}
+			break;
 		}
 
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
@@ -2079,4 +2700,5 @@ namespace fury
 
 		SetDebugViewTexture(debugTex);
 	}
+
 }

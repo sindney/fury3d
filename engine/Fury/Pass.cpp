@@ -2,6 +2,7 @@
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Pass.h"
+#include "Fury/RenderThread.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
@@ -622,7 +623,10 @@ namespace fury
 	void Pass::DeleteFrameBuffer()
 	{
 		if (m_FrameBuffer != 0)
-			glDeleteFramebuffers(1, &m_FrameBuffer);
+		{
+			unsigned int fbo = m_FrameBuffer;
+			RenderThread::Get().EnqueueJob([fbo]() { glDeleteFramebuffers(1, &fbo); });
+		}
 
 		m_FrameBuffer = 0;
 		m_ColorAttachmentCount = 0;
@@ -661,6 +665,7 @@ namespace fury
 
 	void Pass::Bind(bool clear)
 	{
+		FURY_GL_THREAD_GUARD();
 		if (m_OutputTextures.size() > 0)
 		{
 			if (m_FrameBuffer == 0)
