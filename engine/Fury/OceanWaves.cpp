@@ -7,6 +7,7 @@
 #include <rapidjson/document.h>
 
 #include "Fury/EnumUtil.h"
+#include "Fury/EntityUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Scene.h"
@@ -98,10 +99,11 @@ namespace fury
 			return existing->IsValid() ? existing : nullptr;
 		}
 		auto waves = OceanWaves::Create(path);
-		waves->SetFilePath(path);
+		waves->SetPath(path);
 		if (!waves->LoadWaves())
 			return nullptr;
-		em->Add(waves);
+		if (!em->Add(waves))
+			return em->Get<OceanWaves>(path);
 		return waves;
 	}
 
@@ -115,6 +117,12 @@ namespace fury
 	{
 	}
 
+	void OceanWaves::SetPath(const std::string &path)
+	{
+		m_FilePath = path;
+		m_Name = PathBasename(path);
+	}
+
 	bool OceanWaves::Load(const void* wrapper, bool object)
 	{
 		if (object && !IsObject(wrapper))
@@ -126,6 +134,8 @@ namespace fury
 			return false;
 
 		LoadMemberValue(wrapper, "file_path", m_FilePath);
+		if (!m_FilePath.empty())
+			m_Name = PathBasename(m_FilePath);
 
 		LoadWaves();
 		return true;

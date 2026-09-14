@@ -228,6 +228,12 @@ namespace fury
 
 		void SetCastShadows(bool state);
 
+		// Canonical asset identity: the mesh's name is its path.
+		std::string GetPath() const override { return m_Name; }
+
+		// Path and name are the same string for meshes.
+		void SetPath(const std::string &path) { m_Name = path; }
+
 		// LOD chain. LOD 0 is this mesh itself (highest detail). LODs
 		// 1..N are additional Mesh objects owned by this mesh -- they
 		// are saved inline with this mesh's JSON (not as separate

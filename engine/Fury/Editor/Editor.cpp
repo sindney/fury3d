@@ -106,6 +106,12 @@ extern bool g_CurrentSceneIsNative;
 extern std::optional<std::pair<std::type_index, std::string>> g_SelectedAsset;
 extern std::optional<std::string> g_PendingScrollToAsset;
 
+// Content Browser layout + folder state (EditorWindows.cpp), persisted
+// below via ContentBrowser.* ini keys.
+extern float g_CBTreeWidth;
+extern std::string g_CBSelectedFolder;
+extern std::unordered_map<std::string, bool> g_CBTreeExpanded;
+
 // Per-TU storage. Defined here, declared as extern above so
 // EditorWindows.cpp can read them without a header dependency.
 SceneIO g_SceneIO;
@@ -276,6 +282,28 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
+	// Content Browser: tree pane width, selected folder, per-folder
+	// expansion. Forms:
+	//   ContentBrowser.TreeWidth=<float>
+	//   ContentBrowser.SelectedFolder=<virtual folder path>
+	//   ContentBrowser.TreeExpanded.<virtual folder path>=<0|1>
+	float treew = 0.0f;
+	if (std::sscanf(line, "ContentBrowser.TreeWidth=%f", &treew) == 1 && treew >= 120.0f) {
+		g_CBTreeWidth = treew;
+		return;
+	}
+	char cbpath[256];
+	if (std::sscanf(line, "ContentBrowser.SelectedFolder=%255[^\n]", cbpath) == 1) {
+		g_CBSelectedFolder = cbpath;
+		return;
+	}
+	int cbexp = -1;
+	if (std::sscanf(line, "ContentBrowser.TreeExpanded.%255[^=]=%d", cbpath, &cbexp) == 2
+		&& (cbexp == 0 || cbexp == 1)) {
+		g_CBTreeExpanded[cbpath] = (cbexp != 0);
+		return;
+	}
+
 	// Window visibility -- one line per window: Show=<name>=<0|1>.
 	// Restoring these BEFORE the first frame means each visible
 	// window is Begin()'d every frame, which is what lets ImGui
@@ -341,6 +369,12 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("Gizmo=%d,%d,%d,%.6f,%.6f,%.6f\n",
 				 op_idx, space_idx, g_SnapEnabled ? 1 : 0,
 				 g_SnapTranslate, g_SnapRotate, g_SnapScale);
+	// Content Browser folder tree state.
+	buf->appendf("ContentBrowser.TreeWidth=%.1f\n", g_CBTreeWidth);
+	if (!g_CBSelectedFolder.empty())
+		buf->appendf("ContentBrowser.SelectedFolder=%s\n", g_CBSelectedFolder.c_str());
+	for (const auto& kv : g_CBTreeExpanded)
+		buf->appendf("ContentBrowser.TreeExpanded.%s=%d\n", kv.first.c_str(), kv.second ? 1 : 0);
 	// Window visibility -- restoring these pre-first-frame keeps every
 	// window Begin()'d, so ImGui can persist/restore its dock entry.
 	buf->appendf("Show=Settings=%d\n", g_ShowSettings ? 1 : 0);

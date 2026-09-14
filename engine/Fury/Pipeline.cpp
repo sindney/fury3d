@@ -101,7 +101,9 @@ namespace fury
 			if (!texture->Load(node))
 				return false;
 
-			m_EntityManager->Add(texture);
+			if (!m_EntityManager->Add(texture) && !texture->GetPath().empty())
+				FURYW << "Pipeline: duplicate texture path '" << texture->GetPath()
+					  << "' -- first registered entry wins";
 
 			return true;
 		}))

@@ -45,6 +45,12 @@ namespace fury
 		unsigned int GetMaxParticles() const { return m_MaxParticles; }
 		void SetMaxParticles(unsigned int cap);
 
+		// Canonical asset identity: the system's name is its path.
+		std::string GetPath() const override { return m_Name; }
+
+		// Path and name are the same string for particle systems.
+		void SetPath(const std::string &path) { m_Name = path; }
+
 		float GetLifetime() const { return m_Lifetime; }
 		void SetLifetime(float seconds) { m_Lifetime = std::max(0.01f, seconds); }
 

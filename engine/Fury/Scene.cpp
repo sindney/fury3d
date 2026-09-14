@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <functional>
+#include <set>
 #include <unordered_map>
 
 #include "Fury/AnimationClip.h"
@@ -109,13 +110,23 @@ bool Scene::Load(const void* wrapper, bool object) {
 		return false;
 	}
 
+	// Add rejects same-path duplicates at insertion (first registered
+	// wins); name each rejected path once for diagnosing legacy data.
+	std::set<std::string> dupPathWarned;
+	auto addAsset = [&](const auto& ptr) {
+		if (!m_EntityManager->Add(ptr) && !ptr->GetPath().empty()
+			&& dupPathWarned.insert(ptr->GetPath()).second)
+			FURYW << "Scene::Load: duplicate asset path '" << ptr->GetPath()
+				  << "' -- first registered entry wins";
+	};
+
 	// load textures (top-level array, if present -- new format)
 	if (auto texWrapper = FindMember(wrapper, "textures")) {
 		LoadArray(texWrapper, [&](const void* node) -> bool {
 			auto texture = Texture::Create("temp");
 			if (!texture->Load(node))
 				return false;
-			m_EntityManager->Add(texture);
+			addAsset(texture);
 			return true;
 		});
 	}
@@ -126,7 +137,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 			if (!material->Load(node))
 				return false;
 
-			m_EntityManager->Add(material);
+			addAsset(material);
 			return true;
 		})) {
 		FURYE << "Error serializing materials!";
@@ -139,7 +150,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 			if (!mesh->Load(node))
 				return false;
 
-			m_EntityManager->Add(mesh);
+			addAsset(mesh);
 			return true;
 		})) {
 		FURYE << "Error serializing meshes!";
@@ -152,7 +163,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 			auto clip = AnimationClip::Create("temp");
 			if (!clip->Load(node))
 				return false;
-			m_EntityManager->Add(clip);
+			addAsset(clip);
 			return true;
 		});
 	}
@@ -165,7 +176,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 			auto ps = ParticleSystem::Create("temp");
 			if (!ps->Load(node))
 				return false;
-			m_EntityManager->Add(ps);
+			addAsset(ps);
 			return true;
 		});
 	}
@@ -177,7 +188,7 @@ bool Scene::Load(const void* wrapper, bool object) {
 			auto hm = Heightmap::Create("temp");
 			if (!hm->Load(node))
 				return false;
-			m_EntityManager->Add(hm);
+			addAsset(hm);
 			return true;
 		});
 	}
@@ -227,13 +238,10 @@ bool Scene::Load(const void* wrapper, bool object) {
 		return true;
 	});
 
-	// Registration pass: iterate every material's textures and
-	// register them in EntityManager. This handles both old scenes
-	// (no top-level "textures" array -- textures come from materials)
-	// and new scenes (top-level array already loaded, this pass
-	// catches any material-bound textures not in the array).
-	// Add returns false if the texture is already registered (same
-	// UUID) -- that's fine, just means it's a duplicate reference.
+	// Registration pass: register any material-bound textures the array
+	// loaders missed (legacy scenes without a top-level "textures"
+	// array, memory-backed ones). Same-path entries are already
+	// canonical; Add rejects them silently.
 	m_EntityManager->ForEach<Material>([&](const Material::Ptr& mat) -> bool {
 		for (const auto& kv : mat->GetTextures()) {
 			if (kv.second)
@@ -282,7 +290,7 @@ void Scene::Save(void* wrapper, bool object) {
 	SaveKey(wrapper, "version");
 	SaveValue(wrapper, kFormatVersion);
 
-	// save textures (top-level array -- deduped by UUID)
+	// save textures (top-level array -- deduped by path)
 	SaveKey(wrapper, "textures");
 	StartArray(wrapper);
 	m_EntityManager->ForEach<Texture>([&](const Texture::Ptr& ptr) -> bool {

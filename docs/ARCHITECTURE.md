@@ -370,16 +370,26 @@ the intent).
 
 ### 6.3 `EntityManager`
 
-Two-level associative store:
+Two-level associative store plus a path-keyed map:
 
 ```
-map< type_index , map< hashCode , shared_ptr<void> > >
+map< type_index , map< hashCode , shared_ptr<void> > >   (uuid-keyed)
+map< type_index , map< path    , shared_ptr<void> > >    (path-keyed)
 ```
 
-Add / Remove / Get / Count / `ForEach<T>` / iterators. The README's
-`Scene::Manager()->Get<AnimationClip>("James|Walk")` lookup goes through here.
-This is also what makes scenes deduplicated: import a mesh twice with the same
-name and the second import will collide.
+Asset identity = file path. For entities with a non-empty `GetPath()`
+(Texture, Material, Mesh, AnimationClip, ParticleSystem, Heightmap,
+OceanWaves — for Mesh/Material/AnimationClip/ParticleSystem the name IS
+the path) the EM's `Add` is idempotent on path: the first entry for a
+path wins, later same-path `Add`s return false silently (the uuid-keyed
+entry still registers so saved uuid references resolve). `Get<T>(path)`
+is the canonical lookup; `Get<T>(name)` is a thin alias that probes the
+path map first, then the first-registered-wins name index (pathless
+entities only), then a self-healing scan. `ForEach<T>` walks the
+path-keyed map plus pathless entries, so duplicate iteration is
+structurally impossible. `Repath<T>(old, new)` moves a path-keyed entry
+atomically (rename). File-backed asset names are the path's basename
+(`Texture::SetPath` keeps `m_FilePath` and `m_Name` in sync).
 
 ### 6.4 Octree
 

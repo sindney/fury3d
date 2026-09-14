@@ -1575,11 +1575,12 @@ std::shared_ptr<Scene> GltfImporter::Import(
 		auto mat = TranslateMaterial(model, static_cast<int>(mi),
 									 input_stem, input_dir, opts.hdr_target,
 									 warned_signatures);
-		entities->Add(mat);
+		if (!entities->Add(mat))
+			FURYW << "gltf-importer: material path '" << mat->GetPath()
+				  << "' already registered; first entry wins";
 		// Register the material's textures as first-class assets so
-		// the picker can find them via em->ForEach<Texture>. Add
-		// returns false if the texture is already registered (same
-		// UUID) -- that's fine, just means it's a duplicate reference.
+		// the picker can find them via em->ForEach<Texture>. Same-path
+		// textures register once; later Adds are rejected silently.
 		for (const auto& kv : mat->GetTextures()) {
 			if (kv.second)
 				entities->Add(kv.second);
@@ -1599,7 +1600,9 @@ std::shared_ptr<Scene> GltfImporter::Import(
 		std::vector<int> per_submesh_mat;
 		auto m = TranslateMesh(model, static_cast<int>(mi), opts.normal_gen, opts.optimize_mesh, per_submesh_mat);
 		if (!m) return nullptr; // unrecoverable translation error
-		entities->Add(m);
+		if (!entities->Add(m))
+			FURYW << "gltf-importer: mesh path '" << m->GetPath()
+				  << "' already registered; first entry wins";
 		meshes.push_back(m);
 		submesh_to_gltf_material.push_back(std::move(per_submesh_mat));
 	}
@@ -1739,7 +1742,9 @@ std::shared_ptr<Scene> GltfImporter::Import(
 		}
 
 		clip->CalculateDuration();
-		entities->Add(clip);
+		if (!entities->Add(clip))
+			FURYW << "gltf-importer: animation clip path '" << clip->GetPath()
+				  << "' already registered; first entry wins";
 	}
 
 	FURYI << "gltf-importer: '" << input_path << "' translated "

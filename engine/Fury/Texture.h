@@ -163,6 +163,12 @@ namespace fury
 
 		std::string GetFilePath() const;
 
+		// Canonical asset identity: the file path.
+		std::string GetPath() const override { return m_FilePath; }
+
+		// Sets the file path and syncs m_Name to its basename.
+		void SetPath(const std::string &path);
+
 
 	protected:
 

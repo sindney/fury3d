@@ -14,6 +14,7 @@
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
+#include "Fury/Editor/EditorFolderTree.h"
 #include "Fury/Editor/EditorLog.h"
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/EntityManager.h"
@@ -1614,6 +1615,14 @@ void RenderConsoleWindow(bool* open) {
 std::optional<std::pair<std::type_index, std::string>> g_SelectedAsset;
 std::optional<std::string> g_PendingScrollToAsset;
 
+// Content Browser layout + folder state. Persisted to imgui.ini via
+// the FuryEditor Settings handler (Editor.cpp owns the read/write).
+// Keys: ContentBrowser.TreeWidth, ContentBrowser.SelectedFolder,
+// ContentBrowser.TreeExpanded.<virtual folder path>.
+float g_CBTreeWidth = 220.0f;
+std::string g_CBSelectedFolder;
+std::unordered_map<std::string, bool> g_CBTreeExpanded;
+
 namespace {
 // Inline-rename state. When g_RenamingAsset is set, the
 // matching tile's label row is replaced with an InputText.
@@ -1642,7 +1651,8 @@ constexpr float kTileLabelH = 18.0f;
 
 struct TileEntry {
 	std::type_index type;
-	std::string name;
+	std::string path;  // asset identity (GetPath()); unique by construction
+	std::string label; // basename for display
 	std::shared_ptr<void> ptr;
 };
 
@@ -1682,7 +1692,9 @@ bool TilePassesFilter(const TileEntry& tile) {
 		}
 		if (want && tile.type != *want) return false;
 	}
-	if (g_FilterText[0] != '\0' && !FuzzyMatch(g_FilterText, tile.name.c_str()))
+	if (g_FilterText[0] != '\0' &&
+		!FuzzyMatch(g_FilterText, tile.label.c_str()) &&
+		!FuzzyMatch(g_FilterText, tile.path.c_str()))
 		return false;
 	return true;
 }
@@ -1716,41 +1728,48 @@ unsigned int GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 	return tex->GetID();
 }
 
+// Tile label: basename of the asset path, falling back to the entity
+// name for pathless (memory-backed) assets.
+static std::string TileLabel(const std::string& path, const std::string& name) {
+	if (!path.empty()) return PathBasename(path);
+	return name;
+}
+
 void CollectTiles(std::vector<TileEntry>& tiles) {	if (!Scene::Active) return;
 	auto em = Scene::Active->GetEntityManager();
 	if (!em) return;
 	em->ForEach<Mesh>([&](const std::shared_ptr<Mesh>& m) {
-		tiles.push_back({typeid(Mesh), m->GetName(),
+		tiles.push_back({typeid(Mesh), m->GetPath(), TileLabel(m->GetPath(), m->GetName()),
 						 std::static_pointer_cast<void>(m)});
 		return true;
 	});
 	em->ForEach<Material>([&](const std::shared_ptr<Material>& m) {
-		tiles.push_back({typeid(Material), m->GetName(),
+		tiles.push_back({typeid(Material), m->GetPath(), TileLabel(m->GetPath(), m->GetName()),
 						 std::static_pointer_cast<void>(m)});
 		return true;
 	});
 	em->ForEach<Texture>([&](const std::shared_ptr<Texture>& t) {
-		tiles.push_back({typeid(Texture), t->GetName(),
+		tiles.push_back({typeid(Texture), t->GetPath(), TileLabel(t->GetPath(), t->GetName()),
 						 std::static_pointer_cast<void>(t)});
 		return true;
 	});
 	em->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& c) {
-		tiles.push_back({typeid(AnimationClip), c->GetName(),
+		tiles.push_back({typeid(AnimationClip), c->GetPath(), TileLabel(c->GetPath(), c->GetName()),
 						 std::static_pointer_cast<void>(c)});
 		return true;
 	});
 	em->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr& p) {
-		tiles.push_back({typeid(ParticleSystem), p->GetName(),
+		tiles.push_back({typeid(ParticleSystem), p->GetPath(), TileLabel(p->GetPath(), p->GetName()),
 						 std::static_pointer_cast<void>(p)});
 		return true;
 	});
 	em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap>& h) {
-		tiles.push_back({typeid(Heightmap), h->GetName(),
+		tiles.push_back({typeid(Heightmap), h->GetPath(), TileLabel(h->GetPath(), h->GetName()),
 						 std::static_pointer_cast<void>(h)});
 		return true;
 	});
 	em->ForEach<OceanWaves>([&](const std::shared_ptr<OceanWaves>& w) {
-		tiles.push_back({typeid(OceanWaves), w->GetName(),
+		tiles.push_back({typeid(OceanWaves), w->GetPath(), TileLabel(w->GetPath(), w->GetName()),
 						 std::static_pointer_cast<void>(w)});
 		return true;
 	});
@@ -1759,36 +1778,7 @@ void CollectTiles(std::vector<TileEntry>& tiles) {	if (!Scene::Active) return;
 bool IsTileSelected(const TileEntry& tile) {
 	return g_SelectedAsset &&
 		   g_SelectedAsset->first == tile.type &&
-		   g_SelectedAsset->second == tile.name;
-}
-
-// Drop duplicate (type, name) entries before they reach the grid.
-// Legacy scenes can carry several same-name copies of one asset
-// (terrain re-registrations piling up in the EntityManager); each
-// would get the same tile ID and trip ImGui's ID-conflict check,
-// and the first copy can be a dead load (black thumbnail). Keep
-// one tile per (type, name); for textures upgrade to the first
-// content-valid copy so the preview shows real pixels.
-void DedupeTiles(std::vector<TileEntry>& tiles) {
-	std::unordered_map<std::string, size_t> indexOf;
-	std::vector<TileEntry> out;
-	out.reserve(tiles.size());
-	for (const auto& tile : tiles) {
-		const std::string key = std::string(tile.type.name()) + ":" + tile.name;
-		auto it = indexOf.find(key);
-		if (it == indexOf.end()) {
-			indexOf.emplace(key, out.size());
-			out.push_back(tile);
-			continue;
-		}
-		if (tile.type == typeid(Texture)) {
-			auto cur = std::static_pointer_cast<Texture>(out[it->second].ptr);
-			auto alt = std::static_pointer_cast<Texture>(tile.ptr);
-			if (!cur->IsContentValid() && alt->IsContentValid())
-				out[it->second] = tile;
-		}
-	}
-	tiles.swap(out);
+		   g_SelectedAsset->second == tile.path;
 }
 
 // Material thumbnail per task 4.5. Returns true if a
@@ -1899,56 +1889,57 @@ void RetargetParticleRenderers(const std::string& oldName,
 	walk(root);
 }
 
-// Commit an inline tile rename: re-register the asset under the typed
-// EntityManager collection, disambiguating against same-type names.
-// ParticleSystem renames also retarget name-based ParticleRenderer
-// references (RetargetParticleRenderers). Texture / AnimationClip stay
-// no-ops (out of scope of the PS-tile polish task).
-void CommitAssetRename(const TileEntry& tile, const std::string& name,
-					   std::string newName) {
+// Commit an inline tile rename: the typed basename joins the asset's
+// existing directory and EntityManager::Repath moves the path-keyed
+// entry atomically. ParticleSystem renames also retarget name-based
+// ParticleRenderer references (RetargetParticleRenderers).
+void CommitAssetRename(const TileEntry& tile, std::string newBase) {
 	if (!Scene::Active) return;
 	auto em = Scene::Active->GetEntityManager();
 	if (!em) return;
-	auto pred = [&](const std::string& n) {
+	const std::string dir = PathDirname(tile.path);
+	auto exists = [&](const std::string& p) {
 		if (tile.type == typeid(Mesh))
-			return em->Get<Mesh>(n) != nullptr;
+			return em->Get<Mesh>(p) != nullptr;
 		if (tile.type == typeid(Material))
-			return em->Get<Material>(n) != nullptr;
+			return em->Get<Material>(p) != nullptr;
+		if (tile.type == typeid(Texture))
+			return em->Get<Texture>(p) != nullptr;
+		if (tile.type == typeid(AnimationClip))
+			return em->Get<AnimationClip>(p) != nullptr;
 		if (tile.type == typeid(ParticleSystem))
-			return em->Get<ParticleSystem>(n) != nullptr;
+			return em->Get<ParticleSystem>(p) != nullptr;
+		if (tile.type == typeid(Heightmap))
+			return em->Get<Heightmap>(p) != nullptr;
+		if (tile.type == typeid(OceanWaves))
+			return em->Get<OceanWaves>(p) != nullptr;
 		return false;
 	};
-	if (pred(newName))
-		newName = UniqueName(newName, pred);
-	if (tile.type == typeid(Mesh)) {
-		auto asset = em->Get<Mesh>(name);
-		if (asset) {
-			em->Remove<Mesh>(name);
-			asset->SetName(newName);
-			em->Add<Mesh>(asset);
-			g_SelectedAsset = {typeid(Mesh), newName};
-			Editor::MarkSceneDirty();
-		}
-	} else if (tile.type == typeid(Material)) {
-		auto asset = em->Get<Material>(name);
-		if (asset) {
-			em->Remove<Material>(name);
-			asset->SetName(newName);
-			em->Add<Material>(asset);
-			g_SelectedAsset = {typeid(Material), newName};
-			Editor::MarkSceneDirty();
-		}
-	} else if (tile.type == typeid(ParticleSystem)) {
-		auto asset = em->Get<ParticleSystem>(name);
-		if (asset) {
-			em->Remove<ParticleSystem>(name);
-			asset->SetName(newName);
-			em->Add<ParticleSystem>(asset);
-			RetargetParticleRenderers(name, newName);
-			g_SelectedAsset = {typeid(ParticleSystem), newName};
-			Editor::MarkSceneDirty();
-		}
+	std::string newPath = dir + newBase;
+	if (exists(newPath)) {
+		newBase = UniqueName(newBase, [&](const std::string& b) { return exists(dir + b); });
+		newPath = dir + newBase;
 	}
+	bool moved = false;
+	if (tile.type == typeid(Mesh))
+		moved = em->Repath<Mesh>(tile.path, newPath);
+	else if (tile.type == typeid(Material))
+		moved = em->Repath<Material>(tile.path, newPath);
+	else if (tile.type == typeid(Texture))
+		moved = em->Repath<Texture>(tile.path, newPath);
+	else if (tile.type == typeid(AnimationClip))
+		moved = em->Repath<AnimationClip>(tile.path, newPath);
+	else if (tile.type == typeid(ParticleSystem))
+		moved = em->Repath<ParticleSystem>(tile.path, newPath);
+	else if (tile.type == typeid(Heightmap))
+		moved = em->Repath<Heightmap>(tile.path, newPath);
+	else if (tile.type == typeid(OceanWaves))
+		moved = em->Repath<OceanWaves>(tile.path, newPath);
+	if (!moved) return;
+	if (tile.type == typeid(ParticleSystem))
+		RetargetParticleRenderers(tile.path, newPath);
+	g_SelectedAsset = {tile.type, newPath};
+	Editor::MarkSceneDirty();
 }
 
 // Helper: ellipsize `name` to fit `width` pixels, appending "...".
@@ -1976,15 +1967,15 @@ static std::string EllipsizeName(const std::string& name, float width) {
 // Render a single asset tile. The whole tile (thumbnail + label)
 // is one Selectable, so the user can click anywhere on the tile
 // to select it -- not just on the label text. In Thumbnail mode
-// the tile shows a 96x96 thumbnail + name; in List mode it shows
-// just the name as a row.
+// the tile shows a 96x96 thumbnail + basename; in List mode it shows
+// just the basename as a row. The full path is on hover.
 void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	(void)anyTileScrolled;
-	const std::string& name = tile.name;
-	// ID must be unique across TYPES too: a mesh and a material can
-	// share a name (glTF imports do this constantly) and otherwise
-	// produce "conflicting ID" warnings on hover.
-	const std::string tileId = std::string(tile.type.name()) + ":" + name;
+	const std::string& path = tile.path;
+	const std::string& label = tile.label;
+	// Paths are unique by construction, so path-keyed tile IDs cannot
+	// collide even when a mesh and a material share a basename.
+	const std::string tileId = std::string(tile.type.name()) + ":" + path;
 	ImGui::PushID(tileId.c_str());
 
 	// Capture the tile's top-left for drawing the type badge.
@@ -1992,7 +1983,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 
 	bool renamingThisTile = g_RenamingAsset &&
 							g_RenamingAsset->first == tile.type &&
-							g_RenamingAsset->second == name;
+							g_RenamingAsset->second == path;
 
 	// --- Thumbnail mode: thumbnail + label below ---
 	// We render the thumbnail as a non-interactive image, then the
@@ -2115,7 +2106,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	// Label below: plain text with small horizontal margins so the
 	// name isn't flush against the tile edges.
 	constexpr float kLabelMargin = 4.0f;
-	std::string display = EllipsizeName(name, kTilePitch - 2 * kLabelMargin - 8.0f);
+	std::string display = EllipsizeName(label, kTilePitch - 2 * kLabelMargin - 8.0f);
 	ImGui::SetCursorScreenPos(
 		ImVec2(thumb_min.x + kLabelMargin, thumb_min.y + kTileThumbnail + 2));
 	ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kTilePitch - 2 * kLabelMargin);
@@ -2127,9 +2118,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 												  ImGuiInputTextFlags_AutoSelectAll);
 			bool cancelled = ImGui::IsKeyPressed(ImGuiKey_Escape);
 			if (committed) {
-				std::string newName(g_RenameBuffer);
-				if (!newName.empty() && newName != name)
-					CommitAssetRename(tile, name, newName);
+				std::string newBase(g_RenameBuffer);
+				if (!newBase.empty() && newBase != label)
+					CommitAssetRename(tile, newBase);
 				g_RenamingAsset.reset();
 			} else if (cancelled) {
 				g_RenamingAsset.reset();
@@ -2142,8 +2133,10 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			// thumbnail (##thumb_hit) and the whole-tile InvisibleButton
 			// added below.
 			ImGui::TextUnformatted(display.c_str());
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", path.c_str());
 			if (thumbClicked && !ImGui::IsMouseDoubleClicked(0))
-				g_SelectedAsset = std::make_pair(tile.type, name);
+				g_SelectedAsset = std::make_pair(tile.type, path);
 			if (thumbDblClicked) {
 				if (tile.type == typeid(Mesh))
 					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
@@ -2166,7 +2159,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		ImGui::InvisibleButton("##tile_hit",
 			ImVec2(kTilePitch, kTileThumbnail + kTileLabelH + 4));
 		if (ImGui::IsItemClicked(0))
-			g_SelectedAsset = std::make_pair(tile.type, name);
+			g_SelectedAsset = std::make_pair(tile.type, path);
 		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 			if (tile.type == typeid(Mesh))
 				OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
@@ -2184,7 +2177,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	{
 		ImGui::BeginGroup();
 
-		std::string display = EllipsizeName(name, ImGui::GetContentRegionAvail().x);
+		std::string display = EllipsizeName(label, ImGui::GetContentRegionAvail().x);
 		if (renamingThisTile) {
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
 			bool committed = ImGui::InputText("##rename", g_RenameBuffer,
@@ -2193,9 +2186,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 												  ImGuiInputTextFlags_AutoSelectAll);
 			bool cancelled = ImGui::IsKeyPressed(ImGuiKey_Escape);
 			if (committed) {
-				std::string newName(g_RenameBuffer);
-				if (!newName.empty() && newName != name)
-					CommitAssetRename(tile, name, newName);
+				std::string newBase(g_RenameBuffer);
+				if (!newBase.empty() && newBase != label)
+					CommitAssetRename(tile, newBase);
 				g_RenamingAsset.reset();
 			} else if (cancelled) {
 				g_RenamingAsset.reset();
@@ -2205,12 +2198,14 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		} else {
 			// Plain text label -- no Selectable, no hover background.
 			ImGui::TextUnformatted(display.c_str());
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", path.c_str());
 			// InvisibleButton over the row for click handling.
 			ImGui::SetCursorScreenPos(tile_min);
 			ImGui::InvisibleButton("##list_hit",
 				ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetTextLineHeight()));
 			if (ImGui::IsItemClicked(0))
-				g_SelectedAsset = std::make_pair(tile.type, name);
+				g_SelectedAsset = std::make_pair(tile.type, path);
 			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
 				if (tile.type == typeid(Mesh))
 					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
@@ -2239,7 +2234,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	}
 
 	// Right-click context menu (on the whole tile group).
-	std::string ctx_id = "ctx_" + name;
+	std::string ctx_id = "ctx_" + path;
 	if (ImGui::BeginPopupContextItem(ctx_id.c_str())) {
 		// Duplicate supports Mesh + Material + ParticleSystem -- the
 		// remaining asset types (Texture, AnimationClip) have no typed
@@ -2247,7 +2242,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		if ((tile.type == typeid(Mesh) || tile.type == typeid(Material) ||
 			 tile.type == typeid(ParticleSystem)) &&
 			ImGui::MenuItem("Duplicate")) {
-			std::string baseName = name + " (copy)";
+			std::string baseName = path + " (copy)";
 			auto pred = [&](const std::string& n) {
 				auto em = Scene::Active->GetEntityManager();
 				if (!em) return false;
@@ -2264,7 +2259,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				auto copy = Mesh::Create("");
 				FileUtil::DeserializeFromString(copy,
 												FileUtil::SerializeToString(orig));
-				copy->SetName(newName);
+				copy->RegenerateUUID();
+				copy->SetPath(newName);
 				Scene::Active->GetEntityManager()->Add<Mesh>(copy);
 				g_SelectedAsset = {typeid(Mesh), newName};
 				Editor::MarkSceneDirty();
@@ -2275,7 +2271,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				// ORIGINAL system name -- correct.
 				auto orig = std::static_pointer_cast<ParticleSystem>(tile.ptr);
 				auto copy = orig->Clone();
-				copy->SetName(newName);
+				copy->SetPath(newName);
 				Scene::Active->GetEntityManager()->Add<ParticleSystem>(copy);
 				g_SelectedAsset = {typeid(ParticleSystem), newName};
 				Editor::MarkSceneDirty();
@@ -2284,16 +2280,17 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				auto copy = Material::Create("");
 				FileUtil::DeserializeFromString(copy,
 												FileUtil::SerializeToString(orig));
-				copy->SetName(newName);
+				copy->RegenerateUUID();
+				copy->SetPath(newName);
 				Scene::Active->GetEntityManager()->Add<Material>(copy);
 				g_SelectedAsset = {typeid(Material), newName};
 				Editor::MarkSceneDirty();
 			}
 		}
 		if (ImGui::MenuItem("Rename")) {
-			g_RenamingAsset = std::make_pair(tile.type, name);
+			g_RenamingAsset = std::make_pair(tile.type, path);
 			std::snprintf(g_RenameBuffer, sizeof(g_RenameBuffer),
-						  "%s", name.c_str());
+						  "%s", label.c_str());
 		}
 		if (ImGui::MenuItem("Delete")) {
 			unsigned int refs = CountAssetReferences(tile.type, tile.ptr);
@@ -2307,9 +2304,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				char msg[256];
 				std::snprintf(msg, sizeof(msg),
 							  "%s is in use by %u %s. Delete anyway?",
-							  name.c_str(), refs, consumer);
+							  label.c_str(), refs, consumer);
 				auto type = tile.type;
-				auto aname = name;
+				auto aname = path;
 				RequestConfirmDialog("Delete Asset", msg,
 									 [type, aname, em](bool yes) {
 										 if (!yes) return;
@@ -2324,11 +2321,11 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 									 });
 			} else {
 				if (tile.type == typeid(Mesh))
-					em->Remove<Mesh>(name);
+					em->Remove<Mesh>(path);
 				else if (tile.type == typeid(Material))
-					em->Remove<Material>(name);
+					em->Remove<Material>(path);
 				else if (tile.type == typeid(ParticleSystem))
-					em->Remove<ParticleSystem>(name);
+					em->Remove<ParticleSystem>(path);
 				g_SelectedAsset.reset();
 				Editor::MarkSceneDirty();
 			}
@@ -2359,9 +2356,9 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	// F2 on a selected tile enters inline rename mode.
 	if (IsTileSelected(tile) && !g_RenamingAsset &&
 		ImGui::IsKeyPressed(ImGuiKey_F2)) {
-		g_RenamingAsset = std::make_pair(tile.type, name);
+		g_RenamingAsset = std::make_pair(tile.type, path);
 		std::snprintf(g_RenameBuffer, sizeof(g_RenameBuffer),
-					  "%s", name.c_str());
+					  "%s", label.c_str());
 	}
 
 	ImGui::PopID();
@@ -2369,7 +2366,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 } // namespace
 
 void RenderContentBrowserWindow(bool* open) {
-	ImGui::SetNextWindowSize(ImVec2(480, 360), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(640, 400), ImGuiCond_FirstUseEver);
 	if (!ImGui::Begin("Content Browser", open)) {
 		ImGui::End();
 		return;
@@ -2381,35 +2378,6 @@ void RenderContentBrowserWindow(bool* open) {
 		return;
 	}
 
-	// Collect every Mesh and Material into a name-sorted list.
-	std::vector<TileEntry> tiles;
-	CollectTiles(tiles);
-	// Same-name duplicates share a tile ID and can preview dead
-	// copies; keep one tile per (type, name) (see DedupeTiles).
-	DedupeTiles(tiles);
-	if (tiles.empty()) {
-		ImGui::TextDisabled("(no assets in active scene)");
-		ImGui::End();
-		return;
-	}
-	std::sort(tiles.begin(), tiles.end(),
-			  [](const TileEntry& a, const TileEntry& b) {
-				  return a.name < b.name;
-			  });
-
-	// Build the set of live BufferIds from the current tiles,
-	// then evict stale mesh-thumbnail cache entries (task 7.3).
-	// Uses the UNFILTERED set -- filtering the grid must never
-	// evict thumbnails of hidden tiles.
-	std::unordered_set<size_t> liveBufferIds;
-	for (const auto& tile : tiles) {
-		if (tile.type == typeid(Mesh)) {
-			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
-			liveBufferIds.insert(mesh->GetBufferId());
-		}
-	}
-	EvictStaleMeshThumbnails(liveBufferIds);
-
 	// Filter toolbar: type combo + fuzzy name search.
 	ImGui::SetNextItemWidth(110.0f);
 	ImGui::Combo("##cb_type", &g_FilterType, kFilterTypeNames,
@@ -2420,15 +2388,70 @@ void RenderContentBrowserWindow(bool* open) {
 							 IM_ARRAYSIZE(g_FilterText));
 	ImGui::Separator();
 
-	// Apply the filters (type AND fuzzy name); grid keeps name sort.
+	// Two-pane layout: folder tree left, folder-scoped tile grid right,
+	// with a drag splitter between them.
+	const float avail_x = ImGui::GetContentRegionAvail().x;
+	const float tree_w_max = std::max(160.0f, avail_x * 0.6f);
+	g_CBTreeWidth = std::clamp(g_CBTreeWidth, 120.0f, tree_w_max);
+
+	ImGui::BeginChild("##cb_tree", ImVec2(g_CBTreeWidth, 0), ImGuiChildFlags_Borders);
+	Editor::RenderAssetFolderTree(g_CBSelectedFolder, g_CBTreeExpanded);
+	ImGui::EndChild();
+
+	ImGui::SameLine(0.0f, 0.0f);
+	ImGui::InvisibleButton("##cb_split", ImVec2(6.0f, -1.0f));
+	if (ImGui::IsItemActive())
+		g_CBTreeWidth = std::clamp(g_CBTreeWidth + ImGui::GetIO().MouseDelta.x,
+								   120.0f, tree_w_max);
+	if (ImGui::IsItemHovered())
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+	ImGui::SameLine();
+	ImGui::BeginChild("##cb_tiles", ImVec2(0, 0), ImGuiChildFlags_None);
+
+	// Reveal-on-pick jumps to the asset's folder before scrolling.
+	if (g_PendingScrollToAsset)
+		g_CBSelectedFolder = Editor::VirtualFolderOf(*g_PendingScrollToAsset);
+
+	std::vector<TileEntry> tiles;
+	CollectTiles(tiles);
+	// Folder scope first, then the type + text filters.
+	tiles.erase(std::remove_if(tiles.begin(), tiles.end(),
+							   [](const TileEntry& t) {
+								   return !Editor::AssetPathInFolder(t.path, g_CBSelectedFolder);
+							   }),
+				tiles.end());
 	tiles.erase(std::remove_if(tiles.begin(), tiles.end(),
 							   [](const TileEntry& t) { return !TilePassesFilter(t); }),
 				tiles.end());
+
+	// Build the set of live BufferIds from ALL collected tiles, then
+	// evict stale mesh-thumbnail cache entries (task 7.3). Uses the
+	// UNFILTERED set -- filtering the grid must never evict thumbnails
+	// of hidden tiles.
+	std::unordered_set<size_t> liveBufferIds;
+	{
+		std::vector<TileEntry> all;
+		CollectTiles(all);
+		for (const auto& tile : all) {
+			if (tile.type == typeid(Mesh)) {
+				auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
+				liveBufferIds.insert(mesh->GetBufferId());
+			}
+		}
+	}
+	EvictStaleMeshThumbnails(liveBufferIds);
+
 	if (tiles.empty()) {
-		ImGui::TextDisabled("(no assets in active scene)");
+		ImGui::TextDisabled("(no assets in this folder)");
+		ImGui::EndChild();
 		ImGui::End();
 		return;
 	}
+	std::sort(tiles.begin(), tiles.end(),
+			  [](const TileEntry& a, const TileEntry& b) {
+				  return a.label < b.label;
+			  });
 
 	// Evict the Refresh flag (no-op -- we re-enumerate every
 	// frame -- but the menu item exists per spec).
@@ -2446,7 +2469,7 @@ void RenderContentBrowserWindow(bool* open) {
 
 		// If a scroll-to is pending and this tile matches, scroll
 		// it into view (task 4.12).
-		if (g_PendingScrollToAsset && *g_PendingScrollToAsset == tile.name) {
+		if (g_PendingScrollToAsset && *g_PendingScrollToAsset == tile.path) {
 			float top = ImGui::GetItemRectMin().y;
 			float bot = ImGui::GetItemRectMax().y;
 			float sy = ImGui::GetScrollY();
@@ -2464,23 +2487,22 @@ void RenderContentBrowserWindow(bool* open) {
 	}
 
 	// Right-click on empty grid space -> Refresh + Display.
-	if (tiles.empty() == false) {
-		ImGui::InvisibleButton("##empty_grid", ImGui::GetContentRegionAvail());
-		if (ImGui::BeginPopupContextItem("ctx_empty")) {
-			if (ImGui::MenuItem("Refresh"))
-				g_NeedsRefresh = true;
-			ImGui::Separator();
-			if (ImGui::BeginMenu("Display")) {
-				if (ImGui::MenuItem("List", nullptr, g_DisplayMode == DisplayMode::List))
-					g_DisplayMode = DisplayMode::List;
-				if (ImGui::MenuItem("Thumbnail", nullptr, g_DisplayMode == DisplayMode::Thumbnail))
-					g_DisplayMode = DisplayMode::Thumbnail;
-				ImGui::EndMenu();
-			}
-			ImGui::EndPopup();
+	ImGui::InvisibleButton("##empty_grid", ImGui::GetContentRegionAvail());
+	if (ImGui::BeginPopupContextItem("ctx_empty")) {
+		if (ImGui::MenuItem("Refresh"))
+			g_NeedsRefresh = true;
+		ImGui::Separator();
+		if (ImGui::BeginMenu("Display")) {
+			if (ImGui::MenuItem("List", nullptr, g_DisplayMode == DisplayMode::List))
+				g_DisplayMode = DisplayMode::List;
+			if (ImGui::MenuItem("Thumbnail", nullptr, g_DisplayMode == DisplayMode::Thumbnail))
+				g_DisplayMode = DisplayMode::Thumbnail;
+			ImGui::EndMenu();
 		}
+		ImGui::EndPopup();
 	}
 
+	ImGui::EndChild();
 	ImGui::End();
 }
 

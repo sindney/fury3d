@@ -248,10 +248,12 @@ namespace fury
 				// scene (imports register their own; without this a
 				// Material.Create'd material is GC'd and missing on reload).
 				"AddMaterial", [](Scene &s, const Material::Ptr &m) {
-					if (auto em = s.GetEntityManager()) em->Add(m);
+					if (auto em = s.GetEntityManager()) return em->Add(m);
+					return false;
 				},
 				"AddMesh", [](Scene &s, const Mesh::Ptr &m) {
-					if (auto em = s.GetEntityManager()) em->Add(m);
+					if (auto em = s.GetEntityManager()) return em->Add(m);
+					return false;
 				},
 				// Name lookup for particle system assets -- smoke tests and
 				// automation assert against these (there is no generic
@@ -274,7 +276,8 @@ namespace fury
 					return nullptr;
 				},
 				"AddParticleSystem", [](Scene &s, const ParticleSystem::Ptr &p) {
-					if (auto em = s.GetEntityManager()) em->Add(p);
+					if (auto em = s.GetEntityManager()) return em->Add(p);
+					return false;
 				},
 				"GetRenderSettings", &Scene::GetRenderSettings,
 				"GetWorkingDir", &Scene::GetWorkingDir,
@@ -389,6 +392,30 @@ namespace fury
 				if (!em) return;
 				em->ForEach<Material>([&fn](const Material::Ptr &m) -> bool {
 					sol::protected_function_result r = fn(m);
+					if (!r.valid()) return true;
+					if (r.return_count() == 0) return true;
+					sol::object obj = r;
+					return obj.get_type() == sol::type::lua_nil;
+				});
+			});
+		lua["Scene"]["ForEachTexture"] = sol::overload(
+			[](Scene &s, sol::function fn) {
+				auto em = s.GetEntityManager();
+				if (!em) return;
+				em->ForEach<Texture>([&fn](const Texture::Ptr &t) -> bool {
+					sol::protected_function pf = fn;
+					sol::protected_function_result r = pf(t);
+					if (!r.valid()) return true;
+					if (r.return_count() == 0) return true;
+					sol::object obj = r;
+					return obj.get_type() == sol::type::lua_nil;
+				});
+			},
+			[](Scene &s, sol::protected_function fn) {
+				auto em = s.GetEntityManager();
+				if (!em) return;
+				em->ForEach<Texture>([&fn](const Texture::Ptr &t) -> bool {
+					sol::protected_function_result r = fn(t);
 					if (!r.valid()) return true;
 					if (r.return_count() == 0) return true;
 					sol::object obj = r;
@@ -1575,8 +1602,9 @@ namespace fury
 					target_root->AddChild(child);
 					++merged;
 				}
-				// Transfer entities. EntityManager::Add dedupes by hash; we
-				// just trust that and forward.
+				// Transfer entities. EntityManager::Add dedupes by path (and
+				// uuid); same-path source entries are absorbed by the target's
+				// canonical entry.
 				// Textures must be transferred explicitly: Materials only
 				// hold shared_ptrs to their Textures, so without this
 				// transfer the imported textures are invisible to the

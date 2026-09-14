@@ -99,6 +99,12 @@ namespace fury
 		ChannelPtr GetChannel(const std::string &name) const;
 
 		ChannelPtr GetChannelAt(unsigned int index) const;
+
+		// Canonical asset identity: the clip's name is its path.
+		std::string GetPath() const override { return m_Name; }
+
+		// Path and name are the same string for clips.
+		void SetPath(const std::string &path) { m_Name = path; }
 	};
 
 }

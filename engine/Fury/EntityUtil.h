@@ -6,6 +6,21 @@
 
 namespace fury
 {
+	// Basename of a slash-separated asset path ("a/b/c.png" -> "c.png").
+	inline std::string PathBasename(const std::string& path)
+	{
+		auto slash = path.find_last_of("/\\");
+		return slash == std::string::npos ? path : path.substr(slash + 1);
+	}
+
+	// Directory part of a slash-separated asset path, trailing slash
+	// kept ("a/b/c.png" -> "a/b/"); "" when the path has no directory.
+	inline std::string PathDirname(const std::string& path)
+	{
+		auto slash = path.find_last_of("/\\");
+		return slash == std::string::npos ? "" : path.substr(0, slash + 1);
+	}
+
 	// Returns the first non-colliding name for `base` using the
 	// suffix scheme `base`, `base (1)`, `base (2)`, ..., `base (N)`.
 	//

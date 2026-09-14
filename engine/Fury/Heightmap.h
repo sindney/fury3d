@@ -33,6 +33,12 @@ namespace fury
 		const std::string &GetFilePath() const { return m_FilePath; }
 		void SetFilePath(const std::string &path) { m_FilePath = path; }
 
+		// Canonical asset identity: the .r16 file path.
+		std::string GetPath() const override { return m_FilePath; }
+
+		// Sets the file path and syncs m_Name to its basename.
+		void SetPath(const std::string &path);
+
 		// Reads the .r16 + sidecar from disk (scene-working-dir relative).
 		// Idempotent; returns false (logged) on missing/malformed files.
 		bool LoadHeights();

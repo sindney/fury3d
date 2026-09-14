@@ -1242,7 +1242,7 @@ void RenderTerrainBody(SceneNode* node, Terrain* terrain) {
 		typeid(Heightmap),
 		[terrain](std::shared_ptr<void> p) {
 			auto hm = std::static_pointer_cast<Heightmap>(p);
-			terrain->SetHeightmapName(hm ? hm->GetName() : "");
+			terrain->SetHeightmapName(hm ? hm->GetPath() : "");
 			terrain->Rebuild();
 			Editor::MarkSceneDirty();
 		});

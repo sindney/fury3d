@@ -5,6 +5,7 @@
 #include "Fury/BufferManager.h"
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
+#include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/Texture.h"
@@ -253,7 +254,7 @@ namespace fury
 		// to the embedded 0x0 branch and the bad multi-segment
 		// path was lost). Set once at the top, regardless of
 		// whether LoadImage succeeds below.
-		m_FilePath = filePath;
+		SetPath(filePath);
 
 		if (!FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
 			return;
@@ -573,9 +574,15 @@ namespace fury
 		}
 	}
 
+	void Texture::SetPath(const std::string &path)
+	{
+		m_FilePath = path;
+		m_Name = PathBasename(path);
+	}
+
 	void Texture::SetFilePathAndSRGB(const std::string &filePath, bool srgb)
 	{
-		m_FilePath = filePath;
+		SetPath(filePath);
 		// Use the sRGB-encoding family so Texture::Save emits "srgb": true.
 		// 3 vs 4 channels gets fixed up later by CreateFromImage on the
 		// first runtime load -- for serialization the family is what matters.

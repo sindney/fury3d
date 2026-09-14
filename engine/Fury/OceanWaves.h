@@ -60,6 +60,12 @@ namespace fury
 		const std::string &GetFilePath() const { return m_FilePath; }
 		void SetFilePath(const std::string &path) { m_FilePath = path; }
 
+		// Canonical asset identity: the ocean.json file path.
+		std::string GetPath() const override { return m_FilePath; }
+
+		// Sets the file path and syncs m_Name to its basename.
+		void SetPath(const std::string &path);
+
 		// Reads ocean.json + band payloads (scene-working-dir relative).
 		// Idempotent. CPU data always loads; GL textures only when a
 		// context is live. Returns false (one logged warning) on

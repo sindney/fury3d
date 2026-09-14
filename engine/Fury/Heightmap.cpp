@@ -4,6 +4,7 @@
 
 #include <rapidjson/document.h>
 
+#include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Log.h"
 #include "Fury/Scene.h"
@@ -25,6 +26,12 @@ namespace fury
 	{
 	}
 
+	void Heightmap::SetPath(const std::string &path)
+	{
+		m_FilePath = path;
+		m_Name = PathBasename(path);
+	}
+
 	bool Heightmap::Load(const void* wrapper, bool object)
 	{
 		if (object && !IsObject(wrapper))
@@ -36,6 +43,8 @@ namespace fury
 			return false;
 
 		LoadMemberValue(wrapper, "file_path", m_FilePath);
+		if (!m_FilePath.empty())
+			m_Name = PathBasename(m_FilePath);
 		LoadMemberValue(wrapper, "resolution", m_Resolution);
 		LoadMemberValue(wrapper, "worldSizeX", m_WorldSizeX);
 		LoadMemberValue(wrapper, "worldSizeZ", m_WorldSizeZ);

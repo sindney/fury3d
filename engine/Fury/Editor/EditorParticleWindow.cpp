@@ -11,6 +11,7 @@
 #include "Fury/BoxBounds.h"
 #include "Fury/Color.h"
 #include "Fury/EntityManager.h"
+#include "Fury/EntityUtil.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
@@ -346,17 +347,17 @@ namespace fury
 			ImGui::SetNextWindowPos(ImVec2(vp->GetCenter().x, vp->GetCenter().y),
 				ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
 
-			std::string title = "Particle: " + system->GetName();
+			std::string title = "Particle: " + PathBasename(system->GetPath()) + "###" + system->GetPath();
 			if (!ImGui::Begin(title.c_str(), p_open))
 			{
 				ImGui::End();
 				return;
 			}
 
-			ImGui::TextDisabled("ParticleSystem: %s", system->GetName().c_str());
+			ImGui::TextDisabled("ParticleSystem: %s", system->GetPath().c_str());
 			ImGui::Separator();
 
-			std::string popup_id = "ParticleEditor:" + system->GetName();
+			std::string popup_id = "ParticleEditor:" + system->GetPath();
 
 			// Two-pane layout: viewer (~65%) + inspector (~35%).
 			ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -445,7 +446,7 @@ namespace fury
 		void OpenParticleEditor(const std::shared_ptr<ParticleSystem> &system)
 		{
 			if (!system) return;
-			std::string popup = "ParticleEditor:" + system->GetName();
+			std::string popup = "ParticleEditor:" + system->GetPath();
 			g_OpenParticleEditors.insert(popup);
 			// The preview drives Update() manually from here on --
 			// suspend the wall-clock tick until the window closes.

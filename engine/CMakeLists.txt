@@ -402,6 +402,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetWindows.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorBodySetupWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorConfirmDialog.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorFolderTree.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorLog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorNodeProperties.cpp

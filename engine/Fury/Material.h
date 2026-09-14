@@ -175,6 +175,12 @@ namespace fury
 
 		// get this material's unique identifier for rendering.
 		unsigned int GetID() const;
+
+		// Canonical asset identity: the material's name is its path.
+		std::string GetPath() const override { return m_Name; }
+
+		// Path and name are the same string for materials.
+		void SetPath(const std::string &path) { m_Name = path; }
 	};
 }
 

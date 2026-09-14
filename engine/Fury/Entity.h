@@ -29,6 +29,11 @@ namespace fury
 
 		std::string GetName() const;
 
+		// File path that identifies the asset ("" for entities that are
+		// not file-backed). EntityManager keys path-bearing entities by
+		// this string; assets override it.
+		virtual std::string GetPath() const { return ""; }
+
 		// UUID -- persistent unique identifier. Used as the
 		// EntityManager lookup key (via GetHashCode). Auto-generated
 		// on construction; loaded from JSON if present.
@@ -37,6 +42,10 @@ namespace fury
 		// Sets the UUID and recomputes m_HashCode. Call this after
 		// loading a UUID from JSON so the entity is keyed correctly.
 		void SetUUID(const std::string &uuid);
+
+		// Mint a fresh UUID (for copies that must not share the
+		// source's identity).
+		void RegenerateUUID();
 
 		size_t GetHashCode() const;
 

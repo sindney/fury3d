@@ -26,8 +26,8 @@ namespace fury
 	namespace
 	{
 		// load-or-reuse a project texture and register it in the scene's
-		// EntityManager (name == path convention) so the editor's texture
-		// picker can offer it back
+		// EntityManager (path is the asset identity) so the editor's
+		// texture picker can offer it back
 		std::shared_ptr<Texture> LoadTerrainTexture(const std::string &path, bool srgb)
 		{
 			if (path.empty() || Scene::Active == nullptr)
@@ -36,8 +36,16 @@ namespace fury
 			if (em)
 			{
 				if (auto existing = em->Get<Texture>(path))
-					if (existing->GetFilePath() == path)
+				{
+					if (existing->IsContentValid())
 						return existing;
+					// heal a content-invalid canonical entry in place
+					existing->CreateFromImage(path, srgb, true);
+					if (!existing->IsContentValid())
+						return nullptr;
+					existing->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+					return existing;
+				}
 			}
 			auto tex = Texture::Create(path);
 			tex->CreateFromImage(path, srgb, true);
@@ -47,8 +55,11 @@ namespace fury
 				return nullptr;
 			// terrain textures minify to the horizon; trilinear or they shimmer
 			tex->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
-			if (em)
-				em->Add(tex);
+			if (em && !em->Add(tex))
+			{
+				FURYW << "Terrain: texture '" << path << "' registered concurrently; using canonical entry";
+				return em->Get<Texture>(path);
+			}
 			return tex;
 		}
 			// resolve (or register-then-resolve) the named heightmap asset;
@@ -67,10 +78,11 @@ namespace fury
 				return existing->HasHeights() ? existing : nullptr;
 			}
 			auto hm = Heightmap::Create(name);
-			hm->SetFilePath(name);
+			hm->SetPath(name);
 			if (!hm->LoadHeights())
 				return nullptr;
-			em->Add(hm);
+			if (!em->Add(hm))
+				return em->Get<Heightmap>(name);
 			return hm;
 		}
 	}

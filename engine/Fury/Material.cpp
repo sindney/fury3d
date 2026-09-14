@@ -4,6 +4,7 @@
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Material.h"
+#include "Fury/Scene.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
@@ -135,6 +136,18 @@ namespace fury
 			auto texture = Texture::Create("temp");
 			if (texture->Load(node))
 			{
+				// Bind the EM's canonical entry for this path when one is
+				// registered (the top-level array loads first); the fresh
+				// instance still registers so its saved uuid resolves.
+				if (!texture->GetFilePath().empty() && Scene::Active)
+				{
+					if (auto em = Scene::Active->GetEntityManager())
+					{
+						em->Add(texture);
+						if (auto canonical = em->Get<Texture>(texture->GetFilePath()))
+							texture = canonical;
+					}
+				}
 				SetTexture(key, texture);
 				return true;
 			}

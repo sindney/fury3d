@@ -9,6 +9,7 @@
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
+#include "Fury/EntityUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
 #include "Fury/MeshSimplifier.h"
@@ -1077,16 +1078,18 @@ void RenderMeshEditorWindow(const std::shared_ptr<Mesh>& mesh, bool* p_open) {
 	ImGuiViewport* vp = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(ImVec2(vp->GetCenter().x, vp->GetCenter().y),
 							ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-	std::string title = "Mesh: " + mesh->GetName();
+	// Visible title shows the basename; the window ID carries the full
+	// path so two same-basename assets get independent windows.
+	std::string title = "Mesh: " + PathBasename(mesh->GetPath()) + "###" + mesh->GetPath();
 	if (!ImGui::Begin(title.c_str(), p_open)) {
 		ImGui::End();
 		return;
 	}
 
-	ImGui::TextDisabled("Mesh: %s", mesh->GetName().c_str());
+	ImGui::TextDisabled("Mesh: %s", mesh->GetPath().c_str());
 	ImGui::Separator();
 
-	std::string popup_id = "MeshEditor:" + mesh->GetName();
+	std::string popup_id = "MeshEditor:" + mesh->GetPath();
 
 	// Two-pane layout: viewer left (~70%), metadata right (~30%).
 	ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -1126,13 +1129,13 @@ void RenderMaterialEditorWindow(const std::shared_ptr<Material>& mat, bool* p_op
 	ImGuiViewport* vp = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(ImVec2(vp->GetCenter().x, vp->GetCenter().y),
 							ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-	std::string title = "Material: " + mat->GetName();
+	std::string title = "Material: " + PathBasename(mat->GetPath()) + "###" + mat->GetPath();
 	if (!ImGui::Begin(title.c_str(), p_open)) {
 		ImGui::End();
 		return;
 	}
 
-	ImGui::TextDisabled("Material: %s", mat->GetName().c_str());
+	ImGui::TextDisabled("Material: %s", mat->GetPath().c_str());
 	ImGui::Separator();
 
 	RenderMaterialEditorBody(mat);
@@ -1142,13 +1145,13 @@ void RenderMaterialEditorWindow(const std::shared_ptr<Material>& mat, bool* p_op
 
 void OpenMeshEditor(const std::shared_ptr<Mesh>& mesh) {
 	if (!mesh) return;
-	std::string popup = "MeshEditor:" + mesh->GetName();
+	std::string popup = "MeshEditor:" + mesh->GetPath();
 	g_OpenMeshEditors.insert(popup);
 }
 
 void OpenMaterialEditor(const std::shared_ptr<Material>& mat) {
 	if (!mat) return;
-	std::string popup = "MaterialEditor:" + mat->GetName();
+	std::string popup = "MaterialEditor:" + mat->GetPath();
 	g_OpenMaterialEditors.insert(popup);
 }
 

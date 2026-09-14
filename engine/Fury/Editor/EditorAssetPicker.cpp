@@ -1,5 +1,8 @@
 #include "Fury/Editor/EditorAssetPicker.h"
 
+#include <algorithm>
+
+#include "Fury/Editor/EditorFolderTree.h"
 #include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Heightmap.h"
@@ -24,8 +27,13 @@
 namespace fury {
 namespace Editor {
 namespace {
+// Expansion state shared by every picker's folder tree (persisted
+// implicitly by being window-static; not written to imgui.ini).
+std::unordered_map<std::string, bool> g_PickerTreeExpanded;
+
 struct PickerEntry {
 	std::string label;
+	std::string path; // asset identity (GetPath()); "" for non-EM entries
 	std::shared_ptr<void> ptr;
 };
 
@@ -38,6 +46,11 @@ int& SelectedIndexFor(const char* popup_id) {
 	if (it == state.end())
 		it = state.emplace(popup_id, -1).first;
 	return it->second;
+}
+
+std::string& SelectedFolderFor(const char* popup_id) {
+	static std::unordered_map<std::string, std::string> state;
+	return state[popup_id];
 }
 
 void CollectMeshes(std::vector<PickerEntry>& out) {
@@ -55,8 +68,8 @@ void CollectMeshes(std::vector<PickerEntry>& out) {
 		}
 		char buf[300];
 		std::snprintf(buf, sizeof(buf), "%s    %u v  *  %u t",
-					  m->GetName().c_str(), totalVerts, totalIndices / 3);
-		out.push_back({buf, std::static_pointer_cast<void>(m)});
+					  m->GetPath().c_str(), totalVerts, totalIndices / 3);
+		out.push_back({buf, m->GetPath(), std::static_pointer_cast<void>(m)});
 		return true;
 	});
 }
@@ -66,7 +79,7 @@ void CollectMaterials(std::vector<PickerEntry>& out) {
 	auto em = Scene::Active->GetEntityManager();
 	if (!em) return;
 	em->ForEach<Material>([&](const std::shared_ptr<Material>& m) {
-		out.push_back({m->GetName(),
+		out.push_back({m->GetPath(), m->GetPath(),
 					   std::static_pointer_cast<void>(m)});
 		return true;
 	});
@@ -80,7 +93,7 @@ void CollectTextures(std::vector<PickerEntry>& out) {
 	auto em = Scene::Active->GetEntityManager();
 	if (!em) return;
 	em->ForEach<Texture>([&](const std::shared_ptr<Texture>& tex) {
-		out.push_back({tex->GetName(), std::static_pointer_cast<void>(tex)});
+		out.push_back({tex->GetPath(), tex->GetPath(), std::static_pointer_cast<void>(tex)});
 		return true;
 	});
 }
@@ -92,9 +105,9 @@ void CollectHeightmaps(std::vector<PickerEntry>& out) {
 	em->ForEach<Heightmap>([&](const std::shared_ptr<Heightmap>& hm) {
 		char buf[300];
 		std::snprintf(buf, sizeof(buf), "%s    %d x %d  %.0f x %.0f cm",
-					  hm->GetName().c_str(), hm->GetResolution(), hm->GetResolution(),
+					  hm->GetPath().c_str(), hm->GetResolution(), hm->GetResolution(),
 					  hm->GetWorldSizeX(), hm->GetWorldSizeZ());
-		out.push_back({buf, std::static_pointer_cast<void>(hm)});
+		out.push_back({buf, hm->GetPath(), std::static_pointer_cast<void>(hm)});
 		return true;
 	});
 }
@@ -110,7 +123,7 @@ void CollectOceanWaves(std::vector<PickerEntry>& out) {
 		char buf[300];
 		std::snprintf(buf, sizeof(buf), "%s    %d bands x %d frames",
 					  waves->GetFilePath().c_str(), waves->GetBandCount(), waves->GetFrameCount());
-		out.push_back({buf, std::static_pointer_cast<void>(waves)});
+		out.push_back({buf, waves->GetPath(), std::static_pointer_cast<void>(waves)});
 		return true;
 	});
 }
@@ -122,9 +135,9 @@ void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
 		// to tell apart.
 		char buf[300];
 		std::snprintf(buf, sizeof(buf), "%s    %.2fs",
-					  c->GetName().c_str(),
+					  c->GetPath().c_str(),
 					  c->GetDuration() / c->GetTicksPerSecond());
-		out.push_back({buf, std::static_pointer_cast<void>(c)});
+		out.push_back({buf, c->GetPath(), std::static_pointer_cast<void>(c)});
 	}
 }
 
@@ -136,7 +149,7 @@ void CollectAnimationClipsIntoEntries(std::vector<PickerEntry>& out) {
 void CollectPostProcessEffects(std::vector<PickerEntry>& out) {
 	for (auto &effect : PostProcessRegistry::GetAll()) {
 		if (!effect) continue;
-		out.push_back({effect->GetName(),
+		out.push_back({effect->GetName(), "",
 					   std::static_pointer_cast<void>(effect)});
 	}
 }
@@ -148,8 +161,8 @@ void CollectParticleSystems(std::vector<PickerEntry>& out) {
 	em->ForEach<ParticleSystem>([&](const std::shared_ptr<ParticleSystem>& p) {
 		char buf[300];
 		std::snprintf(buf, sizeof(buf), "%s    %u/%u live",
-					  p->GetName().c_str(), p->GetAliveCount(), p->GetMaxParticles());
-		out.push_back({buf, std::static_pointer_cast<void>(p)});
+					  p->GetPath().c_str(), p->GetAliveCount(), p->GetMaxParticles());
+		out.push_back({buf, p->GetPath(), std::static_pointer_cast<void>(p)});
 		return true;
 	});
 }
@@ -229,8 +242,8 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 							std::function<void(std::shared_ptr<void>)> onPick) {
 	int& selectedIndex = SelectedIndexFor(popup_id);
 
-	if (ImGui::BeginPopupModal(popup_id, nullptr,
-							   ImGuiWindowFlags_AlwaysAutoResize)) {
+	ImGui::SetNextWindowSize(ImVec2(600, 340), ImGuiCond_FirstUseEver);
+	if (ImGui::BeginPopupModal(popup_id, nullptr)) {
 		ImGui::TextUnformatted(title);
 		ImGui::Separator();
 
@@ -247,6 +260,22 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 
 		std::vector<PickerEntry> entries;
 		CollectByType(type, entries);
+
+		// Two-pane layout: folder tree left, folder-scoped entries right.
+		std::string& folder = SelectedFolderFor(popup_id);
+		ImGui::BeginChild(("##picktree_" + std::string(popup_id)).c_str(),
+						  ImVec2(180, 240), true);
+		RenderAssetFolderTree(folder, g_PickerTreeExpanded);
+		ImGui::EndChild();
+		ImGui::SameLine();
+
+		if (!folder.empty())
+			entries.erase(std::remove_if(entries.begin(), entries.end(),
+										 [&](const PickerEntry& e) {
+											 return !e.path.empty() &&
+												 !AssetPathInFolder(e.path, folder);
+										 }),
+						  entries.end());
 
 		ImGui::BeginChild(("##picker_" + std::string(popup_id)).c_str(),
 						  ImVec2(360, 240), true);

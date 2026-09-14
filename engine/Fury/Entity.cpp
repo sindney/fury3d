@@ -90,6 +90,10 @@ void Entity::SetUUID(const std::string& uuid) {
 	m_HashCode = std::hash<std::string>()(uuid);
 }
 
+void Entity::RegenerateUUID() {
+	SetUUID(GenerateUUID());
+}
+
 size_t Entity::GetHashCode() const {
 	return m_HashCode;
 }
