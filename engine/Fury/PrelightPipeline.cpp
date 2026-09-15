@@ -416,6 +416,8 @@ namespace
 
 		// pre
 		SortPassByIndex();
+		// Pass list snapshot for the render thread (avoids racing m_SortedPasses).
+		packet.sortedPasses = m_SortedPasses;
 
 		// Seed HDR / CSM / chain from the scene's renderSettings (pure CPU
 		// state on the pipeline; the packet snapshots the results below).
@@ -672,7 +674,7 @@ namespace
 
 		// draw passes
 
-		unsigned int passCount = static_cast<int>(m_SortedPasses.size());
+		unsigned int passCount = static_cast<int>(packet.sortedPasses.size());
 
 		// The chain replaces the LAST quad pass (the screen write)
 		// but keeps intermediate quad passes (e.g. pass_combine)
@@ -683,7 +685,7 @@ namespace
 
 		for (unsigned int i = 0; i < passCount; i++)
 		{
-			auto passName = m_SortedPasses[i];
+			auto passName = packet.sortedPasses[i];
 			auto pass = m_EntityManager->Get<Pass>(passName);
 
 			FURY_ZONE_DYNAMIC(passName.c_str());

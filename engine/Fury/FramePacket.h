@@ -358,6 +358,8 @@ namespace fury
 
 		std::shared_ptr<Pipeline> pipeline;
 
+		std::vector<std::string> sortedPasses;
+
 		PacketCamera camera;
 
 		std::vector<PacketUnit> opaqueUnits;

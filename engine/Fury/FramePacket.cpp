@@ -24,6 +24,7 @@ namespace fury
 	void FramePacket::Reset()
 	{
 		pipeline.reset();
+		sortedPasses.clear();
 		camera = PacketCamera();
 		opaqueUnits.clear();
 		transparentUnits.clear();

@@ -313,6 +313,11 @@ namespace fury
 
 		std::string vsVersion, vsMain;
 		GetVersionInfo(vsData, vsVersion, vsMain);
+		// SSBO `layout(std430, binding = N) buffer` syntax requires GLSL 4.30.
+		// Shader files are written as #version 330; the divisor-VBO fallback
+		// path needs the file's own version to keep working on a 3.3 context.
+		if (std::find(m_Defines.begin(), m_Defines.end(), std::string("INSTANCE_SSBO")) != m_Defines.end())
+			vsVersion = "#version 430 core\n";
 		vsVersion += "\n#define VERTEX_SHADER\n";
 
 		char logbuffer[1024];
@@ -347,6 +352,8 @@ namespace fury
 
 		std::string fsVersion, fsMain;
 		GetVersionInfo(fsData, fsVersion, fsMain);
+		if (std::find(m_Defines.begin(), m_Defines.end(), std::string("INSTANCE_SSBO")) != m_Defines.end())
+			fsVersion = "#version 430 core\n";
 		fsVersion += "\n#define FRAGMENT_SHADER\n";
 
 		// compile fragment shader

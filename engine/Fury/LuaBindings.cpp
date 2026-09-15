@@ -2245,7 +2245,7 @@ namespace fury
 			// headless sway screenshots.
 			engine_tbl["GetTime"] = &Engine::GetTime;
 			engine_tbl["SetTime"] = &Engine::SetTime;
-			engine_tbl["run"] = [&lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
+			engine_tbl["run"] = [lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
 				{
