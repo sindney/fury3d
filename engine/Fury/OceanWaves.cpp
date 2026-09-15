@@ -10,6 +10,7 @@
 #include "Fury/EntityUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 // NOTE: must come after GLLoader.h (windows.h) -- FileUtil.h #undefs the
 // WinAPI LoadString macro that would otherwise rewrite FileUtil::LoadString.
@@ -34,30 +35,23 @@ namespace fury
 			return sign ? -f : f;
 		}
 
-		// Upload one CPU float4 frame set as an RGBA16F array (driver does
-		// the float->half conversion) and one RGBA8 array from bytes.
-		void UploadBand(OceanWaves::Band &band, int frames, const std::vector<unsigned char> &nrm)
+		// Inputs explicit so the caller can dispatch this with CPU data captured by value.
+		void UploadBandTextures(const Texture::Ptr &dispTex, const Texture::Ptr &nrmTex,
+			int n, int frames,
+			const std::vector<float> &disp, const std::vector<unsigned char> &nrm)
 		{
-			int n = band.Resolution;
-
-			band.DispTexture = Texture::Create("ocean_disp");
-			band.DispTexture->CreateEmpty(n, n, frames, TextureFormat::RGBA16F,
-				TextureType::TEXTURE_2D_ARRAY, true);
-			band.DispTexture->SetWrapMode(WrapMode::REPEAT);
-			glBindTexture(GL_TEXTURE_2D_ARRAY, band.DispTexture->GetID());
+			dispTex->SetWrapMode(WrapMode::REPEAT);
+			glBindTexture(GL_TEXTURE_2D_ARRAY, dispTex->GetID());
 			for (int f = 0; f < frames; f++)
 			{
 				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, f, n, n, 1,
-					GL_RGBA, GL_FLOAT, band.Disp.data() + (size_t)f * n * n * 4);
+					GL_RGBA, GL_FLOAT, disp.data() + (size_t)f * n * n * 4);
 			}
 			glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 			glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
-			band.NrmTexture = Texture::Create("ocean_nrm");
-			band.NrmTexture->CreateEmpty(n, n, frames, TextureFormat::RGBA8,
-				TextureType::TEXTURE_2D_ARRAY, true);
-			band.NrmTexture->SetWrapMode(WrapMode::REPEAT);
-			glBindTexture(GL_TEXTURE_2D_ARRAY, band.NrmTexture->GetID());
+			nrmTex->SetWrapMode(WrapMode::REPEAT);
+			glBindTexture(GL_TEXTURE_2D_ARRAY, nrmTex->GetID());
 			for (int f = 0; f < frames; f++)
 			{
 				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, f, n, n, 1,
@@ -229,8 +223,38 @@ namespace fury
 			for (size_t i = 0; i < count; i++)
 				band.Disp[i] = HalfToFloat(halfs[i]);
 
+			// headless CLI: no GL function pointers loaded, skip the GL path
 			if (gl::HasGLContext())
-				UploadBand(band, m_Frames, nrmRaw);
+			{
+				band.DispTexture = Texture::Create("ocean_disp");
+				band.DispTexture->CreateEmpty(n, n, m_Frames, TextureFormat::RGBA16F,
+					TextureType::TEXTURE_2D_ARRAY, true);
+				band.NrmTexture = Texture::Create("ocean_nrm");
+				band.NrmTexture->CreateEmpty(n, n, m_Frames, TextureFormat::RGBA8,
+					TextureType::TEXTURE_2D_ARRAY, true);
+
+				// single-threaded / calling thread owns GL: upload inline
+				if (RenderThread::Get().MayUseGL())
+				{
+					UploadBandTextures(band.DispTexture, band.NrmTexture,
+						n, m_Frames, band.Disp, nrmRaw);
+				}
+				// render-thread mode, game thread: queue - FIFO after CreateEmpty's own dispatch
+				else
+				{
+					std::vector<float> dispCopy = band.Disp;
+					std::vector<unsigned char> nrmCopy = nrmRaw;
+					Texture::Ptr dispTex = band.DispTexture;
+					Texture::Ptr nrmTex = band.NrmTexture;
+					RenderThread::Get().EnqueueJob(
+						[dispTex, nrmTex, n, frames = m_Frames,
+						 dispCopy = std::move(dispCopy),
+						 nrmCopy = std::move(nrmCopy)]() mutable
+					{
+						UploadBandTextures(dispTex, nrmTex, n, frames, dispCopy, nrmCopy);
+					});
+				}
+			}
 
 			m_Bands.push_back(std::move(band));
 		}
