@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace fury {
 namespace Editor {
@@ -20,6 +21,11 @@ void SplitAssetPathRoot(const std::string& path, std::string& root, std::string&
 // Virtual folder of an asset path ("content/TerrainIsland", "engine",
 // ...). Returns the root itself when the asset sits directly under it.
 std::string VirtualFolderOf(const std::string& path);
+
+// Immediate subfolders of `virtualFolder` (one level deep), alphabetically
+// sorted. Paths use the same namespace as VirtualFolderOf.
+void CollectImmediateSubfolders(const std::string& virtualFolder,
+                                std::vector<std::string>& out);
 
 // True when an asset path lives under the virtual folder (recursive,
 // separator-bounded). A root matches every asset under it.

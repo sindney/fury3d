@@ -111,6 +111,9 @@ extern std::optional<std::string> g_PendingScrollToAsset;
 extern float g_CBTreeWidth;
 extern std::string g_CBSelectedFolder;
 extern std::unordered_map<std::string, bool> g_CBTreeExpanded;
+extern int g_DisplayMode;
+extern int g_CBSortKey;
+extern int g_CBSortDir;
 
 // Per-TU storage. Defined here, declared as extern above so
 // EditorWindows.cpp can read them without a header dependency.
@@ -304,6 +307,24 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
+	// Content Browser view/sort state (List/Thumbnail, Name/Type, Asc/Desc).
+	int cbv = -1;
+	if (std::sscanf(line, "ContentBrowser.DisplayMode=%d", &cbv) == 1
+		&& (cbv == 0 || cbv == 1)) {
+		g_DisplayMode = cbv;
+		return;
+	}
+	if (std::sscanf(line, "ContentBrowser.SortKey=%d", &cbv) == 1
+		&& (cbv == 0 || cbv == 1)) {
+		g_CBSortKey = cbv;
+		return;
+	}
+	if (std::sscanf(line, "ContentBrowser.SortDir=%d", &cbv) == 1
+		&& (cbv == 0 || cbv == 1)) {
+		g_CBSortDir = cbv;
+		return;
+	}
+
 	// Window visibility -- one line per window: Show=<name>=<0|1>.
 	// Restoring these BEFORE the first frame means each visible
 	// window is Begin()'d every frame, which is what lets ImGui
@@ -375,6 +396,9 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 		buf->appendf("ContentBrowser.SelectedFolder=%s\n", g_CBSelectedFolder.c_str());
 	for (const auto& kv : g_CBTreeExpanded)
 		buf->appendf("ContentBrowser.TreeExpanded.%s=%d\n", kv.first.c_str(), kv.second ? 1 : 0);
+	buf->appendf("ContentBrowser.DisplayMode=%d\n", g_DisplayMode);
+	buf->appendf("ContentBrowser.SortKey=%d\n", g_CBSortKey);
+	buf->appendf("ContentBrowser.SortDir=%d\n", g_CBSortDir);
 	// Window visibility -- restoring these pre-first-frame keeps every
 	// window Begin()'d, so ImGui can persist/restore its dock entry.
 	buf->appendf("Show=Settings=%d\n", g_ShowSettings ? 1 : 0);

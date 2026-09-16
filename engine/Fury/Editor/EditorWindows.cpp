@@ -107,6 +107,13 @@ bool g_TracyEnabled = true;
 // Persisted render-thread default (next launch's ResolveEnabled input).
 int g_RenderThreadIni = 1;
 
+// Content Browser view/sort state. Persisted via the FuryEditor Settings
+// handler in Editor.cpp. Defined at namespace scope (not the anonymous
+// namespace below) so the Editor.cpp externs resolve.
+int g_DisplayMode = 1; // 0 = List, 1 = Thumbnail
+int g_CBSortKey = 0;   // 0 = Name, 1 = Type
+int g_CBSortDir = 0;   // 0 = Asc, 1 = Desc
+
 // Chain index whose per-effect settings dialog ("EffectSettings"
 // modal) is open; -1 = closed. Set by the chain editor's Edit
 // buttons in the Settings window.
@@ -1633,13 +1640,12 @@ static char g_RenameBuffer[256];
 // every frame, but the menu item exists per spec.
 static bool g_NeedsRefresh = false;
 
-// Display mode for the Content Browser grid. Persisted to
-// imgui.ini via the Settings handler (see Editor.cpp's
-// FuryEditor Settings handler -- we piggy-back on the existing
-// `ContentBrowser.DisplayMode` ini key).
-enum class DisplayMode { List = 0,
-						 Thumbnail = 1 };
-static DisplayMode g_DisplayMode = DisplayMode::Thumbnail;
+// Display mode for the Content Browser grid. Persisted to imgui.ini
+// via the FuryEditor Settings handler (Editor.cpp). Stored as int so the
+// ini handler can read/write without knowing the enum.
+constexpr int kDisplayList = 0;
+constexpr int kDisplayThumbnail = 1;
+constexpr const char* kDisplayModeNames[] = { "List", "Thumbnail" };
 
 // Tile geometry. The thumbnail is 96px (larger than the
 // original 64px so the tile occupies a usable size), and the
@@ -1664,6 +1670,13 @@ static char g_FilterText[128] = "";
 constexpr const char* kFilterTypeNames[] = {
 	"All", "Mesh", "Material", "Texture", "AnimationClip", "ParticleSystem", "Heightmap",
 	"OceanWaves"};
+
+// Content-browser sort (Windows-Explorer style): primary key combo
+// (Name / Type) plus direction combo (Asc / Desc). Each is single-select,
+// so Name vs Type and Asc vs Desc are mutually exclusive by construction.
+// The int state is defined at file scope (above) for extern access.
+constexpr const char* kSortKeyNames[] = { "Name", "Type" };
+constexpr const char* kSortDirNames[] = { "Asc", "Desc" };
 
 // Case-insensitive subsequence: every char of `pattern` appears in
 // `text` in order ("spz" matches "Sponza").
@@ -1733,6 +1746,18 @@ unsigned int GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 static std::string TileLabel(const std::string& path, const std::string& name) {
 	if (!path.empty()) return PathBasename(path);
 	return name;
+}
+
+// Human-readable kind name for the list-mode "Kind" column.
+const char* TypeKindName(const std::type_index& type) {
+	if (type == typeid(Mesh)) return "Mesh";
+	if (type == typeid(Material)) return "Material";
+	if (type == typeid(Texture)) return "Texture";
+	if (type == typeid(AnimationClip)) return "Animation";
+	if (type == typeid(ParticleSystem)) return "Particle System";
+	if (type == typeid(Heightmap)) return "Heightmap";
+	if (type == typeid(OceanWaves)) return "Ocean Waves";
+	return "Asset";
 }
 
 void CollectTiles(std::vector<TileEntry>& tiles) {	if (!Scene::Active) return;
@@ -1992,7 +2017,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	// the thumbnail area and forward its click to the Selectable.
 	// Both share the same PushID namespace so their hovered/active
 	// state is unified.
-	if (g_DisplayMode == DisplayMode::Thumbnail) {
+	if (g_DisplayMode == kDisplayThumbnail) {
 		ImGui::BeginGroup();
 
 		ImVec2 thumb_min = ImGui::GetCursorScreenPos();
@@ -2173,13 +2198,12 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		}
 
 		ImGui::EndGroup();
-	} else // List mode: just the name as a Selectable row.
+	} else // List mode: name + kind columns, full-row click target.
 	{
 		ImGui::BeginGroup();
 
-		std::string display = EllipsizeName(label, ImGui::GetContentRegionAvail().x);
 		if (renamingThisTile) {
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+			ImGui::SetNextItemWidth(ImGui::GetColumnWidth());
 			bool committed = ImGui::InputText("##rename", g_RenameBuffer,
 											  sizeof(g_RenameBuffer),
 											  ImGuiInputTextFlags_EnterReturnsTrue |
@@ -2196,30 +2220,37 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 			if (g_RenamingAsset)
 				ImGui::SetKeyboardFocusHere(-1);
 		} else {
-			// Plain text label -- no Selectable, no hover background.
-			ImGui::TextUnformatted(display.c_str());
+			ImGui::TextUnformatted(label.c_str());
+		}
+		ImGui::NextColumn();
+		if (!renamingThisTile) {
+			ImGui::TextDisabled("%s", TypeKindName(tile.type));
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("%s", path.c_str());
-			// InvisibleButton over the row for click handling.
-			ImGui::SetCursorScreenPos(tile_min);
-			ImGui::InvisibleButton("##list_hit",
-				ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetTextLineHeight()));
-			if (ImGui::IsItemClicked(0))
-				g_SelectedAsset = std::make_pair(tile.type, path);
-			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-				if (tile.type == typeid(Mesh))
-					OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
-				else if (tile.type == typeid(ParticleSystem))
-					Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
-				else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture) ||
-						 tile.type == typeid(OceanWaves) || tile.type == typeid(AnimationClip)) {
-					// no per-asset editor for these (double-click no-op)
-				} else
-					OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
-			}
 		}
+		ImGui::NextColumn();
 
 		ImGui::EndGroup();
+	}
+
+	// List-mode: full-row click target overlays both columns.
+	if (g_DisplayMode == kDisplayList && !renamingThisTile) {
+		ImGui::SetCursorScreenPos(tile_min);
+		ImGui::InvisibleButton("##list_hit",
+			ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetTextLineHeight()));
+		if (ImGui::IsItemClicked(0))
+			g_SelectedAsset = std::make_pair(tile.type, path);
+		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+			if (tile.type == typeid(Mesh))
+				OpenMeshEditor(std::static_pointer_cast<Mesh>(tile.ptr));
+			else if (tile.type == typeid(ParticleSystem))
+				Editor::OpenParticleEditor(std::static_pointer_cast<ParticleSystem>(tile.ptr));
+			else if (tile.type == typeid(Heightmap) || tile.type == typeid(Texture) ||
+					 tile.type == typeid(OceanWaves) || tile.type == typeid(AnimationClip)) {
+				// no per-asset editor for these (double-click no-op)
+			} else
+				OpenMaterialEditor(std::static_pointer_cast<Material>(tile.ptr));
+		}
 	}
 
 	// Selection highlight: border around the whole tile group.
@@ -2341,15 +2372,6 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 				Editor::RefreshMeshThumbnailNow(mesh);
 			}
 		}
-		ImGui::Separator();
-		// Display mode switcher.
-		if (ImGui::BeginMenu("Display")) {
-			if (ImGui::MenuItem("List", nullptr, g_DisplayMode == DisplayMode::List))
-				g_DisplayMode = DisplayMode::List;
-			if (ImGui::MenuItem("Thumbnail", nullptr, g_DisplayMode == DisplayMode::Thumbnail))
-				g_DisplayMode = DisplayMode::Thumbnail;
-			ImGui::EndMenu();
-		}
 		ImGui::EndPopup();
 	}
 
@@ -2362,6 +2384,73 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	}
 
 	ImGui::PopID();
+}
+
+// Folder tile for the content browser right pane. Double-click descends.
+// Warm-yellow placeholder so folder vs file is unambiguous at a glance.
+void RenderFolderTile(const std::string& folderPath, bool& anyScrolled) {
+	(void)anyScrolled;
+	ImGui::PushID(folderPath.c_str());
+	ImGui::BeginGroup();
+
+	ImVec2 tile_min = ImGui::GetCursorScreenPos();
+	ImVec2 thumb_min = tile_min;
+
+	ImGui::Dummy(ImVec2(kTileThumbnail, kTileThumbnail));
+	ImVec2 p0 = ImGui::GetItemRectMin();
+	ImVec2 p1 = ImGui::GetItemRectMax();
+	ImGui::GetWindowDrawList()->AddRectFilled(
+		p0, p1, ImGui::GetColorU32(ImVec4(0.55f, 0.45f, 0.20f, 1.0f)));
+	ImGui::GetWindowDrawList()->AddText(
+		thumb_min, ImGui::GetColorU32(ImVec4(1, 1, 0, 0.9f)), "[+]");
+
+	ImGui::SetCursorScreenPos(tile_min);
+	ImGui::InvisibleButton("##folder_hit",
+		ImVec2(kTilePitch, kTileThumbnail + kTileLabelH));
+	if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+		g_CBSelectedFolder = folderPath;
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("%s", folderPath.c_str());
+
+	constexpr float kLabelMargin = 4.0f;
+	std::string display = EllipsizeName(PathBasename(folderPath),
+		kTilePitch - 2 * kLabelMargin - 8.0f);
+	ImGui::SetCursorScreenPos(
+		ImVec2(thumb_min.x + kLabelMargin, thumb_min.y + kTileThumbnail + 2));
+	ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kTilePitch - 2 * kLabelMargin);
+	ImGui::TextUnformatted(display.c_str());
+	ImGui::PopTextWrapPos();
+
+	ImGui::EndGroup();
+	ImGui::PopID();
+}
+
+// Folder row for list mode. Double-click descends.
+// Folder row for list mode. Double-click descends.
+void RenderFolderRow(const std::string& folderPath) {
+	ImGui::PushID(folderPath.c_str());
+
+	ImGui::TextUnformatted(PathBasename(folderPath).c_str());
+	ImGui::NextColumn();
+	ImGui::TextDisabled("Folder");
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("%s", folderPath.c_str());
+	ImGui::NextColumn();
+
+	ImGui::PopID();
+}
+
+// List-mode header row: "Name | Kind" labels (not clickable -- the
+// sort-by dropdown in the toolbar is the single source of truth).
+void RenderListHeader() {
+	ImGui::Columns(2, "##cb_list", false);
+	// Reserve the right column for Kind.
+	ImGui::SetColumnWidth(1, 140.0f);
+	ImGui::TextDisabled("Name");
+	ImGui::NextColumn();
+	ImGui::TextDisabled("Kind");
+	ImGui::NextColumn();
+	ImGui::Separator();
 }
 } // namespace
 
@@ -2378,14 +2467,33 @@ void RenderContentBrowserWindow(bool* open) {
 		return;
 	}
 
-	// Filter toolbar: type combo + fuzzy name search.
+	// Filter toolbar: type + display + sort key + sort dir + fuzzy search.
 	ImGui::SetNextItemWidth(110.0f);
 	ImGui::Combo("##cb_type", &g_FilterType, kFilterTypeNames,
 				 IM_ARRAYSIZE(kFilterTypeNames));
 	ImGui::SameLine();
+	ImGui::SetNextItemWidth(90.0f);
+	ImGui::Combo("##cb_display", &g_DisplayMode, kDisplayModeNames,
+				 IM_ARRAYSIZE(kDisplayModeNames));
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(70.0f);
+	ImGui::Combo("##cb_sort_key", &g_CBSortKey, kSortKeyNames,
+				 IM_ARRAYSIZE(kSortKeyNames));
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(70.0f);
+	ImGui::Combo("##cb_sort_dir", &g_CBSortDir, kSortDirNames,
+				 IM_ARRAYSIZE(kSortDirNames));
+	ImGui::SameLine();
 	ImGui::SetNextItemWidth(-FLT_MIN);
 	ImGui::InputTextWithHint("##cb_search", "Search...", g_FilterText,
 							 IM_ARRAYSIZE(g_FilterText));
+	ImGui::Separator();
+
+	// Path label: single ellipsized TextUnformatted so it never wraps.
+	// Navigation goes via the Up button + left tree + double-click folder tile.
+	ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+	ImGui::TextDisabled("%s", g_CBSelectedFolder.c_str());
+	ImGui::PopTextWrapPos();
 	ImGui::Separator();
 
 	// Two-pane layout: folder tree left, folder-scoped tile grid right,
@@ -2442,20 +2550,56 @@ void RenderContentBrowserWindow(bool* open) {
 	}
 	EvictStaleMeshThumbnails(liveBufferIds);
 
-	if (tiles.empty()) {
+	// Subfolders render alongside file tiles (file-explorer behavior).
+	struct GridItem {
+		bool isFolder;
+		std::string label;
+		std::string path; // folder path, or tile.path
+		const TileEntry* tile; // valid when !isFolder
+		const char* typeName; // mangled typeid name; for type-grouped sort
+	};
+	std::vector<std::string> subfolders;
+	Editor::CollectImmediateSubfolders(g_CBSelectedFolder, subfolders);
+
+	std::vector<GridItem> grid;
+	for (const auto& f : subfolders)
+		grid.push_back({true, PathBasename(f), f, nullptr, nullptr});
+
+	// Folders always render first. Files sort by chosen key + direction.
+	// Name is the secondary key for Type sort.
+	const bool typeKey = (g_CBSortKey == 1);
+	const bool desc = (g_CBSortDir == 1);
+	auto fileCmp = [typeKey, desc](const GridItem& a, const GridItem& b) {
+		int primary;
+		if (typeKey) {
+			int c = std::strcmp(a.typeName, b.typeName);
+			primary = (c != 0) ? c : a.label.compare(b.label);
+		} else {
+			primary = a.label.compare(b.label);
+		}
+		return desc ? primary > 0 : primary < 0;
+	};
+	std::vector<GridItem> fileItems;
+	fileItems.reserve(tiles.size());
+	for (const auto& t : tiles)
+		fileItems.push_back({false, t.label, t.path, &t, t.type.name()});
+	std::sort(fileItems.begin(), fileItems.end(), fileCmp);
+	for (auto& fi : fileItems) grid.push_back(std::move(fi));
+
+	if (grid.empty()) {
 		ImGui::TextDisabled("(no assets in this folder)");
 		ImGui::EndChild();
 		ImGui::End();
 		return;
 	}
-	std::sort(tiles.begin(), tiles.end(),
-			  [](const TileEntry& a, const TileEntry& b) {
-				  return a.label < b.label;
-			  });
 
 	// Evict the Refresh flag (no-op -- we re-enumerate every
 	// frame -- but the menu item exists per spec).
 	g_NeedsRefresh = false;
+
+	// List-mode header: column labels above the rows.
+	if (g_DisplayMode == kDisplayList)
+		RenderListHeader();
 
 	// Wrapping grid. panel_right_x is the screen-space right
 	// edge of the content region, captured once before any tile.
@@ -2464,41 +2608,48 @@ void RenderContentBrowserWindow(bool* open) {
 		ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 
 	bool anyScrolled = false;
-	for (const auto& tile : tiles) {
-		RenderAssetTile(tile, anyScrolled);
+	for (const auto& item : grid) {
+		if (item.isFolder) {
+			if (g_DisplayMode == kDisplayList)
+				RenderFolderRow(item.path);
+			else
+				RenderFolderTile(item.path, anyScrolled);
+		} else {
+			RenderAssetTile(*item.tile, anyScrolled);
 
-		// If a scroll-to is pending and this tile matches, scroll
-		// it into view (task 4.12).
-		if (g_PendingScrollToAsset && *g_PendingScrollToAsset == tile.path) {
-			float top = ImGui::GetItemRectMin().y;
-			float bot = ImGui::GetItemRectMax().y;
-			float sy = ImGui::GetScrollY();
-			float vis_top = sy;
-			float vis_bot = sy + ImGui::GetWindowHeight();
-			if (top < vis_top || bot > vis_bot)
-				ImGui::SetScrollHereY();
-			g_PendingScrollToAsset.reset();
+			// If a scroll-to is pending and this tile matches, scroll
+			// it into view (task 4.12).
+			if (g_PendingScrollToAsset && *g_PendingScrollToAsset == item.path) {
+				float top = ImGui::GetItemRectMin().y;
+				float bot = ImGui::GetItemRectMax().y;
+				float sy = ImGui::GetScrollY();
+				float vis_top = sy;
+				float vis_bot = sy + ImGui::GetWindowHeight();
+				if (top < vis_top || bot > vis_bot)
+					ImGui::SetScrollHereY();
+				g_PendingScrollToAsset.reset();
+			}
 		}
 
-		// Wrap: if the next tile fits on this line, SameLine.
-		float tile_right_x = ImGui::GetItemRectMax().x;
-		if (tile_right_x + spacing + kTilePitch <= panel_right_x)
-			ImGui::SameLine();
+		// Wrap: if the next tile fits on this line, SameLine. List mode
+		// lays one row per line; only thumbnail mode wraps horizontally.
+		if (g_DisplayMode != kDisplayList) {
+			float tile_right_x = ImGui::GetItemRectMax().x;
+			if (tile_right_x + spacing + kTilePitch <= panel_right_x)
+				ImGui::SameLine();
+		}
 	}
 
-	// Right-click on empty grid space -> Refresh + Display.
+	// Exit list-mode column state so the empty-grid button + future
+	// draws render in single-column layout.
+	if (g_DisplayMode == kDisplayList)
+		ImGui::Columns(1);
+
+	// Right-click on empty grid space -> Refresh.
 	ImGui::InvisibleButton("##empty_grid", ImGui::GetContentRegionAvail());
 	if (ImGui::BeginPopupContextItem("ctx_empty")) {
 		if (ImGui::MenuItem("Refresh"))
 			g_NeedsRefresh = true;
-		ImGui::Separator();
-		if (ImGui::BeginMenu("Display")) {
-			if (ImGui::MenuItem("List", nullptr, g_DisplayMode == DisplayMode::List))
-				g_DisplayMode = DisplayMode::List;
-			if (ImGui::MenuItem("Thumbnail", nullptr, g_DisplayMode == DisplayMode::Thumbnail))
-				g_DisplayMode = DisplayMode::Thumbnail;
-			ImGui::EndMenu();
-		}
 		ImGui::EndPopup();
 	}
 

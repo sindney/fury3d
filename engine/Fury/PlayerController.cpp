@@ -149,7 +149,7 @@ void PlayerController::Deactivate()
 
 // ---------------------------------------------------------------------------
 // FreeFlyController - C++ port of the Editor.lua fly camera (yaw/pitch LMB
-// drag, WASD+arrows, LShift x5 boost, wheel speed in [0.5, 50]).
+// drag, WASD+arrows, LShift x5 boost, wheel speed floor at 0.5).
 // ---------------------------------------------------------------------------
 
 FreeFlyController::Ptr FreeFlyController::Create()
@@ -294,10 +294,10 @@ void FreeFlyController::TickUpdate(float dt)
 		pos = pos + move * (m_MoveSpeed * boost * dt / moveLen);
 	}
 
-	// Wheel adjusts base speed, clamped like the editor's.
+	// Wheel adjusts base speed; only floor so it can't go negative.
 	const float wheel = input->GetMouseWheel();
 	if (wheel != 0.0f)
-		m_MoveSpeed = std::clamp(m_MoveSpeed + wheel, 0.5f, 50.0f);
+		m_MoveSpeed = std::max(m_MoveSpeed + wheel, 0.5f);
 
 	node->SetLocalPosition(pos);
 	node->SetLocalRoattion(MathUtil::EulerRadToQuat(m_Yaw, m_Pitch, 0.0f));

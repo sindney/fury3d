@@ -738,7 +738,7 @@ local function on_init()
         controls = {
             { label = "Move Speed",
               kind  = "slider",
-              min   = 0.5, max = 50.0,
+              min   = 0.5, max = 10000.0,
               get   = function() return move_speed end,
               set   = function(v) move_speed = v end },
             { label = "Mouse Sensitivity",
@@ -926,13 +926,12 @@ local function on_update(dt)
         end
     end
 
-    -- ── mouse-wheel adjusts the base move speed (clamped) ─────────────────
+    -- ── mouse-wheel adjusts the base move speed (unclamped above) ─────────
     if has_mo then
         local wheel = input:GetMouseWheel()
         if wheel ~= 0.0 then
             move_speed = move_speed + wheel
-            if move_speed < 0.5  then move_speed = 0.5  end
-            if move_speed > 50.0 then move_speed = 50.0 end
+            if move_speed < 0.5 then move_speed = 0.5 end
         end
     end
 

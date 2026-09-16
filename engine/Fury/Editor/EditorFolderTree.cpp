@@ -3,6 +3,7 @@
 #include <cstring>
 #include <set>
 #include <vector>
+#include <algorithm>
 
 #include "Fury/AnimationClip.h"
 #include "Fury/EntityManager.h"
@@ -92,6 +93,23 @@ void CollectAssetPaths(const EntityManager::Ptr& em, std::set<std::string>& fold
 	});
 }
 
+void BuildFolderSet(std::set<std::string>& folders) {
+	folders.clear();
+	if (Scene::Active) {
+		if (auto em = Scene::Active->GetEntityManager()) {
+			CollectAssetPaths<Mesh>(em, folders);
+			CollectAssetPaths<Material>(em, folders);
+			CollectAssetPaths<Texture>(em, folders);
+			CollectAssetPaths<AnimationClip>(em, folders);
+			CollectAssetPaths<ParticleSystem>(em, folders);
+			CollectAssetPaths<Heightmap>(em, folders);
+			CollectAssetPaths<OceanWaves>(em, folders);
+		}
+	}
+	folders.insert(kContentRoot);
+	folders.insert(kEngineRoot);
+}
+
 } // namespace
 
 void SplitAssetPathRoot(const std::string& path, std::string& root, std::string& subpath) {
@@ -144,19 +162,7 @@ std::string ContentRootStatus() {
 void RenderAssetFolderTree(std::string& selectedFolder,
 						   std::unordered_map<std::string, bool>& expanded) {
 	std::set<std::string> folders;
-	if (Scene::Active) {
-		if (auto em = Scene::Active->GetEntityManager()) {
-			CollectAssetPaths<Mesh>(em, folders);
-			CollectAssetPaths<Material>(em, folders);
-			CollectAssetPaths<Texture>(em, folders);
-			CollectAssetPaths<AnimationClip>(em, folders);
-			CollectAssetPaths<ParticleSystem>(em, folders);
-			CollectAssetPaths<Heightmap>(em, folders);
-			CollectAssetPaths<OceanWaves>(em, folders);
-		}
-	}
-	folders.insert(kContentRoot);
-	folders.insert(kEngineRoot);
+	BuildFolderSet(folders);
 
 	if (selectedFolder.empty() ||
 		(selectedFolder != kContentRoot && selectedFolder != kEngineRoot &&
@@ -165,6 +171,18 @@ void RenderAssetFolderTree(std::string& selectedFolder,
 
 	RenderFolderNode(kContentRoot, folders, selectedFolder, expanded);
 	RenderFolderNode(kEngineRoot, folders, selectedFolder, expanded);
+}
+
+void CollectImmediateSubfolders(const std::string& virtualFolder,
+								std::vector<std::string>& out) {
+	out.clear();
+	std::set<std::string> folders;
+	BuildFolderSet(folders);
+	for (const auto& f : folders) {
+		if (f != virtualFolder && ParentFolder(f) == virtualFolder)
+			out.push_back(f);
+	}
+	std::sort(out.begin(), out.end());
 }
 
 } // namespace Editor
