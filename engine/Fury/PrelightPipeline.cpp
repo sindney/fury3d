@@ -41,7 +41,7 @@
 #include "Fury/Pipeline.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
-#include "Fury/Profiler.h"
+#include "Fury/ProfilerGpu.h"
 #include "Fury/PrelightPipeline.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/RenderThread.h"

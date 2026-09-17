@@ -19,7 +19,6 @@
 #include <cstring>
 
 #include <tracy/Tracy.hpp>
-#include <tracy/TracyOpenGL.hpp>
 
 namespace fury
 {
@@ -41,17 +40,12 @@ namespace fury
 #define FURY_SET_THREAD_NAME(name) tracy::SetThreadName(name)
 #define FURY_PLOT(name, value) if (!fury::profiler::Armed()) {} else TracyPlot(name, value)
 
-#ifdef FURY_TRACY_GPU
-#define FURY_GPU_CONTEXT() TracyGpuContext
-#define FURY_GPU_ZONE(name) TracyGpuNamedZone(___fury_gpu_zone, name, fury::profiler::Armed())
-#define FURY_GPU_ZONE_DYNAMIC(name) TracyGpuZoneTransient(___fury_gpu_zone, name, fury::profiler::Armed())
-#define FURY_GPU_COLLECT() TracyGpuCollect
-#else
+// GPU macros are no-ops here; ProfilerGpu.h re-arms them for the few TUs
+// that emit GL GPU zones (it also provides the GL declarations Tracy needs).
 #define FURY_GPU_CONTEXT()
 #define FURY_GPU_ZONE(name)
 #define FURY_GPU_ZONE_DYNAMIC(name)
 #define FURY_GPU_COLLECT()
-#endif
 
 #else
 

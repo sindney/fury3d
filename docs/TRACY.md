@@ -28,7 +28,7 @@ When off, `engine/Fury/Profiler.h` macros (`FURY_ZONE`, `FURY_FRAME`, ...) expan
 
 Enabled builds are **on-demand**: the engine collects nothing until a profiler connects, so you can run normally and attach mid-session.
 
-The Tracy tools build automatically with the engine (standalone `tracy_tools` target) whenever `FURY_WITH_TRACY=ON`, and land next to the executables:
+The Tracy tools build automatically with the engine whenever `FURY_WITH_TRACY=ON`, and land next to the executables:
 
 - `examples/tracy-profiler` — the profiler UI (version always matches the vendored submodule)
 - `examples/tracy-capture` — headless capture CLI
@@ -37,8 +37,6 @@ Then:
 
 1. Run the engine (`./furye Editor.lua` or `./fury Player.lua`).
 2. Run `./tracy-profiler` and connect (localhost default), or capture headless (below).
-
-To skip building the tools (e.g. building only the runtime target), build just `fury`/`furye` — the tools only build with the default ALL target.
 
 ### Headless capture (agents / no GUI)
 

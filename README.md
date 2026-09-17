@@ -91,6 +91,8 @@ git submodule update --init --recursive
 Then configure and build:
 
 ```sh
+# you may need this on windows
+git config --global core.longpaths true
 cmake -S engine -B build-engine
 cmake --build build-engine -j
 ```

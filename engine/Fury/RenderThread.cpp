@@ -10,7 +10,7 @@
 
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
-#include "Fury/Profiler.h"
+#include "Fury/ProfilerGpu.h"
 
 namespace fury
 {

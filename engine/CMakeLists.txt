@@ -641,16 +641,21 @@ else()
 	install(TARGETS furye DESTINATION bin)
 endif()
 
-# Tracy tools (profiler UI + headless capture CLI): built alongside the engine
-# when Tracy is on; binaries land next to fury/furye in examples/. ExternalProject
-# keeps tracy's own C++20 + CPM-fetched deps isolated from our C++17 engine build.
-# Tools are a standalone ALL target: a full build includes them, but building just
-# the fury/furye targets skips them.
+# Tracy tools (tracy-profiler GUI + tracy-capture CLI) land next to fury/furye
+# in examples/ when Tracy is on. Built via ExternalProject (Release) so tracy's
+# C++20 + CPM-fetched deps stay isolated from our C++17 engine build. Tools are
+# a standalone ALL target: a full build includes them, but building just the
+# fury/furye targets skips them.
 if(FURY_WITH_TRACY AND NOT BUILD_SHARED_LIBS)
 	include(ExternalProject)
 	set(_TRACY_TOOLS_DIR ${CMAKE_BINARY_DIR}/tracy-tools)
 	if(OS_WINDOWS)
 		set(_TRACY_TOOL_SUFFIX ".exe")
+	endif()
+	# Tracy's sources carry UTF-8 string literals but don't set /utf-8; without
+	# it MSVC parses them in the system ANSI codepage (e.g. GBK) and breaks.
+	if(MSVC)
+		set(_TRACY_TOOL_UTF8 "-DCMAKE_CXX_FLAGS=/utf-8")
 	endif()
 	# Multi-config generators put Release outputs in a Release/ subdir.
 	if(CMAKE_CONFIGURATION_TYPES)
@@ -659,13 +664,13 @@ if(FURY_WITH_TRACY AND NOT BUILD_SHARED_LIBS)
 	ExternalProject_Add(tracy_capture_ext
 		PREFIX ${_TRACY_TOOLS_DIR}/capture
 		SOURCE_DIR ${PROJECT_SOURCE_DIR}/ThirdParty/tracy/capture
-		CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+		CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release ${_TRACY_TOOL_UTF8}
 		BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
 		INSTALL_COMMAND "")
 	ExternalProject_Add(tracy_profiler_ext
 		PREFIX ${_TRACY_TOOLS_DIR}/profiler
 		SOURCE_DIR ${PROJECT_SOURCE_DIR}/ThirdParty/tracy/profiler
-		CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+		CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release ${_TRACY_TOOL_UTF8}
 		BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
 		INSTALL_COMMAND "")
 	add_custom_target(tracy_tools ALL

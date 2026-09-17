@@ -18,7 +18,7 @@
 #include "Fury/MeshUtil.h"
 #include "Fury/PhysicsWorld.h"
 #include "Fury/Pipeline.h"
-#include "Fury/Profiler.h"
+#include "Fury/ProfilerGpu.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
