@@ -5,6 +5,7 @@
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorLog.h"
+#include "Fury/Editor/EditorPackageDialog.h"
 #include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/EditorThemes.h"
 #include "Fury/Engine.h"
@@ -690,6 +691,10 @@ void RenderMenuBar() {
 			TriggerSaveAs();
 		}
 
+		if (ImGui::MenuItem("Package...", nullptr, false, has_scene && !g_CurrentScenePath.empty())) {
+			EditorPackageDialog::Open(g_CurrentScenePath);
+		}
+
 		ImGui::Separator();
 
 		if (ImGui::MenuItem("Settings")) {
@@ -908,6 +913,10 @@ void Tick() {
 	// It also serializes after Save As / Open / Import modals so
 	// an in-flight delete confirm doesn't stack on top of them.
 	RenderConfirmDialog();
+
+	// Package flow (File -> Package...) owns its modal spawn + progress
+	// view; no-op unless a package dialog is open.
+	EditorPackageDialog::Draw();
 
 	// Per-asset editor windows (Mesh + Material). Runs after the
 	// Content Browser so a double-click this frame opens the

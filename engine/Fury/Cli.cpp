@@ -13,6 +13,10 @@
 #include "Fury/Cli.h"
 
 #include "Fury/AnimationClip.h"
+#include "Fury/AssetBackend.h"
+#include "Fury/AssetLoader.h"
+#include "Fury/CookPipeline.h"
+#include "Fury/DdcStore.h"
 #include "Fury/BoxBounds.h"
 #include "Fury/BufferManager.h"
 #include "Fury/Engine.h"
@@ -31,6 +35,7 @@
 #include "Fury/ParticleRenderer.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/OcTree.h"
+#include "Fury/PakFile.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
@@ -68,12 +73,19 @@ namespace fury
 {
 	namespace
 	{
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+		constexpr const char *kProgName = "furye-cli";
+#else
+		constexpr const char *kProgName = "fury";
+#endif
+
 		constexpr const char *kTopHelp =
 			"fury -- engine launcher and asset CLI\n"
 			"\n"
 			"USAGE\n"
-			"  fury                            run Demo.lua (default)\n"
+			"  fury                            run Editor.lua (default)\n"
 			"  fury <script.lua>               run the given Lua script\n"
+			"  fury <game.pak>                 mount a pak and play its boot scene\n"
 			"  fury <subcommand> [args...]     run a CLI subcommand\n"
 			"\n"
 			"SUBCOMMANDS\n"
@@ -81,8 +93,6 @@ namespace fury
 			"                 plus scene -> scene (.json <-> .bin)\n"
 			"  info           print a CPU-side summary of a scene or asset file\n"
 			"  exec           load a scene and run a Lua script against it (headless)\n"
-			"  kraut          generate and import Kraut trees (glb bridge, vegetation)\n"
-			"  render-mesh    render a specific mesh from a scene to a PNG (needs GL)\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
 			"\n"
@@ -92,6 +102,41 @@ namespace fury
 			"  2  internal error (uncaught exception)\n"
 			"\n"
 			"See docs/CLI.md for full reference.\n";
+
+		constexpr const char *kTopHelpCli =
+			"furye-cli -- headless editor-side CLI (cook, package, convert, info)\n"
+			"\n"
+			"USAGE\n"
+			"  furye-cli <subcommand> [args...]     run a CLI subcommand\n"
+			"\n"
+			"SUBCOMMANDS\n"
+			"  cook           cook a scene's assets (texture compression via DDC)\n"
+			"  package        cook + pack a scene into a deployable .pak\n"
+			"  convert        convert assets between formats (glTF/FBX -> engine scene.json/.bin)\n"
+			"                 plus scene -> scene (.json <-> .bin)\n"
+			"  info           print a CPU-side summary of a scene or asset file\n"
+			"  exec           load a scene and run a Lua script against it (headless)\n"
+			"  exec-script    run a Lua script with editor bindings, no scene load\n"
+			"  kraut          generate and import Kraut trees (glb bridge, vegetation)\n"
+			"  render-mesh    render a specific mesh from a scene to a PNG (needs GL)\n"
+			"  help           show this help; `help <subcommand>` for detail\n"
+			"  version        print the engine version and exit\n"
+			"\n"
+			"EXIT CODES\n"
+			"  0  success\n"
+			"  1  user error (bad arguments, unsupported input)\n"
+			"  2  internal error (uncaught exception)\n"
+			"\n"
+			"See docs/CLI.md for full reference.\n";
+
+		constexpr const char *TopHelp()
+		{
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+			return kTopHelpCli;
+#else
+			return kTopHelp;
+#endif
+		}
 
 		constexpr const char *kConvertHelp =
 			"fury convert -- convert an asset to the engine's runtime scene format\n"
@@ -167,6 +212,59 @@ namespace fury
 			"USAGE\n"
 			"  fury version\n";
 
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+		constexpr const char *kCookHelp =
+			"furye-cli cook -- cook a scene's assets into the DDC\n"
+			"\n"
+			"USAGE\n"
+			"  furye-cli cook <scene.json|.bin> [options]\n"
+			"\n"
+			"OPTIONS\n"
+			"  --texture-target legacy|modern   BC format set (default: legacy on\n"
+			"                                   macOS, modern elsewhere)\n"
+			"  --ddc <path>                     DDC root (default: FURY_DDC env or\n"
+			"                                   <exe dir>/DDC)\n"
+			"  --ktx <path>                     ktx CLI binary (default: FURY_KTX_CLI\n"
+			"                                   env or <exe dir>/ktx)\n"
+			"  --manifest <path>                manifest output (default:\n"
+			"                                   <scene>.cookmanifest.json)\n"
+			"  --verbose, -v                    verbose progress\n"
+			"\n"
+			"Textures compress to BCn KTX2 via the vendored ktx CLI and cache in\n"
+			"the DDC keyed by content+settings; unchanged textures are cache hits.\n"
+			"HDR sources pass through uncompressed (ktx 4.4.2 has no uastc-hdr).\n"
+			"Per-path overrides: <scene>.cook.json mapping canonical path ->\n"
+			"{\"usage\": \"color|color_alpha|normal|hdr\"}.\n"
+			"\n"
+			"EXIT CODES: 0 success, 1 user error / unresolved assets / tool\n"
+			"failure, 2 internal error.\n";
+
+		constexpr const char *kPackageHelp =
+			"furye-cli package -- cook + pack a scene into a deployable .pak\n"
+			"\n"
+			"USAGE\n"
+			"  furye-cli package <scene.json|.bin> [options]\n"
+			"\n"
+			"OPTIONS\n"
+			"  --compression none|lz4           entry compression (default lz4;\n"
+			"                                   incompressible entries store raw)\n"
+			"  --output <path>                  pak output (default: <scene>.pak\n"
+			"                                   next to the scene)\n"
+			"  --no-cook                        reuse the existing cook manifest\n"
+			"                                   (default: run cook first; the DDC\n"
+			"                                   makes recooks incremental)\n"
+			"  --texture-target legacy|modern   cook target passthrough\n"
+			"  --ddc <path>                     DDC root passthrough\n"
+			"  --ktx <path>                     ktx CLI passthrough\n"
+			"  --verbose, -v                    verbose progress\n"
+			"\n"
+			"The pak contains every cooked texture, every passthrough asset, the\n"
+			"scene itself as boot entry, and Player.lua when present in the\n"
+			"working directory. Play it with: fury <scene>.pak\n"
+			"\n"
+			"EXIT CODES: 0 success, 1 user error / missing artifact, 2 internal.\n";
+
+#endif
 		constexpr const char *kExecHelp =
 			"fury exec -- load a scene and run a Lua script against it (headless)\n"
 			"\n"
@@ -179,6 +277,8 @@ namespace fury
 			"  .gltf   glTF 2.0 ASCII\n"
 			"  .glb    glTF 2.0 binary\n"
 			"  .fbx    chained via FBX2glTF subprocess into a temp glb, then read\n"
+			"  .pak    mount a pak and load its boot scene (asset backend serves\n"
+			"          all referenced files from the archive)\n"
 			"\n"
 			"INVARIANTS\n"
 			"  No SFML window is opened. No Engine::Initialize is called. No\n"
@@ -199,12 +299,13 @@ namespace fury
 			"EXIT CODES: 0 success, 1 user error (bad args / file / Lua error),\n"
 			"2 internal error (uncaught C++ exception).\n";
 
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
 		constexpr const char *kKrautHelp =
-			"fury kraut -- generate and import Kraut trees (add-kraut-vegetation)\n"
+			"furye-cli kraut -- generate and import Kraut trees (add-kraut-vegetation)\n"
 			"\n"
 			"USAGE\n"
-			"  fury kraut generate <descriptor.tree> [--seed N] [--out dir]\n"
-			"  fury kraut import   <tree.glb> [output.json|.bin]\n"
+			"  furye-cli kraut generate <descriptor.tree> [--seed N] [--out dir]\n"
+			"  furye-cli kraut import   <tree.glb> [output.json|.bin]\n"
 			"\n"
 			"GENERATE\n"
 			"  Runs the vendored KrautCLI tool (next to the fury executable):\n"
@@ -228,6 +329,7 @@ namespace fury
 			"\n"
 			"EXIT CODES: 0 success, 1 user error (bad args / missing files),\n"
 			"2 internal error (tool or import failure).\n";
+#endif
 
 		// Tiny RAII helper: swap Scene::Active to the provided scene on
 		// construction, restore the previous value on destruction. Used by
@@ -245,7 +347,7 @@ namespace fury
 			~ActiveSceneGuard() { Scene::Active = prev; }
 		};
 
-		constexpr const char *kVersionString = "fury 0.2.1\n";
+		constexpr const char *kVersionString = "0.2.1\n";
 
 		struct SceneCounts
 		{
@@ -355,23 +457,27 @@ namespace fury
 		{
 			if (argc <= 2)
 			{
-				std::cout << kTopHelp;
+				std::cout << TopHelp();
 				return 0;
 			}
 			const std::string topic = argv[2];
 			if (topic == "convert") { std::cout << kConvertHelp; return 0; }
 			if (topic == "info")    { std::cout << kInfoHelp;    return 0; }
 			if (topic == "exec")    { std::cout << kExecHelp;    return 0; }
-			if (topic == "kraut")   { std::cout << kKrautHelp;   return 0; }
 			if (topic == "version") { std::cout << kVersionHelp; return 0; }
-			std::cerr << "fury help: unknown topic '" << topic << "'\n\n" << kTopHelp;
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+			if (topic == "kraut")   { std::cout << kKrautHelp;   return 0; }
+			if (topic == "cook")    { std::cout << kCookHelp;    return 0; }
+			if (topic == "package") { std::cout << kPackageHelp; return 0; }
+#endif
+			std::cerr << kProgName << " help: unknown topic '" << topic << "'\n\n" << TopHelp();
 			return 1;
 		}
 
 		int DoVersion(int argc, char **argv)
 		{
 			(void)argc; (void)argv;
-			std::cout << kVersionString;
+			std::cout << kProgName << " " << kVersionString;
 			return 0;
 		}
 
@@ -389,6 +495,37 @@ namespace fury
 			const std::string ext = ToLowerExt(path);
 			std::string working_dir = DirOf(path);
 			if (!working_dir.empty()) working_dir += "/";
+
+			if (ext == ".pak")
+			{
+				// Mount and load the boot scene; the boot key is a canonical
+				// (cwd-relative) path whose bytes come from the pak via the
+				// asset backend.
+				std::string err;
+				if (!AssetBackend::MountPak(path, err))
+				{
+					std::cerr << kProgName << ": failed to mount '" << path << "': " << err << "\n";
+					return nullptr;
+				}
+				const std::string boot = AssetBackend::MountedBootEntry();
+				if (boot.empty())
+				{
+					std::cerr << kProgName << ": pak '" << path << "' has no boot entry\n";
+					return nullptr;
+				}
+				const std::string boot_ext = ToLowerExt(boot);
+				std::string pak_working_dir = DirOf(boot);
+				if (!pak_working_dir.empty()) pak_working_dir += "/";
+				auto tree = OcTree::Create();
+				auto scene = Scene::Create("exec", pak_working_dir, tree);
+				auto prev_active = Scene::Active;
+				Scene::Active = scene;
+				bool ok = (boot_ext == ".json")
+					? FileUtil::LoadFile(scene, boot)
+					: FileUtil::LoadCompressedFile(scene, boot);
+				Scene::Active = prev_active;
+				return ok ? scene : nullptr;
+			}
 
 			if (ext == ".json" || ext == ".bin")
 			{
@@ -469,10 +606,10 @@ namespace fury
 			const std::string scene_ext = ToLowerExt(scene_path);
 			if (scene_ext != ".json" && scene_ext != ".bin"
 				&& scene_ext != ".gltf" && scene_ext != ".glb"
-				&& scene_ext != ".fbx")
+				&& scene_ext != ".fbx" && scene_ext != ".pak")
 			{
 				std::cerr << "fury exec: unsupported scene extension '" << scene_ext
-					<< "' (expected .json, .bin, .gltf, .glb, .fbx)\n";
+					<< "' (expected .json, .bin, .gltf, .glb, .fbx, .pak)\n";
 				return 1;
 			}
 
@@ -559,6 +696,331 @@ namespace fury
 				return 2;
 			}
 		}
+
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+		// `furye-cli exec-script <script.lua> [args...]` -- run a Lua script with
+		// the full (editor) binding surface, without loading a scene and without
+		// booting the editor shell. Entry point for editor-side batch tools.
+		int DoExecScript(int argc, char **argv)
+		{
+			if (argc >= 3 && WantsHelp(argv[2]))
+			{
+				std::cout << "furye-cli exec-script -- run a Lua script headlessly (editor bindings)\n"
+					"\n"
+					"USAGE\n"
+					"  furye-cli exec-script <script.lua> [args...]\n";
+				return 0;
+			}
+			if (argc < 3)
+			{
+				std::cerr << "furye-cli exec-script: expected <script.lua> argument\n";
+				return 1;
+			}
+			const std::string script_path = argv[2];
+			if (!FileUtil::FileExist(script_path))
+			{
+				std::cerr << "furye-cli exec-script: script file not found: '" << script_path << "'\n";
+				return 1;
+			}
+			try
+			{
+				sol::state lua;
+				lua.open_libraries(
+					sol::lib::base,
+					sol::lib::string,
+					sol::lib::math,
+					sol::lib::table,
+					sol::lib::io,
+					sol::lib::os,
+					sol::lib::package);
+
+				fury::LuaBindings::Register(lua);
+
+				sol::table arg_tbl = lua.create_named_table("arg");
+				arg_tbl[0] = script_path;
+				for (int i = 3; i < argc; ++i)
+					arg_tbl[i - 2] = std::string(argv[i]);
+
+				auto load_result = lua["loadfile"](script_path);
+				if (!load_result.valid())
+				{
+					sol::error err = load_result;
+					std::cerr << "furye-cli exec-script: failed to load '" << script_path
+						<< "': " << err.what() << "\n";
+					return 1;
+				}
+				sol::protected_function script = load_result;
+				auto result = script();
+				if (!result.valid())
+				{
+					sol::error err = result;
+					std::cerr << "furye-cli exec-script: '" << script_path
+						<< "': " << err.what() << "\n";
+					return 1;
+				}
+				return 0;
+			}
+			catch (const std::exception &e)
+			{
+				std::cerr << "furye-cli exec-script: " << e.what() << "\n";
+				return 2;
+			}
+		}
+
+		int DoCook(int argc, char **argv);
+		int RunCook(const std::string &scene_path, CookOptions &opts, bool report);
+		int DoPackage(int argc, char **argv);
+
+		int DoCook(int argc, char **argv)
+		{
+			if (argc >= 3 && WantsHelp(argv[2]))
+			{
+				std::cout << kCookHelp;
+				return 0;
+			}
+			if (argc < 3)
+			{
+				std::cerr << "furye-cli cook: expected <scene> argument\n";
+				return 1;
+			}
+			const std::string scene_path = argv[2];
+
+			CookOptions opts;
+			for (int i = 3; i < argc; ++i)
+			{
+				const std::string a = argv[i];
+				auto take_value = [&](const char *flag, std::string &out) {
+					const std::string prefix = std::string(flag) + "=";
+					if (a == flag && i + 1 < argc) { out = argv[++i]; return true; }
+					if (a.rfind(prefix, 0) == 0) { out = a.substr(prefix.size()); return true; }
+					return false;
+				};
+				if (take_value("--texture-target", opts.target)) continue;
+				if (take_value("--ddc", opts.ddcRoot)) continue;
+				if (take_value("--ktx", opts.ktxPath)) continue;
+				if (take_value("--manifest", opts.manifestOut)) continue;
+				if (a == "--verbose" || a == "-v") { opts.verbose = true; continue; }
+				std::cerr << "furye-cli cook: unknown option '" << a << "'\n";
+				return 1;
+			}
+
+			return RunCook(scene_path, opts, true);
+		}
+
+		// Shared by `cook` and `package`: arg validation, scene load, cook,
+		// result reporting. Returns the CLI exit code.
+		int RunCook(const std::string &scene_path, CookOptions &opts, bool report)
+		{
+			if (!opts.target.empty() && opts.target != "legacy" && opts.target != "modern")
+			{
+				std::cerr << "furye-cli cook: --texture-target must be legacy|modern (got '"
+					<< opts.target << "')\n";
+				return 1;
+			}
+
+			const std::string ext = ToLowerExt(scene_path);
+			if (ext != ".json" && ext != ".bin")
+			{
+				std::cerr << "furye-cli cook: scene must be .json or .bin (got '" << scene_path << "')\n";
+				return 1;
+			}
+
+			auto scene = LoadSceneForExecImpl(scene_path);
+			if (!scene)
+			{
+				std::cerr << "furye-cli cook: failed to load scene '" << scene_path << "'\n";
+				return 1;
+			}
+
+			CookResult result;
+			{
+				ActiveSceneGuard active_guard(scene);
+				result = CookSceneAssets(scene, scene_path, opts);
+			}
+
+			if (!result.error.empty())
+			{
+				std::cerr << "furye-cli cook: " << result.error << "\n";
+				return 1;
+			}
+			if (!result.unresolved.empty())
+			{
+				std::cerr << "furye-cli cook: " << result.unresolved.size()
+					<< " unresolved asset(s):\n";
+				for (const auto &u : result.unresolved)
+					std::cerr << "  " << u << "\n";
+				return 1;
+			}
+			if (report)
+				std::cout << "cook done: " << result.texturesCooked << " cooked, "
+					<< result.texturesDdcHits << " ddc-hits, manifest " << result.manifestPath << "\n";
+			return 0;
+		}
+
+		int DoPackage(int argc, char **argv)
+		{
+			if (argc >= 3 && WantsHelp(argv[2]))
+			{
+				std::cout << kPackageHelp;
+				return 0;
+			}
+			if (argc < 3)
+			{
+				std::cerr << "furye-cli package: expected <scene> argument\n";
+				return 1;
+			}
+			const std::string scene_path = argv[2];
+
+			std::string compression = "lz4";
+			std::string output;
+			bool no_cook = false;
+			CookOptions cook_opts;
+			for (int i = 3; i < argc; ++i)
+			{
+				const std::string a = argv[i];
+				auto take_value = [&](const char *flag, std::string &out) {
+					const std::string prefix = std::string(flag) + "=";
+					if (a == flag && i + 1 < argc) { out = argv[++i]; return true; }
+					if (a.rfind(prefix, 0) == 0) { out = a.substr(prefix.size()); return true; }
+					return false;
+				};
+				if (take_value("--compression", compression)) continue;
+				if (take_value("--output", output)) continue;
+				if (take_value("--texture-target", cook_opts.target)) continue;
+				if (take_value("--ddc", cook_opts.ddcRoot)) continue;
+				if (take_value("--ktx", cook_opts.ktxPath)) continue;
+				if (take_value("--manifest", cook_opts.manifestOut)) continue;
+				if (a == "--no-cook") { no_cook = true; continue; }
+				if (a == "--verbose" || a == "-v") { cook_opts.verbose = true; continue; }
+				std::cerr << "furye-cli package: unknown option '" << a << "'\n";
+				return 1;
+			}
+			if (compression != "none" && compression != "lz4")
+			{
+				std::cerr << "furye-cli package: --compression must be none|lz4\n";
+				return 1;
+			}
+
+			const std::string ext = ToLowerExt(scene_path);
+			if (ext != ".json" && ext != ".bin")
+			{
+				std::cerr << "furye-cli package: scene must be .json or .bin (got '" << scene_path << "')\n";
+				return 1;
+			}
+
+			if (output.empty())
+				output = scene_path.substr(0, scene_path.size() - ext.size()) + ".pak";
+			const std::string manifest_path = cook_opts.manifestOut.empty()
+				? scene_path.substr(0, scene_path.size() - ext.size()) + ".cookmanifest.json"
+				: cook_opts.manifestOut;
+
+			if (!no_cook)
+			{
+				const int rc = RunCook(scene_path, cook_opts, false);
+				if (rc != 0)
+					return rc;
+			}
+			else
+			{
+				std::error_code ec;
+				if (!std::filesystem::exists(manifest_path, ec))
+				{
+					std::cerr << "furye-cli package: --no-cook but no manifest at " << manifest_path << "\n";
+					return 1;
+				}
+			}
+
+			std::string manifest_text;
+			if (!FileUtil::LoadString(manifest_path, manifest_text))
+			{
+				std::cerr << "furye-cli package: cannot read manifest " << manifest_path << "\n";
+				return 1;
+			}
+			rapidjson::Document manifest;
+			manifest.Parse(manifest_text.c_str());
+			if (manifest.HasParseError() || !manifest.IsObject())
+			{
+				std::cerr << "furye-cli package: manifest " << manifest_path << " is not valid json\n";
+				return 1;
+			}
+
+			const std::string ddc_root = DdcStore::ResolveRoot(cook_opts.ddcRoot);
+			const bool compress = compression == "lz4";
+			auto writer = PakWriter::Create(output);
+			if (!writer)
+			{
+				std::cerr << "furye-cli package: cannot create " << output << "\n";
+				return 1;
+			}
+
+			// The scene itself is the boot entry, keyed by its canonical path
+			// so pak boot resolves it exactly like a loose load does.
+			const std::string scene_key = FileUtil::ToCanonicalAssetKey(FileUtil::GetAbsPath(scene_path, true));
+			if (scene_key.empty())
+			{
+				std::cerr << "furye-cli package: scene " << scene_path
+					<< " is outside the working root - cannot key it in the pak\n";
+				return 1;
+			}
+			if (!writer->AddEntryFromFile(scene_key, scene_path, compress))
+			{
+				std::cerr << "furye-cli package: cannot add scene " << scene_path << "\n";
+				return 1;
+			}
+			writer->SetBootEntry(scene_key);
+
+			auto add_manifest_entries = [&](const char *section, bool from_ddc) -> bool {
+				if (!manifest.HasMember(section) || !manifest[section].IsArray())
+					return true;
+				for (const auto &e : manifest[section].GetArray())
+				{
+					if (!e.IsObject() || !e.HasMember("key"))
+						continue;
+					const std::string key = e["key"].GetString();
+					const char *field = from_ddc ? "ddc" : "source";
+					if (!e.HasMember(field) || !e[field].IsString())
+						continue;
+					const std::string rel = e[field].GetString();
+					const std::string path = from_ddc ? ddc_root + "/" + rel : rel;
+					std::error_code ec;
+					if (!std::filesystem::exists(path, ec))
+					{
+						std::cerr << "furye-cli package: manifest artifact missing for '" << key
+							<< "': " << path << "\n";
+						return false;
+					}
+					if (!writer->AddEntryFromFile(key, path, compress))
+					{
+						std::cerr << "furye-cli package: failed to add '" << key << "'\n";
+						return false;
+					}
+				}
+				return true;
+			};
+
+			if (!add_manifest_entries("textures", true))
+				return 1;
+			if (!add_manifest_entries("passthrough", false))
+				return 1;
+
+			// Launcher script: packed when loose in the working directory, so
+			// `fury game.pak` runs it from the pak (loose file wins otherwise).
+			{
+				std::error_code ec;
+				if (std::filesystem::exists("Player.lua", ec))
+					writer->AddEntryFromFile("Player.lua", "Player.lua", compress);
+			}
+
+			std::string err;
+			if (!writer->Finish(err))
+			{
+				std::cerr << "furye-cli package: " << err << "\n";
+				return 1;
+			}
+			std::cout << "wrote " << output << "\n";
+			return 0;
+		}
+#endif
 
 
 		// Save a `Scene` to disk via the right FileUtil entry point based on
@@ -843,7 +1305,8 @@ namespace fury
 			return rc;
 		}
 
-		// `fury kraut generate` -- KrautCLI glb export + texture copies +
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+		// `furye-cli kraut generate` -- KrautCLI glb export + texture copies +
 		// KrautPreview billboard atlas + per-LOD preview screenshots.
 		int DoKrautGenerate(int argc, char **argv)
 		{
@@ -870,7 +1333,7 @@ namespace fury
 				}
 				else
 				{
-					std::cerr << "fury kraut generate: unknown argument '" << argv[i] << "'\n";
+					std::cerr << "furye-cli kraut generate: unknown argument '" << argv[i] << "'\n";
 					return 1;
 				}
 			}
@@ -879,7 +1342,7 @@ namespace fury
 				std::error_code ec;
 				if (!std::filesystem::exists(descriptor, ec))
 				{
-					std::cerr << "fury kraut generate: descriptor '" << descriptor << "' does not exist\n";
+					std::cerr << "furye-cli kraut generate: descriptor '" << descriptor << "' does not exist\n";
 					return 1;
 				}
 				std::filesystem::create_directories(outDir, ec);
@@ -899,7 +1362,7 @@ namespace fury
 				// tool exit 1/2 = bad input -> user error; 3/4 = generate/export failure
 				return res.exit_code <= 2 ? 1 : 2;
 			}
-			std::cout << "fury kraut generate: wrote " << res.output_path << "\n";
+			std::cout << "furye-cli kraut generate: wrote " << res.output_path << "\n";
 
 			// Copy referenced textures next to the glb (the export's JSON
 			// summary lists uri + resolved source per texture).
@@ -918,7 +1381,7 @@ namespace fury
 						const std::string src = tex["source"].GetString();
 						if (src.empty())
 						{
-							std::cerr << "fury kraut generate: warning: texture '" << uri
+							std::cerr << "furye-cli kraut generate: warning: texture '" << uri
 								<< "' unresolved by KrautCLI (copy it manually next to the glb)\n";
 							continue;
 						}
@@ -928,7 +1391,7 @@ namespace fury
 							std::filesystem::copy_file(src, dst,
 								std::filesystem::copy_options::overwrite_existing, ec);
 						if (ec)
-							std::cerr << "fury kraut generate: warning: failed to copy texture "
+							std::cerr << "furye-cli kraut generate: warning: failed to copy texture "
 								<< src << " -> " << dst << ": " << ec.message() << "\n";
 						else
 							std::cout << "  texture: " << uri << "\n";
@@ -943,7 +1406,7 @@ namespace fury
 			if (atlas.ok())
 				std::cout << "  atlas: " << atlas.output_path << "\n";
 			else if (!atlas.stderr_capture.empty())
-				std::cerr << "fury kraut generate: warning: " << atlas.stderr_capture << "\n";
+				std::cerr << "furye-cli kraut generate: warning: " << atlas.stderr_capture << "\n";
 
 			// 3. Per-LOD preview screenshots (nicety; same non-fatal rule).
 			auto previews = KrautConverter::PreviewScreenshots(descriptor, seed, seedGiven, glbDir);
@@ -953,7 +1416,7 @@ namespace fury
 			return 0;
 		}
 
-		// `fury kraut import` -- kraut glb -> engine scene fragment. The
+		// `furye-cli kraut import` -- kraut glb -> engine scene fragment. The
 		// kraut postprocess (extras.kraut) runs inside GltfImporter::Import.
 		int DoKrautImport(int argc, char **argv)
 		{
@@ -970,7 +1433,7 @@ namespace fury
 					output = argv[i];
 				else
 				{
-					std::cerr << "fury kraut import: unknown argument '" << argv[i] << "'\n";
+					std::cerr << "furye-cli kraut import: unknown argument '" << argv[i] << "'\n";
 					return 1;
 				}
 			}
@@ -980,19 +1443,19 @@ namespace fury
 
 			if (ToLowerExt(input) != ".glb")
 			{
-				std::cerr << "fury kraut import: input must be a .glb (KrautCLI export --format glb)\n";
+				std::cerr << "furye-cli kraut import: input must be a .glb (KrautCLI export --format glb)\n";
 				return 1;
 			}
 			if (out_ext != ".bin" && out_ext != ".json")
 			{
-				std::cerr << "fury kraut import: output must end in .bin or .json\n";
+				std::cerr << "furye-cli kraut import: output must end in .bin or .json\n";
 				return 1;
 			}
 			{
 				std::error_code ec;
 				if (!std::filesystem::exists(input, ec))
 				{
-					std::cerr << "fury kraut import: input '" << input << "' does not exist\n";
+					std::cerr << "furye-cli kraut import: input '" << input << "' does not exist\n";
 					return 1;
 				}
 			}
@@ -1006,7 +1469,7 @@ namespace fury
 				DirOf(input).empty() ? std::string{} : DirOf(input) + "/", opts);
 			if (!scene)
 			{
-				std::cerr << "fury kraut import: gltf import of '" << input << "' failed\n";
+				std::cerr << "furye-cli kraut import: gltf import of '" << input << "' failed\n";
 				return 2;
 			}
 			Scene::Active = scene;
@@ -1025,9 +1488,10 @@ namespace fury
 			const std::string verb = argv[2];
 			if (verb == "generate") return DoKrautGenerate(argc, argv);
 			if (verb == "import")   return DoKrautImport(argc, argv);
-			std::cerr << "fury kraut: unknown verb '" << verb << "' (expected generate|import)\n";
+			std::cerr << "furye-cli kraut: unknown verb '" << verb << "' (expected generate|import)\n";
 			return 1;
 		}
+#endif
 
 		int InfoEngineScene(const std::string &path, const std::string &ext)
 		{
@@ -1188,7 +1652,13 @@ namespace fury
 	{
 		if (!arg0) return false;
 		const char *tokens[] = {
-			"convert", "info", "exec", "kraut", "help", "--help", "-h", "version", "--version", nullptr,
+			// fury (player): scene/asset inspection + play only.
+			"convert", "info", "exec", "help", "--help", "-h", "version", "--version",
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+			// furye-cli: editor-side tooling joins the dispatch.
+			"cook", "package", "exec-script", "kraut",
+#endif
+			nullptr,
 		};
 		for (const char **t = tokens; *t; ++t)
 			if (std::strcmp(arg0, *t) == 0) return true;
@@ -1373,7 +1843,12 @@ namespace fury
 		// but the manager add-call still needs the singleton to exist.
 		BufferManager::Initialize();
 
-		if (argc < 2) { std::cout << kTopHelp; return 0; }
+		// Async asset loader: scene loads prefetch through it when up.
+		AssetLoader::Get().Initialize(1);
+		struct AssetLoaderGuard { ~AssetLoaderGuard() { AssetLoader::Get().Shutdown(); } } loader_guard;
+		(void)loader_guard;
+
+		if (argc < 2) { std::cout << TopHelp(); return 0; }
 		try
 		{
 			const std::string sub = argv[1];
@@ -1382,8 +1857,13 @@ namespace fury
 			if (sub == "convert")                                  return DoConvert(argc, argv);
 			if (sub == "info")                                     return DoInfo(argc, argv);
 			if (sub == "exec")                                     return DoExec(argc, argv);
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
 			if (sub == "kraut")                                    return DoKraut(argc, argv);
-			std::cerr << "fury: unknown subcommand '" << sub << "'\n\n" << kTopHelp;
+			if (sub == "cook")                                     return DoCook(argc, argv);
+			if (sub == "package")                                  return DoPackage(argc, argv);
+			if (sub == "exec-script")                              return DoExecScript(argc, argv);
+#endif
+			std::cerr << kProgName << ": unknown subcommand '" << sub << "'\n\n" << TopHelp();
 			return 1;
 		}
 		catch (const std::exception &e)

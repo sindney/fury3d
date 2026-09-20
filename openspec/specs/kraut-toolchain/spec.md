@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Kraut-CLI vendored as a ThirdParty submodule providing an on-demand, deterministic, headless tree-generation toolchain: `KrautCLI` (generate/export, JSON output) and `KrautPreview` (GL viewer with `--screenshot`), wrapped by a `fury kraut` CLI subcommand following the FbxConverter subprocess precedent. Agents and scripts can go from a `.tree` descriptor + seed to a previewed, engine-importable asset with one command.
+Kraut-CLI vendored as a ThirdParty submodule providing an on-demand, deterministic, headless tree-generation toolchain: `KrautCLI` (generate/export, JSON output) and `KrautPreview` (GL viewer with `--screenshot`), wrapped by a `furye-cli kraut` CLI subcommand following the FbxConverter subprocess precedent. Agents and scripts can go from a `.tree` descriptor + seed to a previewed, engine-importable asset with one command.
 
 ## Requirements
 
@@ -27,29 +27,37 @@ Kraut-CLI vendored as a ThirdParty submodule providing an on-demand, determinist
 
 ### Requirement: Tree generation SHALL be deterministic per descriptor and seed
 
-Given the same `.tree` descriptor file and the same integer seed, `fury kraut generate` SHALL produce identical output geometry.
+Given the same `.tree` descriptor file and the same integer seed, `furye-cli kraut generate` SHALL produce identical output geometry.
 
 #### Scenario: Same seed, same tree
 
-- **WHEN** `fury kraut generate oak.tree --seed 42 --out a/` and `fury kraut generate oak.tree --seed 42 --out b/` are run
+- **WHEN** `furye-cli kraut generate oak.tree --seed 42 --out a/` and `furye-cli kraut generate oak.tree --seed 42 --out b/` are run
 - **THEN** the exported geometry files in `a/` and `b/` are byte-identical
 
-### Requirement: The engine SHALL ship a `fury kraut` CLI subcommand wrapping the toolchain
+### Requirement: The engine SHALL ship a `furye-cli kraut` CLI subcommand wrapping the toolchain
 
-`fury kraut generate <descriptor.tree> [--seed N] [--out dir]` SHALL invoke KrautCLI as a subprocess (located relative to the executable, FbxConverter pattern), run generation and glb export, and then invoke KrautPreview `--screenshot` to produce a PNG preview per LOD tier when the preview binary is available. `fury kraut import <tree.glb>` SHALL import a Kraut-exported glb into a fury scene fragment (see `kraut-tree-import`). The subcommand SHALL print machine-readable progress/errors and use exit codes consistent with the existing CLI (0 success, 1 user error, 2 internal error). `fury help` SHALL mention the `kraut` subcommand.
+`furye-cli kraut generate <descriptor.tree> [--seed N] [--out dir]` SHALL invoke KrautCLI as a subprocess (located relative to the executable, FbxConverter pattern), run generation and glb export, and then invoke KrautPreview `--screenshot` to produce a PNG preview per LOD tier when the preview binary is available. `furye-cli kraut import <tree.glb>` SHALL import a Kraut-exported glb into a fury scene fragment (see `kraut-tree-import`). The subcommand SHALL print machine-readable progress/errors and use exit codes consistent with the existing CLI (0 success, 1 user error, 2 internal error). `furye-cli help` SHALL mention the `kraut` subcommand.
+
+The subcommand moved from `fury` to `furye-cli`: the player binary's CLI keeps only scene/asset inspection (`convert`/`info`/`exec`); editor-side tooling lives in the headless editor CLI. `fury kraut` is no longer a subcommand (the launcher treats it as a Lua script path and errors).
 
 #### Scenario: Generate a tree end to end
 
-- **WHEN** the user runs `fury kraut generate palm.tree --seed 7 --out /tmp/palm`
+- **WHEN** the user runs `furye-cli kraut generate palm.tree --seed 7 --out /tmp/palm`
 - **THEN** `/tmp/palm` contains the exported `.glb`, its textures, and preview PNG screenshots
 - **AND** the exit code is 0
 
 #### Scenario: Missing descriptor is a user error
 
-- **WHEN** the user runs `fury kraut generate nonexistent.tree`
+- **WHEN** the user runs `furye-cli kraut generate nonexistent.tree`
 - **THEN** the command prints an error naming the missing file and exits with code 1
 
 #### Scenario: Help mentions kraut
 
-- **WHEN** the user runs `fury help`
+- **WHEN** the user runs `furye-cli help`
 - **THEN** the help text includes a one-line description of the `kraut` subcommand
+
+#### Scenario: fury no longer dispatches kraut
+
+- **WHEN** the user runs `fury kraut generate palm.tree`
+- **THEN** `Cli::LooksLikeSubcommand("kraut")` returns false for the fury build
+- **AND** the launcher path treats `kraut` as a Lua script and errors

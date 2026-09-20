@@ -4,6 +4,7 @@
 
 #include <rapidjson/document.h>
 
+#include "Fury/AssetBackend.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Log.h"
@@ -112,19 +113,21 @@ namespace fury
 			FURYW << "Heightmap: resolution " << m_Resolution << " is not 2^k+1, loading anyway";
 		}
 
-		std::ifstream stream(Scene::ResolveAsset(m_FilePath), std::ios::binary);
-		if (!stream.good())
+		std::vector<unsigned char> bytes;
+		if (!AssetBackend::ReadAssetBytes(Scene::ResolveAsset(m_FilePath), bytes))
 		{
 			FURYE << "Heightmap: file not found: " << m_FilePath;
 			return false;
 		}
-		std::vector<unsigned short> raw(static_cast<size_t>(m_Resolution) * m_Resolution);
-		stream.read(reinterpret_cast<char*>(raw.data()), raw.size() * 2);
-		if (!stream)
+		const size_t need = static_cast<size_t>(m_Resolution) * m_Resolution * 2;
+		if (bytes.size() < need)
 		{
 			FURYE << "Heightmap: short read on " << m_FilePath;
 			return false;
 		}
+
+		std::vector<unsigned short> raw(static_cast<size_t>(m_Resolution) * m_Resolution);
+		memcpy(raw.data(), bytes.data(), need);
 
 		m_Heights.resize(raw.size());
 		const float toCm = m_HeightScale / 65535.0f;

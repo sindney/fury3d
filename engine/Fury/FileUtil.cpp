@@ -35,6 +35,7 @@
 #define STBI_ONLY_TGA
 
 #include "Fury/EntityManager.h"
+#include "Fury/AssetBackend.h"
 #include "Fury/FileUtil.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Log.h"
@@ -127,6 +128,9 @@ std::string FileUtil::GetAbsPath(const std::string& source, bool toForwardSlash)
 }
 
 bool FileUtil::FileExist(const std::string& path) {
+	if (AssetBackend::AssetExists(path))
+		return true;
+
 	std::ifstream stream(path.c_str());
 	if (stream.good()) {
 		stream.close();
@@ -141,18 +145,10 @@ bool FileUtil::FileExist(const std::string& path) {
 // file io
 
 bool FileUtil::LoadString(const std::string& path, std::string& output) {
-	std::ifstream stream(path, std::ios::in);
-	if (stream) {
-		stream.seekg(0, std::ios::end);
-		size_t size = (size_t)stream.tellg();
-		stream.seekg(0, std::ios::beg);
-
-		output.resize(size);
-
-		stream.read(&output[0], size);
-		stream.close();
-
-		return size == output.size();
+	std::vector<unsigned char> bytes;
+	if (AssetBackend::ReadAssetBytes(path, bytes)) {
+		output.assign(bytes.begin(), bytes.end());
+		return true;
 	} else {
 		FURYW << "Failed to load chars: " << path;
 		return false;
@@ -160,10 +156,13 @@ bool FileUtil::LoadString(const std::string& path, std::string& output) {
 }
 
 bool FileUtil::LoadImage(const std::string& path, std::vector<unsigned char>& output, int& width, int& height, int& channels) {
-	if (!FileExist(path))
+	std::vector<unsigned char> bytes;
+	if (!AssetBackend::ReadAssetBytes(path, bytes)) {
+		FURYE << "File " << path << " not exist!";
 		return false;
+	}
 
-	unsigned char* ptr = stbi_load(path.c_str(), &width, &height, &channels, 0);
+	unsigned char* ptr = stbi_load_from_memory(bytes.data(), (int)bytes.size(), &width, &height, &channels, 0);
 	if (ptr && width && height) {
 		output.resize(width * height * channels);
 		memcpy(&output[0], ptr, output.size());
@@ -412,15 +411,12 @@ struct ActiveSceneScope {
 bool FileUtil::LoadFile(const Serializable::Ptr& source, const std::string& filePath) {
 	using namespace rapidjson;
 
-	std::ifstream stream(filePath);
-	if (stream) {
+	std::vector<unsigned char> bytes;
+	if (AssetBackend::ReadAssetBytes(filePath, bytes)) {
 		Document dom;
 
-		std::stringstream buffer;
-		buffer << stream.rdbuf();
-		stream.close();
-
-		dom.Parse(buffer.str().c_str());
+		std::string text(bytes.begin(), bytes.end());
+		dom.Parse(text.c_str());
 
 		if (dom.HasParseError()) {
 			FURYE << "Error parsing json file " << filePath << ": " << dom.GetParseError();
@@ -480,34 +476,39 @@ bool FileUtil::SaveFile(const Serializable::Ptr& source, const std::string& file
 bool FileUtil::LoadCompressedFile(const std::shared_ptr<Serializable>& source, const std::string& filePath) {
 	using namespace rapidjson;
 
-	std::ifstream stream(filePath, std::ios_base::binary);
-	if (stream) {
+	std::vector<unsigned char> bytes;
+	if (AssetBackend::ReadAssetBytes(filePath, bytes)) {
 		Document dom;
 
 		{
-			uint32_t orgSize, compressSize, netOrgSize, netCompressSize;
+			if (bytes.size() < sizeof(uint32_t) * 2) {
+				FURYE << "Truncated compressed file " << filePath;
+				return false;
+			}
 
-			stream.read((char*)&netOrgSize, sizeof(uint32_t));
-			orgSize = ntohl(netOrgSize);
+			uint32_t netOrgSize, netCompressSize;
+			memcpy(&netOrgSize, bytes.data(), sizeof(uint32_t));
+			memcpy(&netCompressSize, bytes.data() + sizeof(uint32_t), sizeof(uint32_t));
+			uint32_t orgSize = ntohl(netOrgSize);
+			uint32_t compressSize = ntohl(netCompressSize);
 
-			stream.read((char*)&netCompressSize, sizeof(uint32_t));
-			compressSize = ntohl(netCompressSize);
-
-			char* srcBuffer = new char[compressSize];
-			stream.read(srcBuffer, compressSize);
+			if (bytes.size() < sizeof(uint32_t) * 2 + compressSize) {
+				FURYE << "Truncated compressed payload in " << filePath;
+				return false;
+			}
 
 			char* buffer = new char[orgSize];
 
-			int size = LZ4_decompress_fast(srcBuffer, buffer, orgSize);
-			if (size == 0) {
+			int size = LZ4_decompress_safe((const char*)bytes.data() + sizeof(uint32_t) * 2, buffer, compressSize, orgSize);
+			if (size <= 0) {
 				FURYE << "Failed to decompress data!";
+				delete[] buffer;
 				return false;
 			}
 
 			dom.Parse(buffer, orgSize);
 
 			delete[] buffer;
-			delete[] srcBuffer;
 		}
 
 		if (dom.HasParseError()) {
@@ -666,6 +667,58 @@ std::string FileUtil::GetExecutablePath()
 #else
 	return {};
 #endif
+}
+
+std::string FileUtil::NormalizePath(const std::string& path)
+{
+	std::string in = path;
+	std::replace(in.begin(), in.end(), '\\', '/');
+
+	std::vector<std::string> out;
+	bool absolute = !in.empty() && in[0] == '/';
+	size_t i = absolute ? 1 : 0;
+	while (i <= in.size())
+	{
+		size_t next = in.find('/', i);
+		if (next == std::string::npos) next = in.size();
+		std::string seg = in.substr(i, next - i);
+		if (seg.empty() || seg == ".")
+		{
+			// skip
+		}
+		else if (seg == "..")
+		{
+			// ".." above the root collapses to nothing: pak keys never
+			// escape the working root.
+			if (!out.empty()) out.pop_back();
+		}
+		else
+		{
+			out.push_back(seg);
+		}
+		i = next + 1;
+	}
+
+	std::string result = absolute ? "/" : "";
+	for (size_t k = 0; k < out.size(); k++)
+	{
+		if (k > 0) result += '/';
+		result += out[k];
+	}
+	return result;
+}
+
+std::string FileUtil::ToCanonicalAssetKey(const std::string& resolvedPath)
+{
+	if (resolvedPath.empty()) return "";
+
+	std::string abs = NormalizePath(GetAbsPath(resolvedPath, true));
+	std::string root = NormalizePath(GetAbsPath());
+	if (!root.empty() && root.back() != '/') root += '/';
+
+	if (abs.compare(0, root.size(), root) != 0)
+		return "";
+	return abs.substr(root.size());
 }
 
 } // namespace fury

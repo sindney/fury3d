@@ -3,6 +3,29 @@
 
 #include <cctype>
 
+// S3TC/BPTC constants glLoadGen did not emit (unused until now).
+#ifndef GL_COMPRESSED_RGB_S3TC_DXT1_EXT
+#define GL_COMPRESSED_RGB_S3TC_DXT1_EXT 0x83F0
+#endif
+#ifndef GL_COMPRESSED_SRGB_S3TC_DXT1_EXT
+#define GL_COMPRESSED_SRGB_S3TC_DXT1_EXT 0x8C4C
+#endif
+#ifndef GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
+#define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT 0x83F3
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT 0x8C4F
+#endif
+#ifndef GL_COMPRESSED_RGBA_BPTC_UNORM
+#define GL_COMPRESSED_RGBA_BPTC_UNORM 0x8E8C
+#endif
+#ifndef GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM
+#define GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM 0x8E8D
+#endif
+#ifndef GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT
+#define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT 0x8E8F
+#endif
+
 #undef OPAQUE
 #undef TRANSPARENT
 
@@ -115,7 +138,17 @@ namespace fury
 		std::make_tuple(TextureFormat::DEPTH24, "depth24", GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT),
 		std::make_tuple(TextureFormat::DEPTH32F, "depth32f", GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT),
 		std::make_tuple(TextureFormat::DEPTH32F_STENCIL8, "depth32f_stencil8", GL_DEPTH32F_STENCIL8, GL_DEPTH_STENCIL),
-		std::make_tuple(TextureFormat::DEPTH24_STENCIL8, "depth24_stencil8", GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL)
+		std::make_tuple(TextureFormat::DEPTH24_STENCIL8, "depth24_stencil8", GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL),
+		// Order MUST match the tail of the TextureFormat enum. Fourth
+		// tuple field is unused for compressed formats (no base format).
+		std::make_tuple(TextureFormat::BC1_UNORM, "bc1", GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 0),
+		std::make_tuple(TextureFormat::BC1_SRGB, "bc1_srgb", GL_COMPRESSED_SRGB_S3TC_DXT1_EXT, 0),
+		std::make_tuple(TextureFormat::BC3_UNORM, "bc3", GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, 0),
+		std::make_tuple(TextureFormat::BC3_SRGB, "bc3_srgb", GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT, 0),
+		std::make_tuple(TextureFormat::BC5_UNORM, "bc5", GL_COMPRESSED_RG_RGTC2, 0),
+		std::make_tuple(TextureFormat::BC6H_UF, "bc6h", GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT, 0),
+		std::make_tuple(TextureFormat::BC7_UNORM, "bc7", GL_COMPRESSED_RGBA_BPTC_UNORM, 0),
+		std::make_tuple(TextureFormat::BC7_SRGB, "bc7_srgb", GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM, 0)
 	};
 
 	const std::vector<std::pair<TextureFormat, unsigned int>> EnumUtil::m_TextureFormatBitPerPixel =
@@ -146,7 +179,15 @@ namespace fury
 		std::make_pair(TextureFormat::DEPTH24, 24),
 		std::make_pair(TextureFormat::DEPTH32F, 32),
 		std::make_pair(TextureFormat::DEPTH32F_STENCIL8, 40),
-		std::make_pair(TextureFormat::DEPTH24_STENCIL8, 32)
+		std::make_pair(TextureFormat::DEPTH24_STENCIL8, 32),
+		std::make_pair(TextureFormat::BC1_UNORM, 4),
+		std::make_pair(TextureFormat::BC1_SRGB, 4),
+		std::make_pair(TextureFormat::BC3_UNORM, 8),
+		std::make_pair(TextureFormat::BC3_SRGB, 8),
+		std::make_pair(TextureFormat::BC5_UNORM, 8),
+		std::make_pair(TextureFormat::BC6H_UF, 8),
+		std::make_pair(TextureFormat::BC7_UNORM, 8),
+		std::make_pair(TextureFormat::BC7_SRGB, 8)
 	};
 
 	const std::vector<std::tuple<TextureType, std::string, unsigned int>> EnumUtil::m_TextureType =
@@ -376,8 +417,30 @@ namespace fury
 	std::pair<bool, unsigned int> EnumUtil::TextureFormatToUint(TextureFormat format, bool internalFormat)
 	{
 		auto data = m_TextureFormat[(int)format];
-		return std::make_pair(std::get<0>(data) == TextureFormat::UNKNOW, 
+		return std::make_pair(std::get<0>(data) == TextureFormat::UNKNOW,
 			internalFormat ? std::get<2>(data) : std::get<3>(data));
+	}
+
+	bool EnumUtil::TextureFormatIsCompressed(TextureFormat format)
+	{
+		return (int)format >= (int)TextureFormat::BC1_UNORM;
+	}
+
+	TextureFormat EnumUtil::TextureFormatFromVkFormat(unsigned int vkFormat)
+	{
+		// Vulkan header values for the BC block-compressed formats.
+		switch (vkFormat)
+		{
+		case 131: return TextureFormat::BC1_UNORM; // BC1_RGB_UNORM_BLOCK
+		case 132: return TextureFormat::BC1_SRGB;  // BC1_RGB_SRGB_BLOCK
+		case 137: return TextureFormat::BC3_UNORM; // BC3_UNORM_BLOCK
+		case 138: return TextureFormat::BC3_SRGB;  // BC3_SRGB_BLOCK
+		case 141: return TextureFormat::BC5_UNORM; // BC5_UNORM_BLOCK
+		case 143: return TextureFormat::BC6H_UF;   // BC6H_UFLOAT_BLOCK
+		case 145: return TextureFormat::BC7_UNORM; // BC7_UNORM_BLOCK
+		case 146: return TextureFormat::BC7_SRGB;  // BC7_SRGB_BLOCK
+		default: return TextureFormat::UNKNOW;
+		}
 	}
 
 	std::string EnumUtil::TextureFormatToString(TextureFormat foramt)

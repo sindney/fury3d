@@ -166,7 +166,7 @@ If you only built `fury`, the launch is the same (`./fury Editor.lua`) but the I
 
 ## CLI
 
-The same `fury` binary hosts an offline asset CLI when `argv[1]` is a known subcommand; no window, no GL context, no Lua VM unless `fury exec` is used.
+The same `fury` binary hosts an offline asset CLI when `argv[1]` is a known subcommand; no window, no GL context, no Lua VM unless `fury exec` is used. `furye-cli` is the headless editor-side sibling (`fury`/`furye`/`furye-cli` roles: see `docs/CLI.md`).
 
 ```sh
 cd examples
@@ -177,6 +177,14 @@ cd examples
 ./fury info tank.bin                                      # CPU-side summary (nodes, meshes, AABB...)
 ./fury exec tank.bin some-script.lua                       # headless Lua over a scene
 ./fury render-mesh tank.bin Tank_005 /tmp/tank.png         # single-mesh thumbnail
+```
+
+Cook + package a scene into a deployable pak (textures -> BCn KTX2 via the vendored ktx CLI, DDC-cached):
+
+```sh
+./furye-cli cook Projects/ocean/ocean_island.bin           # textures -> DDC + cook manifest
+./furye-cli package Projects/ocean/ocean_island.bin        # -> ocean_island.pak (boot scene + assets)
+./fury ocean_island.pak                                    # mount + play, or fury exec ocean_island.pak script.lua
 ```
 
 Run `./fury help <subcommand>` for full flags; see `docs/CLI.md` for the reference.

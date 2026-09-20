@@ -88,6 +88,13 @@ namespace fury
 
 		void CreateFromImage(const std::string &filePath, bool srgb, bool mipMap);
 
+		// Cooked-texture path: parse a KTX2 (unsupercompressed BCn payload)
+		// and upload its mip chain via glCompressedTexSubImage2D. Falls back
+		// to the missing-texture behavior (no GL object, error logged) when
+		// the context lacks the block format. nameForLog is the scene-side
+		// path used in logs; bytes are the (already backend-read) payload.
+		void CreateFromKtx2(const std::string &nameForLog, std::vector<unsigned char> bytes, bool mipMap);
+
 		// Decode and upload an encoded image (JPEG/PNG/BMP) from a
 		// memory buffer. On success the encoded bytes are retained on
 		// the Texture so save-time extraction can write them to disk.

@@ -75,6 +75,18 @@ namespace fury
 
 		// Absolute path of the running executable ("" on failure).
 		static std::string GetExecutablePath();
+
+		// Lexical normalization: forward slashes, "." and ".." collapsed,
+		// duplicate slashes removed. No filesystem access, no symlink
+		// resolution - both pak writer and reader must derive identical
+		// keys, so the transform is purely textual.
+		static std::string NormalizePath(const std::string &path);
+
+		// Canonical pak/DDC key for a resolved asset path: absolute-normalize
+		// (cwd-prepended when relative), NormalizePath, then strip the cwd
+		// prefix. Returns "" when the path lands outside the working root
+		// (such assets cannot be packed).
+		static std::string ToCanonicalAssetKey(const std::string &resolvedPath);
 	};
 }
 

@@ -7,6 +7,7 @@
 #include <rapidjson/document.h>
 
 #include "Fury/EnumUtil.h"
+#include "Fury/AssetBackend.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
@@ -63,15 +64,7 @@ namespace fury
 
 		bool ReadFileBytes(const std::string &path, std::vector<unsigned char> &out)
 		{
-			std::ifstream stream(path, std::ios::binary);
-			if (!stream.good())
-				return false;
-			stream.seekg(0, std::ios::end);
-			auto size = stream.tellg();
-			stream.seekg(0, std::ios::beg);
-			out.resize((size_t)size);
-			stream.read(reinterpret_cast<char*>(out.data()), size);
-			return stream.good() || stream.gcount() == size;
+			return AssetBackend::ReadAssetBytes(path, out);
 		}
 	}
 

@@ -27,13 +27,16 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include <sol/sol.hpp>
 
+#include <Fury/AssetBackend.h>
 #include <Fury/Cli.h>
 #include <Fury/Editor/Editor.h>
 #include <Fury/FileUtil.h>
@@ -219,8 +222,9 @@ namespace
 
 int main(int argc, char *argv[])
 {
-	// `fury render-mesh` needs a GL context, so set up the window + engine here
-	// and delegate to Cli::RenderMesh.
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+	// `furye-cli render-mesh` needs a GL context, so set up the window + engine here
+	// and delegate to Cli::RenderMesh. Headless-by-default, windowed on demand.
 	if (argc >= 2 && std::strcmp(argv[1], "render-mesh") == 0) {
 		sf::Window window;
 		if (!CreateWindowNegotiated(window, sf::VideoMode({256, 256}),
@@ -240,6 +244,7 @@ int main(int argc, char *argv[])
 		}
 		return rc;
 	}
+#endif
 
 
 	// `fury render-thread-smoke [N]`: standalone render-thread context-handoff
@@ -271,6 +276,81 @@ int main(int argc, char *argv[])
 	// path. No window, no engine, no Lua. Exit code from Cli::Run propagates.
 	if (argc >= 2 && fury::Cli::LooksLikeSubcommand(argv[1]))
 		return fury::Cli::Run(argc, argv);
+
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+	// furye-cli never falls through to the Lua launcher: unknown input is a
+	// user error, no-args prints help.
+	if (argc < 2)
+	{
+		char arg0[] = "furye-cli", arg1[] = "--help";
+		char* help_argv[] = { arg0, arg1 };
+		return fury::Cli::Run(2, help_argv);
+	}
+	std::cerr << "furye-cli: unknown subcommand '" << argv[1] << "' (see --help)\n";
+	return 1;
+#endif
+
+	// Pak flows (fury only; the editor works on loose files):
+	//   fury game.pak                 -> mount, play the pak's boot scene
+	//   fury scene.bin / fury Player.lua scene.bin with sibling scene.pak
+	//                                -> mount, asset reads resolve from pak
+	std::string pak_boot_key;
+#if !defined(FURY_HEADLESS_CLI) && !WITH_EDITOR
+	if (argc >= 2)
+	{
+		// Silent probes only: this block runs before Engine::Initialize, so
+		// the Log singleton does not exist yet and FileUtil::FileExist would
+		// crash on its error log for missing files.
+		auto file_exists_quiet = [](const std::string& p) {
+			std::ifstream f(p);
+			return f.good();
+		};
+		auto ends_icase = [](const std::string& s, const char* suf) {
+			const size_t n = std::strlen(suf);
+			if (s.size() < n) return false;
+			for (size_t i = 0; i < n; ++i)
+				if (std::tolower((unsigned char)s[s.size() - n + i]) != suf[i]) return false;
+			return true;
+		};
+
+		std::string arg1 = argv[1];
+		if (ends_icase(arg1, ".pak") && file_exists_quiet(arg1))
+		{
+			std::string err;
+			if (!fury::AssetBackend::MountPak(arg1, err))
+			{
+				std::cerr << "fury: failed to mount " << arg1 << ": " << err << "\n";
+				return 1;
+			}
+			pak_boot_key = fury::AssetBackend::MountedBootEntry();
+			if (pak_boot_key.empty())
+			{
+				std::cerr << "fury: " << arg1 << " has no boot entry\n";
+				return 1;
+			}
+		}
+		else
+		{
+			for (int i = 1; i < argc && i <= 2; ++i)
+			{
+				std::string a = argv[i];
+				size_t stem = 0;
+				if (ends_icase(a, ".json")) stem = 5;
+				else if (ends_icase(a, ".bin")) stem = 4;
+				else continue;
+				if (!file_exists_quiet(a)) continue;
+				std::string sibling = a.substr(0, a.size() - stem) + ".pak";
+				if (!file_exists_quiet(sibling)) continue;
+				std::string err;
+				if (fury::AssetBackend::MountPak(sibling, err))
+					std::cout << "fury: mounted sibling pak " << sibling << "\n";
+				else
+					std::cerr << "fury: sibling pak " << sibling << " failed to mount: " << err << "\n";
+				break;
+			}
+		}
+	}
+#endif
 
 	// Strip launcher-only flags (--screenshot, --screenshot-frame) before
 	// the rest of argv flows on to the Lua `arg` table.
@@ -333,7 +413,16 @@ int main(int argc, char *argv[])
 		fury::LuaBindings::SetLauncherOptions(&launcher_options);
 		lua["__window"] = &window;
 
-		const std::string script_path = (argc > 1) ? argv[1] : "Editor.lua";
+		const std::string script_path_default = (argc > 1) ? argv[1] : "Editor.lua";
+		// Pak boot: run Player.lua against the pak's boot scene. The script is
+		// read through the asset backend below, so a packed Player.lua wins
+		// over the loose one when the pak carries it.
+		if (!pak_boot_key.empty())
+		{
+			filtered_args.clear();
+			filtered_args.push_back(pak_boot_key);
+		}
+		const std::string script_path = pak_boot_key.empty() ? script_path_default : "Player.lua";
 
 		// Forward extra command-line arguments to the script via the standard
 		// Lua `arg` table (matches the convention of the `lua` interpreter):
@@ -347,8 +436,24 @@ int main(int argc, char *argv[])
 
 		FURYI << "Loading Lua script: " << script_path;
 
-		sol::protected_function_result result =
-			lua.safe_script_file(script_path, &sol::script_pass_on_error);
+		// With a pak mounted the launcher script may live inside it; read
+		// through the backend (falls back to disk transparently).
+		std::string script_source;
+		const bool read_via_backend = fury::AssetBackend::HasMountedPak();
+		bool script_found = true;
+		if (read_via_backend)
+			script_found = fury::FileUtil::LoadString(script_path, script_source);
+
+		if (!script_found)
+		{
+			FURYE << "Lua script not found (pak or disk): " << script_path;
+			exit_code = 1;
+		}
+		else
+		{
+		sol::protected_function_result result = read_via_backend
+			? lua.safe_script(script_source, &sol::script_pass_on_error)
+			: lua.safe_script_file(script_path, &sol::script_pass_on_error);
 		if (!result.valid())
 		{
 			sol::error err = result;
@@ -360,6 +465,7 @@ int main(int argc, char *argv[])
 		// whatever the script's run-status produced.
 		if (launcher_options.exit_code != -1)
 			exit_code = launcher_options.exit_code;
+		}
 
 		fury::LuaBindings::SetLauncherOptions(nullptr);
 

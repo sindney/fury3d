@@ -1,11 +1,14 @@
 #include "Fury/Scene.h"
 
+#include <rapidjson/document.h>
+
 #include <cstring>
 #include <functional>
 #include <set>
 #include <unordered_map>
 
 #include "Fury/AnimationClip.h"
+#include "Fury/AssetLoader.h"
 #include "Fury/FileUtil.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Heightmap.h"
@@ -122,6 +125,27 @@ bool Scene::Load(const void* wrapper, bool object) {
 
 	// load textures (top-level array, if present -- new format)
 	if (auto texWrapper = FindMember(wrapper, "textures")) {
+		// Prefetch burst: queue every texture's byte read on the asset
+		// loader, then drain. The per-texture loads below consume warm
+		// bytes through the backend's take-cache; disk read + decompress
+		// happen off the main thread.
+		AssetLoader& loader = AssetLoader::Get();
+		if (loader.IsUp()) {
+			LoadArray(texWrapper, [&](const void* node) -> bool {
+				auto& obj = *static_cast<const rapidjson::Value*>(node);
+				if (!obj.IsObject()) return true;
+				const char* path = nullptr;
+				if (obj.HasMember("path") && obj["path"].IsString())
+					path = obj["path"].GetString();
+				else if (obj.HasMember("name") && obj["name"].IsString())
+					path = obj["name"].GetString();
+				if (path == nullptr || path[0] == '\0') return true;
+				loader.Prefetch(Scene::ResolveAsset(path));
+				return true;
+			});
+			loader.Flush();
+		}
+
 		LoadArray(texWrapper, [&](const void* node) -> bool {
 			auto texture = Texture::Create("temp");
 			if (!texture->Load(node))

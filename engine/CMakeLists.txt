@@ -296,6 +296,26 @@ list(APPEND IMGUI_SRC ${IMGUI_BACKEND_SRC})
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
 file(GLOB LZ4_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4/*.c)
 
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/SHA1)
+file(GLOB SHA1_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/SHA1/*.c)
+
+# KTX-Software vendored CLI (pinned; committed binaries, see
+# ThirdParty/KTX-Software/README.md). The pinned version string is part
+# of DDC keys, so bumping FURY_KTX_VERSION recooks textures.
+set(FURY_KTX_VERSION "4.4.2")
+if(OS_MACOSX)
+	if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+		set(FURY_KTX_PLATFORM "mac-arm64")
+	else()
+		set(FURY_KTX_PLATFORM "mac-x64")
+	endif()
+elseif(OS_WINDOWS)
+	set(FURY_KTX_PLATFORM "win-x64")
+else()
+	set(FURY_KTX_PLATFORM "linux-x64")
+endif()
+set(FURY_KTX_TOOL_DIR "${PROJECT_SOURCE_DIR}/ThirdParty/KTX-Software/${FURY_KTX_VERSION}/${FURY_KTX_PLATFORM}")
+
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf)
 set(TINYGLTF_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/tinygltf/tiny_gltf.cc)
 set_source_files_properties(${TINYGLTF_SRC} PROPERTIES COMPILE_DEFINITIONS "TINYGLTF_NO_STB_IMAGE;TINYGLTF_NO_STB_IMAGE_WRITE")
@@ -324,6 +344,8 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/AnimationState.cpp
 	${PROJECT_SOURCE_DIR}/Fury/AnimationUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ArrayBuffers.cpp
+	${PROJECT_SOURCE_DIR}/Fury/AssetBackend.cpp
+	${PROJECT_SOURCE_DIR}/Fury/AssetLoader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/BodySetup.cpp
 	${PROJECT_SOURCE_DIR}/Fury/BoxBounds.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Buffer.cpp
@@ -333,11 +355,14 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Cli.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Color.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Component.cpp
+	${PROJECT_SOURCE_DIR}/Fury/CookPipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Engine.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Entity.cpp
 	${PROJECT_SOURCE_DIR}/Fury/EnumUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/FbxConverter.cpp
 	${PROJECT_SOURCE_DIR}/Fury/FileUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/HashUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Ktx2Loader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/FramePacket.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Frustum.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GLLoader.cpp
@@ -357,8 +382,10 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/MeshRender.cpp
 	${PROJECT_SOURCE_DIR}/Fury/MeshSimplifier.cpp
 	${PROJECT_SOURCE_DIR}/Fury/MeshUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/DdcStore.cpp
 	${PROJECT_SOURCE_DIR}/Fury/OcTree.cpp
 	${PROJECT_SOURCE_DIR}/Fury/OcTreeNode.cpp
+	${PROJECT_SOURCE_DIR}/Fury/PakFile.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Pass.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ParticleModules.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ParticleRenderer.cpp
@@ -402,6 +429,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorAssetWindows.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorBodySetupWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorConfirmDialog.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPackageDialog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorFolderTree.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorLog.cpp
@@ -438,7 +466,7 @@ if(NOT EXISTS "${FURY_LAUNCHER_SRC}")
 	message(FATAL_ERROR "Launcher source not found at ${FURY_LAUNCHER_SRC} — examples/main.cpp must exist alongside engine/.")
 endif()
 
-set(FURY_COMMON_SRC ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
+set(FURY_COMMON_SRC ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${SHA1_SRC} ${TINYGLTF_SRC})
 
 # macOS-only DPI shim. The file is Objective-C++ and the project's
 # project() call already enables the OBJC language on APPLE (see top of
@@ -558,6 +586,19 @@ function(fury_add_target NAME)
 			COMMENT "Copying KrautCLI/KrautPreview next to ${NAME}"
 			VERBATIM)
 	endif()
+	# KTX-Software CLI: vendored per-platform binaries (see
+	# ThirdParty/KTX-Software/README.md) are staged next to the binary so
+	# the cook command finds ktx beside furye-cli. Missing platform dir
+	# is fine: cook then resolves via FURY_KTX_CLI or fails with an
+	# actionable error.
+	if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}")
+		add_custom_command(TARGET ${NAME} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${FURY_KTX_TOOL_DIR}"
+				"$<TARGET_FILE_DIR:${NAME}>"
+			COMMENT "Staging ktx CLI next to ${NAME}"
+			VERBATIM)
+	endif()
 	# Regenerate docs/LUA_API.md from LuaBindings.cpp. Off by default;
 	# pass -DFURY_DOCGEN=ON to enable. When on, the post-build step
 	# invokes engine/Tools/lua_api_docgen.py (deterministic, byte-identical
@@ -639,6 +680,13 @@ else()
 	target_compile_definitions(furye PRIVATE WITH_EDITOR=1)
 	target_link_libraries(furye PRIVATE nfd::nfd)
 	install(TARGETS furye DESTINATION bin)
+
+	# Headless editor-side CLI: editor sources + bindings, but main() routes
+	# everything through Cli::Run (cook/package/exec-script; no Lua launcher).
+	fury_add_target(furye-cli ${FURY_COMMON_SRC} ${FURY_EDITOR_SRC})
+	target_compile_definitions(furye-cli PRIVATE WITH_EDITOR=1 FURY_HEADLESS_CLI=1)
+	target_link_libraries(furye-cli PRIVATE nfd::nfd)
+	install(TARGETS furye-cli DESTINATION bin)
 endif()
 
 # Tracy tools (tracy-profiler GUI + tracy-capture CLI) land next to fury/furye

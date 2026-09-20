@@ -106,7 +106,17 @@ namespace fury
 		DEPTH24,
 		DEPTH32F,
 		DEPTH32F_STENCIL8,
-		DEPTH24_STENCIL8
+		DEPTH24_STENCIL8,
+		// Block-compressed formats. Appended last: m_TextureFormat in
+		// EnumUtil.cpp is indexed by enum value, order must match.
+		BC1_UNORM,
+		BC1_SRGB,
+		BC3_UNORM,
+		BC3_SRGB,
+		BC5_UNORM,
+		BC6H_UF,
+		BC7_UNORM,
+		BC7_SRGB
 	};
 
 	enum class TextureType : unsigned int
@@ -299,6 +309,14 @@ namespace fury
 
 
 		static std::pair<bool, unsigned int> TextureFormatToUint(TextureFormat format, bool internalFormat = true);
+
+		// True for BC1/BC3/BC5/BC6H/BC7 formats: upload via
+		// glCompressedTexImage2D, no base-format tuple entry.
+		static bool TextureFormatIsCompressed(TextureFormat format);
+
+		// Maps a KTX2 vkFormat value (BC1/BC3/BC5/BC6H/BC7, UNORM and SRGB
+		// blocks) to a TextureFormat. Returns UNKNOW for anything else.
+		static TextureFormat TextureFormatFromVkFormat(unsigned int vkFormat);
 
 		static std::string TextureFormatToString(TextureFormat foramt);
 

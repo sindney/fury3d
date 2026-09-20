@@ -34,6 +34,15 @@ compile_commands.json
 /examples/Log.txt
 /examples/fury
 /examples/furye
+/examples/furye-cli
+/examples/ktx
+/examples/ktx.exe
+/examples/libktx*.dylib
+/examples/DDC/
+
+# Cook/package pipeline outputs (regenerate via furye-cli cook/package)
+*.cookmanifest.json
+*.pak
 /examples/KrautCLI
 /examples/KrautPreview
 /examples/tracy-profiler

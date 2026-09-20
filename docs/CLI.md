@@ -1,35 +1,108 @@
 # Fury3D — CLI
 
-> Status (2026-07-07): `fury` is a single binary that hosts both the Lua
-> launcher (runtime path) and an offline asset CLI. AI agents and authoring
-> tools can drive asset workflows through the CLI without ever touching the
-> Lua runtime.
+> Status (2026-09-18): three binaries ship from this build. `fury` is the
+> player/launcher: it hosts the Lua runtime path, boots packaged `.pak`
+> games, and carries an offline asset CLI. `furye` is the editor GUI.
+> `furye-cli` is the headless editor-side CLI: same dispatch and exit-code
+> conventions as `fury`, plus `cook` / `package` / `exec-script` for the
+> cook-package-pak pipeline. AI agents and authoring tools can drive asset
+> workflows through either CLI without ever touching a window.
 
 ## How it works
 
-The `fury` binary's `main()` inspects `argv[1]` before any window or engine
-initialization:
+All three binaries are built from one `main()` (`examples/main.cpp`) and
+share the same router; the binary decides what `argv[1]` may do.
 
-- If `argv[1]` is a known CLI subcommand token (`convert`, `info`, `exec`,
-  `help`, `--help`, `-h`, `version`, `--version`), `main()` dispatches to
-  `fury::Cli::Run`. The CLI path is **pure C++ asset workflows**: no SFML
-  window opens, `Engine::Initialize` is never called, no Lua VM is created
-  on the `convert` / `info` paths. The `exec` path is a special case — it
-  creates a short-lived `sol::state` and runs a Lua script against a loaded
-  scene, but it still does NOT open a window, NOT call `Engine::Initialize`,
-  and NOT create an OpenGL context. See the `fury exec` section below.
-- Otherwise, `argv[1]` is treated as a Lua script path (current behavior;
-  defaults to `Editor.lua` if no arg). See `docs/LUA.md` for that surface.
-  Any remaining `argv[2..]` is forwarded to the script as a standard Lua
-  `arg` table — `Editor.lua` honors `arg[1]` as an optional startup scene
-  (e.g. `./fury Editor.lua outdoor.fbx`). See LUA.md for the convention.
-  Two **runtime flags** (`--screenshot`, `--screenshot-frame`) are
-  recognized on the launcher path and stripped from `arg` before the
-  script sees it. See "Screenshot mode" below.
+`fury` inspects `argv[1]` before any window or engine initialization:
 
-This means a CLI invocation like `./fury convert gltf in.gltf out.json` is
-fast and predictable: no graphics state, no UI, no script VM. The CLI is
-exactly what an AI agent or build system wants.
+1. If `argv[1]` is a known CLI subcommand token (`convert`, `info`,
+   `exec`, `help`, `--help`, `-h`, `version`, `--version`),
+   `main()` dispatches to `fury::Cli::Run`. The CLI path is **pure C++
+   asset workflows**: no SFML window opens, `Engine::Initialize` is never
+   called, no Lua VM is created on the `convert` / `info` paths. The
+   `exec` path is a special case - it creates a short-lived `sol::state`
+   and runs a Lua script against a loaded scene, but it still does NOT
+   open a window, NOT call `Engine::Initialize`, and NOT create an
+   OpenGL context. See the `fury exec` section below.
+2. If `argv[1]` names an existing `.pak` file, `main()` mounts the pak
+   and boots its boot scene (a windowed engine boot, not a CLI
+   dispatch). See "Playing a pak" below.
+3. Otherwise, `argv[1]` is treated as a Lua script path (current
+   behavior; defaults to `Editor.lua` if no arg). See `docs/LUA.md` for
+   that surface. Any remaining `argv[2..]` is forwarded to the script as
+   a standard Lua `arg` table - `Editor.lua` honors `arg[1]` as an
+   optional startup scene (e.g. `./fury Editor.lua outdoor.fbx`). See
+   LUA.md for the convention. Two **runtime flags** (`--screenshot`,
+   `--screenshot-frame`) are recognized on the launcher path and
+   stripped from `arg` before the script sees it. See "Screenshot mode"
+   below.
+
+On the launcher path, a loose scene argument (`argv[1]` or `argv[2]`,
+`.json` / `.bin`) with a sibling `<scene>.pak` auto-mounts that pak, so
+asset reads resolve from it without extra arguments.
+
+`furye` (the editor GUI) takes the launcher path into `Editor.lua` and
+the editor UI; it never mounts paks - the editor works on loose files
+and spawns a `fury` child process for play sessions. Known subcommand
+tokens route to `Cli::Run` just the same, so batch conversions work from
+the editor binary too.
+
+`furye-cli` (headless editor tooling, built with `FURY_HEADLESS_CLI=1`)
+never takes the launcher path: it routes everything through `Cli::Run`,
+adding `cook`, `package`, and `exec-script` to the token list. No-args
+prints the top-level help and exits 0; unknown `argv[1]` exits 1 with an
+error. See "furye-cli" below.
+
+This means a CLI invocation like `./fury convert gltf in.gltf out.json`
+(or `./furye-cli cook scene.bin`) is fast and predictable: no graphics
+state, no UI, no script VM. The CLI is exactly what an AI agent or build
+system wants.
+
+## Binaries
+
+| Binary      | Role                                                                                                              | Headless |
+|-------------|-------------------------------------------------------------------------------------------------------------------|----------|
+| `fury`      | Player/launcher: Lua scripts, pak boot, gameplay; hosts the offline asset CLI                                     | per subcommand |
+| `furye`     | Editor GUI: `Editor.lua` shell + editor UI; works on loose files; play mode spawns a `fury` child                 | no |
+| `furye-cli` | Headless editor tooling: the cook/package pipeline and editor-script batch runs over the same editor-side sources | yes (except `render-mesh`'s short-lived hidden window) |
+
+## Playing a pak
+
+`fury` plays packaged scenes in two shapes, plus a headless third:
+
+```
+fury game.pak                 # mount, load the boot scene, run it
+fury scene.bin                # sibling scene.pak auto-mounts
+fury exec game.pak test.lua   # headless: script runs against the boot scene
+```
+
+- `fury <game.pak>` mounts the pak, reads the boot entry from the index,
+  and loads that scene with `Player.lua` as the entry script. The script
+  is read through the asset backend, so a packed `Player.lua` wins over
+  a loose one; when the pak carries none, the loose `Player.lua` in the
+  working directory is used.
+- `fury <scene.json|.bin>` checks for a sibling `<scene>.pak`
+  (`argv[1]`, else `argv[2]`) and mounts it when present, so a deployed
+  folder of `scene.bin` + `scene.pak` plays without extra arguments. No
+  sibling pak: assets load from the working directory exactly as before.
+- `fury exec <scene.pak> <script.lua>` mounts the pak headlessly and runs
+  the script against the boot scene (same 0/1/2 exit codes as `fury exec`
+  on a loose scene).
+
+**Asset paths.** Pak keys are the same canonical, working-directory-relative
+paths the scene already references; the scene file inside the pak is the
+packaged file byte-for-byte. Cooked textures are stored under their
+original source paths too - the texture loader sniffs content (KTX2
+magic), not the filename extension - so scenes need no modification to
+play from a pak. The engine `Resource/` folder still ships loose next to
+the binary for engine defaults the pak does not carry.
+
+**Legacy GL caveat.** A pak cooked with `--texture-target modern` (BC7
+payloads) loaded on a GL context without BPTC support (macOS caps at GL
+4.1) logs a per-texture "compressed format not supported" error and
+renders that texture as the missing-texture placeholder; the scene
+otherwise loads. Cook with `--texture-target legacy` (the macOS default)
+to avoid this.
 
 ## Screenshot mode
 
@@ -96,8 +169,9 @@ before the engine exits). True offscreen rendering is out of scope for v1.
 ### `fury convert` — translate an asset to the engine's runtime form
 
 ```
-fury convert gltf <input.gltf|.glb> <output.json|.bin>
-fury convert fbx  <input.fbx>      <output.gltf|.glb|.json|.bin>
+fury convert gltf  <input.gltf|.glb> <output.json|.bin>
+fury convert fbx   <input.fbx>       <output.gltf|.glb|.json|.bin>
+fury convert scene <input.json|.bin> <output.json|.bin>
 ```
 
 **Kinds:**
@@ -114,6 +188,8 @@ fury convert fbx  <input.fbx>      <output.gltf|.glb|.json|.bin>
   are cleaned up on success (preserved with their path named in the error
   on failure of the importer step). `.gltf` output is **not supported** in
   v1 because FBX2glTF is invoked with `--binary` and writes `.glb`.
+- `scene` - engine scene -> engine scene: `.bin` <-> `.json` round-trip
+  (same Serializable data, LZ4 envelope toggled).
 
 **Texture sibling files (`.json`/`.bin` outputs).** When the output is
 `.json` or `.bin`, embedded glTF/FBX texture bytes are extracted to
@@ -263,6 +339,8 @@ without ever touching the GUI.
 - `.glb` — glTF 2.0 binary (`GltfImporter::Import`)
 - `.fbx` — chained via `FBX2glTF` subprocess into a temp `.glb`, then
   `GltfImporter::Import`. Temp `.glb` is cleaned up on success.
+- `.pak` — mounts the pak headlessly and loads its boot scene; asset
+  reads resolve from the pak.
 
 **Invariants.** The `exec` path is **headless**:
 
@@ -329,11 +407,11 @@ screenshots, or GUI should use the Lua launcher path with `--screenshot`
 ./fury help exec
 ```
 
-### `fury kraut` — generate and import Kraut trees
+### `furye-cli kraut` - generate and import Kraut trees
 
 ```
-fury kraut generate <descriptor.tree> [--seed N] [--out dir]
-fury kraut import   <tree.glb> [output.json|.bin]
+furye-cli kraut generate <descriptor.tree> [--seed N] [--out dir]
+furye-cli kraut import   <tree.glb> [output.json|.bin]
 ```
 
 The Kraut-CLI toolchain (vendored `engine/ThirdParty/Kraut` submodule) is built
@@ -364,12 +442,32 @@ the glb. glbs without kraut extras fall back to the importer's synthesized
 linear LOD thresholds and get no billboard tier.
 
 ```
-./fury kraut generate engine/ThirdParty/Kraut/Data/Content/Trees/PalmTree2.tree --seed 7 --out /tmp/palm
-./fury kraut import /tmp/palm/PalmTree2.glb /tmp/palm/PalmTree2.bin
+./furye-cli kraut generate engine/ThirdParty/Kraut/Data/Content/Trees/PalmTree2.tree --seed 7 --out /tmp/palm
+./furye-cli kraut import /tmp/palm/PalmTree2.glb /tmp/palm/PalmTree2.bin
 ```
 
 Exit codes follow the global table; the tool's load failure (missing
 descriptor) maps to 1, generation/export failures to 2.
+
+### `furye-cli render-mesh` - render a single mesh to a PNG
+
+```
+furye-cli render-mesh <scene> <mesh_name> <output.png> [--lod N]
+```
+
+Renders one mesh from a scene to a 256x256 PNG through the same camera +
+shader as the editor's asset thumbnails (`RenderMeshLambert`). This path
+NEEDS a GL context: `main()` opens a short-lived hidden window,
+initializes the engine, renders, and exits - it is not part of the
+headless CLI and won't run on a display-less host. `--lod N` renders a
+generated LOD instead of the base mesh (default 0). Available on `fury`
+and `furye-cli` alike. Exit codes follow the global table (1 on bad
+args, missing scene, or missing mesh).
+
+```
+./fury render-mesh Resource/Scene/scene.json T90 /tmp/t90.png
+./fury render-mesh Resource/Scene/scene.json T90 /tmp/t90_lod1.png --lod 1
+```
 
 ### `fury help` — print help
 
@@ -390,12 +488,223 @@ fury version
 
 Prints `fury <version>` on stdout. Used by build scripts to confirm a binary.
 
+## furye-cli - headless editor-side CLI
+
+`furye-cli` is the third binary, built from the editor sources with
+`FURY_HEADLESS_CLI=1`. It reuses `fury`'s CLI dispatch and exit-code
+conventions and adds the cook/package pipeline plus editor-script
+execution. It never falls through to the Lua launcher: no-args prints
+the top-level help and exits 0; unknown `argv[1]` exits 1 with an error.
+
+Subcommand inventory: `cook`, `package`, `convert`, `info`, `exec`,
+`exec-script`, `kraut`, `render-mesh`, `help`, `version`. `convert`,
+`info`, `exec`, `kraut`, and `version` behave exactly as on `fury` (see
+the sections above); `exec` additionally accepts a `.pak` scene (mount,
+load the boot entry). `render-mesh` is the exception to "headless": it
+needs a GL context and opens a short-lived hidden window.
+
+### `furye-cli cook` - cook a scene's textures to BCn KTX2
+
+```
+furye-cli cook <scene.json|.bin> [--texture-target legacy|modern]
+                 [--ddc <path>] [--ktx <path>] [--manifest <path>] [--verbose]
+```
+
+**Options:**
+
+- `--texture-target legacy|modern` - BC format set (default: `legacy`
+  on macOS, `modern` elsewhere). An explicit value always overrides the
+  host default.
+- `--ddc <path>` - DDC root (default: `FURY_DDC` env, else `<exe
+  dir>/DDC`).
+- `--ktx <path>` - ktx CLI binary (default: `FURY_KTX_CLI` env, else
+  `<exe dir>/ktx`; see "KTX-Software tooling" below).
+- `--manifest <path>` - manifest output (default:
+  `<scene-stem>.cookmanifest.json`).
+- `--verbose` / `-v` - echo each ktx invocation.
+
+**What it does.** Loads the scene headlessly and enumerates every
+referenced asset: unique canonical texture paths from the scene's
+texture registry - plus terrain splat/layer textures, which bind at
+render-setup time and never appear in the headless registry, so cook
+collects them from the node tree - and non-texture file assets as
+passthrough entries. Referenced files missing on disk are named per path
+and fail the cook with exit 1; nothing is silently skipped.
+
+**Format mapping.** Texture usage derives from the texture's cook
+settings (sRGB flag, normal-map binding, HDR source format):
+
+| Texture usage   | `legacy` target | `modern` target |
+|-----------------|-----------------|-----------------|
+| Color, no alpha | BC1             | BC7             |
+| Color + alpha   | BC3 (DXT5)      | BC7             |
+| Normal map      | BC5             | BC5             |
+| HDR             | uncompressed    | uncompressed    |
+
+Default target is `legacy` on macOS (GL 4.1 has no BPTC support) and
+`modern` on other hosts. HDR sources pass through uncompressed: the
+pinned ktx 4.4.2 CLI has no uastc-hdr codec, so BC6H lands when the
+toolchain gains one.
+
+**Compression pipeline.** Each texture needing compression runs the
+vendored `ktx` CLI in three steps: `ktx create --generate-mipmap` (->
+KTX2 with a full mip chain), `ktx encode --codec uastc` (`--normal-mode`
+for normal maps), `ktx transcode --target <bcN>`. The artifact is a
+plain KTX2 with an unsupercompressed BCn payload. TGA/BMP sources are
+decoded and re-encoded to PNG first (`ktx create` ingests png/jpg/exr/
+hdr/ktx only). A failure at any stage fails the cook with the failing
+command and the log tail quoted in the error.
+
+**Overrides.** An optional `<scene-stem>.cook.json` next to the scene
+maps canonical texture path -> usage and overrides the inferred usage:
+
+```json
+{
+    "TerrainIsland/rock.png":  { "usage": "normal" },
+    "TerrainIsland/splat.png": { "usage": "color" }
+}
+```
+
+Usage strings: `color`, `color_alpha`, `normal`, `hdr`.
+
+**DDC.** Cooked textures cache in a Derived Data Cache so recooks are
+incremental. The key is a SHA-1 over the source file's content hash,
+the cook settings (target, format, sRGB), and the ktx tool version -
+a source edit, a settings change, or a `FURY_KTX_VERSION` bump changes
+the key and recooks that texture only. Entries live in hash-prefix
+subfolders: `DDC/<hex[0:2]>/<hex[2:4]>/<full-hash>.ktx2`, so no folder
+holds a large number of files. On a hit the cached KTX2 is reused and
+no ktx process runs; a miss compresses and then stores the entry.
+
+**Manifest.** On success cook writes `<scene-stem>.cookmanifest.json`
+(or `--manifest <path>`): the cook target and tool version, a
+`textures` array mapping each canonical path to its DDC file, BC format,
+dimensions, mip count, and sRGB flag, a `passthrough` array mapping
+canonical paths to source files (with a reason), and an `unresolved`
+array. `furye-cli package` consumes this manifest instead of
+rediscovering assets.
+
+**Exit codes:**
+
+- `0` - cook succeeded (textures may be all DDC hits).
+- `1` - bad args, scene unloadable, unresolved assets, ktx tool missing
+  or failing.
+- `2` - internal error.
+
+```bash
+# First cook: every texture compresses (BC1/BC3/BC5 on macOS).
+./furye-cli cook Projects/ocean/ocean_island.bin
+
+# Second cook: all DDC hits, zero ktx invocations.
+./furye-cli cook Projects/ocean/ocean_island.bin --verbose
+
+# Force the modern set on macOS (the pak then needs BPTC to render).
+./furye-cli cook Projects/ocean/ocean_island.bin --texture-target modern
+```
+
+### `furye-cli package` - cook + pack a scene into a deployable .pak
+
+```
+furye-cli package <scene.json|.bin> [--compression none|lz4]
+                    [--output <path>] [--no-cook] [cook passthrough opts]
+```
+
+**Options:** `--compression none|lz4` (default `lz4`), `--output <path>`
+(default `<scene-stem>.pak` next to the scene), `--no-cook` (reuse the
+existing manifest; requires one to be present), plus the cook
+passthrough options (`--texture-target`, `--ddc`, `--ktx`, `--verbose`).
+
+**Flow.** Runs `cook` first - incremental through the DDC, so a fresh
+manifest normally costs no ktx invocations - then packs per the
+manifest into the output pak:
+
+- every cooked texture, keyed by its canonical source path, payload read
+  from the DDC entry the manifest names;
+- every passthrough asset by source file: heightmaps plus their `.json`
+  sidecar, ocean wave json plus the baked payload files it references,
+  and other external file assets;
+- the scene file itself, stored byte-for-byte as the pak's **boot
+  entry**, keyed by its canonical path;
+- `Player.lua` when a loose one exists in the working directory, so
+  `fury <game.pak>` runs it from the pak.
+
+**Compression.** `lz4` stores each entry as LZ4 in 64 KB blocks; an entry
+whose compressed blocks total >= its source size is stored raw instead
+(the index records what actually happened). `none` stores everything
+uncompressed for maximum read speed. See "Pak format v1" below.
+
+**Failure mode.** A manifest entry whose DDC file or source file is
+missing fails the package with exit 1, naming both the artifact path and
+the asset key it belongs to. No partial pak is left behind: an
+unfinished output file is removed on failure.
+
+**Exit codes:**
+
+- `0` - pak written (`wrote <path>` on stdout).
+- `1` - bad args, cook failure, missing manifest, missing manifest
+  artifact.
+- `2` - internal error.
+
+```bash
+./furye-cli package Projects/ocean/ocean_island.bin
+./furye-cli package Projects/ocean/ocean_island.bin --compression none --output /tmp/ocean-dev.pak
+./fury /tmp/ocean-dev.pak
+```
+
+### `furye-cli exec-script` - run an editor Lua script headlessly
+
+```
+furye-cli exec-script <script.lua> [args...]
+```
+
+Runs a Lua script with the full engine + editor binding surface
+registered (`Editor.*` included — furye-cli is built from the editor
+sources) - without loading a scene, opening a window, or entering the
+`Editor.lua` shell. This is the batch entry point for editor-side
+tooling that today runs inside `furye`. Trailing args land in the
+standard Lua `arg` table (`arg[0]` = script path, `arg[1..]` forwarded
+verbatim, no flag parsing). Load/runtime errors exit 1 with the Lua
+message; an escaped C++ exception exits 2.
+
+```bash
+./furye-cli exec-script my_tool.lua Projects/ocean/ocean_island.bin
+```
+
+## Pak format v1
+
+A `.pak` is one self-contained file. Layout: a data region of
+sequentially stored entry payloads, an index region, and a fixed-size
+footer at end of file. Readers locate the index via the footer (never
+by scanning).
+
+**Footer (fixed size):** magic `FURYPAK1` (8 bytes), format version
+`u32` (currently 1), index offset `u64`, index size `u64`, SHA-1 of the
+index bytes (20 bytes), reserved `u32`. Mounting validates magic,
+version, and index hash up front: a bad magic, an unsupported version,
+or a tampered index fails with an error naming the problem - no crash,
+no partial mount.
+
+**Index:** entries in sorted (byte-wise) path order, keys normalized to
+forward slashes, so pack/load lookups are deterministic. Per entry: data
+offset, uncompressed size, codec (`none` or `lz4`), compression block
+size, per-block compressed sizes, and a SHA-1 of the uncompressed
+payload. The index also records the boot entry's path. Block-level
+compression means a reader can decompress a single 64 KB slice without
+touching the rest of the entry.
+
+**Reads.** A lookup miss fails exactly like a missing loose file (same
+error surface to callers). LZ4 entries decompress to their recorded
+uncompressed size; the returned bytes are verified against the entry's
+SHA-1, so on-disk corruption is detected with an error naming the entry.
+
 ## Exit codes
+
+Both `fury` and `furye-cli` follow this table.
 
 | Code | Meaning                                                         |
 |------|-----------------------------------------------------------------|
 | 0    | Success                                                         |
-| 1    | User error — bad arguments, unsupported input, file not found, glTF feature rejected |
+| 1    | User error — bad arguments, unsupported input, file not found, glTF feature rejected, unresolved cook asset, missing manifest artifact |
 | 2    | Internal error — uncaught exception in a subcommand handler     |
 
 Stderr carries diagnostic messages; stdout carries informational output and
@@ -437,6 +746,35 @@ the same arguments:
 ./FBX2glTF-darwin-x64 --binary --anim-framerate bake24 \
   --input mymodel.fbx --output /tmp/mymodel
 ```
+
+## KTX-Software tooling
+
+`furye-cli cook` compresses textures through the vendored `ktx` CLI
+(pinned KTX-Software 4.4.2, committed under the third-party tree per
+platform). Layout:
+
+```
+engine/ThirdParty/KTX-Software/
++-- 4.4.2/
+|   `-- mac-arm64/
+|       +-- ktx             # the CLI
+|       `-- libktx.4.dylib  # its runtime library (rpath @executable_path)
+`-- README.md
+```
+
+One platform dir per supported host; payloads are a few MB and committed
+as-is (no git LFS). CMake's `POST_BUILD` step copies the host
+platform's tool files next to the built binaries, and cook resolves the
+tool in this order:
+
+1. `--ktx <path>` (the cook/package flag)
+2. `FURY_KTX_CLI` env
+3. `<exe dir>/ktx` (the staged vendored binary)
+
+A missing tool fails the cook with an error naming the expected path and
+the override knobs. The pinned version string (`FURY_KTX_VERSION` in
+`engine/CMakeLists.txt`) feeds the DDC keys, so bumping the pin recooks
+every texture on the next run.
 
 ## Appendix: Engine scene format at a glance
 
@@ -544,7 +882,9 @@ To add a new subcommand:
 3. Dispatch in `Cli::Run`: `if (sub == "foo") return DoFoo(argc, argv);`
 4. Add `"foo"` to the `tokens[]` array in `Cli::LooksLikeSubcommand` so
    `examples/main.cpp`'s router knows to take the CLI path on
-   `./fury foo ...`.
+   `./fury foo ...`. (Editor-only tokens such as `cook` / `package` /
+   `exec-script` also sit behind the `FURY_HEADLESS_CLI` gate so `fury`
+   and `furye` never see them.)
 5. Add `if (topic == "foo") { std::cout << kFooHelp; return 0; }` to
    `DoHelp`.
 6. Document the subcommand in this file (new `### fury foo` section).
@@ -555,8 +895,9 @@ For follow-ups the existing scope deliberately excludes:
 - **Scene → glTF export.** Reconstructing PBR metallic-roughness from the
   engine's Lambert shape is genuinely lossy; the conversion makes sense only
   once the HDR pipeline lands.
-- **`scene.json ↔ scene.bin` direct conversion.** Trivial follow-up — same
-  Serializable round-trip, just toggle the LZ4 envelope.
+- **BC6H for HDR cook sources.** Blocked on the pinned ktx 4.4.2 CLI,
+  which has no uastc-hdr codec; the cook mapping gains BC6H-unsigned
+  when the toolchain does.
 - **A `--dry-run` flag.** Defer until ergonomic motive emerges in testing.
 - **Async / streaming progress.** FBX2glTF takes a few seconds on real
   models; v1 just blocks. A progress callback that emits ImGui toasts (for

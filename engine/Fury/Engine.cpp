@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Fury/BufferManager.h"
+#include "Fury/AssetLoader.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Engine.h"
 #include "Fury/Macros.h"
@@ -237,6 +238,10 @@ namespace fury
 
 		BufferManager::Initialize();
 
+		// Async asset reads (pak/decompress off-thread); Pump runs per frame
+		// in Run(), Flush barriers scene loads.
+		AssetLoader::Get().Initialize(1);
+
 		// Build the dummy fallback textures eagerly (GL is current on this
 		// thread; afterwards the GetDummyTexture* getters are GL-free and
 		// callable from any thread -- e.g. Terrain::Load mid-run).
@@ -436,6 +441,8 @@ namespace fury
 		// which needs the physics world still alive.
 		if (PhysicsWorld::Exists())
 			PhysicsWorld::Instance().reset();
+
+		AssetLoader::Get().Shutdown();
 
 		Editor::Shutdown();
 		Gui::Shutdown();
@@ -672,15 +679,18 @@ namespace fury
 			else
 				renderThreadInst.ExecuteInline(*packet);
 		}
-		{
-			FURY_ZONE_NAMED("RenderThread::Poll");
-			FrameResult frameResult;
-			while (renderThreadInst.PollFrameResult(frameResult))
 			{
-				if (!frameResult.shadowTextures.empty() && Pipeline::Active)
-					Pipeline::Active->UpdateShadowTextureCache(frameResult.shadowTextures);
+				FURY_ZONE_NAMED("RenderThread::Poll");
+				FrameResult frameResult;
+				while (renderThreadInst.PollFrameResult(frameResult))
+				{
+					if (!frameResult.shadowTextures.empty() && Pipeline::Active)
+						Pipeline::Active->UpdateShadowTextureCache(frameResult.shadowTextures);
+				}
 			}
-		}
+
+			// Async asset-read completions (main-thread delivery).
+			AssetLoader::Get().Pump();
 
 			// End-of-frame summary of dropped key events. One FURYW
 			// line per overflow frame; an active IME can produce

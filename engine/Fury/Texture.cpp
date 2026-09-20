@@ -1,12 +1,16 @@
 #include <array>
 #include <cassert>
+#include <cctype>
 #include <sstream>
+#include <unordered_set>
 
 #include "Fury/BufferManager.h"
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
 #include "Fury/EntityUtil.h"
+#include "Fury/AssetBackend.h"
 #include "Fury/FileUtil.h"
+#include "Fury/Ktx2Loader.h"
 #include "Fury/Scene.h"
 #include "Fury/Texture.h"
 #include "Fury/RenderThread.h"
@@ -256,8 +260,31 @@ namespace fury
 		// whether LoadImage succeeds below.
 		SetPath(filePath);
 
-		if (!FileUtil::LoadImage(resolved, pixels, m_Width, m_Height, channels))
+		// Content-sniffed dispatch: the pak layer may serve cooked KTX2
+		// bytes under the original image key, so the payload decides, not
+		// the filename extension.
+		std::vector<unsigned char> bytes;
+		if (!AssetBackend::ReadAssetBytes(resolved, bytes))
+		{
+			FURYW << "Failed to load image: " << resolved;
 			return;
+		}
+		if (Ktx2Loader::Sniff(bytes.data(), bytes.size()))
+		{
+			CreateFromKtx2(filePath, std::move(bytes), mipMap);
+			return;
+		}
+
+		unsigned char* decoded = stbi_load_from_memory(bytes.data(), (int)bytes.size(),
+			&m_Width, &m_Height, &channels, 0);
+		if (decoded && m_Width && m_Height) {
+			pixels.resize((size_t)m_Width * m_Height * channels);
+			memcpy(pixels.data(), decoded, pixels.size());
+			stbi_image_free(decoded);
+		} else {
+			FURYW << "Failed to load image: " << resolved;
+			return;
+		}
 
 		unsigned int internalFormat, imageFormat;
 		switch (channels)
@@ -328,6 +355,131 @@ namespace fury
 			IncreaseMemory();
 
 			FURYD << m_Name << " [" << w << " x " << h << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
+		});
+	}
+
+	namespace
+	{
+		// Extension scan cached per process; called on the GL thread only.
+		bool GLHasExtension(const char* name)
+		{
+			static std::unordered_set<std::string> s_Exts;
+			static bool s_Scanned = false;
+			if (!s_Scanned)
+			{
+				GLint count = 0;
+				glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+				for (GLint i = 0; i < count; i++)
+				{
+					const GLubyte* ext = glGetStringi(GL_EXTENSIONS, i);
+					if (ext) s_Exts.insert((const char*)ext);
+				}
+				s_Scanned = true;
+			}
+			return s_Exts.count(name) > 0;
+		}
+
+		bool CompressedFormatSupported(TextureFormat format)
+		{
+			switch (format)
+			{
+			case TextureFormat::BC1_UNORM:
+			case TextureFormat::BC1_SRGB:
+			case TextureFormat::BC3_UNORM:
+			case TextureFormat::BC3_SRGB:
+				return GLHasExtension("GL_EXT_texture_compression_s3tc");
+			case TextureFormat::BC5_UNORM:
+				// RGTC is core since GL 3.0; every context we run on has it.
+				return true;
+			case TextureFormat::BC6H_UF:
+			case TextureFormat::BC7_UNORM:
+			case TextureFormat::BC7_SRGB:
+				return GLHasExtension("GL_ARB_texture_compression_bptc");
+			default:
+				return false;
+			}
+		}
+	}
+
+	void Texture::CreateFromKtx2(const std::string &nameForLog, std::vector<unsigned char> bytes, bool mipMap)
+	{
+		Ktx2Image img = Ktx2Loader::Parse(bytes.data(), bytes.size());
+		if (!img.m_Valid)
+		{
+			FURYE << "KTX2 " << nameForLog << ": " << img.m_Error;
+			return;
+		}
+
+		m_Format = EnumUtil::TextureFormatFromVkFormat(img.m_VkFormat);
+		if (m_Format == TextureFormat::UNKNOW)
+		{
+			FURYE << "KTX2 " << nameForLog << ": vkFormat " << img.m_VkFormat << " has no engine mapping";
+			return;
+		}
+
+		m_Width = (int)img.m_Width;
+		m_Height = (int)img.m_Height;
+		m_Depth = 0;
+		m_Mipmap = mipMap && img.m_Levels.size() > 1;
+
+		// CLI / no-GL-context path: serialization shape set, upload skipped.
+		if (_ptrc_glGenTextures == nullptr)
+		{
+			m_Dirty = true;
+			return;
+		}
+
+		const unsigned int internalFormat = EnumUtil::TextureFormatToUint(m_Format).second;
+		const unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
+		const unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
+		const Color borderColor = m_BorderColor;
+		const unsigned int texTarget = m_TypeUint;
+		const int levelCount = (int)img.m_Levels.size();
+
+		DispatchGL(this, [this, bytes = std::move(bytes), levels = std::move(img.m_Levels),
+			internalFormat, filterMode, wrapMode, borderColor, texTarget, levelCount]() mutable
+		{
+			FURY_GL_THREAD_GUARD();
+
+			if (!CompressedFormatSupported(m_Format))
+			{
+				FURYE << m_Name << ": compressed format "
+					<< EnumUtil::TextureFormatToString(m_Format)
+					<< " not supported by this GL context (cook target mismatch?)";
+				return;
+			}
+
+			glGenTextures(1, &m_ID);
+			glBindTexture(texTarget, m_ID);
+
+			// Only the base level when mips are off: a multi-level storage
+			// with a non-mipmap min filter is incomplete in core GL.
+			const int storedLevels = m_Mipmap ? levelCount : 1;
+			glTexStorage2D(texTarget, storedLevels, internalFormat, m_Width, m_Height);
+			for (int i = 0; i < storedLevels; i++)
+			{
+				const int lw = std::max(1, m_Width >> i);
+				const int lh = std::max(1, m_Height >> i);
+				glCompressedTexSubImage2D(texTarget, i, 0, 0, lw, lh, internalFormat,
+					(GLsizei)levels[i].length, bytes.data() + levels[i].offset);
+			}
+
+			glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, filterMode);
+			glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, filterMode);
+			glTexParameteri(texTarget, GL_TEXTURE_WRAP_S, wrapMode);
+			glTexParameteri(texTarget, GL_TEXTURE_WRAP_T, wrapMode);
+			glTexParameteri(texTarget, GL_TEXTURE_WRAP_R, wrapMode);
+
+			float color[] = { borderColor.r, borderColor.g, borderColor.b, borderColor.a };
+			glTexParameterfv(texTarget, GL_TEXTURE_BORDER_COLOR, color);
+
+			glBindTexture(texTarget, 0);
+
+			m_Dirty = false;
+			IncreaseMemory();
+
+			FURYD << m_Name << " [ktx2 " << m_Width << " x " << m_Height
+				<< " " << EnumUtil::TextureFormatToString(m_Format) << " mips " << levelCount << "]";
 		});
 	}
 
