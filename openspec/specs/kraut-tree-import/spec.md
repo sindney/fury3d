@@ -44,7 +44,7 @@ Importing a kraut glb SHALL route through the existing `GltfImporter` (which aut
 
 ### Requirement: Sample tree assets SHALL ship as engine resources with a generator script
 
-`tools/gen_tree_assets.py` SHALL drive the toolchain (checked-in `.tree` descriptors, fixed seeds, KrautCLI export, `fury kraut import` validation) to bake committed assets under `examples/Resource/Trees/` (glb + textures + a `trees.json` index), so the samples work without building Kraut. At least two tree types (one broadleaf, one palm/conifer) SHALL be provided. `ocean_island.bin` SHALL be updated to include instanced trees placed on the island.
+`tools/gen_tree_assets.py` SHALL drive the toolchain (checked-in `.tree` descriptors, fixed seeds, KrautCLI export, `furye-cli kraut import` validation) to bake committed assets under `examples/Resource/Trees/` (glb + textures + a `trees.json` index), so the samples work without building Kraut. At least two tree types (one broadleaf, one palm/conifer) SHALL be provided. `ocean_island.bin` SHALL be updated to include instanced trees placed on the island.
 
 #### Scenario: Fresh checkout renders the sample trees
 
