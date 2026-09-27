@@ -211,6 +211,13 @@ set(SFML_BUILD_NETWORK OFF CACHE BOOL "" FORCE)
 set(SFML_BUILD_GRAPHICS ON CACHE BOOL "" FORCE)
 set(SFML_BUILD_WINDOW ON CACHE BOOL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/SFML)
+# SFML's patched freetype assumes HarfBuzz, so libfreetype.a has undefined
+# hb_* refs. Previously only SFML::Graphics (unlinked by our binaries)
+# consumed it; rmlui_core links freetype without harfbuzz and the final link
+# fails. Declare the real dependency instead of patching vendored sources.
+if(TARGET freetype AND TARGET harfbuzz)
+	target_link_libraries(freetype PUBLIC harfbuzz)
+endif()
 
 # Lua 5.4: upstream is Makefile-only with sources flat at repo root.
 # We compile them into a static library here. Exclude the standalone-interpreter
@@ -226,6 +233,12 @@ target_compile_definitions(lua PRIVATE
 	$<$<PLATFORM_ID:Darwin>:LUA_USE_MACOSX>
 	$<$<PLATFORM_ID:Linux>:LUA_USE_LINUX>)
 set_property(TARGET lua PROPERTY POSITION_INDEPENDENT_CODE ON)
+# Predefined so RmlUi's Dependencies.cmake skips its find_package(Lua)
+# (it guards on NOT TARGET Lua::Lua) and binds against our 5.4 build.
+# INTERFACE IMPORTED, not ALIAS: upstream then aliases it to
+# RmlUi::External::Lua, and CMake forbids aliasing an alias.
+add_library(Lua::Lua INTERFACE IMPORTED)
+set_target_properties(Lua::Lua PROPERTIES INTERFACE_LINK_LIBRARIES lua)
 
 # sol2 is header-only.
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/sol2/include)
@@ -269,6 +282,29 @@ set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 # of the project). Disable Jolt's static CRT so it inherits /MD.
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/JoltPhysics/Build)
+
+# RmlUi 6.3: vendored submodule via add_subdirectory (SFML/Jolt precedent).
+# Lua::Lua is predefined above so upstream's find_package(Lua) is skipped.
+# FreeType comes from SFML Graphics' FetchContent (VER-2-14-3, built from
+# source with all optional deps OFF) - its OVERRIDE_FIND_PACKAGE redirects
+# RmlUi's find_package(Freetype) to that same hermetic build, so the whole
+# engine shares one freetype. SAMPLES/TESTS OFF skips Backends/ entirely;
+# install rules are skipped by upstream under add_subdirectory. RmlUi headers
+# are treated as SYSTEM (below) so -Wall stays ours.
+set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
+set(RMLUI_LUA_BINDINGS_LIBRARY lua CACHE STRING "" FORCE)
+set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
+set(RMLUI_TESTS OFF CACHE BOOL "" FORCE)
+set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/RmlUi)
+foreach(_RMLUI_TGT rmlui_core rmlui_debugger rmlui_lua)
+	get_target_property(_RMLUI_IFACE ${_RMLUI_TGT} INTERFACE_INCLUDE_DIRECTORIES)
+	if(_RMLUI_IFACE)
+		set_target_properties(${_RMLUI_TGT} PROPERTIES
+			INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_RMLUI_IFACE}")
+	endif()
+endforeach()
+message(STATUS "fury3d: RmlUi 6.3 configured (freetype via SFML FetchContent)")
 
 # The engine's own headers stay a normal -I path: we WANT -Wall to apply to
 # them. Every vendored ThirdParty path below is marked SYSTEM (-isystem on
@@ -367,6 +403,8 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Frustum.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GLLoader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GltfImporter.cpp
+	${PROJECT_SOURCE_DIR}/Fury/GameUI.cpp
+	${PROJECT_SOURCE_DIR}/Fury/GameUIRenderer.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Gui.cpp
 	${PROJECT_SOURCE_DIR}/Fury/InputUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/InstancedMeshRender.cpp
@@ -488,9 +526,9 @@ endif()
 
 if(OS_WINDOWS)
 	# ws2_32 (FileUtil ntohl/htonl), comctl32 (SetWindowSubclass).
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 comctl32 lua meshoptimizer Jolt)
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 comctl32 lua meshoptimizer Jolt rmlui_core rmlui_debugger rmlui_lua)
 elseif(OS_MACOSX)
-	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt)
+	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt rmlui_core rmlui_debugger rmlui_lua)
 endif()
 if(FURY_WITH_TRACY)
 	# Tracy needs winsock2 (ws2_32) and dial-up box (dbghelp) on Windows.

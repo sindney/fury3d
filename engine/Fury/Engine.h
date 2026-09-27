@@ -99,6 +99,14 @@ namespace fury
 
 		static void SetTime(float seconds);
 
+		// Runtime window controls (options-menu plumbing). The window is
+		// bound in Run(); all three no-op when no window exists (headless).
+		static void SetFpsCap(int fps);
+
+		static void SetVsync(bool enabled);
+
+		static void SetResolution(int width, int height);
+
 		// Tracy profiler runtime switch (no-op when Tracy is not compiled
 		// in). false disarms all zones for the run; true re-arms. Also
 		// driven at startup by FURY_TRACY=0 and the editor's Tracy=0|1

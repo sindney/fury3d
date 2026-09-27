@@ -6,6 +6,8 @@
 
 #include "Fury/Macros.h"
 
+namespace sf { class Window; }
+
 namespace fury
 {
 	class Scene;
@@ -47,6 +49,13 @@ namespace fury
 		// itself). With --lod N, renders mesh->GetLodMesh(N). Needs a GL
 		// context (caller sets it up).
 		static int RenderMesh(int argc, char **argv);
+
+		// `furye-cli gui <tree|inspect|event|shot> ...` -- headless game-UI
+		// (RmlUi) inspection: element tree / computed style as JSON, synthetic
+		// event dispatch, and PNG screenshots. The window (hidden) is set up
+		// by the caller; tree/inspect/event never touch GL, shot renders
+		// frames through the normal pipeline.
+		static int Gui(int argc, char **argv, sf::Window &window);
 	};
 }
 

@@ -25,3 +25,6 @@
 [submodule "engine/ThirdParty/Kraut"]
 	path = engine/ThirdParty/Kraut
 	url = https://github.com/sindney/Kraut-CLI.git
+[submodule "engine/ThirdParty/RmlUi"]
+	path = engine/ThirdParty/RmlUi
+	url = https://github.com/mikke89/RmlUi.git

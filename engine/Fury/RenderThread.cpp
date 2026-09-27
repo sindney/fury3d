@@ -28,6 +28,11 @@ namespace fury
 		return s_Instance;
 	}
 
+	RenderThread::~RenderThread()
+	{
+		Stop();
+	}
+
 	void RenderThread::SetCommandLineOverride(int value)
 	{
 		s_CliOverride = value;

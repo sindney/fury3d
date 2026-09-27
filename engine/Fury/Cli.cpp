@@ -15,6 +15,7 @@
 #include "Fury/AnimationClip.h"
 #include "Fury/AssetBackend.h"
 #include "Fury/AssetLoader.h"
+#include "Fury/Camera.h"
 #include "Fury/CookPipeline.h"
 #include "Fury/DdcStore.h"
 #include "Fury/BoxBounds.h"
@@ -25,7 +26,11 @@
 #include "Fury/FileUtil.h"
 #include "Fury/GLLoader.h"
 #include "Fury/GltfImporter.h"
+#include "Fury/GameUI.h"
+#include "Fury/InputUtil.h"
 #include "Fury/KrautConverter.h"
+
+#include <RmlUi/Core.h>
 #include "Fury/Log.h"
 #include "Fury/LuaBindings.h"
 #include "Fury/Material.h"
@@ -36,12 +41,17 @@
 #include "Fury/ParticleSystem.h"
 #include "Fury/OcTree.h"
 #include "Fury/PakFile.h"
+#include "Fury/Pipeline.h"
+#include "Fury/PostProcessRegistry.h"
+#include "Fury/PrelightPipeline.h"
+#include "Fury/RenderThread.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/ThreadUtil.h"
+#include "Fury/Transform.h"
 #include "Fury/Vector4.h"
 
 #include <rapidjson/document.h>
@@ -119,6 +129,7 @@ namespace fury
 			"  exec-script    run a Lua script with editor bindings, no scene load\n"
 			"  kraut          generate and import Kraut trees (glb bridge, vegetation)\n"
 			"  render-mesh    render a specific mesh from a scene to a PNG (needs GL)\n"
+			"  gui            headless game-UI (RmlUi) inspection: tree/inspect/event/shot\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version        print the engine version and exit\n"
 			"\n"
@@ -636,6 +647,11 @@ namespace fury
 				// every exit path (return / exception) without duplication.
 				ActiveSceneGuard active_guard(scene);
 
+				// Headless stand-in for Engine::Run's InputUtil::Initialize so
+				// scripts can poll input state and cursor getters without a
+				// window; cursor setters no-op (m_Window stays null).
+				InputUtil::Initialize(0, 0);
+
 				sol::state lua;
 				lua.open_libraries(
 					sol::lib::base,
@@ -680,9 +696,11 @@ namespace fury
 					sol::error err = result;
 					std::cerr << "fury exec: '" << script_path
 						<< "': " << err.what() << "\n";
+					GameUI::Shutdown(); // drain listeners before sol::state dtor
 					return 1;
 				}
 
+				GameUI::Shutdown(); // drain listeners before sol::state dtor
 				return 0;
 			}
 			catch (const std::exception &e)
@@ -747,6 +765,7 @@ namespace fury
 					sol::error err = load_result;
 					std::cerr << "furye-cli exec-script: failed to load '" << script_path
 						<< "': " << err.what() << "\n";
+					GameUI::Shutdown(); // drain listeners before sol::state dtor
 					return 1;
 				}
 				sol::protected_function script = load_result;
@@ -756,8 +775,10 @@ namespace fury
 					sol::error err = result;
 					std::cerr << "furye-cli exec-script: '" << script_path
 						<< "': " << err.what() << "\n";
+					GameUI::Shutdown(); // drain listeners before sol::state dtor
 					return 1;
 				}
+				GameUI::Shutdown(); // drain listeners before sol::state dtor
 				return 0;
 			}
 			catch (const std::exception &e)
@@ -1879,4 +1900,456 @@ namespace fury
 		}
 	}
 
+// ------------------------- gui (game-UI inspection) -------------------------
+
+namespace
+{
+	constexpr const char *kGuiUsage =
+		"furye-cli gui -- headless game-UI (RmlUi) inspection\n"
+		"\n"
+		"USAGE\n"
+		"  furye-cli gui tree    <scene> <doc.rml> [--frame N]\n"
+		"  furye-cli gui inspect <scene> <doc.rml> <selector>\n"
+		"  furye-cli gui event   <scene> <doc.rml> <selector> <event> [--param k=v]...\n"
+		"  furye-cli gui shot    <scene> <doc.rml> <out.png> [--size WxH] [--frame N] [--script init.lua]\n"
+		"\n"
+		"selector: #id, .class, or tag name (first match)\n"
+		"exit: 0 ok, 1 user error, 2 internal error\n";
+
+	void JsonEscapeTo(std::string &out, const Rml::String &s)
+	{
+		for (const char c : s)
+		{
+			switch (c)
+			{
+			case '"': out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default:
+				if (static_cast<unsigned char>(c) < 0x20)
+				{
+					char buf[8];
+					std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+					out += buf;
+				}
+				else
+				{
+					out += c;
+				}
+			}
+		}
+	}
+
+	void JsonRect(std::string &out, const Rml::Vector2f pos, const Rml::Vector2f size)
+	{
+		char buf[128];
+		std::snprintf(buf, sizeof(buf), "[%.1f,%.1f,%.1f,%.1f]", pos.x, pos.y, size.x, size.y);
+		out += buf;
+	}
+
+	void EmitElementTreeJson(Rml::Element *element, std::string &out, int depth)
+	{
+		if (element == nullptr || depth > 64) return;
+		out += "{\"tag\":\"";
+		JsonEscapeTo(out, element->GetTagName());
+		out += "\"";
+		if (!element->GetId().empty())
+		{
+			out += ",\"id\":\"";
+			JsonEscapeTo(out, element->GetId());
+			out += "\"";
+		}
+		if (!element->GetClassNames().empty())
+		{
+			out += ",\"class\":\"";
+			JsonEscapeTo(out, element->GetClassNames());
+			out += "\"";
+		}
+		out += element->IsVisible() ? ",\"visible\":true" : ",\"visible\":false";
+		out += ",\"rect\":";
+		JsonRect(out, element->GetAbsoluteOffset(Rml::BoxArea::Border),
+			element->GetBox().GetSize(Rml::BoxArea::Border));
+		if (element->GetTagName() == "#text")
+		{
+			Rml::String text;
+			element->GetInnerRML(text);
+			if (text.size() > 80) text = text.substr(0, 80) + "...";
+			out += ",\"text\":\"";
+			JsonEscapeTo(out, text);
+			out += "\"";
+		}
+		const int children = element->GetNumChildren();
+		if (children > 0)
+		{
+			out += ",\"children\":[";
+			for (int i = 0; i < children; ++i)
+			{
+				if (i > 0) out += ",";
+				EmitElementTreeJson(element->GetChild(i), out, depth + 1);
+			}
+			out += "]";
+		}
+		out += "}";
+	}
+
+	Rml::Element *GuiResolveSelector(Rml::ElementDocument *doc, const std::string &selector)
+	{
+		if (doc == nullptr || selector.empty()) return nullptr;
+		if (selector[0] == '#')
+			return doc->GetElementById(selector.substr(1));
+		Rml::ElementList list;
+		if (selector[0] == '.')
+			doc->GetElementsByClassName(list, selector.substr(1));
+		else
+			doc->GetElementsByTagName(list, selector);
+		return list.empty() ? nullptr : list[0];
+	}
+
+	struct GuiDocSetup
+	{
+		std::shared_ptr<fury::Scene> scene;
+		Rml::ElementDocument *doc = nullptr;
+	};
+
+	// Scene + document + N settled frames. 0 ok, 1 user error, 2 internal.
+	int GuiLoadSceneAndDoc(const std::string &scenePath, const std::string &docPath, int frames, GuiDocSetup &out)
+	{
+		out.scene = fury::Cli::LoadSceneForExec(scenePath);
+		if (!out.scene)
+		{
+			std::cerr << "furye-cli gui: failed to load scene '" << scenePath << "'\n";
+			return 1;
+		}
+		fury::Scene::Active = out.scene;
+		if (!fury::GameUI::EnsureInitialized())
+		{
+			std::cerr << "furye-cli gui: RmlUi initialisation failed\n";
+			return 2;
+		}
+		out.doc = fury::GameUI::LoadDocument(docPath);
+		if (out.doc == nullptr)
+		{
+			std::cerr << "furye-cli gui: failed to load document '" << docPath << "'\n";
+			return 1;
+		}
+		out.doc->Show();
+		for (int i = 0; i < frames; ++i)
+		{
+			fury::GameUI::Update(1.0f / 60.0f);
+			fury::GameUI::BuildDrawSnapshot();
+		}
+		return 0;
+	}
+
+	int GuiParseFrameFlag(int argc, char **argv, int start, int fallback)
+	{
+		for (int i = start; i + 1 < argc; ++i)
+		{
+			if (std::strcmp(argv[i], "--frame") == 0)
+				return std::max(1, std::atoi(argv[i + 1]));
+		}
+		return fallback;
+	}
+
+	// gui shot bootstrap: scene + pipeline + AABB camera + optional init
+	// script + document show. Runs inside the standard bound state; the C++
+	// frame loop then calls GuiShotFrame(dt) per frame.
+	constexpr const char *kGuiShotBootstrap = R"LUA(
+local scene_path, doc_path, init_path = arg[1], arg[2], arg[3]
+octree = OcTree.Create()
+local scene_dir = scene_path:match("^(.*[/\\])") or ""
+Scene.SetActive(Scene.Create("guishot", scene_dir, octree))
+if not Scene.LoadActive(scene_path) then
+	error("failed to load scene " .. scene_path)
+end
+local scene = Scene.GetActive()
+Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+local pl = Pipeline.GetActive()
+local rs = scene:GetRenderSettings()
+local pipe_path = rs and rs:GetPipelinePath() or ""
+if pipe_path == "" then
+	pipe_path = "Resource/Pipeline/DefferedLightingLambert.json"
+end
+local full_pipe = FileUtil.GetAbsPath(pipe_path)
+if FileUtil.FileExist(full_pipe) then
+	FileUtil.LoadPipelineFromFile(pl, full_pipe)
+end
+PostProcess.LoadFromDirectory("Resource/PostProcess")
+if rs then
+	Pipeline.ApplyRenderSettings(pl, rs)
+end
+local cam_node = SceneNode.Create("GuiShotCamera")
+cam_node:AddComponent(Transform.Create())
+local camera = Camera.Create()
+local eye, yaw, pitch = Vector4(0.0, 170.0, 400.0, 1.0), 0.0, -0.4
+local mn, mx = scene:ComputeWorldAABB()
+if mn then
+	local center = (mn + mx) * 0.5
+	center.w = 1.0
+	local size = mx - mn
+	local radius = math.max(size.x, math.max(size.y, size.z)) * 0.5
+	if radius < 1.0 then radius = 1.0 end
+	eye = center + Vector4(radius * 0.6, radius * 0.45, radius * 1.1, 0.0)
+	local dir = (center - eye):Normalized()
+	yaw = math.atan(-dir.x, -dir.z)
+	pitch = math.asin(math.max(-1.0, math.min(1.0, dir.y)))
+end
+camera:PerspectiveFov(0.7854, 1.778, 1.0, 500000.0)
+cam_node:SetLocalPosition(eye)
+cam_node:SetLocalRoattion(MathUtil.EulerRadToQuat(yaw, pitch, 0.0))
+cam_node:Recompose(false)
+cam_node:AddComponent(camera)
+scene:GetRootNode():AddChild(cam_node)
+pl:SetCurrentCamera(cam_node)
+if init_path and init_path ~= "" then
+	dofile(init_path)
+end
+local ctx = rmlui.contexts["main"]
+local doc = ctx:LoadDocument(doc_path)
+if doc == nil then
+	error("failed to load document " .. doc_path)
+end
+doc:Show()
+function GuiShotFrame(dt)
+	Pipeline.GetActive():Execute(octree)
+end
+)LUA";
+}
+
+	int Cli::Gui(int argc, char **argv, sf::Window &window)
+	{
+		if (argc < 3)
+		{
+			std::cerr << kGuiUsage;
+			return 1;
+		}
+		const std::string sub = argv[2];
+		try
+		{
+			if (sub == "tree")
+			{
+				if (argc < 5) { std::cerr << kGuiUsage; return 1; }
+				const int frames = GuiParseFrameFlag(argc, argv, 5, 1);
+				GuiDocSetup setup;
+				const int rc = GuiLoadSceneAndDoc(argv[3], argv[4], frames, setup);
+				if (rc != 0) return rc;
+				std::string json = "{\"document\":";
+				EmitElementTreeJson(setup.doc, json, 0);
+				json += "}\n";
+				std::fputs(json.c_str(), stdout);
+				return 0;
+			}
+			if (sub == "inspect")
+			{
+				if (argc < 6) { std::cerr << kGuiUsage; return 1; }
+				GuiDocSetup setup;
+				const int rc = GuiLoadSceneAndDoc(argv[3], argv[4], GuiParseFrameFlag(argc, argv, 6, 1), setup);
+				if (rc != 0) return rc;
+				Rml::Element *element = GuiResolveSelector(setup.doc, argv[5]);
+				if (element == nullptr)
+				{
+					std::cerr << "furye-cli gui: no element matches selector '" << argv[5] << "'\n";
+					return 1;
+				}
+				std::string json = "{";
+				json += "\"tag\":\""; JsonEscapeTo(json, element->GetTagName()); json += "\"";
+				if (!element->GetId().empty()) { json += ",\"id\":\""; JsonEscapeTo(json, element->GetId()); json += "\""; }
+				if (!element->GetClassNames().empty()) { json += ",\"class\":\""; JsonEscapeTo(json, element->GetClassNames()); json += "\""; }
+				json += ",\"boxes\":{";
+				const struct { Rml::BoxArea area; const char *name; } areas[] = {
+					{Rml::BoxArea::Margin, "margin"}, {Rml::BoxArea::Border, "border"},
+					{Rml::BoxArea::Padding, "padding"}, {Rml::BoxArea::Content, "content"},
+				};
+				for (int i = 0; i < 4; ++i)
+				{
+					if (i > 0) json += ",";
+					json += "\""; json += areas[i].name; json += "\":[";
+					JsonRect(json, element->GetBox().GetPosition(areas[i].area),
+						element->GetBox().GetSize(areas[i].area));
+					json += "]";
+				}
+				json += "}";
+				static const char *kProps[] = {
+					"display", "position", "left", "top", "width", "height",
+					"font-size", "color", "background-color", "opacity", "visibility",
+				};
+				json += ",\"styles\":{";
+				bool firstProp = true;
+				for (const char *name : kProps)
+				{
+					const Rml::Property *prop = element->GetProperty(name);
+					if (prop == nullptr) continue;
+					if (!firstProp) json += ",";
+					firstProp = false;
+					json += "\""; json += name; json += "\":\"";
+					JsonEscapeTo(json, prop->ToString());
+					json += "\"";
+				}
+				json += "}";
+				json += ",\"attributes\":{";
+				bool firstAttr = true;
+				for (const auto &kv : element->GetAttributes())
+				{
+					if (!firstAttr) json += ",";
+					firstAttr = false;
+					json += "\""; JsonEscapeTo(json, kv.first); json += "\":\"";
+					JsonEscapeTo(json, kv.second.Get<Rml::String>());
+					json += "\"";
+				}
+				json += "}";
+				Rml::String inner;
+				element->GetInnerRML(inner);
+				if (inner.size() > 200) inner = inner.substr(0, 200) + "...";
+				json += ",\"inner_rml\":\""; JsonEscapeTo(json, inner); json += "\"";
+				json += "}\n";
+				std::fputs(json.c_str(), stdout);
+				return 0;
+			}
+			if (sub == "event")
+			{
+				if (argc < 7) { std::cerr << kGuiUsage; return 1; }
+				GuiDocSetup setup;
+				const int rc = GuiLoadSceneAndDoc(argv[3], argv[4], 1, setup);
+				if (rc != 0) return rc;
+				Rml::Element *element = GuiResolveSelector(setup.doc, argv[5]);
+				if (element == nullptr)
+				{
+					std::cerr << "furye-cli gui: no element matches selector '" << argv[5] << "'\n";
+					return 1;
+				}
+				Rml::Dictionary params;
+				for (int i = 7; i + 1 < argc; ++i)
+				{
+					if (std::strcmp(argv[i], "--param") != 0) continue;
+					const std::string kv = argv[++i];
+					const size_t eq = kv.find('=');
+					if (eq == std::string::npos) continue;
+					params[kv.substr(0, eq)] = kv.substr(eq + 1);
+				}
+				element->DispatchEvent(argv[6], params);
+				GameUI::Update(1.0f / 60.0f);
+				GameUI::Update(1.0f / 60.0f);
+				std::string json = "{\"document\":";
+				EmitElementTreeJson(setup.doc, json, 0);
+				json += "}\n";
+				std::fputs(json.c_str(), stdout);
+				return 0;
+			}
+			if (sub == "shot")
+			{
+				// The sol::state must outlive GameUI::Shutdown (listener
+				// dtors unref into it), so it is declared out here rather
+				// than inside the do-block.
+				int shotRc = 0;
+				sol::state lua;
+				do {
+					if (argc < 6) { std::cerr << kGuiUsage; shotRc = 1; break; }
+					const std::string scenePath = argv[3];
+					const std::string docPath = argv[4];
+					const std::string outPath = argv[5];
+					int frames = 30;
+					std::string initPath;
+					for (int i = 6; i + 1 < argc; ++i)
+					{
+						if (std::strcmp(argv[i], "--frame") == 0) frames = std::max(1, std::atoi(argv[++i]));
+						else if (std::strcmp(argv[i], "--script") == 0) initPath = argv[++i];
+						else if (std::strcmp(argv[i], "--size") == 0) ++i; // consumed by main
+					}
+
+					GameUI::Initialize(&window, 1.0f);
+					lua.open_libraries(sol::lib::base, sol::lib::string, sol::lib::math,
+						sol::lib::table, sol::lib::io, sol::lib::os, sol::lib::package);
+					LuaBindings::Register(lua);
+					sol::table argt = lua.create_named_table("arg");
+					argt[1] = scenePath;
+					argt[2] = docPath;
+					argt[3] = initPath;
+
+					sol::protected_function_result br = lua.safe_script(kGuiShotBootstrap, sol::script_pass_on_error);
+					if (!br.valid())
+					{
+						sol::error err = br;
+						std::cerr << "furye-cli gui shot: " << err.what() << "\n";
+						shotRc = 1; break;
+					}
+					sol::protected_function frameFn = lua["GuiShotFrame"];
+					if (!frameFn.valid())
+					{
+						std::cerr << "furye-cli gui shot: bootstrap did not define GuiShotFrame\n";
+						shotRc = 2; break;
+					}
+
+					auto &rt = RenderThread::Get();
+					rt.SetExecutor([&window](FramePacket &packet)
+					{
+						RenderUtil::Instance()->BeginFrame();
+						if (packet.pipeline)
+							packet.pipeline->ExecutePacket(packet);
+						for (auto &job : packet.overlayJobs)
+							job();
+						GameUI::RenderSnapshot(packet.uiFrame);
+						RenderUtil::Instance()->EndFrame();
+						window.display();
+					});
+
+					const float dt = 1.0f / 60.0f;
+					for (int f = 0; f < frames; ++f)
+					{
+						Engine::Update(dt);
+						GameUI::Update(dt);
+						sol::protected_function_result fr = frameFn(dt);
+						if (!fr.valid())
+						{
+							sol::error err = fr;
+							std::cerr << "furye-cli gui shot: frame error: " << err.what() << "\n";
+							shotRc = 2; break;
+						}
+						FramePacket *packet = rt.TakeStagedPacket();
+						if (packet == nullptr)
+						{
+							packet = rt.AcquirePacket();
+							packet->Reset();
+						}
+						packet->uiFrame = GameUI::BuildDrawSnapshot();
+						rt.ExecuteInline(*packet);
+					}
+					if (shotRc != 0) break;
+
+					const sf::Vector2u shotSize = window.getSize();
+					if (shotSize.x == 0 || shotSize.y == 0)
+					{
+						std::cerr << "furye-cli gui shot: backbuffer capture failed\n";
+						shotRc = 2; break;
+					}
+					const unsigned int rbw = shotSize.x, rbh = shotSize.y;
+					std::vector<unsigned char> rbPixels(
+						static_cast<size_t>(rbw) * rbh * 4);
+					glReadPixels(0, 0, static_cast<GLsizei>(rbw), static_cast<GLsizei>(rbh),
+						GL_RGBA, GL_UNSIGNED_BYTE, rbPixels.data());
+					const size_t rowBytes = static_cast<size_t>(rbw) * 4;
+					std::vector<unsigned char> flipped(rbPixels.size());
+					for (unsigned int y = 0; y < rbh; ++y)
+						std::memcpy(&flipped[y * rowBytes], &rbPixels[(rbh - 1 - y) * rowBytes], rowBytes);
+					if (stbi_write_png(outPath.c_str(), static_cast<int>(rbw), static_cast<int>(rbh),
+							4, flipped.data(), static_cast<int>(rowBytes)) == 0)
+					{
+						std::cerr << "furye-cli gui shot: stbi_write_png failed for '" << outPath << "'\n";
+						shotRc = 2; break;
+					}
+					FURYI << "furye-cli gui shot: wrote " << outPath;
+				} while (false);
+				GameUI::Shutdown(); // drains listeners before sol::state dtor
+				return shotRc;
+			}
+			std::cerr << "furye-cli gui: unknown subcommand '" << sub << "'\n\n" << kGuiUsage;
+			return 1;
+		}
+		catch (const std::exception &e)
+		{
+			std::cerr << "furye-cli gui: uncaught exception: " << e.what() << "\n";
+			return 2;
+		}
+	}
 }

@@ -1,0 +1,220 @@
+/* Island demo theme: dark translucent panels over the live scene, thin
+   cyan accent, uppercase labels, hover glow, short transitions.
+
+   NOTE: RmlUi has no UA stylesheet - the property initial for `display`
+   is inline, so every block-level tag used must be reset explicitly. */
+
+body, div, p, span, h1, h2, button, input {
+	display: block;
+	margin: 0;
+	padding: 0;
+	font-family: LatoLatin;
+	color: #e8eef4;
+}
+
+/* body is the document element: percentage sizes track the context,
+   so menus follow window resizes. */
+body {
+	position: absolute;
+	left: 0; top: 0;
+	width: 100%;
+	height: 100%;
+}
+
+h1 {
+	font-size: 42px;
+	letter-spacing: 6px;
+	color: #ffffff;
+}
+
+h2 {
+	font-size: 20px;
+	letter-spacing: 3px;
+	color: #9fb4c8;
+}
+
+/* dim full-screen backdrop; flex centers the modal in any resolution */
+.backdrop {
+	position: absolute;
+	left: 0; top: 0;
+	width: 100%; height: 100%;
+	background: #05080dd0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* left-anchored menu column (main menu) */
+.menu-root {
+	position: absolute;
+	left: 0; top: 0;
+	width: 100%; height: 100%;
+	pointer-events: none;
+}
+.menu-left {
+	position: absolute;
+	left: 96px; top: 0;
+	width: 420px; height: 100%;
+	pointer-events: auto;
+	background: #05080dd0;
+}
+.menu-title {
+	display: block;
+	position: absolute;
+	left: 0; top: 128px;
+	width: 420px; height: 160px;
+}
+.menu-buttons {
+	display: block;
+	position: absolute;
+	left: 0; top: 320px;
+	width: 340px; height: 280px;
+}
+
+/* centered modal (pause/options) - child of the flex backdrop */
+.modal {
+	width: 620px;
+	background: #0a0e14e8;
+	border-top-width: 2px;
+	border-top-color: #4fd1ff;
+	padding: 28px 40px 28px;
+}
+.modal h2 {
+	margin-bottom: 8px;
+}
+
+/* buttons */
+.btn {
+	display: block;
+	padding: 10px 16px;
+	margin: 4px 0;
+	font-size: 17px;
+	letter-spacing: 2px;
+	color: #c6d4e0;
+	border-left-width: 3px;
+	border-left-color: #00000000;
+	background: #ffffff00;
+	transition: background 0.12s, color 0.12s, border-color 0.12s, padding-left 0.12s;
+}
+.btn:hover {
+	color: #ffffff;
+	background: #4fd1ff18;
+	border-left-color: #4fd1ff;
+	padding-left: 24px;
+}
+.btn:active {
+	background: #4fd1ff30;
+}
+.btn.danger:hover {
+	border-left-color: #ff5555;
+	background: #ff555518;
+}
+
+/* options layout: section headers + label/control column rows */
+.opt-section {
+	margin-top: 14px;
+	padding-bottom: 4px;
+	font-size: 12px;
+	letter-spacing: 3px;
+	color: #4fd1ff;
+	border-bottom-width: 1px;
+	border-bottom-color: #4fd1ff33;
+}
+.opt-row {
+	display: flex;
+	align-items: center;
+	padding: 5px 0;
+	border-bottom-width: 1px;
+	border-bottom-color: #ffffff10;
+}
+.opt-label {
+	width: 180px;
+	flex-shrink: 0;
+	font-size: 14px;
+	letter-spacing: 1px;
+	color: #9fb4c8;
+}
+/* control column: wraps inside itself, so a second line of segments
+   stays aligned to the values, not the label */
+.opt-controls {
+	flex-grow: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+/* segmented radio choices */
+.seg {
+	display: inline-block;
+	padding: 4px 12px;
+	margin: 2px 6px 2px 0;
+	font-size: 13px;
+	color: #9fb4c8;
+	background: #ffffff0d;
+	border-radius: 3px;
+	transition: background 0.12s, color 0.12s;
+}
+.seg:hover {
+	color: #ffffff;
+	background: #4fd1ff26;
+}
+.seg.active {
+	color: #06121a;
+	background: #4fd1ff;
+}
+
+/* range inputs: RmlUi ships no default look for the internal parts,
+   and the part elements match by TAG name (slidertrack/sliderbar/...) */
+input[type=range] {
+	width: 240px;
+	height: 22px;
+	margin-right: 12px;
+}
+input[type=range] slidertrack {
+	margin-top: 9px;
+	height: 4px;
+	border-radius: 2px;
+	background: #ffffff1f;
+}
+input[type=range] sliderprogress {
+	background: #4fd1ff;
+	border-radius: 2px;
+}
+input[type=range] sliderbar {
+	width: 14px;
+	height: 14px;
+	margin-top: 4px;
+	border-radius: 7px;
+	background: #e8eef4;
+}
+input[type=range] sliderbar:hover {
+	background: #4fd1ff;
+}
+input[type=range] sliderarrowdec,
+input[type=range] sliderarrowinc {
+	display: none;
+}
+.opt-value {
+	width: 56px;
+	flex-shrink: 0;
+	text-align: right;
+	font-size: 14px;
+	color: #4fd1ff;
+}
+
+/* HUD */
+#crosshair {
+	position: absolute;
+	left: 50%; top: 50%;
+	width: 4px; height: 4px;
+	margin-left: -2px; margin-top: -2px;
+	border-radius: 2px;
+	background: #ffffffcc;
+}
+#fps {
+	position: absolute;
+	right: 16px; top: 12px;
+	font-size: 14px;
+	color: #9fb4c8;
+	text-align: right;
+}

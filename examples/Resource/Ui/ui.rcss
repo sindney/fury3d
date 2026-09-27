@@ -1,0 +1,201 @@
+/* Island demo shared UI theme - simple modern AAA direction:
+   dark translucent panels over the live scene, thin cyan accent,
+   uppercase labels, hover glow, short fade/slide transitions.
+
+   NOTE: RmlUi has no UA stylesheet - the property initial for `display`
+   is inline, so every block-level tag used must be reset explicitly. */
+
+body, div, p, span, h1, h2, button, input {
+	display: block;
+	margin: 0;
+	padding: 0;
+	font-family: LatoLatin;
+	color: #e8eef4;
+}
+
+body {
+	position: absolute;
+	left: 0; top: 0;
+	width: 1280px;
+	height: 720px;
+}
+
+h1 {
+	font-size: 42px;
+	letter-spacing: 6px;
+	color: #ffffff;
+}
+
+h2 {
+	font-size: 20px;
+	letter-spacing: 3px;
+	color: #9fb4c8;
+}
+
+/* dim full-screen backdrop for menus */
+.backdrop {
+	position: absolute;
+	left: 0; top: 0;
+	width: 1280px; height: 720px;
+	background: #05080dd0;
+}
+
+/* left-anchored menu column (main menu) */
+.menu-root {
+	position: absolute;
+	left: 0; top: 0;
+	width: 1280px; height: 720px;
+	pointer-events: none;
+}
+.menu-left {
+	position: absolute;
+	left: 96px; top: 0;
+	width: 420px; height: 720px;
+	pointer-events: auto;
+	background: #05080dd0;
+}
+.menu-title {
+	display: block;
+	position: absolute;
+	left: 0; top: 128px;
+	width: 420px; height: 160px;
+}
+.menu-buttons {
+	display: block;
+	position: absolute;
+	left: 0; top: 320px;
+	width: 340px; height: 280px;
+}
+
+/* centered modal (pause/options) */
+.modal {
+	position: absolute;
+	left: 50%; top: 50%;
+	width: 560px;
+	height: 600px;
+	margin-left: -280px;
+	margin-top: -300px;
+	background: #0a0e14dc;
+	border-top-width: 2px;
+	border-top-color: #4fd1ff;
+	padding: 32px 40px;
+}
+.modal h2 {
+	margin-bottom: 24px;
+}
+
+/* buttons */
+.btn {
+	display: block;
+	padding: 10px 16px;
+	margin: 4px 0;
+	font-size: 17px;
+	letter-spacing: 2px;
+	color: #c6d4e0;
+	border-left-width: 3px;
+	border-left-color: #00000000;
+	background: #ffffff00;
+	transition: background 0.12s, color 0.12s, border-color 0.12s, padding-left 0.12s;
+}
+.btn:hover {
+	color: #ffffff;
+	background: #4fd1ff18;
+	border-left-color: #4fd1ff;
+	padding-left: 24px;
+}
+.btn:active {
+	background: #4fd1ff30;
+}
+.btn.danger:hover {
+	border-left-color: #ff5555;
+	background: #ff555518;
+}
+
+/* options rows */
+.opt-row {
+	display: block;
+	padding: 6px 0;
+	border-bottom-width: 1px;
+	border-bottom-color: #ffffff12;
+}
+.opt-label {
+	display: inline-block;
+	width: 220px;
+	font-size: 15px;
+	letter-spacing: 1px;
+	color: #9fb4c8;
+}
+.opt-row input[type=range] {
+	width: 240px;
+}
+.opt-value {
+	display: inline-block;
+	width: 64px;
+	text-align: right;
+	font-size: 14px;
+	color: #4fd1ff;
+}
+
+/* segmented radio row (fps cap, resolution) */
+.seg {
+	display: inline-block;
+	padding: 4px 14px;
+	margin-right: 2px;
+	font-size: 14px;
+	color: #9fb4c8;
+	background: #ffffff0a;
+}
+.seg:hover {
+	color: #ffffff;
+	background: #4fd1ff18;
+}
+.seg.active {
+	color: #05080d;
+	background: #4fd1ff;
+}
+
+/* range inputs: the internal track/handle parts need explicit styling
+   (RmlUi ships no default look for them); the parts match by TAG name */
+input[type=range] {
+	height: 22px;
+}
+input[type=range] slidertrack {
+	margin-top: 9px;
+	height: 4px;
+	background: #ffffff1f;
+	border-radius: 2px;
+}
+input[type=range] sliderprogress {
+	background: #4fd1ff;
+}
+input[type=range] sliderbar {
+	width: 14px;
+	height: 14px;
+	border-radius: 7px;
+	background: #e8eef4;
+	margin-top: 4px;
+}
+input[type=range] sliderbar:hover {
+	background: #4fd1ff;
+}
+input[type=range] sliderarrowdec,
+input[type=range] sliderarrowinc {
+	display: none;
+}
+
+/* HUD */
+#crosshair {
+	position: absolute;
+	left: 50%; top: 50%;
+	width: 4px; height: 4px;
+	margin-left: -2px; margin-top: -2px;
+	border-radius: 2px;
+	background: #ffffffcc;
+}
+#fps {
+	position: absolute;
+	right: 16px; top: 12px;
+	font-size: 14px;
+	color: #9fb4c8;
+	text-align: right;
+}

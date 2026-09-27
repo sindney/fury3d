@@ -469,6 +469,37 @@ args, missing scene, or missing mesh).
 ./fury render-mesh Resource/Scene/scene.json T90 /tmp/t90_lod1.png --lod 1
 ```
 
+### `furye-cli gui` - headless game-UI (RmlUi) inspection
+
+```
+furye-cli gui tree    <scene> <doc.rml> [--frame N]
+furye-cli gui inspect <scene> <doc.rml> <selector>
+furye-cli gui event   <scene> <doc.rml> <selector> <event> [--param k=v]...
+furye-cli gui shot    <scene> <doc.rml> <out.png> [--size WxH] [--frame N] [--script init.lua]
+```
+
+Agent-facing loop for building and testing game UI without launching the
+editor. `tree` prints the document element tree as one-line JSON (tag, id,
+classes, visibility, rect, nested children); `inspect` prints one element's
+box metrics (margin/border/padding/content), computed styles, and
+attributes; `event` dispatches a synthetic event and prints the post-event
+tree; `shot` renders the scene + UI for N frames (default 30) to a PNG at
+the given window size (default 1280x720), optionally running an init Lua
+script first (data models, wave time, ...). Selectors: `#id`, `.class`, or
+tag name (first match). Exit codes follow the global table; a missing
+scene/document/element is exit 1.
+
+tree/inspect/event are DOM-only (no GL). shot opens a short-lived hidden
+window like render-mesh. Engine logs share stdout, so extract the JSON
+line with `| grep '^{'`.
+
+```
+./furye-cli gui tree Projects/ocean/ocean_island.bin ui/main_menu.rml
+./furye-cli gui inspect Projects/ocean/ocean_island.bin ui/options.rml '#fov'
+./furye-cli gui event Projects/ocean/ocean_island.bin ui/main_menu.rml '#start' click
+./furye-cli gui shot Projects/ocean/ocean_island.bin ui/main_menu.rml /tmp/menu.png --frame 30
+```
+
 ### `fury help` — print help
 
 ```

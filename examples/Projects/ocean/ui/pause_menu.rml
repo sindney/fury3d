@@ -1,0 +1,17 @@
+<rml>
+<head>
+	<title>Island - Paused</title>
+	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+</head>
+<body id="ui/pause_menu.rml">
+	<div class="backdrop">
+		<div class="modal">
+			<h2>PAUSED</h2>
+			<div class="btn" id="continue" onclick="Menu_Continue()">CONTINUE</div>
+			<div class="btn" id="options" onclick="Menu_OpenOptions('pause')">OPTIONS</div>
+			<div class="btn" id="to-main" onclick="Menu_ExitToMain()">EXIT TO MAIN MENU</div>
+			<div class="btn danger" id="to-desktop" onclick="Menu_Exit()">EXIT TO DESKTOP</div>
+		</div>
+	</div>
+</body>
+</rml>

@@ -127,6 +127,16 @@ namespace fury
 		m_Frustum.Setup(-right, right, -top, top, near, far);
 	}
 
+	void Camera::SetFov(float fov)
+	{
+		if (!m_Perspective) return;
+
+		// Ratio from the stored params (right = top * ratio), preserving
+		// the world transform like SetAspect does.
+		const float top = m_ProjectionParams[3];
+		const float ratio = (top != 0.0f) ? (m_ProjectionParams[1] / top) : 1.0f;
+		PerspectiveFov(fov, ratio, m_ProjectionParams[4], m_ProjectionParams[5]);
+	}
 	void Camera::SetAspect(float ratio)
 	{
 		if (!m_Perspective) return;

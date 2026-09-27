@@ -413,6 +413,11 @@ namespace fury
 		// Gui-internal; opaque here).
 		std::shared_ptr<void> guiFrame;
 
+		// Game UI (RmlUi) draw-data snapshot, attached at loop tail
+		// (GameUIFrameData is GameUIRenderer-internal; opaque here).
+		// Replayed before guiFrame so editor chrome stays on top.
+		std::shared_ptr<void> uiFrame;
+
 		// Render-side intra-frame state: shadow results per light index,
 		// filled by the light pass, read by transparent/ocean/particles.
 		struct ShadowResult

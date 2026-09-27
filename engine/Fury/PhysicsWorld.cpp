@@ -123,15 +123,24 @@ namespace
 
 PhysicsWorld::PhysicsWorld()
 {
-	JPH::RegisterDefaultAllocator();
+	// Jolt's global registration (allocator, factory, types, default
+	// material) is process-scope and must happen exactly once; Jolt's own
+	// statics (e.g. PhysicsMaterial::sDefault) have their own exit dtors,
+	// so teardown ordering is handled by ShutdownJoltGlobals, not the dtor.
+	static bool s_JoltGlobalsReady = false;
+	if (!s_JoltGlobalsReady)
+	{
+		JPH::RegisterDefaultAllocator();
 
-	JPH::Trace = JoltTraceImpl;
+		JPH::Trace = JoltTraceImpl;
 #ifdef JPH_ENABLE_ASSERTS
-	JPH::AssertFailed = JoltAssertFailedImpl;
+		JPH::AssertFailed = JoltAssertFailedImpl;
 #endif
 
-	JPH::Factory::sInstance = new JPH::Factory();
-	JPH::RegisterTypes();
+		JPH::Factory::sInstance = new JPH::Factory();
+		JPH::RegisterTypes();
+		s_JoltGlobalsReady = true;
+	}
 
 	m_TempAllocator = new JPH::TempAllocatorImpl(16 * 1024 * 1024);
 
@@ -166,6 +175,13 @@ PhysicsWorld::~PhysicsWorld()
 	delete m_TempAllocator;
 	m_TempAllocator = nullptr;
 
+	// Jolt globals stay registered: their statics self-clean at process
+	// exit, and UnregisterTypes here would race those dtors.
+}
+
+// static
+void PhysicsWorld::ShutdownJoltGlobals()
+{
 	JPH::UnregisterTypes();
 	delete JPH::Factory::sInstance;
 	JPH::Factory::sInstance = nullptr;

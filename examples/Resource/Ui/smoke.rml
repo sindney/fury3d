@@ -1,0 +1,13 @@
+<rml>
+<head>
+	<title>game-ui smoke</title>
+	<style>
+		body { display: block; }
+		div { display: block; }
+		#box { width: 100px; height: 50px; }
+	</style>
+</head>
+<body>
+	<div id="box"></div>
+</body>
+</rml>

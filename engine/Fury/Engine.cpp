@@ -12,7 +12,9 @@
 #include "Fury/Editor/Editor.h"
 #include "Fury/Engine.h"
 #include "Fury/Macros.h"
+#include "Fury/Camera.h"
 #include "Fury/GLLoader.h"
+#include "Fury/GameUI.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
@@ -23,6 +25,7 @@
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
+#include "Fury/SceneNode.h"
 #include "Fury/ThreadUtil.h"
 #include "Fury/Vector4.h"
 
@@ -86,6 +89,7 @@ namespace fury
 #if PLATFORM_MACOS
 	// Defined in Engine_dpi_mac.mm (compiled only on macOS).
 	float furyGetMacOSBackingScale();
+	void furyMacOSPollMouseDelta(float &dx, float &dy);
 #endif
 
 	namespace
@@ -285,9 +289,19 @@ namespace fury
 		{
 			int w = static_cast<int>(resized->size.x);
 			int h = static_cast<int>(resized->size.y);
-			inputMgr->m_WindowSize.first = w;
-			inputMgr->m_WindowSize.second = h;
+			inputMgr->m_WindowSize.first = w;			inputMgr->m_WindowSize.second = h;
 			inputMgr->OnWindowResized->Emit(std::move(w), std::move(h));
+
+			// Keep the render camera's aspect in sync with the window
+			// (previously nothing consumed the resize at runtime).
+			if (h > 0 && Pipeline::Active != nullptr)
+			{
+				if (auto camNode = Pipeline::Active->GetCurrentCamera())
+				{
+					if (auto camera = camNode->GetComponent<Camera>())
+						camera->SetAspect(static_cast<float>(w) / static_cast<float>(h));
+				}
+			}
 		}
 		else if (event.is<sf::Event::FocusLost>())
 		{
@@ -303,6 +317,7 @@ namespace fury
 			inputMgr->ResetTransientInputState();
 			inputMgr->OnWindowFocus->Emit(false);
 			s_NeedsFocusSeed = true;
+			inputMgr->SyncCursorOS();
 		}
 		else if (event.is<sf::Event::FocusGained>())
 		{
@@ -324,6 +339,7 @@ namespace fury
 			}
 			inputMgr->m_WindowFocused = true;
 			inputMgr->OnWindowFocus->Emit(true);
+			inputMgr->SyncCursorOS();
 		}
 		else if (const auto* text = event.getIf<sf::Event::TextEntered>())
 		{
@@ -397,6 +413,69 @@ namespace fury
 			int mx = move->position.x;
 			int my = move->position.y;
 			inputMgr->OnMouseMove->Emit(std::move(mx), std::move(my));
+
+			// Grabbed cursor (fps look): accumulate relative deltas and
+			// recenter only near the window edge. Warping per event races
+			// the WindowServer's event creation on macOS (in-flight events
+			// read the post-warp center position and zero the delta).
+			// macOS does not use this path at all: deltas are polled from
+			// CGGetLastMouseDelta per frame (see the Run loop), the cursor
+			// is disassociated from the mouse while grabbed.
+#if !PLATFORM_MACOS
+			static int s_LastX = 0, s_LastY = 0;
+			static bool s_WasGrabbed = false, s_SkipCenter = false;
+			if (inputMgr->m_CursorGrabbed)
+			{
+				const sf::Vector2u ws = window.getSize();
+				const int cx = static_cast<int>(ws.x / 2);
+				const int cy = static_cast<int>(ws.y / 2);
+				if (!s_WasGrabbed)
+				{
+					s_WasGrabbed = true;
+					s_SkipCenter = false;
+					s_LastX = move->position.x;
+					s_LastY = move->position.y;
+				}
+				if (s_SkipCenter && move->position.x == cx && move->position.y == cy)
+				{
+					// Warp feedback event; carries no user movement.
+					s_SkipCenter = false;
+				}
+				else
+				{
+					const int dx = move->position.x - s_LastX;
+					const int dy = move->position.y - s_LastY;
+					// Events created before a recenter warp arrive with
+					// pre-warp positions; against the recentered lastPos
+					// they read as one huge phantom delta (the "snaps to
+					// 90 deg" jump). Drop spikes and keep lastPos parked
+					// so the stream re-syncs on the next sane event.
+					const bool spike = std::abs(dx) > 150 || std::abs(dy) > 150;
+					if (!spike)
+					{
+						s_LastX = move->position.x;
+						s_LastY = move->position.y;
+						if (dx != 0 || dy != 0)
+						{
+							inputMgr->m_MouseDeltaAccum.first += dx;
+							inputMgr->m_MouseDeltaAccum.second += dy;
+						}
+					}
+					if (std::abs(move->position.x - cx) > static_cast<int>(ws.x) / 4 ||
+						std::abs(move->position.y - cy) > static_cast<int>(ws.y) / 4)
+					{
+						sf::Mouse::setPosition(sf::Vector2i(cx, cy), window);
+						s_LastX = cx;
+						s_LastY = cy;
+						s_SkipCenter = true;
+					}
+				}
+			}
+			else
+			{
+				s_WasGrabbed = false;
+			}
+#endif // !PLATFORM_MACOS
 		}
 		else if (event.is<sf::Event::MouseEntered>())
 		{
@@ -410,6 +489,7 @@ namespace fury
 		}
 
 		Gui::HandleEvent(event);
+		GameUI::HandleEvent(event);
 	}
 
 	void Engine::Update(float dt)
@@ -441,12 +521,16 @@ namespace fury
 		// which needs the physics world still alive.
 		if (PhysicsWorld::Exists())
 			PhysicsWorld::Instance().reset();
+		PhysicsWorld::ShutdownJoltGlobals();
 
 		AssetLoader::Get().Shutdown();
 
 		Editor::Shutdown();
 		Gui::Shutdown();
 		Editor::SetWindowForPersistence(nullptr);
+
+		// GameUI shutdown lives in the launcher (main.cpp / Cli.cpp) so
+		// RmlUi listener dtors run while the lua_State is still alive.
 	}
 
 	std::pair<int, int> Engine::GetGLVersion()
@@ -467,6 +551,26 @@ namespace fury
 	float Engine::GetTime()
 	{
 		return s_Time;
+	}
+
+	static sf::Window *s_RunWindow = nullptr;
+
+	void Engine::SetFpsCap(int fps)
+	{
+		if (s_RunWindow == nullptr) return;
+		s_RunWindow->setFramerateLimit(fps > 0 ? static_cast<unsigned int>(fps) : 0u);
+	}
+
+	void Engine::SetVsync(bool enabled)
+	{
+		if (s_RunWindow == nullptr) return;
+		s_RunWindow->setVerticalSyncEnabled(enabled);
+	}
+
+	void Engine::SetResolution(int width, int height)
+	{
+		if (s_RunWindow == nullptr || width <= 0 || height <= 0) return;
+		s_RunWindow->setSize(sf::Vector2u(static_cast<unsigned int>(width), static_cast<unsigned int>(height)));
 	}
 
 	void Engine::SetTime(float seconds)
@@ -522,6 +626,10 @@ namespace fury
 		Gui::Initialize(&window, effectiveScale, effectiveFontScale);
 		Editor::Initialize();
 #endif
+		// Game UI (RmlUi) is active in every binary, editor or player.
+		GameUI::Initialize(&window, effectiveScale);
+		s_RunWindow = &window;
+		InputUtil::Instance()->BindWindow(&window);
 
 		const bool renderThread = RenderThread::ResolveEnabled(opts.render_thread);
 		FURYD << "render thread: " << (renderThread ? "on" : "off");
@@ -535,6 +643,7 @@ namespace fury
 				packet.pipeline->ExecutePacket(packet);
 			for (auto &job : packet.overlayJobs)
 				job();
+			GameUI::RenderSnapshot(packet.uiFrame);
 			Gui::RenderSnapshot(packet.guiFrame);
 			RenderUtil::Instance()->EndFrame();
 			window.display();
@@ -585,6 +694,21 @@ namespace fury
 				sf::Event ev = *event;
 				HandleEvent(ev, window);
 			}
+
+#if PLATFORM_MACOS
+			// Grabbed-cursor look input on macOS: polled raw HID deltas
+			// (position events are center-locked while disassociated).
+			if (InputUtil::Instance()->GetCursorGrabbed() && InputUtil::Instance()->GetWindowFocused())
+			{
+				float mdx = 0.0f, mdy = 0.0f;
+				furyMacOSPollMouseDelta(mdx, mdy);
+				if (mdx != 0.0f || mdy != 0.0f)
+				{
+					InputUtil::Instance()->m_MouseDeltaAccum.first += static_cast<int>(mdx);
+					InputUtil::Instance()->m_MouseDeltaAccum.second += static_cast<int>(mdy);
+				}
+			}
+#endif
 
 			int numLoops = 0;
 			{
@@ -639,6 +763,7 @@ namespace fury
 		{
 			FURY_ZONE_NAMED("Engine::Update");
 			Update(dt);
+			GameUI::Update(dt);
 		}
 
 		// Editor post-render hook: drives the viewport-picking state
@@ -657,9 +782,11 @@ namespace fury
 		// window's ImGui::Image, which samples the scene's offscreen
 		// render target.
 		std::shared_ptr<void> guiFrame;
+		std::shared_ptr<void> uiFrame;
 		{
 			FURY_ZONE_NAMED("Gui::Render");
 			guiFrame = Gui::BuildDrawDataSnapshot();
+			uiFrame = GameUI::BuildDrawSnapshot();
 		}
 
 		// Loop tail: take the packet staged by Pipeline::Execute (or an
@@ -672,6 +799,7 @@ namespace fury
 			packet->Reset();
 		}
 		packet->guiFrame = guiFrame;
+		packet->uiFrame = uiFrame;
 		{
 			FURY_ZONE_NAMED("SubmitFrame");
 			if (renderThread)

@@ -1,0 +1,22 @@
+<rml>
+<head>
+	<title>test text</title>
+	<style>
+		body {
+			background: #102030f0;
+			color: #ffffff;
+			font-family: LatoLatin, sans-serif;
+			font-size: 32px;
+			padding: 40px;
+		}
+		div { display: block; margin: 8px 0; }
+		#red { background: #ff0000; color: #ffffff; padding: 8px; }
+		#sized { background: #00ff00; color: #000; padding: 8px; width: 400px; height: 80px; }
+	</style>
+</head>
+<body id="ui/test_text.rml">
+	<div>HELLO TEXT WORLD 123</div>
+	<div id="red">RED BACKGROUND TEXT</div>
+	<div id="sized">SIZED BOX</div>
+</body>
+</rml>

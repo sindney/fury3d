@@ -49,6 +49,11 @@ namespace fury
 
 		static bool Exists();
 
+		// Tears down Jolt's process-global registration (types, factory).
+		// Called from Engine::Shutdown AFTER the world instance is reset;
+		// headless exec exits without it (Jolt's own statics self-clean).
+		static void ShutdownJoltGlobals();
+
 		bool IsSimulationEnabled() const { return m_SimulationEnabled; }
 
 		// Enabling builds Jolt bodies for every registered BodySetup;

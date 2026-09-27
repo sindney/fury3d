@@ -619,6 +619,21 @@ namespace fury
 			});
 			return;
 		}
+
+		// CLI / no-GL-context path: serialization shape only, no GPU upload.
+		if (_ptrc_glGenTextures == nullptr)
+		{
+			m_Mipmap = mipMap;
+			m_Format = format;
+			m_Dirty = true;
+			m_Width = width;
+			m_Height = height;
+			m_Depth = depth;
+			m_Type = type;
+			m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
+			return;
+		}
+
 		DeleteBuffer();
 
 		if (format == TextureFormat::UNKNOW)
@@ -682,7 +697,7 @@ namespace fury
 		}
 
 		glBindTexture(m_TypeUint, m_ID);
-		glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, EnumUtil::TextureFormatToUint(m_Format).second, GL_UNSIGNED_BYTE, pixels);
+		glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, EnumUtil::TextureFormatToUint(m_Format, false).second, GL_UNSIGNED_BYTE, pixels);
 
 		if (m_Mipmap)
 			glGenerateMipmap(m_TypeUint);

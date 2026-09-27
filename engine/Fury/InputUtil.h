@@ -3,6 +3,7 @@
 
 #include <SFML/Window/Keyboard.hpp>
 #include <SFML/Window/Mouse.hpp>
+#include <SFML/Window/Window.hpp>
 
 #include "Fury/Signal.h"
 #include "Fury/Singleton.h"
@@ -33,6 +34,18 @@ namespace fury
 		bool m_MouseDown[sf::Mouse::ButtonCount];
 
 		bool m_KeyDown[sf::Keyboard::KeyCount];
+
+		// Bound by Engine::Run; needed for cursor grab/visibility and the
+		// grabbed-mode recentering in Engine::HandleEvent.
+		sf::Window *m_Window = nullptr;
+
+		bool m_CursorGrabbed = false;
+
+		bool m_CursorVisible = true;
+
+		// Accumulated relative mouse motion while the cursor is grabbed
+		// (fps look). Consumed (read + cleared) by the character controller.
+		std::pair<int, int> m_MouseDeltaAccum {0, 0};
 
 	public:
 
@@ -69,6 +82,23 @@ namespace fury
 		void GetWindowSize(int &width, int &height);
 
 		std::pair<int, int> GetMousePosition();
+
+		// Window-bound cursor control (game UI / fps look).
+		void BindWindow(sf::Window *window);
+
+		void SetCursorGrabbed(bool grabbed);
+
+		bool GetCursorGrabbed() const;
+
+		void SetCursorVisible(bool visible);
+
+		// Re-applies (grabbed, visible) to the OS; called on focus
+		// transitions so an unfocused window never holds the cursor.
+		void SyncCursorOS();
+
+		// Accumulated relative mouse motion since the last call (clears on
+		// read). Only meaningful while the cursor is grabbed.
+		std::pair<int, int> ConsumeMouseDelta();
 
 		bool GetWindowFocused();
 

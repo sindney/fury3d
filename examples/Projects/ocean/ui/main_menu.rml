@@ -1,0 +1,21 @@
+<rml>
+<head>
+	<title>Island - Main Menu</title>
+	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+</head>
+<body id="ui/main_menu.rml">
+	<div class="menu-root">
+		<div class="menu-left">
+			<div class="menu-title">
+				<h1>FURY ISLAND</h1>
+				<h2>engine demo</h2>
+			</div>
+			<div class="menu-buttons">
+				<div class="btn" id="start" onclick="Menu_Start()">START</div>
+				<div class="btn" id="options" onclick="Menu_OpenOptions('main')">OPTIONS</div>
+				<div class="btn danger" id="exit" onclick="Menu_Exit()">EXIT</div>
+			</div>
+		</div>
+	</div>
+</body>
+</rml>

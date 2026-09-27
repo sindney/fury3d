@@ -81,7 +81,6 @@ floaty:SetLinearDrag(1.9)
 floaty:SetAngularDrag(1.3)
 floaty:SetRightingStrength(7.0)
 floaty:SetOceanNodeName("Ocean")
-floaty:SetDebugDraw(true)
 prop:AddComponent(floaty)
 root:AddChild(prop)
 
@@ -162,6 +161,5 @@ near(b:GetLinearDrag(), 1.9, 0.001, "linearDrag")
 near(b:GetAngularDrag(), 1.3, 0.001, "angularDrag")
 near(b:GetRightingStrength(), 7.0, 0.001, "rightingStrength")
 if b:GetOceanNodeName() ~= "Ocean" then fail("oceanNode lost") end
-if b:GetDebugDraw() ~= true then fail("debugDraw lost") end
 
 print("ocean_scene_roundtrip: PASS")

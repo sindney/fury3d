@@ -126,6 +126,8 @@ bool CharacterController::Load(const void* wrapper, bool object)
 	LoadMemberValue(wrapper, "jump_speed", m_JumpSpeed);
 	LoadMemberValue(wrapper, "camera_distance", m_CameraDistance);
 	LoadMemberValue(wrapper, "camera_height", m_CameraHeight);
+	LoadMemberValue(wrapper, "first_person", m_FirstPerson);
+	LoadMemberValue(wrapper, "mouse_sensitivity", m_MouseSensitivity);
 	LoadMemberValue(wrapper, "model_yaw_offset", m_ModelYawOffset);
 	LoadMemberValue(wrapper, "idle_clip", m_IdleClip);
 	LoadMemberValue(wrapper, "walk_clip", m_WalkClip);
@@ -158,6 +160,10 @@ void CharacterController::Save(void* wrapper, bool object)
 	SaveValue(wrapper, m_CameraDistance);
 	SaveKey(wrapper, "camera_height");
 	SaveValue(wrapper, m_CameraHeight);
+	SaveKey(wrapper, "first_person");
+	SaveValue(wrapper, m_FirstPerson);
+	SaveKey(wrapper, "mouse_sensitivity");
+	SaveValue(wrapper, m_MouseSensitivity);
 	SaveKey(wrapper, "model_yaw_offset");
 	SaveValue(wrapper, m_ModelYawOffset);
 	SaveKey(wrapper, "idle_clip");
@@ -301,6 +307,22 @@ void CharacterController::DestroyCharacter()
 	m_Jolt.reset();
 }
 
+void CharacterController::Teleport(const Vector4 &worldPos)
+{
+	m_PrevPos = m_CurrPos = worldPos;
+	if (m_Jolt && m_Jolt->m_Character)
+	{
+		m_Jolt->m_Character->SetPosition(JPH::RVec3(worldPos.x, worldPos.y, worldPos.z));
+		m_Jolt->m_Character->SetLinearVelocity(JPH::Vec3::sZero());
+	}
+	if (auto node = m_Owner.lock())
+	{
+		// Player nodes hang off the root: local == world.
+		node->SetLocalPosition(worldPos);
+		node->Recompose(false);
+	}
+}
+
 void CharacterController::PhysicsTick(float fixedDt)
 {
 	if (!m_Active || !m_Jolt || m_Jolt->m_Character == nullptr)
@@ -309,24 +331,28 @@ void CharacterController::PhysicsTick(float fixedDt)
 	auto &input = InputUtil::Instance();
 	const bool focused = input->GetWindowFocused();
 
-	// Orbit from mouse drag (same feel as the fly camera).
-	if (focused && input->GetMouseDown(sf::Mouse::Button::Left))
+	// Orbit from mouse drag (same feel as the fly camera). First-person
+	// look is NOT here: it samples per render frame in SyncFromPhysics.
+	if (!m_FirstPerson)
 	{
-		const auto [mx, my] = input->GetMousePosition();
-		if (m_Dragging)
+		if (focused && input->GetMouseDown(sf::Mouse::Button::Left))
 		{
-			m_Yaw -= static_cast<float>(mx - m_LastMouseX) * 0.004f;
-			m_Pitch -= static_cast<float>(my - m_LastMouseY) * 0.004f;
-			const float limit = MathUtil::DegreeToRadian(80.0f);
-			m_Pitch = std::clamp(m_Pitch, -limit, limit);
+			const auto [mx, my] = input->GetMousePosition();
+			if (m_Dragging)
+			{
+				m_Yaw -= static_cast<float>(mx - m_LastMouseX) * 0.004f;
+				m_Pitch -= static_cast<float>(my - m_LastMouseY) * 0.004f;
+				const float limit = MathUtil::DegreeToRadian(80.0f);
+				m_Pitch = std::clamp(m_Pitch, -limit, limit);
+			}
+			m_LastMouseX = mx;
+			m_LastMouseY = my;
+			m_Dragging = true;
 		}
-		m_LastMouseX = mx;
-		m_LastMouseY = my;
-		m_Dragging = true;
-	}
-	else
-	{
-		m_Dragging = false;
+		else
+		{
+			m_Dragging = false;
+		}
 	}
 
 	// Camera-relative planar input.
@@ -346,7 +372,8 @@ void CharacterController::PhysicsTick(float fixedDt)
 	}
 
 	const float moveLen = move.Length();
-	const float speed = input->GetKeyDown(sf::Keyboard::Key::LShift) ? m_RunSpeed : m_WalkSpeed;
+	float speed = input->GetKeyDown(sf::Keyboard::Key::LShift) ? m_RunSpeed : m_WalkSpeed;
+	if (m_Swimming) speed *= 0.55f;
 
 	JPH::CharacterVirtual *character = m_Jolt->m_Character;
 	const Vector4 gravity = PhysicsWorld::Instance()->GetGravity();
@@ -356,7 +383,17 @@ void CharacterController::PhysicsTick(float fixedDt)
 
 	JPH::Vec3 velocity = character->GetLinearVelocity();
 	float vy = velocity.GetY();
-	if (m_Grounded)
+	if (m_Swimming)
+	{
+		// Buoyancy servo: glide the feet toward the float line (the demo
+		// moves the line with the wave surface each frame, so the body
+		// bobs). Gravity/jump do not apply in water.
+		const float curY = static_cast<float>(character->GetPosition().GetY());
+		vy = std::clamp((m_SwimFloatY - curY) * 8.0f, -150.0f, 150.0f);
+		velocity.SetX(velocity.GetX() * 0.9f);
+		velocity.SetZ(velocity.GetZ() * 0.9f);
+	}
+	else if (m_Grounded)
 		vy = jump ? m_JumpSpeed : -10.0f; // small stick-to-ground
 	else
 		vy += gravity.y * fixedDt;
@@ -390,6 +427,22 @@ void CharacterController::SyncFromPhysics(float alpha, float dt)
 	if (!m_Jolt || m_Jolt->m_Character == nullptr || !node)
 		return;
 
+	// First-person look samples here (per render frame, not per 25 Hz
+	// fixed tick) so view rotation lands on every presented frame.
+	if (m_FirstPerson && m_Active)
+	{
+		auto &input = InputUtil::Instance();
+		const auto [dx, dy] = input->GetWindowFocused()
+			? input->ConsumeMouseDelta() : std::pair<int, int> {0, 0};
+		if (dx != 0 || dy != 0)
+		{
+			m_Yaw -= static_cast<float>(dx) * 0.004f * m_MouseSensitivity;
+			m_Pitch -= static_cast<float>(dy) * 0.004f * m_MouseSensitivity;
+			const float limit = MathUtil::DegreeToRadian(80.0f);
+			m_Pitch = std::clamp(m_Pitch, -limit, limit);
+		}
+	}
+
 	const Vector4 pos = m_PrevPos + (m_CurrPos - m_PrevPos) * alpha;
 
 	// Face the planar velocity - smoothed: approach the target yaw at a
@@ -418,15 +471,24 @@ void CharacterController::SyncFromPhysics(float alpha, float dt)
 	if (auto cameraNode = ResolveCameraNode())
 	{
 		const Vector4 target = pos + Vector4(0.0f, m_CameraHeight, 0.0f, 0.0f);
-		const Vector4 fwd = OrbitForward(m_Yaw, m_Pitch);
-		const Vector4 camPos = target - fwd * m_CameraDistance;
+		if (m_CameraDistance <= 0.001f)
+		{
+			// First person: camera at the eye looking along the orbit
+			// frame (the boom direction below is 0/0 at distance 0).
+			WriteNodeWorldTRS(cameraNode, target, MathUtil::EulerRadToQuat(m_Yaw, m_Pitch, 0.0f));
+		}
+		else
+		{
+			const Vector4 fwd = OrbitForward(m_Yaw, m_Pitch);
+			const Vector4 camPos = target - fwd * m_CameraDistance;
 
-		Vector4 dir = target - camPos;
-		dir = dir.Normalized();
-		const float camYaw = std::atan2(-dir.x, -dir.z);
-		const float camPitch = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
+			Vector4 dir = target - camPos;
+			dir = dir.Normalized();
+			const float camYaw = std::atan2(-dir.x, -dir.z);
+			const float camPitch = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
 
-		WriteNodeWorldTRS(cameraNode, camPos, MathUtil::EulerRadToQuat(camYaw, camPitch, 0.0f));
+			WriteNodeWorldTRS(cameraNode, camPos, MathUtil::EulerRadToQuat(camYaw, camPitch, 0.0f));
+		}
 	}
 
 	// Locomotion clips from planar speed (idle / walk / run bands).

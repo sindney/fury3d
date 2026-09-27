@@ -5,7 +5,7 @@ Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
 Pipeline.SetHDRMode(Pipeline.GetActive(), true)
 
 -- tank.fbx path is relative to CWD (run from repo root).
-local scene = Importer.LoadScene(FileUtil.GetAbsPath("examples/Resource/Scene/tank.fbx"))
+local scene = Importer.LoadScene(FileUtil.GetAbsPath("examples/Projects/tank/tank.fbx"))
 if not scene then
     print("FAIL: tank.fbx import returned nil")
     return

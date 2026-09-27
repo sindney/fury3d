@@ -55,12 +55,32 @@ namespace fury
 		float GetJumpSpeed() const { return m_JumpSpeed; }
 		void SetJumpSpeed(float speed) { m_JumpSpeed = speed; }
 
+		// Move the character (node + Jolt body + interpolation state) to a
+		// world position, zeroing velocity. Used for respawn on new game.
+		void Teleport(const Vector4 &worldPos);
+
+		// Swim mode: gravity off, vertical velocity servos the capsule's
+		// float line (feet) to m_SwimFloatY; horizontal speed damped. The
+		// capsule stays upright - a lying capsule loses ground contact on
+		// land transitions; the swim read comes from the deep float line.
+		void SetSwimming(bool value) { m_Swimming = value; }
+		bool GetSwimming() const { return m_Swimming; }
+		void SetSwimFloatHeight(float y) { m_SwimFloatY = y; }
+
 		// Third-person boom: distance behind / height above the node origin.
 		float GetCameraDistance() const { return m_CameraDistance; }
 		void SetCameraDistance(float distance) { m_CameraDistance = distance; }
 
 		float GetCameraHeight() const { return m_CameraHeight; }
 		void SetCameraHeight(float height) { m_CameraHeight = height; }
+
+		// First person: look from mouse deltas (grabbed cursor) instead of
+		// LMB drag; the view yaw IS the body yaw. Pair with CameraDistance 0.
+		bool GetFirstPerson() const { return m_FirstPerson; }
+		void SetFirstPerson(bool value) { m_FirstPerson = value; }
+
+		float GetMouseSensitivity() const { return m_MouseSensitivity; }
+		void SetMouseSensitivity(float value) { m_MouseSensitivity = value; }
 
 		// Constant local yaw applied to the model when its authored forward
 		// axis isn't -Z (degrees).
@@ -124,6 +144,9 @@ namespace fury
 		// Ground state for the jump clip + future movement logic.
 		bool m_Grounded = true;
 
+		bool m_Swimming = false;
+		float m_SwimFloatY = 0.0f;   // world y the feet servo toward while swimming
+
 		float m_AirTime = 0.0f;
 
 		// Orbit state (mouse-drag driven).
@@ -132,6 +155,10 @@ namespace fury
 		float m_Pitch = -0.35f;
 
 		bool m_Dragging = false;
+
+		bool m_FirstPerson = false;
+
+		float m_MouseSensitivity = 1.0f;
 
 		int m_LastMouseX = 0;
 

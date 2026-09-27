@@ -1,0 +1,40 @@
+-- First-person look probe: player + controller + grabbed cursor, no menu.
+-- Drive with synthetic CGEvent mouse-moves from /tmp/mousemove.
+local octree = OcTree.Create()
+Scene.SetActive(Scene.Create("uitest_look", "Projects/ocean/", octree))
+assert(Scene.LoadActive("Projects/ocean/ocean_island.bin"))
+Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+
+local scene = Scene.GetActive()
+local player_node = SceneNode.Create("Player")
+player_node:AddComponent(Transform.Create())
+player_node:SetLocalPosition(Vector4(0.0, 3000.0, 0.0, 1.0))
+player_node:Recompose(false)
+local controller = CharacterController.Create()
+controller:SetHeight(180.0)
+controller:SetRadius(35.0)
+controller:SetCameraDistance(0.0)
+controller:SetCameraHeight(170.0)
+controller:SetFirstPerson(true)
+controller:SetMouseSensitivity(1.0)
+player_node:AddComponent(controller)
+scene:GetRootNode():AddChild(player_node)
+
+local cam_node = SceneNode.Create("PlayerCamera")
+cam_node:AddComponent(Transform.Create())
+local cam = Camera.Create()
+cam:PerspectiveFov(math.rad(75.0), 16.0 / 9.0, 1.0, 500000.0)
+cam_node:AddComponent(cam)
+scene:GetRootNode():AddChild(cam_node)
+controller:SetCameraNodeName("PlayerCamera")
+
+local pl = Pipeline.GetActive()
+pl:SetCurrentCamera(cam_node)
+
+local input = InputUtil.Instance()
+input:SetCursorGrabbed(true)
+input:SetCursorVisible(false)
+controller:SetEnabled(true)
+PlayerController.ActivateFirst(scene:GetRootNode())
+
+Engine.run({ on_update = function(dt) end })

@@ -1,5 +1,7 @@
 #include <sol/sol.hpp>
 
+#include <RmlUi/Lua/Lua.h>
+
 #include "Fury/LuaBindings.h"
 
 #include "Fury/AnimationClip.h"
@@ -23,6 +25,7 @@
 #include "Fury/FbxConverter.h"
 #include "Fury/FileUtil.h"
 #include "Fury/GltfImporter.h"
+#include "Fury/GameUI.h"
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
 #include "Fury/RenderSettings.h"
@@ -73,6 +76,8 @@
 // Lua bindings. Lives under engine/ThirdParty/nfd as a git submodule; its
 // CMake target nfd::nfd is linked into `fury` only on WITH_EDITOR=ON.
 #include "nfd.h"
+// ClearInputKeys after each dialog call (see the bindings below).
+#include "ImGui/imgui.h"
 #endif
 
 #include <algorithm>
@@ -127,6 +132,13 @@ namespace fury
 
 		void Register(sol::state_view lua)
 		{
+			// RmlUi Lua plugin: registers the `rmlui` global into this state
+			// so RML inline handlers, event listeners, and Lua data models
+			// share it with the sol2 bindings below. Requires RmlUi core
+			// (plugin registration), hence EnsureInitialized first.
+			GameUI::EnsureInitialized();
+			Rml::Lua::Initialise(lua.lua_state());
+
 			// --- Vector4 -------------------------------------------------------
 			// We expose .x/.y/.z/.w via property getters/setters (sol2 has
 			// trouble with raw member pointers in some compiler setups; the
@@ -500,6 +512,9 @@ namespace fury
 				sol::base_classes, sol::bases<Component, Serializable>(),
 				"Create", &Camera::Create,
 				"PerspectiveFov", &Camera::PerspectiveFov,
+				"SetFov", &Camera::SetFov,
+				"GetFov", &Camera::GetFov,
+				"SetAspect", &Camera::SetAspect,
 				"GetNear", &Camera::GetNear,
 				"GetFar", &Camera::GetFar,
 				"GetShadowFar", &Camera::GetShadowFar,
@@ -1021,6 +1036,8 @@ namespace fury
 				"ActivateFirst", &PlayerController::ActivateFirst,
 				"IsEnabled", &PlayerController::IsEnabled,
 				"SetEnabled", &PlayerController::SetEnabled,
+				"Activate", &PlayerController::Activate,
+				"Deactivate", &PlayerController::Deactivate,
 				"GetCameraNodeName", &PlayerController::GetCameraNodeName,
 				"SetCameraNodeName", &PlayerController::SetCameraNodeName);
 
@@ -1059,6 +1076,14 @@ namespace fury
 				"SetCameraHeight", &CharacterController::SetCameraHeight,
 				"GetModelYawOffset", &CharacterController::GetModelYawOffset,
 				"SetModelYawOffset", &CharacterController::SetModelYawOffset,
+				"GetFirstPerson", &CharacterController::GetFirstPerson,
+				"SetFirstPerson", &CharacterController::SetFirstPerson,
+				"GetMouseSensitivity", &CharacterController::GetMouseSensitivity,
+				"SetMouseSensitivity", &CharacterController::SetMouseSensitivity,
+				"Teleport", &CharacterController::Teleport,
+				"SetSwimming", &CharacterController::SetSwimming,
+				"GetSwimming", &CharacterController::GetSwimming,
+				"SetSwimFloatHeight", &CharacterController::SetSwimFloatHeight,
 				"SetIdleClip", &CharacterController::SetIdleClip,
 				"SetWalkClip", &CharacterController::SetWalkClip,
 				"SetRunClip", &CharacterController::SetRunClip,
@@ -1668,6 +1693,24 @@ namespace fury
 			// SliderFloat / Checkbox). The label doubles as the InputText id;
 			// max_len bounds the user input.
 			gui_tbl["InputText"]           = &Gui::InputText;
+
+			// --- GameUI (RmlUi game UI) --------------------------------------
+			// Documents are addressed by their load path. Rich per-document
+			// work (data models, event listeners, tree walks) goes through
+			// the rmlui plugin global (rmlui.contexts["main"].documents[path]).
+			sol::table gameui_tbl = lua.create_named_table("GameUI");
+			// Loads and returns the path on success, nil on failure.
+			gameui_tbl["LoadDocument"] = [](const std::string &path) -> sol::optional<std::string> {
+				if (GameUI::LoadDocument(path) == nullptr) return sol::nullopt;
+				return path;
+			};
+			gameui_tbl["IsLoaded"]            = [](const std::string &path) { return GameUI::GetDocument(path) != nullptr; };
+			gameui_tbl["Show"]                = &GameUI::ShowDocument;
+			gameui_tbl["Hide"]                = &GameUI::HideDocument;
+			gameui_tbl["Toggle"]              = &GameUI::ToggleDocument;
+			gameui_tbl["Close"]               = &GameUI::CloseDocument;
+			gameui_tbl["WantCaptureMouse"]    = &GameUI::WantCaptureMouse;
+			gameui_tbl["WantCaptureKeyboard"] = &GameUI::WantCaptureKeyboard;
 			// Register a Lua-side menu-bar callback. Pass nil to clear.
 			gui_tbl["SetMenuBarCallback"] = [](sol::object obj) {
 				if (!obj.valid() || obj.get_type() != sol::type::function)
@@ -1692,6 +1735,22 @@ namespace fury
 			// engine. Idempotent.
 			sol::table window_tbl = lua.create_named_table("Window");
 			window_tbl["Close"] = &Gui::CloseWindow;
+			// Runtime display controls (options-menu plumbing); no-op when
+			// headless. fps_cap <= 0 or false uncaps.
+			window_tbl["SetFpsCap"] = [](sol::object cap) {
+				int fps = 0;
+				if (cap.is<double>() || cap.is<int>()) fps = cap.as<int>();
+				Engine::SetFpsCap(fps);
+			};
+			window_tbl["SetVsync"]      = &Engine::SetVsync;
+			window_tbl["SetResolution"] = &Engine::SetResolution;
+			window_tbl["GetResolution"] = [](lua_State *L) {
+				int w = 0, h = 0;
+				if (InputUtil::Instance()) InputUtil::Instance()->GetWindowSize(w, h);
+				lua_pushinteger(L, w);
+				lua_pushinteger(L, h);
+				return 2;
+			};
 
 			// --- Editor (C++-owned editor shell, behind WITH_EDITOR) ---------
 			// When WITH_EDITOR is on, scripts route File-menu policy, console
@@ -1850,6 +1909,8 @@ namespace fury
 				{
 					const nfdpathset_t* path_set = nullptr;
 					nfdresult_t r = NFD_OpenDialogMultipleU8(&path_set, &filter_item, 1, default_path_c);
+					// The modal dialog can swallow the modifier key-up (e.g. Ctrl+Shift+I), leaving ImGui's KeyCtrl stuck.
+					ImGui::GetIO().ClearInputKeys();
 					if (r == NFD_CANCEL) return sol::nil;
 					if (r != NFD_OKAY)
 					{
@@ -1878,6 +1939,8 @@ namespace fury
 				{
 					nfdu8char_t* out_path = nullptr;
 					nfdresult_t r = NFD_OpenDialogU8(&out_path, &filter_item, 1, default_path_c);
+					// The modal dialog can swallow the modifier key-up (e.g. Ctrl+O), leaving ImGui's KeyCtrl stuck.
+					ImGui::GetIO().ClearInputKeys();
 					if (r == NFD_CANCEL) return sol::nil;
 					if (r != NFD_OKAY)
 					{
@@ -1906,6 +1969,8 @@ namespace fury
 
 				nfdu8char_t* out_path = nullptr;
 				nfdresult_t r = NFD_SaveDialogU8(&out_path, &filter_item, 1, default_path_c, default_name_c);
+				// The modal dialog can swallow the modifier key-up (e.g. Ctrl+Shift+S), leaving ImGui's KeyCtrl stuck.
+				ImGui::GetIO().ClearInputKeys();
 				if (r == NFD_CANCEL) return sol::nil;
 				if (r != NFD_OKAY)
 				{
@@ -2165,6 +2230,15 @@ namespace fury
 					},
 				"GetMouseWheel",    &InputUtil::GetMouseWheel,
 				"GetWindowFocused", &InputUtil::GetWindowFocused,
+				// Cursor grab/visibility for game UI and fps look.
+				"SetCursorGrabbed",  &InputUtil::SetCursorGrabbed,
+				"GetCursorGrabbed",  &InputUtil::GetCursorGrabbed,
+				"SetCursorVisible",  &InputUtil::SetCursorVisible,
+				"ConsumeMouseDelta",
+					[](InputUtil &self) {
+						const auto d = self.ConsumeMouseDelta();
+						return std::make_tuple(d.first, d.second);
+					},
 				"GetWindowSize",
 					[](InputUtil &self) {
 						int w = 0, h = 0;

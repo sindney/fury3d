@@ -40,6 +40,7 @@
 #include <Fury/Cli.h>
 #include <Fury/Editor/Editor.h>
 #include <Fury/FileUtil.h>
+#include <Fury/GameUI.h>
 #include <Fury/Fury.h>
 #include <Fury/GLLoader.h>
 #include <Fury/Gui.h>
@@ -241,6 +242,37 @@ int main(int argc, char *argv[])
 			fury::Engine::Shutdown();
 		} else {
 			std::cerr << "fury render-mesh: Engine::Initialize failed\n";
+		}
+		return rc;
+	}
+
+	// `furye-cli gui` follows the same pattern (hidden window for the `shot`
+	// subcommand; tree/inspect/event are DOM-only and never touch GL).
+	if (argc >= 2 && std::strcmp(argv[1], "gui") == 0) {
+		sf::Vector2u size(1280, 720);
+		for (int i = 2; i + 1 < argc; ++i) {
+			if (std::strcmp(argv[i], "--size") == 0) {
+				unsigned w = 0, h = 0;
+				if (std::sscanf(argv[i + 1], "%ux%u", &w, &h) == 2 && w > 0 && h > 0)
+					size = sf::Vector2u(w, h);
+				break;
+			}
+		}
+		sf::Window window;
+		if (!CreateWindowNegotiated(window, sf::VideoMode(size),
+				"Fury3d-gui", sf::Style::None)) {
+			std::cerr << "furye-cli gui: window creation failed\n";
+			return 1;
+		}
+		window.setVerticalSyncEnabled(false);
+		(void)window.setActive();
+		int rc = 1;
+		if (fury::Engine::Initialize(window, 2, fury::LogLevel::DBUG,
+				fury::FileUtil::GetAbsPath("Log.txt").c_str())) {
+			rc = fury::Cli::Gui(argc, argv, window);
+			fury::Engine::Shutdown();
+		} else {
+			std::cerr << "furye-cli gui: Engine::Initialize failed\n";
 		}
 		return rc;
 	}
@@ -484,6 +516,13 @@ int main(int argc, char *argv[])
 		// Engine::Shutdown calls Editor::Shutdown again later, but by
 		// then the fields are already empty so it's a cheap no-op.
 		fury::Editor::Shutdown();
+
+		// Same lifecycle reason for RmlUi: every LuaEventListener
+		// dtor dereferences the lua_State in its unref work, so we must
+		// close documents + drain the update queue before sol::state
+		// dies. Engine::Shutdown calls GameUI::Shutdown again later;
+		// that's idempotent via s_RmlInitialized.
+		fury::GameUI::Shutdown();
 	}
 
 	fury::Engine::Shutdown();

@@ -1,0 +1,116 @@
+<rml>
+<head>
+	<title>Island - Options</title>
+	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+</head>
+<body id="ui/options.rml">
+	<div class="backdrop">
+		<div class="modal" id="options-panel">
+			<h2>OPTIONS</h2>
+
+			<div class="opt-section">DISPLAY</div>
+			<div class="opt-row">
+				<div class="opt-label">RESOLUTION</div>
+				<div class="opt-controls">
+					<div class="seg" id="res-1280" onclick="Opt_Resolution(1280,720)">1280x720</div>
+					<div class="seg" id="res-1920" onclick="Opt_Resolution(1920,1080)">1920x1080</div>
+					<div class="seg" id="res-2560" onclick="Opt_Resolution(2560,1440)">2560x1440</div>
+					<div class="seg" id="res-3840" onclick="Opt_Resolution(3840,2160)">3840x2160</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">FPS CAP</div>
+				<div class="opt-controls">
+					<div class="seg" id="fps-60" onclick="Opt_FpsCap(60)">60</div>
+					<div class="seg" id="fps-90" onclick="Opt_FpsCap(90)">90</div>
+					<div class="seg" id="fps-144" onclick="Opt_FpsCap(144)">144</div>
+					<div class="seg" id="fps-0" onclick="Opt_FpsCap(0)">UNCAPPED</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">VSYNC</div>
+				<div class="opt-controls">
+					<div class="seg" id="vsync" onclick="Opt_Toggle('vsync')">OFF</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">FIELD OF VIEW</div>
+				<div class="opt-controls">
+					<input type="range" id="fov" min="60" max="110" step="1" value="75" onchange="Opt_Fov(event.parameters.value)" />
+					<div class="opt-value" id="fov-value">75</div>
+				</div>
+			</div>
+
+			<div class="opt-section">GRAPHICS</div>
+			<div class="opt-row">
+				<div class="opt-label">POST-PROCESSING</div>
+				<div class="opt-controls">
+					<div class="seg" id="postfx" onclick="Opt_Toggle('postfx')">ON</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">SSAO</div>
+				<div class="opt-controls">
+					<div class="seg" id="ssao" onclick="Opt_Toggle('ssao')">ON</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">SSR</div>
+				<div class="opt-controls">
+					<div class="seg" id="ssr" onclick="Opt_Toggle('ssr')">ON</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">FXAA</div>
+				<div class="opt-controls">
+					<div class="seg" id="fxaa" onclick="Opt_Toggle('fxaa')">ON</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">SHADOWS (CSM)</div>
+				<div class="opt-controls">
+					<div class="seg" id="csm" onclick="Opt_Toggle('csm')">ON</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">SHADOW QUALITY</div>
+				<div class="opt-controls">
+					<div class="seg" id="csmres-1024" onclick="Opt_CsmRes(1024)">1024</div>
+					<div class="seg" id="csmres-2048" onclick="Opt_CsmRes(2048)">2048</div>
+					<div class="seg" id="csmres-4096" onclick="Opt_CsmRes(4096)">4096</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">OCEAN SSR</div>
+				<div class="opt-controls">
+					<div class="seg" id="ocean-ssr" onclick="Opt_Toggle('ocean_ssr')">ON</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">HDR</div>
+				<div class="opt-controls">
+					<div class="seg" id="hdr" onclick="Opt_Toggle('hdr')">ON</div>
+				</div>
+			</div>
+
+			<div class="opt-section">CONTROLS</div>
+			<div class="opt-row">
+				<div class="opt-label">MOUSE SENSITIVITY</div>
+				<div class="opt-controls">
+					<input type="range" id="sens" min="0.2" max="4" step="0.1" value="1" onchange="Opt_Sens(event.parameters.value)" />
+					<div class="opt-value" id="sens-value">1.0</div>
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label">HIDE CURSOR IN GAME</div>
+				<div class="opt-controls">
+					<div class="seg" id="hide_cursor" onclick="Opt_Toggle('hide_cursor')">ON</div>
+				</div>
+			</div>
+
+			<div style="height: 14px;"></div>
+			<div class="btn" id="back" onclick="Menu_CloseOptions()">BACK</div>
+		</div>
+	</div>
+</body>
+</rml>

@@ -51,6 +51,10 @@ namespace fury
 
 		static RenderThread& Get();
 
+		// Stops a running thread. Covers the os.exit-from-Lua path: static
+		// destruction with a joinable thread is std::terminate.
+		~RenderThread();
+
 		// Toggle resolution order: CLI flag > FURY_RENDER_THREAD env > Lua
 		// Engine.run option > editor ini default > ON.
 		static void SetCommandLineOverride(int value); // -1 unset, 0/1

@@ -1,0 +1,15 @@
+<rml>
+<head>
+	<title>Island - HUD</title>
+	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+	<style>
+		body { background: none; }
+		/* HUD must never capture: it floats over the game view */
+		#crosshair, #fps { pointer-events: none; }
+	</style>
+</head>
+<body id="ui/hud.rml">
+	<div id="crosshair"></div>
+	<div id="fps">--</div>
+</body>
+</rml>

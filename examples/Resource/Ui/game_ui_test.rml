@@ -1,0 +1,13 @@
+<rml>
+<head>
+	<title>game-ui lua test</title>
+	<style>
+		body { display: block; }
+		div { display: block; }
+	</style>
+</head>
+<body id="Engine/Ui/game_ui_test.rml" data-model="test">
+	<div id="label">{{ message }}</div>
+	<button id="btn" onclick="OnTestClick()">go</button>
+</body>
+</rml>

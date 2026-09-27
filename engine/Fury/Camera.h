@@ -66,6 +66,10 @@ namespace fury
 		// frustum's world transform (PerspectiveFov resets it). No-op for ortho.
 		void SetAspect(float ratio);
 
+		// Update the vertical FOV (radians), keeping ratio/near/far.
+		// No-op for ortho.
+		void SetFov(float fov);
+
 		void PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far);
 
 		void OrthoOffCenter(float left, float right, float bottom, float top, float near, float far);
