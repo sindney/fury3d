@@ -331,6 +331,8 @@ namespace fury
 						g_Package.outputFolder = picked;
 						NFD_FreePathU8(picked);
 					}
+					// The modal dialog can swallow the modifier key-up, leaving ImGui's KeyCtrl stuck.
+					ImGui::GetIO().ClearInputKeys();
 				}
 
 				ImGui::Checkbox("Verbose", &g_Package.verbose);
