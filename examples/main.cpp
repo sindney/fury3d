@@ -50,6 +50,8 @@
 #undef near
 #undef far
 #undef max
+#undef LoadString
+#undef LoadImage
 
 namespace
 {

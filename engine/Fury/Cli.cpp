@@ -69,6 +69,9 @@
 #include <string>
 #include <vector>
 
+#undef LoadString
+#undef LoadImage
+
 namespace fury
 {
 	namespace

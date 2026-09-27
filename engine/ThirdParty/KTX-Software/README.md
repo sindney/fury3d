@@ -17,9 +17,13 @@ block-compress textures (BC1/BC3/BC5/BC7/BC6H) into KTX2 files.
   `KTX-Software-4.4.2-Darwin-arm64.pkg` via `pkgutil --expand-full`
   (tools pkg -> bin/ktx, library pkg -> lib/libktx.4.4.2.dylib renamed
   to libktx.4.dylib).
-- `win-x64/`, `linux-x64/`, `mac-x64/`: committed on first need, same
-  procedure (Windows: extract the installer and take bin/ktx.exe +
-  bin/libktx.dll).
+- `win-x64/`: `ktx.exe` + `ktx.dll`. The exe resolves `ktx.dll` from its
+  own directory (Windows default DLL search order), so both must sit
+  next to the exe. Extracted from the `KTX-Software-4.4.2-windows-x64`
+  installer (bin/ktx.exe + bin/ktx.dll). The exe also imports the
+  MSVC 2015+ redistributable (MSVCP140.dll, VCRUNTIME140.dll).
+- `linux-x64/`, `mac-x64/`: committed on first need, same procedure as
+  mac-arm64 above.
 
 ## Updating
 
