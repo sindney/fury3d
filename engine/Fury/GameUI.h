@@ -36,16 +36,16 @@ namespace fury
 		// SFML event forwarding (mouse/keys/text + window resize).
 		void FURY_API HandleEvent(sf::Event &event);
 
-		Rml::Context *FURY_API GetContext();
+		FURY_API Rml::Context *GetContext();
 
 		// Load a document by content path; the RmlUi FileInterface
 		// resolves it through Scene::ResolveAsset + AssetBackend.
 		// nullptr on failure (logged, never fatal).
-		Rml::ElementDocument *FURY_API LoadDocument(const std::string &path);
+		FURY_API Rml::ElementDocument *LoadDocument(const std::string &path);
 
 		// Path-addressed document lifecycle (the load path is the id).
 		// All return false when no document with that path is loaded.
-		Rml::ElementDocument *FURY_API GetDocument(const std::string &path);
+		FURY_API Rml::ElementDocument *GetDocument(const std::string &path);
 		bool FURY_API ShowDocument(const std::string &path);
 		bool FURY_API HideDocument(const std::string &path);
 		bool FURY_API ToggleDocument(const std::string &path);
