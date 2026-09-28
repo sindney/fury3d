@@ -114,10 +114,116 @@ namespace fury
 									Editor::MarkSceneDirty();
 								}
 								float fadeKm = sky->GetCloudFadeKm();
-								if (ImGui::DragFloat("Fade Distance (km)", &fadeKm, 0.1f, 0.5f, 20.0f))
+								if (ImGui::DragFloat("Fade Distance (km)", &fadeKm, 0.5f, 2.0f, 80.0f))
 								{
 									sky->SetCloudFadeKm(fadeKm);
 									Editor::MarkSceneDirty();
+								}
+								int quality = sky->GetCloudQuality();
+								if (ImGui::Combo("Quality", &quality, "Low\0Medium\0High\0"))
+								{
+									sky->SetCloudQuality(quality);
+									Editor::MarkSceneDirty();
+								}
+								float typeBias = sky->GetCloudTypeBias();
+								if (ImGui::SliderFloat("Type Bias", &typeBias, -1.0f, 1.0f))
+								{
+									sky->SetCloudTypeBias(typeBias);
+									Editor::MarkSceneDirty();
+								}
+								float detScale = sky->GetCloudDetailScale();
+								if (ImGui::DragFloat("Detail Scale", &detScale, 0.05f, 0.5f, 10.0f))
+								{
+									sky->SetCloudDetailScale(detScale);
+									Editor::MarkSceneDirty();
+								}
+								float erosion = sky->GetCloudErosion();
+								if (ImGui::SliderFloat("Erosion", &erosion, 0.0f, 1.0f))
+								{
+									sky->SetCloudErosion(erosion);
+									Editor::MarkSceneDirty();
+								}
+								float powder = sky->GetCloudPowder();
+								if (ImGui::SliderFloat("Powder", &powder, 0.0f, 1.0f))
+								{
+									sky->SetCloudPowder(powder);
+									Editor::MarkSceneDirty();
+								}
+								float hgG = sky->GetCloudHgG();
+								if (ImGui::SliderFloat("Phase Back", &hgG, -0.5f, 0.8f))
+								{
+									sky->SetCloudHgG(hgG);
+									Editor::MarkSceneDirty();
+								}
+								float hgGF = sky->GetCloudHgGFwd();
+								if (ImGui::SliderFloat("Phase Forward", &hgGF, 0.0f, 0.95f))
+								{
+									sky->SetCloudHgGFwd(hgGF);
+									Editor::MarkSceneDirty();
+								}
+								float hgBlend = sky->GetCloudHgBlend();
+								if (ImGui::SliderFloat("Phase Blend", &hgBlend, 0.0f, 1.0f))
+								{
+									sky->SetCloudHgBlend(hgBlend);
+									Editor::MarkSceneDirty();
+								}
+								float amb = sky->GetCloudAmbientScale();
+								if (ImGui::SliderFloat("Ambient Scale", &amb, 0.0f, 3.0f))
+								{
+									sky->SetCloudAmbientScale(amb);
+									Editor::MarkSceneDirty();
+								}
+								int dbg = sky->GetCloudDebugMode();
+								if (ImGui::Combo("Debug View", &dbg, "Off\0Step Count\0Transmittance\0"))
+								{
+									sky->SetCloudDebugMode(dbg);
+									Editor::MarkSceneDirty();
+								}
+								float wBias = sky->GetCloudWeatherBias();
+								if (ImGui::SliderFloat("Weather Bias (regen)", &wBias, -0.5f, 0.5f))
+								{
+									sky->SetCloudWeatherBias(wBias);
+									Editor::MarkSceneDirty();
+								}
+								float wContrast = sky->GetCloudWeatherTypeContrast();
+								if (ImGui::SliderFloat("Weather Type Contrast", &wContrast, 0.5f, 4.0f))
+								{
+									sky->SetCloudWeatherTypeContrast(wContrast);
+									Editor::MarkSceneDirty();
+								}
+								if (ImGui::TreeNode("Cirrus"))
+								{
+									bool cir = sky->GetCirrusEnabled();
+									if (ImGui::Checkbox("Enabled##cirrus", &cir))
+									{
+										sky->SetCirrusEnabled(cir);
+										Editor::MarkSceneDirty();
+									}
+									float cCov = sky->GetCirrusCoverage();
+									if (ImGui::SliderFloat("Coverage##cirrus", &cCov, 0.0f, 1.0f))
+									{
+										sky->SetCirrusCoverage(cCov);
+										Editor::MarkSceneDirty();
+									}
+									float cAlt = sky->GetCirrusAltKm();
+									if (ImGui::DragFloat("Altitude##cirrus", &cAlt, 0.05f, 4.0f, 14.0f))
+									{
+										sky->SetCirrusAltKm(cAlt);
+										Editor::MarkSceneDirty();
+									}
+									float cScale = sky->GetCirrusScale();
+									if (ImGui::DragFloat("Scale##cirrus", &cScale, 0.001f, 0.005f, 0.2f, "%.3f"))
+									{
+										sky->SetCirrusScale(cScale);
+										Editor::MarkSceneDirty();
+									}
+									float cDens = sky->GetCirrusDensity();
+									if (ImGui::DragFloat("Density##cirrus", &cDens, 0.05f, 0.1f, 10.0f))
+									{
+										sky->SetCirrusDensity(cDens);
+										Editor::MarkSceneDirty();
+									}
+									ImGui::TreePop();
 								}
 								RenderLinkedTextureRow("Noise Texture", "se_cloud_noise",
 									sky->GetCloudNoisePath(), sky->GetCloudNoiseTexture(),

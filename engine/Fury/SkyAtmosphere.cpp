@@ -1,8 +1,14 @@
 #include "Fury/SkyAtmosphere.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <functional>
+#include <fstream>
 #include <mutex>
 
 #include "Fury/Engine.h"
@@ -16,6 +22,8 @@
 #include "Fury/Mesh.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/Pass.h"
+#include "Fury/Profiler.h"
+#include "Fury/ProfilerGpu.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
@@ -56,6 +64,72 @@ namespace fury
 				return nullptr;
 			if (em)
 				em->Add(tex);
+			return tex;
+		}
+
+		// --- cloud noise disk cache -------------------------------------------
+		// Layout: magic, hash, then per texture {w, h, d, channels, bytes}.
+
+		const std::uint32_t kCloudNoiseMagic = 0x434C4E31;   // 'CLN1'
+
+		std::uint64_t CloudNoiseHash(float weatherBias, float weatherTypeContrast)
+		{
+			std::uint64_t h = 1469598103934665603ull;
+			auto mix = [&h](const void* data, size_t len)
+			{
+				const unsigned char* p = static_cast<const unsigned char*>(data);
+				for (size_t i = 0; i < len; i++)
+				{
+					h ^= p[i];
+					h *= 1099511628211ull;
+				}
+			};
+			std::uint32_t version = 1;
+			mix(&version, sizeof(version));
+			mix(&weatherBias, sizeof(weatherBias));
+			mix(&weatherTypeContrast, sizeof(weatherTypeContrast));
+			return h;
+		}
+
+		std::string CloudNoiseCachePath(std::uint64_t hash)
+		{
+			char name[64];
+			snprintf(name, sizeof(name), "Cache/cloud_noise_%016llx.bin", (unsigned long long)hash);
+			return FileUtil::GetAbsPath() + name;
+		}
+
+		bool WriteCacheTex(std::ofstream &out, const std::shared_ptr<Texture> &tex)
+		{
+			std::vector<unsigned char> pixels;
+			if (!tex->GetPixels(pixels))
+				return false;
+			std::uint32_t dims[4] = { (std::uint32_t)tex->GetWidth(), (std::uint32_t)tex->GetHeight(),
+				(std::uint32_t)tex->GetDepth(), (std::uint32_t)(pixels.size() /
+					((size_t)tex->GetWidth() * tex->GetHeight() * std::max(tex->GetDepth(), 1))) };
+			out.write(reinterpret_cast<const char*>(dims), sizeof(dims));
+			out.write(reinterpret_cast<const char*>(pixels.data()), pixels.size());
+			return out.good();
+		}
+
+		std::shared_ptr<Texture> ReadCacheTex(std::ifstream &in, const char* name, TextureType type)
+		{
+			std::uint32_t dims[4];
+			in.read(reinterpret_cast<char*>(dims), sizeof(dims));
+			if (!in.good())
+				return nullptr;
+			auto tex = Texture::Create(name);
+			TextureFormat fmt = dims[3] == 3 ? TextureFormat::RGB8 : TextureFormat::RGBA8;
+			tex->CreateEmpty((int)dims[0], (int)dims[1], (int)dims[2], fmt, type, false);
+			std::vector<unsigned char> pixels((size_t)dims[0] * dims[1] * std::max<int>((int)dims[2], 1) * dims[3]);
+			in.read(reinterpret_cast<char*>(pixels.data()), pixels.size());
+			if (!in.good())
+				return nullptr;
+			if (type == TextureType::TEXTURE_3D)
+				tex->SetPixels3D(pixels.data());
+			else
+				tex->SetPixels(pixels.data());
+			tex->GenerateMipMap();
+			tex->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
 			return tex;
 		}
 	}
@@ -119,10 +193,18 @@ namespace fury
 		ptr->m_UpdateKey = 0;
 		ptr->m_TransmittanceLut = ptr->m_MultiScatterLut = ptr->m_SkyViewLut = nullptr;
 		ptr->m_CameraVolume = ptr->m_CloudTarget = nullptr;
+		ptr->m_CloudBaseNoise = ptr->m_CloudDetailNoise = ptr->m_WeatherMap = nullptr;
+		ptr->m_CirrusNoise = nullptr;
 		ptr->m_TransmittancePass = ptr->m_MultiScatterPass = ptr->m_SkyViewPass = nullptr;
 		ptr->m_CameraVolumePass = ptr->m_CloudPass = nullptr;
 		ptr->m_TransmittanceShader = ptr->m_MultiScatterShader = ptr->m_SkyViewShader = nullptr;
-		ptr->m_CameraVolumeShader = ptr->m_CloudShader = nullptr;
+		ptr->m_CameraVolumeShader = ptr->m_CloudShader = ptr->m_NoiseGenShader = nullptr;
+		ptr->m_CloudTargetW = ptr->m_CloudTargetH = 0;
+		ptr->m_CloudTargetQuality = -1;
+		ptr->m_LastCloudFov = -1.0f;
+		ptr->m_LastCloudSunY = -999.0f;
+		ptr->m_CloudParamsDirty = true;
+		ptr->m_LastCloudKey = CloudRenderKey();
 		return ptr;
 	}
 
@@ -171,6 +253,23 @@ namespace fury
 		LoadMemberValue(wrapper, "cloud_wind_speed", m_CloudWindSpeedCm);
 		LoadMemberValue(wrapper, "cloud_fade_km", m_CloudFadeKm);
 		LoadMemberValue(wrapper, "cloud_noise_texture", m_CloudNoisePath);
+		LoadMemberValue(wrapper, "cloud_type_bias", m_CloudTypeBias);
+		LoadMemberValue(wrapper, "cloud_detail_scale", m_CloudDetailScale);
+		LoadMemberValue(wrapper, "cloud_erosion", m_CloudErosion);
+		LoadMemberValue(wrapper, "cloud_powder", m_CloudPowder);
+		LoadMemberValue(wrapper, "cloud_hg_g", m_CloudHgG);
+		LoadMemberValue(wrapper, "cloud_hg_g_fwd", m_CloudHgGFwd);
+		LoadMemberValue(wrapper, "cloud_hg_blend", m_CloudHgBlend);
+		LoadMemberValue(wrapper, "cloud_ambient_scale", m_CloudAmbientScale);
+		LoadMemberValue(wrapper, "cloud_quality", m_CloudQuality);
+		LoadMemberValue(wrapper, "cloud_debug_mode", m_CloudDebugMode);
+		LoadMemberValue(wrapper, "cloud_weather_bias", m_CloudWeatherBias);
+		LoadMemberValue(wrapper, "cloud_weather_type_contrast", m_CloudWeatherTypeContrast);
+		LoadMemberValue(wrapper, "cirrus_enabled", m_CirrusEnabled);
+		LoadMemberValue(wrapper, "cirrus_coverage", m_CirrusCoverage);
+		LoadMemberValue(wrapper, "cirrus_alt_km", m_CirrusAltKm);
+		LoadMemberValue(wrapper, "cirrus_scale", m_CirrusScale);
+		LoadMemberValue(wrapper, "cirrus_density", m_CirrusDensity);
 		LoadMemberValue(wrapper, "time_hours", m_TimeHours);
 		LoadMemberValue(wrapper, "day_length_minutes", m_DayLengthMinutes);
 		LoadMemberValue(wrapper, "auto_advance", m_AutoAdvance);
@@ -219,6 +318,23 @@ namespace fury
 		SaveKey(wrapper, "cloud_wind_speed");   SaveValue(wrapper, m_CloudWindSpeedCm);
 		SaveKey(wrapper, "cloud_fade_km");      SaveValue(wrapper, m_CloudFadeKm);
 		SaveKey(wrapper, "cloud_noise_texture"); SaveValue(wrapper, m_CloudNoisePath);
+		SaveKey(wrapper, "cloud_type_bias");    SaveValue(wrapper, m_CloudTypeBias);
+		SaveKey(wrapper, "cloud_detail_scale"); SaveValue(wrapper, m_CloudDetailScale);
+		SaveKey(wrapper, "cloud_erosion");      SaveValue(wrapper, m_CloudErosion);
+		SaveKey(wrapper, "cloud_powder");       SaveValue(wrapper, m_CloudPowder);
+		SaveKey(wrapper, "cloud_hg_g");         SaveValue(wrapper, m_CloudHgG);
+		SaveKey(wrapper, "cloud_hg_g_fwd");     SaveValue(wrapper, m_CloudHgGFwd);
+		SaveKey(wrapper, "cloud_hg_blend");     SaveValue(wrapper, m_CloudHgBlend);
+		SaveKey(wrapper, "cloud_ambient_scale"); SaveValue(wrapper, m_CloudAmbientScale);
+		SaveKey(wrapper, "cloud_quality");      SaveValue(wrapper, m_CloudQuality);
+		SaveKey(wrapper, "cloud_debug_mode");   SaveValue(wrapper, m_CloudDebugMode);
+		SaveKey(wrapper, "cloud_weather_bias"); SaveValue(wrapper, m_CloudWeatherBias);
+		SaveKey(wrapper, "cloud_weather_type_contrast"); SaveValue(wrapper, m_CloudWeatherTypeContrast);
+		SaveKey(wrapper, "cirrus_enabled");     SaveValue(wrapper, m_CirrusEnabled);
+		SaveKey(wrapper, "cirrus_coverage");    SaveValue(wrapper, m_CirrusCoverage);
+		SaveKey(wrapper, "cirrus_alt_km");      SaveValue(wrapper, m_CirrusAltKm);
+		SaveKey(wrapper, "cirrus_scale");       SaveValue(wrapper, m_CirrusScale);
+		SaveKey(wrapper, "cirrus_density");     SaveValue(wrapper, m_CirrusDensity);
 		SaveKey(wrapper, "time_hours");         SaveValue(wrapper, m_TimeHours);
 		SaveKey(wrapper, "day_length_minutes"); SaveValue(wrapper, m_DayLengthMinutes);
 		SaveKey(wrapper, "auto_advance");       SaveValue(wrapper, m_AutoAdvance);
@@ -485,7 +601,7 @@ namespace fury
 		m_MultiScatterLut = makeLut("sky_multiscatter", 32, 32, 0, TextureType::TEXTURE_2D);
 		m_SkyViewLut = makeLut("sky_view", 192, 108, 0, TextureType::TEXTURE_2D);
 		m_CameraVolume = makeLut("sky_camera_volume", 96, 54, 32, TextureType::TEXTURE_3D);
-		m_CloudTarget = makeLut("sky_clouds", 640, 360, 0, TextureType::TEXTURE_2D);
+		// cloud target is RT-relative: created/resized in EnsureCloudTarget
 
 		auto makePass = [](const std::string &name, const std::shared_ptr<Texture> &target)
 		{
@@ -501,7 +617,6 @@ namespace fury
 		m_MultiScatterPass = makePass("sky_multiscatter_pass", m_MultiScatterLut);
 		m_SkyViewPass = makePass("sky_view_pass", m_SkyViewLut);
 		m_CameraVolumePass = makePass("sky_camera_volume_pass", m_CameraVolume);
-		m_CloudPass = makePass("sky_cloud_pass", m_CloudTarget);
 
 		std::string base = FileUtil::GetAbsPath() + kShaderDir;
 		auto loadShader = [&](const char* file)
@@ -516,7 +631,8 @@ namespace fury
 		m_MultiScatterShader = loadShader("MultiScatterLut.glsl");
 		m_SkyViewShader = loadShader("SkyViewLut.glsl");
 		m_CameraVolumeShader = loadShader("CameraVolume.glsl");
-		m_CloudShader = loadShader("CloudLayer.glsl");
+		m_CloudShader = loadShader("VolumetricClouds.glsl");
+		m_NoiseGenShader = loadShader("CloudNoiseGen.glsl");
 
 		if (!m_MoonTexturePath.empty() && m_MoonTexture == nullptr)
 			m_MoonTexture = LoadSkyTexture(m_MoonTexturePath, true);
@@ -592,24 +708,301 @@ namespace fury
 		m_CameraVolumePass->UnBind();
 	}
 
-	void SkyAtmosphere::RenderCloudTarget(const SkyParams &params, const PacketCamera &cam)
+	bool SkyAtmosphere::EnsureCloudNoise(const SkyParams &params)
 	{
+		if (m_CloudBaseNoise != nullptr && m_CloudDetailNoise != nullptr && m_WeatherMap != nullptr)
+			return true;
+		if (_ptrc_glGetTexImage == nullptr)
+			return false;
+
+		std::lock_guard<std::mutex> resourceLock(s_SkyResourceMutex);
+
+		const std::uint64_t hash = CloudNoiseHash(params.cloudWeatherBias, params.cloudWeatherTypeContrast);
+		const std::string cachePath = CloudNoiseCachePath(hash);
+
+		if (std::filesystem::exists(cachePath))
+		{
+			std::ifstream in(cachePath, std::ios::binary);
+			std::uint32_t magic = 0;
+			std::uint64_t fileHash = 0;
+			in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+			in.read(reinterpret_cast<char*>(&fileHash), sizeof(fileHash));
+			if (in.good() && magic == kCloudNoiseMagic && fileHash == hash)
+			{
+				m_CloudBaseNoise = ReadCacheTex(in, "cloud_base_noise", TextureType::TEXTURE_3D);
+				m_CloudDetailNoise = ReadCacheTex(in, "cloud_detail_noise", TextureType::TEXTURE_3D);
+				m_WeatherMap = ReadCacheTex(in, "cloud_weather_map", TextureType::TEXTURE_2D);
+			}
+			if (m_CloudBaseNoise && m_CloudDetailNoise && m_WeatherMap)
+				return true;
+			FURYW << "SkyAtmosphere: cloud noise cache unreadable, regenerating";
+			m_CloudBaseNoise = m_CloudDetailNoise = m_WeatherMap = nullptr;
+		}
+
+		// generate: one fullscreen draw per 3D slice, same slice-FBO pattern
+		// as the camera volume
+		auto genStart = std::chrono::steady_clock::now();
+
+		m_CloudBaseNoise = Texture::Create("cloud_base_noise");
+		m_CloudBaseNoise->CreateEmpty(128, 128, 128, TextureFormat::RGBA8, TextureType::TEXTURE_3D, true);
+		m_CloudDetailNoise = Texture::Create("cloud_detail_noise");
+		m_CloudDetailNoise->CreateEmpty(32, 32, 32, TextureFormat::RGB8, TextureType::TEXTURE_3D, true);
+		m_WeatherMap = Texture::Create("cloud_weather_map");
+		m_WeatherMap->CreateEmpty(256, 256, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, true);
+		m_CirrusNoise = Texture::Create("cloud_cirrus_noise");
+		m_CirrusNoise->CreateEmpty(256, 256, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, true);
+
+		m_NoiseGenShader->Bind();
+		m_NoiseGenShader->BindFloat("u_weather_bias", params.cloudWeatherBias);
+		m_NoiseGenShader->BindFloat("u_weather_type_contrast", params.cloudWeatherTypeContrast);
+
+		auto genVolume = [&](const std::shared_ptr<Texture> &tex, int slices, int mode)
+		{
+			auto pass = Pass::Create("cloud_noise_gen");
+			pass->AddTexture(tex, false);
+			pass->SetClearMode(ClearMode::NONE);
+			pass->SetCullMode(CullMode::NONE);
+			pass->SetDepthWrite(false);
+			pass->Bind();
+			m_NoiseGenShader->BindInt("u_gen_mode", mode);
+			m_NoiseGenShader->BindFloat("u_slice_count", (float)slices);
+			auto mesh = MeshUtil::GetUnitQuad();
+			m_NoiseGenShader->BindMesh(mesh);
+			for (int slice = 0; slice < slices; slice++)
+			{
+				pass->SetArrayTextureLayer(slice);
+				m_NoiseGenShader->BindFloat("u_slice_id", (float)slice);
+				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			}
+			pass->UnBind();
+		};
+
+		genVolume(m_CloudBaseNoise, 128, 0);
+		genVolume(m_CloudDetailNoise, 32, 1);
+
+		{
+			auto pass = Pass::Create("cloud_weather_gen");
+			pass->AddTexture(m_WeatherMap, false);
+			pass->SetClearMode(ClearMode::NONE);
+			pass->SetCullMode(CullMode::NONE);
+			pass->SetDepthWrite(false);
+			m_NoiseGenShader->BindInt("u_gen_mode", 2);
+			DrawLutQuad(pass, m_NoiseGenShader);
+		}
+
+		{
+			auto pass = Pass::Create("cloud_cirrus_gen");
+			pass->AddTexture(m_CirrusNoise, false);
+			pass->SetClearMode(ClearMode::NONE);
+			pass->SetCullMode(CullMode::NONE);
+			pass->SetDepthWrite(false);
+			m_NoiseGenShader->BindInt("u_gen_mode", 3);
+			DrawLutQuad(pass, m_NoiseGenShader);
+		}
+		m_NoiseGenShader->UnBind();
+
+		// distance-mipped sampling in the marcher needs the chains
+		m_CloudBaseNoise->GenerateMipMap();
+		m_CloudDetailNoise->GenerateMipMap();
+		m_WeatherMap->GenerateMipMap();
+		m_CirrusNoise->GenerateMipMap();
+		m_CloudBaseNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+		m_CloudDetailNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+		m_WeatherMap->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+		m_CirrusNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+
+		FURYD << "SkyAtmosphere: cloud noise generated in "
+			<< std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - genStart).count() << " ms";
+
+		std::filesystem::create_directories(std::filesystem::path(cachePath).parent_path());
+		std::ofstream out(cachePath, std::ios::binary | std::ios::trunc);
+		out.write(reinterpret_cast<const char*>(&kCloudNoiseMagic), sizeof(kCloudNoiseMagic));
+		out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
+		if (!WriteCacheTex(out, m_CloudBaseNoise) || !WriteCacheTex(out, m_CloudDetailNoise) || !WriteCacheTex(out, m_WeatherMap))
+			FURYW << "SkyAtmosphere: cloud noise cache write failed (regenerates next run)";
+
+		return true;
+	}
+
+	void SkyAtmosphere::EnsureCloudTarget(int rtW, int rtH, int quality)
+	{
+		const int shift = quality <= 0 ? 2 : 1;
+		const int w = std::max(160, rtW >> shift);
+		const int h = std::max(90, rtH >> shift);
+		if (m_CloudTarget && w == m_CloudTargetW && h == m_CloudTargetH && quality == m_CloudTargetQuality)
+			return;
+
+		std::lock_guard<std::mutex> resourceLock(s_SkyResourceMutex);
+		m_CloudTargetW = w;
+		m_CloudTargetH = h;
+		m_CloudTargetQuality = quality;
+
+		m_CloudTarget = Texture::Create("sky_clouds");
+		m_CloudTarget->CreateEmpty(w, h, 0, TextureFormat::RGBA16F, TextureType::TEXTURE_2D, false);
+		m_CloudTarget->SetWrapMode(WrapMode::CLAMP_TO_EDGE);
+
+		m_CloudPass = Pass::Create("sky_cloud_pass");
+		m_CloudPass->AddTexture(m_CloudTarget, false);
+		m_CloudPass->SetClearMode(ClearMode::NONE);
+		m_CloudPass->SetCullMode(CullMode::NONE);
+		m_CloudPass->SetDepthWrite(false);
+
+		m_CloudParamsDirty = true;   // target holds garbage until re-rendered
+	}
+
+	void SkyAtmosphere::RenderCloudTarget(const SkyParams &params, const PacketCamera &cam, const std::shared_ptr<Texture> &depthTex)
+	{
+		FURY_ZONE_NAMED("Clouds");
+		FURY_GPU_ZONE("Clouds");
+
+		static const int envQuality = []()
+		{
+			const char* q = std::getenv("FURY_CLOUD_QUALITY");
+			if (q == nullptr) return -1;
+			if (strcmp(q, "low") == 0) return 0;
+			if (strcmp(q, "med") == 0) return 1;
+			if (strcmp(q, "high") == 0) return 2;
+			return -1;
+		}();
+		const int quality = envQuality >= 0 ? envQuality : params.cloudQuality;
+		const int maxSteps = quality <= 0 ? 32 : (quality == 1 ? 48 : 96);
+		const int lightSamples = quality <= 0 ? 4 : 6;
+
 		m_CloudShader->Bind();
 		BindAtmosphereUniforms(m_CloudShader, params);
 		m_CloudShader->BindCameraData(cam);
+		m_CloudShader->BindTexture("u_base_noise", m_CloudBaseNoise);
+		m_CloudShader->BindTexture("u_detail_noise", m_CloudDetailNoise);
+		m_CloudShader->BindTexture("u_weather_map", m_WeatherMap);
+		m_CloudShader->BindTexture("u_cirrus_noise", m_CirrusNoise ? m_CirrusNoise : GetDummyTexture2D());
 		m_CloudShader->BindTexture("u_transmittance_lut", m_TransmittanceLut);
-		m_CloudShader->BindTexture("u_cloud_noise",
-			m_CloudNoise ? m_CloudNoise : GetDummyTexture2D());
+		m_CloudShader->BindTexture("gbuffer_depth", depthTex ? depthTex : GetDummyTexture2D());
+		m_CloudShader->BindFloat("u_cloud_base_km", params.cloudAltKm);
+		m_CloudShader->BindFloat("u_cloud_top_km", params.cloudAltKm + params.cloudThickKm);
 		m_CloudShader->BindFloat("u_cloud_coverage", params.cloudCoverage);
-		m_CloudShader->BindFloat("u_cloud_alt_km", params.cloudAltKm);
-		m_CloudShader->BindFloat("u_cloud_thick_km", params.cloudThickKm);
-		m_CloudShader->BindFloat("u_cloud_scale", params.cloudScale);
+		m_CloudShader->BindFloat("u_cloud_type_bias", params.cloudTypeBias);
+		m_CloudShader->BindFloat("u_cloud_base_scale", params.cloudScale);
+		m_CloudShader->BindFloat("u_cloud_detail_scale", params.cloudDetailScale);
+		m_CloudShader->BindFloat("u_cloud_erosion", params.cloudErosion);
 		m_CloudShader->BindFloat("u_cloud_density", params.cloudDensity);
 		m_CloudShader->BindFloat("u_wind_offset_km", params.windOffsetKm.x, params.windOffsetKm.y);
-		m_CloudShader->BindFloat("u_daylight", params.daylight);
 		m_CloudShader->BindFloat("u_cloud_fade_km", params.cloudFadeKm);
+		m_CloudShader->BindFloat("u_detail_fade_km", params.cloudFadeKm * 0.5f);
+		m_CloudShader->BindFloat("u_daylight", params.daylight);
+		m_CloudShader->BindFloat("u_powder_strength", params.cloudPowder);
+		m_CloudShader->BindFloat("u_hg_g", params.cloudHgG);
+		m_CloudShader->BindFloat("u_hg_g_fwd", params.cloudHgGFwd);
+		m_CloudShader->BindFloat("u_hg_blend", params.cloudHgBlend);
+		m_CloudShader->BindFloat("u_ambient_scale", params.cloudAmbientScale);
+		m_CloudShader->BindInt("u_max_steps", maxSteps);
+		m_CloudShader->BindInt("u_light_samples", lightSamples);
+		m_CloudShader->BindInt("u_debug_mode", params.cloudDebugMode);
+		m_CloudShader->BindInt("u_cirrus_enabled", params.cirrusEnabled ? 1 : 0);
+		m_CloudShader->BindFloat("u_cirrus_coverage", params.cirrusCoverage);
+		m_CloudShader->BindFloat("u_cirrus_alt_km", params.cirrusAltKm);
+		m_CloudShader->BindFloat("u_cirrus_scale", params.cirrusScale);
+		m_CloudShader->BindFloat("u_cirrus_density", params.cirrusDensity);
 		DrawLutQuad(m_CloudPass, m_CloudShader);
 		m_CloudShader->UnBind();
+	}
+
+	void SkyAtmosphere::EnsureLutsRender(const SkyParams &params, const PacketCamera &cam,
+		int rtW, int rtH, const std::shared_ptr<Texture> &depthTex, std::uint64_t frameIndex)
+	{
+		if (!EnsureResources())
+			return;
+
+		const bool skyDebug = std::getenv("FURY_SKY_DEBUG") != nullptr;
+
+		if (params.staticDirty)
+		{
+			RenderTransmittanceLut(params);
+			RenderMultiScatterLut(params);
+			m_LastSunDir = Vector4(0, 0, 0, 0);   // force view lut refresh
+			m_CloudParamsDirty = true;
+			if (skyDebug)
+				FURYD << "SkyAtmosphere: static LUTs rendered";
+		}
+
+		Vector4 sunDelta = params.sunDir - m_LastSunDir;
+		if (sunDelta.SquareLength() > 1e-8f || std::fabs(params.viewHeightKm - m_LastViewHeightKm) > 1e-5f)
+		{
+			RenderSkyViewLut(params);
+			m_LastSunDir = params.sunDir;
+			m_LastViewHeightKm = params.viewHeightKm;
+			if (skyDebug)
+				FURYD << "SkyAtmosphere: sky-view LUT rendered (sun " << params.sunDir.y << ")";
+		}
+
+		if (!cam.valid)
+			return;
+
+		// The camera volume and cloud target are camera-dependent; re-render
+		// only when the camera or an input changed (static frames cost zero).
+		// frameIndex is part of the key guard contract: callers pass the
+		// packet frame so duplicate same-camera calls within a frame skip.
+		CloudRenderKey key;
+		key.camPos[0] = cam.worldPos.x; key.camPos[1] = cam.worldPos.y; key.camPos[2] = cam.worldPos.z;
+		key.camFwd[0] = cam.worldMatrix.Raw[2]; key.camFwd[1] = cam.worldMatrix.Raw[5];
+		key.camFwd[2] = cam.worldMatrix.Raw[8]; key.camFwd[3] = cam.worldMatrix.Raw[10];
+		key.fov = cam.fov;
+		key.wind[0] = params.windOffsetKm.x; key.wind[1] = params.windOffsetKm.y;
+		key.sunY = params.sunDir.y;
+		key.params[0] = params.cloudCoverage; key.params[1] = params.cloudAltKm;
+		key.params[2] = params.cloudThickKm; key.params[3] = params.cloudScale;
+		key.params[4] = params.cloudDensity; key.params[5] = params.cloudFadeKm;
+		key.params[6] = params.cloudTypeBias; key.params[7] = params.cloudDetailScale;
+		key.params[8] = params.cloudErosion; key.params[9] = params.cloudPowder;
+		key.params[10] = params.cloudHgG; key.params[11] = params.cloudHgGFwd;
+		key.params[12] = params.cloudHgBlend; key.params[13] = params.cloudAmbientScale;
+		key.params[14] = params.daylight; key.params[15] = params.viewHeightKm;
+		key.params[16] = params.cloudWeatherBias; key.params[17] = params.cloudWeatherTypeContrast;
+		key.params[18] = params.cirrusCoverage; key.params[19] = params.cirrusAltKm;
+		key.params[20] = params.cirrusScale; key.params[21] = params.cirrusDensity;
+		static const int envQuality = []()
+		{
+			const char* q = std::getenv("FURY_CLOUD_QUALITY");
+			if (q == nullptr) return -1;
+			if (strcmp(q, "low") == 0) return 0;
+			if (strcmp(q, "med") == 0) return 1;
+			if (strcmp(q, "high") == 0) return 2;
+			return -1;
+		}();
+		key.quality = envQuality >= 0 ? envQuality : params.cloudQuality;
+		key.debugMode = params.cloudDebugMode;
+		key.cirrusEnabled = params.cirrusEnabled ? 1 : 0;
+
+		const bool volumeDirty = key.camPos[0] != m_LastCloudCamPos.x || key.camPos[1] != m_LastCloudCamPos.y
+			|| key.camPos[2] != m_LastCloudCamPos.z
+			|| key.camFwd[0] != m_LastCloudFwd[0] || key.camFwd[1] != m_LastCloudFwd[1]
+			|| key.camFwd[2] != m_LastCloudFwd[2] || key.camFwd[3] != m_LastCloudFwd[3]
+			|| key.fov != m_LastCloudFov || key.sunY != m_LastCloudSunY || params.staticDirty;
+		(void)frameIndex;
+
+		if (volumeDirty)
+		{
+			RenderCameraVolume(params, cam);
+			m_LastCloudCamPos = cam.worldPos;
+			m_LastCloudFwd[0] = key.camFwd[0]; m_LastCloudFwd[1] = key.camFwd[1];
+			m_LastCloudFwd[2] = key.camFwd[2]; m_LastCloudFwd[3] = key.camFwd[3];
+			m_LastCloudFov = key.fov;
+			m_LastCloudSunY = key.sunY;
+		}
+
+		if (!params.cloudsEnabled)
+			return;
+
+		EnsureCloudTarget(rtW, rtH, key.quality);
+		key.w = m_CloudTargetW;
+		key.h = m_CloudTargetH;
+
+		if (key != m_LastCloudKey || m_CloudParamsDirty)
+		{
+			if (EnsureCloudNoise(params))
+				RenderCloudTarget(params, cam, depthTex);
+			m_LastCloudKey = key;
+			m_CloudParamsDirty = false;
+		}
 	}
 
 	SkyParams SkyAtmosphere::SnapshotParams() const
@@ -643,6 +1036,23 @@ namespace fury
 		p.cloudDensity = m_CloudDensity;
 		p.cloudWindSpeedCm = m_CloudWindSpeedCm;
 		p.cloudFadeKm = m_CloudFadeKm;
+		p.cloudTypeBias = m_CloudTypeBias;
+		p.cloudDetailScale = m_CloudDetailScale;
+		p.cloudErosion = m_CloudErosion;
+		p.cloudPowder = m_CloudPowder;
+		p.cloudHgG = m_CloudHgG;
+		p.cloudHgGFwd = m_CloudHgGFwd;
+		p.cloudHgBlend = m_CloudHgBlend;
+		p.cloudAmbientScale = m_CloudAmbientScale;
+		p.cloudQuality = m_CloudQuality;
+		p.cloudDebugMode = m_CloudDebugMode;
+		p.cloudWeatherBias = m_CloudWeatherBias;
+		p.cloudWeatherTypeContrast = m_CloudWeatherTypeContrast;
+		p.cirrusEnabled = m_CirrusEnabled;
+		p.cirrusCoverage = m_CirrusCoverage;
+		p.cirrusAltKm = m_CirrusAltKm;
+		p.cirrusScale = m_CirrusScale;
+		p.cirrusDensity = m_CirrusDensity;
 		p.sunDir = m_SunDir;
 		p.moonDir = m_MoonDir;
 		p.sunColor = m_SunColor;
@@ -663,6 +1073,10 @@ namespace fury
 		m_ViewHeightKm = std::max(0.005f, cameraWorldY * 1e-5f);
 		SkyParams p = SnapshotParams();
 		p.viewHeightKm = m_ViewHeightKm;
+		// deterministic screenshots: freeze the noise scroll
+		static const bool freezeWind = std::getenv("FURY_CLOUD_FREEZE") != nullptr;
+		if (freezeWind)
+			p.windOffsetKm = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 		return p;
 	}
 
@@ -675,38 +1089,5 @@ namespace fury
 		out.cameraVolume = m_CameraVolume;
 		out.cloudTarget = m_CloudTarget;
 		out.moonTexture = m_MoonTexture;
-	}
-
-	void SkyAtmosphere::EnsureLutsRender(const SkyParams &params, const PacketCamera &cam)
-	{
-		if (!EnsureResources())
-			return;
-
-		const bool skyDebug = std::getenv("FURY_SKY_DEBUG") != nullptr;
-
-		if (params.staticDirty)
-		{
-			RenderTransmittanceLut(params);
-			RenderMultiScatterLut(params);
-			m_LastSunDir = Vector4(0, 0, 0, 0);   // force view lut refresh
-			if (skyDebug)
-				FURYD << "SkyAtmosphere: static LUTs rendered";
-		}
-
-		Vector4 sunDelta = params.sunDir - m_LastSunDir;
-		if (sunDelta.SquareLength() > 1e-8f || std::fabs(params.viewHeightKm - m_LastViewHeightKm) > 1e-5f)
-		{
-			RenderSkyViewLut(params);
-			m_LastSunDir = params.sunDir;
-			m_LastViewHeightKm = params.viewHeightKm;
-			if (skyDebug)
-				FURYD << "SkyAtmosphere: sky-view LUT rendered (sun " << params.sunDir.y << ")";
-		}
-
-		if (cam.valid)
-			RenderCameraVolume(params, cam);
-
-		if (params.cloudsEnabled && cam.valid)
-			RenderCloudTarget(params, cam);
 	}
 }

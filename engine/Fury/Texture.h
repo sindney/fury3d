@@ -125,6 +125,12 @@ namespace fury
 
 		void SetPixels(const void* pixels);
 
+		// 3D-only counterpart of SetPixels (byte formats).
+		void SetPixels3D(const void* pixels);
+
+		// Reads back level 0 (2D or 3D, byte formats); false when no GL buffer.
+		bool GetPixels(std::vector<unsigned char> &outPixels) const;
+
 		virtual void UpdateBuffer() override;
 
 		virtual void DeleteBuffer() override;

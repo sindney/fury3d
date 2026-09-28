@@ -51,6 +51,8 @@ namespace fury
 		else
 			m_CascadedShadowMap = true; // legacy default: CSM on
 
+		LoadMemberValue(wrapper, "vegetation_prez", m_VegetationPreZ);
+
 		LoadMemberValue(wrapper, "csm_map_size", m_CsmMapSize);
 		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
 		LoadMemberValue(wrapper, "csm_split_blend", m_CsmSplitBlend);
@@ -110,6 +112,9 @@ namespace fury
 
 		SaveKey(wrapper, "cascaded_shadow_map");
 		SaveValue(wrapper, m_CascadedShadowMap);
+
+		SaveKey(wrapper, "vegetation_prez");
+		SaveValue(wrapper, m_VegetationPreZ);
 
 		SaveKey(wrapper, "csm_map_size");
 		SaveValue(wrapper, m_CsmMapSize);
@@ -188,6 +193,16 @@ namespace fury
 	void RenderSettings::SetCascadedShadowMap(bool value)
 	{
 		m_CascadedShadowMap = value;
+	}
+
+	bool RenderSettings::IsVegetationPreZ() const
+	{
+		return m_VegetationPreZ;
+	}
+
+	void RenderSettings::SetVegetationPreZ(bool value)
+	{
+		m_VegetationPreZ = value;
 	}
 
 	int RenderSettings::GetCsmMapSize() const

@@ -299,6 +299,10 @@ void RenderMaterialEditorBody(const std::shared_ptr<Material>& mat) {
 	bool windEnabled = mat->GetWindEnabled();
 	if (ImGui::Checkbox("Wind Enabled", &windEnabled))
 		mat->SetWindEnabled(windEnabled);
+	ImGui::SameLine();
+	bool preZ = mat->GetPreZ();
+	if (ImGui::Checkbox("Pre-Z", &preZ))
+		mat->SetPreZ(preZ);
 	ImGui::Separator();
 
 	// Textures.

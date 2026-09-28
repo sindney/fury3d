@@ -40,6 +40,14 @@ sky:SetTimeHours(13.0)
 sky:SetAutoAdvance(true)
 sky:SetDayLengthMinutes(20.0)
 sky:SetCloudsEnabled(true)
+-- volumetric deck: 1.5-4 km slab, cumulus-biased, 20 km horizon fade
+sky:SetCloudAltitudeKm(1.5)
+sky:SetCloudThicknessKm(2.5)
+sky:SetCloudFadeKm(20.0)
+sky:SetCloudDensity(22.0)
+sky:SetCloudScale(0.15)
+sky:SetCloudTypeBias(0.15)
+sky:SetCloudCoverage(0.35)
 -- Engine/ prefix -> engine resource root from any working dir; the moon
 -- disc draws only with a texture bound, so night was pure dark without it
 sky:SetMoonTexturePath("Engine/Texture/Sky/moon.png")

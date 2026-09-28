@@ -104,6 +104,7 @@ namespace fury
 		LoadMemberValue(wrapper, "alpha_cutoff", m_AlphaCutoff);
 		LoadMemberValue(wrapper, "two_sided", m_TwoSided);
 		LoadMemberValue(wrapper, "wind_enabled", m_WindEnabled);
+		LoadMemberValue(wrapper, "pre_z", m_PreZ);
 
 		// load shaders
 		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
@@ -231,6 +232,8 @@ namespace fury
 		SaveValue(wrapper, m_TwoSided);
 		SaveKey(wrapper, "wind_enabled");
 		SaveValue(wrapper, m_WindEnabled);
+		SaveKey(wrapper, "pre_z");
+		SaveValue(wrapper, m_PreZ);
 		SaveKey(wrapper, "texture_flags");
 		SaveValue(wrapper, m_TextureFlags);
 

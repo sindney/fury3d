@@ -584,7 +584,6 @@
     "PBR"
    ]
   },
-
   {
    "name": "leagcy_depth_alphatest_shader",
    "path": "Resource/Shader/DrawDepthLeagcy.glsl",
@@ -698,6 +697,122 @@
    ]
   },
   {
+   "name": "prez_depth_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_skin_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "SKINNED_MESH",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_alphatest_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_wind_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "WIND",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_alphatest_wind_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "INSTANCED",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_alphatest_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "INSTANCED",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_alphatest_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_wind_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "WIND",
+    "INSTANCED",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_wind_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_alphatest_wind_instanced_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "INSTANCED",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
+   "name": "prez_depth_alphatest_wind_instanced_ssbo_shader",
+   "path": "Resource/Shader/DrawDepthLeagcy.glsl",
+   "defines": [
+    "ALPHA_TEST",
+    "WIND",
+    "INSTANCED",
+    "INSTANCE_SSBO",
+    "LINEAR_DEPTH"
+   ]
+  },
+  {
    "name": "cube_depth_instanced_shader",
    "path": "Resource/Shader/DrawDepthCube.glsl",
    "defines": [
@@ -765,7 +880,6 @@
     "INSTANCE_SSBO"
    ]
   },
-
   {
    "name": "ocean_surface_shader",
    "path": "Resource/Shader/Ocean/OceanSurface.glsl"

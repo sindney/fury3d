@@ -1,6 +1,8 @@
 #ifndef _FURY_SKY_ATMOSPHERE_H_
 #define _FURY_SKY_ATMOSPHERE_H_
 
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -22,6 +24,25 @@ namespace fury
 	struct PacketCamera;
 
 	struct PacketSky;
+
+	// Cloud target / camera-volume re-render key: camera, wind, sun and the
+	// cloud params. Unchanged key = the per-frame renders are still valid.
+	struct CloudRenderKey
+	{
+		float camPos[3] = { 0.0f };
+		float camFwd[4] = { 0.0f };
+		float fov = -1.0f;
+		float wind[2] = { 0.0f };
+		float sunY = -999.0f;
+		float params[22] = { 0.0f };
+		int quality = -1;
+		int debugMode = 0;
+		int cirrusEnabled = 0;
+		int w = 0;
+		int h = 0;
+		bool operator==(const CloudRenderKey &o) const { return std::memcmp(this, &o, sizeof(*this)) == 0; }
+		bool operator!=(const CloudRenderKey &o) const { return !(*this == o); }
+	};
 
 	// Value snapshot of every field the LUT renders and pass bindings read.
 	// Gathered on the game thread (SnapshotParams); consumed on the render
@@ -83,6 +104,42 @@ namespace fury
 		float cloudWindSpeedCm = 200.0f;
 
 		float cloudFadeKm = 2.5f;
+
+		// volumetric cloud block
+		float cloudTypeBias = 0.0f;
+
+		float cloudDetailScale = 2.4f;
+
+		float cloudErosion = 0.5f;
+
+		float cloudPowder = 1.0f;
+
+		float cloudHgG = 0.2f;
+
+		float cloudHgGFwd = 0.7f;
+
+		float cloudHgBlend = 0.5f;
+
+		float cloudAmbientScale = 1.0f;
+
+		// 0 low (quarter res), 1 med (half res), 2 high (half res, deep march)
+		int cloudQuality = 1;
+
+		int cloudDebugMode = 0;
+
+		float cloudWeatherBias = 0.0f;
+
+		float cloudWeatherTypeContrast = 1.6f;
+
+		bool cirrusEnabled = true;
+
+		float cirrusCoverage = 0.35f;
+
+		float cirrusAltKm = 8.0f;
+
+		float cirrusScale = 0.02f;
+
+		float cirrusDensity = 1.5f;
 
 		// runtime state (TickUpdate output)
 		Vector4 sunDir = Vector4(0.0f, 1.0f, 0.0f, 0.0f);
@@ -183,6 +240,42 @@ namespace fury
 		float GetCloudFadeKm() const { return m_CloudFadeKm; }
 		void SetCloudFadeKm(float v) { m_CloudFadeKm = v; }
 
+		// --- volumetric cloud block ---
+		float GetCloudTypeBias() const { return m_CloudTypeBias; }
+		void SetCloudTypeBias(float v) { m_CloudTypeBias = v; }
+		float GetCloudDetailScale() const { return m_CloudDetailScale; }
+		void SetCloudDetailScale(float v) { m_CloudDetailScale = v; }
+		float GetCloudErosion() const { return m_CloudErosion; }
+		void SetCloudErosion(float v) { m_CloudErosion = v; }
+		float GetCloudPowder() const { return m_CloudPowder; }
+		void SetCloudPowder(float v) { m_CloudPowder = v; }
+		float GetCloudHgG() const { return m_CloudHgG; }
+		void SetCloudHgG(float v) { m_CloudHgG = v; }
+		float GetCloudHgGFwd() const { return m_CloudHgGFwd; }
+		void SetCloudHgGFwd(float v) { m_CloudHgGFwd = v; }
+		float GetCloudHgBlend() const { return m_CloudHgBlend; }
+		void SetCloudHgBlend(float v) { m_CloudHgBlend = v; }
+		float GetCloudAmbientScale() const { return m_CloudAmbientScale; }
+		void SetCloudAmbientScale(float v) { m_CloudAmbientScale = v; }
+		int GetCloudQuality() const { return m_CloudQuality; }
+		void SetCloudQuality(int v) { m_CloudQuality = v; }
+		int GetCloudDebugMode() const { return m_CloudDebugMode; }
+		void SetCloudDebugMode(int v) { m_CloudDebugMode = v; }
+		float GetCloudWeatherBias() const { return m_CloudWeatherBias; }
+		void SetCloudWeatherBias(float v) { m_CloudWeatherBias = v; }
+		float GetCloudWeatherTypeContrast() const { return m_CloudWeatherTypeContrast; }
+		void SetCloudWeatherTypeContrast(float v) { m_CloudWeatherTypeContrast = v; }
+		bool GetCirrusEnabled() const { return m_CirrusEnabled; }
+		void SetCirrusEnabled(bool v) { m_CirrusEnabled = v; }
+		float GetCirrusCoverage() const { return m_CirrusCoverage; }
+		void SetCirrusCoverage(float v) { m_CirrusCoverage = v; }
+		float GetCirrusAltKm() const { return m_CirrusAltKm; }
+		void SetCirrusAltKm(float v) { m_CirrusAltKm = v; }
+		float GetCirrusScale() const { return m_CirrusScale; }
+		void SetCirrusScale(float v) { m_CirrusScale = v; }
+		float GetCirrusDensity() const { return m_CirrusDensity; }
+		void SetCirrusDensity(float v) { m_CirrusDensity = v; }
+
 		// --- atmosphere coefficients (static LUTs re-render on change) ---
 		void SetRayleighScattering(Vector4 v) { m_RayleighScat = v; m_StaticDirty = true; }
 		void SetMieScattering(float v) { m_MieScat = v; m_StaticDirty = true; }
@@ -211,8 +304,11 @@ namespace fury
 		// --- render hooks (PrelightPipeline) ---
 		// Render-thread entry: LUT refresh from a params/camera snapshot (no
 		// scene reads, no EvaluateSunAndLight -- the game thread owns sun
-		// state via GatherSkyFrame).
-		void EnsureLutsRender(const SkyParams &params, const PacketCamera &cam);
+		// state via GatherSkyFrame). rtW/rtH size the cloud target; depthTex
+		// clips the cloud march against opaque geometry; frameIndex guards
+		// per-frame work when several passes call in one frame.
+		void EnsureLutsRender(const SkyParams &params, const PacketCamera &cam,
+			int rtW, int rtH, const std::shared_ptr<Texture> &depthTex, std::uint64_t frameIndex);
 
 		// Game-thread snapshot of the render-relevant fields.
 		SkyParams SnapshotParams() const;
@@ -287,7 +383,14 @@ namespace fury
 
 		void RenderCameraVolume(const SkyParams &params, const PacketCamera &cam);
 
-		void RenderCloudTarget(const SkyParams &params, const PacketCamera &cam);
+		void RenderCloudTarget(const SkyParams &params, const PacketCamera &cam, const std::shared_ptr<Texture> &depthTex);
+
+		// Volumetric-cloud noise set: load from disk cache or generate via
+		// fragment passes (one slice per draw), then cache to disk.
+		bool EnsureCloudNoise(const SkyParams &params);
+
+		// (Re)creates the RT-relative cloud target + pass when size/quality change.
+		void EnsureCloudTarget(int rtW, int rtH, int quality);
 
 		void DrawLutQuad(const std::shared_ptr<Pass> &pass, const std::shared_ptr<Shader> &shader);
 
@@ -318,13 +421,32 @@ namespace fury
 
 		bool m_CloudsEnabled = false;
 		float m_CloudCoverage = 0.45f;
-		float m_CloudAltKm = 0.15f;
-		float m_CloudThickKm = 0.12f;
-		float m_CloudScale = 0.35f;             // noise uv per km
+		float m_CloudAltKm = 1.5f;              // slab base above surface
+		float m_CloudThickKm = 2.5f;            // slab thickness
+		float m_CloudScale = 0.35f;             // base noise uvw per km
 		float m_CloudDensity = 18.0f;           // extinction per km
 		float m_CloudWindSpeedCm = 200.0f;      // cm/s
-		float m_CloudFadeKm = 2.5f;
+		float m_CloudFadeKm = 20.0f;
 		std::string m_CloudNoisePath = "Engine/Texture/Sky/cloud_noise.png";
+
+		float m_CloudTypeBias = 0.0f;           // weather type offset: stratus..cumulonimbus
+		float m_CloudDetailScale = 2.4f;        // detail noise uvw per km
+		float m_CloudErosion = 0.5f;            // detail erosion strength
+		float m_CloudPowder = 1.0f;             // powder sugar strength 0..1
+		float m_CloudHgG = 0.2f;                // phase base lobe
+		float m_CloudHgGFwd = 0.7f;             // phase forward lobe
+		float m_CloudHgBlend = 0.5f;
+		float m_CloudAmbientScale = 1.0f;
+		int m_CloudQuality = 1;                 // 0 low, 1 med, 2 high
+		int m_CloudDebugMode = 0;               // 1 steps heatmap, 2 transmittance
+		float m_CloudWeatherBias = 0.0f;        // coverage field offset (regenerates noise)
+		float m_CloudWeatherTypeContrast = 1.6f;
+
+		bool m_CirrusEnabled = true;
+		float m_CirrusCoverage = 0.35f;
+		float m_CirrusAltKm = 8.0f;
+		float m_CirrusScale = 0.02f;            // 2D noise uv per km
+		float m_CirrusDensity = 1.5f;
 
 		float m_TimeHours = 12.0f;
 		float m_DayLengthMinutes = 10.0f;
@@ -365,6 +487,12 @@ namespace fury
 		std::shared_ptr<Texture> m_MoonTexture;
 		std::shared_ptr<Texture> m_CloudNoise;
 
+		// volumetric-cloud noise set (generated once, disk-cached)
+		std::shared_ptr<Texture> m_CloudBaseNoise;    // 128^3 rgba8
+		std::shared_ptr<Texture> m_CloudDetailNoise;  // 32^3 rgb8
+		std::shared_ptr<Texture> m_WeatherMap;        // 256x256 rgba8
+		std::shared_ptr<Texture> m_CirrusNoise;       // 256x256 rgba8 (procedural wispy streaks)
+
 		std::shared_ptr<Pass> m_TransmittancePass;
 		std::shared_ptr<Pass> m_MultiScatterPass;
 		std::shared_ptr<Pass> m_SkyViewPass;
@@ -376,6 +504,18 @@ namespace fury
 		std::shared_ptr<Shader> m_SkyViewShader;
 		std::shared_ptr<Shader> m_CameraVolumeShader;
 		std::shared_ptr<Shader> m_CloudShader;
+		std::shared_ptr<Shader> m_NoiseGenShader;
+
+		// cloud target sizing / per-frame render guards (render thread)
+		int m_CloudTargetW = 0;
+		int m_CloudTargetH = 0;
+		int m_CloudTargetQuality = -1;
+		Vector4 m_LastCloudCamPos;
+		float m_LastCloudFwd[3] = { 0.0f, 0.0f, 0.0f };
+		float m_LastCloudFov = -1.0f;
+		float m_LastCloudSunY = -999.0f;
+		bool m_CloudParamsDirty = true;
+		CloudRenderKey m_LastCloudKey;
 	};
 }
 

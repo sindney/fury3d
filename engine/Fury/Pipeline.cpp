@@ -266,6 +266,7 @@ namespace fury
 	{
 		m_HDRMode = settings.IsHDR();
 		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, settings.IsCascadedShadowMap());
+		SetSwitch(PipelineSwitch::VEGETATION_PREZ, settings.IsVegetationPreZ());
 
 		// Chain resolution. Entry order in the scene file is IGNORED
 		// by design: effects run in the engine-owned canonical order

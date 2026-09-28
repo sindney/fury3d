@@ -19,6 +19,7 @@ local player_cam_node = nil
 local player_camera = nil
 local controller = nil
 local spawn_pos = nil
+local sky_comp = nil
 
 -- swim state (game state only); ocean/terrain cached at on_init
 local ocean = nil          -- OceanComponent
@@ -229,6 +230,8 @@ local function to_game()
 	if controller then
 		PlayerController.ActivateFirst(scene:GetRootNode())
 	end
+	-- clouds are off for the menu orbit; restore for the play view
+	if sky_comp then sky_comp:SetCloudsEnabled(true) end
 	cursor_for_game()
 	show_only(false, false, false, true)
 end
@@ -377,13 +380,42 @@ local function on_init()
 
 	-- menu drift camera: low-orbit establishing shot over the island
 	local skyNode = scene:GetRootNode():FindChildRecursively("Sky")
-	local sky = skyNode and skyNode:GetComponent(SkyAtmosphere)
-	if sky then
+	sky_comp = skyNode and skyNode:GetSkyAtmosphere()
+	if sky_comp then
+		-- the bin still carries 2D-deck cloud values; tune for the
+		-- volumetric model here (no scene re-save)
+		sky_comp:SetCloudAltitudeKm(1.5)
+		sky_comp:SetCloudThicknessKm(2.5)
+		sky_comp:SetCloudFadeKm(20.0)
+		sky_comp:SetCloudDensity(22.0)
+		sky_comp:SetCloudScale(0.15)
+		sky_comp:SetCloudTypeBias(0.15)
+		sky_comp:SetCloudCoverage(0.35)
+		-- cirrus: higher altitude, wispy streaks, lower density
+		sky_comp:SetCirrusAltKm(4.0)
+		sky_comp:SetCirrusCoverage(0.5)
+		sky_comp:SetCirrusDensity(2.0)
+		sky_comp:SetCirrusScale(0.05)
 		-- The scene's volumetric clouds cover most altitudes and obscure the
 		-- island when the menu camera frames it from above. Disable clouds
 		-- for the menu; re-enabled in to_game() for the play view.
-		sky:SetCloudsEnabled(false)
+		sky_comp:SetCloudsEnabled(false)
 	end
+
+	-- pre-z on foliage: the bin's materials predate the Kraut importer's
+	-- PreZ flag; wind-enabled materials are exactly the overdraw the pass
+	-- targets
+	Scene.ForEachNode(scene, function(n)
+		local imr = n:GetInstancedMeshRender()
+		if imr then
+			for i = 0, imr:GetMaterialCount() - 1 do
+				local m = imr:GetMaterial(i)
+				if m and m:GetWindEnabled() and not m:GetPreZ() then
+					m:SetPreZ(true)
+				end
+			end
+		end
+	end)
 	drift_center = Vector4(0.0, 1500.0, 0.0, 1.0)
 	drift_radius = 18000.0
 	drift_height = 4500.0
@@ -394,8 +426,7 @@ local function on_init()
 	scene:GetRootNode():AddChild(menu_cam_node)
 
 	-- player: 1.8 m capsule, no visible mesh, camera at eye height
-	player_node = SceneNode.Create("Player")
-	player_node:AddComponent(Transform.Create())
+	player_node = SceneNode.Create("Player")	player_node:AddComponent(Transform.Create())
 	spawn_pos = pick_spawn()
 	player_node:SetLocalPosition(spawn_pos)
 	player_node:Recompose(false)

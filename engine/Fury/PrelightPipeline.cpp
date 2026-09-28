@@ -68,6 +68,61 @@ namespace
 	const bool kDrawCmdCache = std::getenv("FURY_DRAWCMD_CACHE") == nullptr
 		|| std::getenv("FURY_DRAWCMD_CACHE")[0] != '0';
 
+	// FURY_VEG_PREZ=0/1 overrides the vegetation_prez render setting (A/B).
+	const char *kVegPreZEnv = std::getenv("FURY_VEG_PREZ");
+
+	// Fetches the depth variants for the veg pre-z pre-phase: the
+	// prez_depth_* entries (DrawDepthLeagcy + LINEAR_DEPTH -- the shadow
+	// variants write nonlinear z, which EQUAL-tests false against the
+	// gbuffer's linear gl_FragDepth).
+	PreZDepthShaders FetchPreZDepthShaders(Pipeline *pipeline)
+	{
+		const bool ssbo = InstancedMeshStreamer::Get().UseSSBO();
+		const std::string suffix = ssbo ? "_ssbo_shader" : "_shader";
+		PreZDepthShaders set;
+		set.Plain = pipeline->GetShaderByName("prez_depth_shader");
+		set.Skin = pipeline->GetShaderByName("prez_depth_skin_shader");
+		set.AlphaTest = pipeline->GetShaderByName("prez_depth_alphatest_shader");
+		set.AlphaTestWind = pipeline->GetShaderByName("prez_depth_alphatest_wind_shader");
+		set.Wind = pipeline->GetShaderByName("prez_depth_wind_shader");
+		set.Inst = pipeline->GetShaderByName("prez_depth_instanced" + suffix);
+		set.InstAlphaTest = pipeline->GetShaderByName("prez_depth_alphatest_instanced" + suffix);
+		set.InstAlphaTestWind = pipeline->GetShaderByName("prez_depth_alphatest_wind_instanced" + suffix);
+		set.InstWind = pipeline->GetShaderByName("prez_depth_wind_instanced" + suffix);
+		return set;
+	}
+
+	// True when at least one visible opaque unit/batch carries a PreZ
+	// material (billboard tiers excluded -- they never pre-z).
+	bool AnyPreZVisible(const FramePacket &packet)
+	{
+		for (const auto &unit : packet.opaqueUnits)
+		{
+			if (!unit.billboard && unit.material && unit.material->GetPreZ())
+				return true;
+		}
+		for (const auto &pk : packet.instanced)
+		{
+			bool flagged = false;
+			for (const auto &m : pk.materials)
+			{
+				if (m && m->GetPreZ())
+				{
+					flagged = true;
+					break;
+				}
+			}
+			if (!flagged)
+				continue;
+			for (const auto &b : pk.batches)
+			{
+				if (!b.Billboard && !b.WorldMatrices.empty())
+					return true;
+			}
+		}
+		return false;
+	}
+
 	// Shared shader-variant resolution for DrawUnit / the draw-command
 	// cache (identical rules, identical fallback order).
 	std::shared_ptr<Shader> ResolveUnitShader(const std::shared_ptr<Pass> &pass,
@@ -121,6 +176,27 @@ namespace
 		return shader;
 	}
 }
+
+	std::shared_ptr<Shader> PreZDepthShaders::Pick(bool skinned, bool alphaTest, bool wind) const
+	{
+		if (skinned)
+			return Skin ? Skin : Plain;
+		std::shared_ptr<Shader> s;
+		if (alphaTest && wind) s = AlphaTestWind;
+		else if (alphaTest) s = AlphaTest;
+		else if (wind) s = Wind;
+		return s ? s : Plain;
+	}
+
+	std::shared_ptr<Shader> PreZDepthShaders::PickInstanced(bool alphaTest, bool wind) const
+	{
+		std::shared_ptr<Shader> s;
+		if (alphaTest && wind) s = InstAlphaTestWind;
+		if (!s && alphaTest) s = InstAlphaTest;
+		if (!s && wind) s = InstWind;
+		if (!s) s = Inst;
+		return s;
+	}
 
 	PrelightPipeline::Ptr PrelightPipeline::Create(const std::string &name)
 	{
@@ -713,9 +789,61 @@ namespace
 			if (drawMode == DrawMode::OPAQUE)
 			{
 				pass->Bind();
+
+				// Veg pre-z (inline pre-phase, not a separate pass):
+				// flagged units seed depth depth-only, then shade once
+				// at EQUAL. Skipped when nothing flagged is visible.
+				bool vegPreZ = packet.switches.test((size_t)PipelineSwitch::VEGETATION_PREZ);
+				if (kVegPreZEnv != nullptr)
+					vegPreZ = kVegPreZEnv[0] != '0';
+				PreZDepthShaders preZShaders;
+				if (vegPreZ)
+					vegPreZ = AnyPreZVisible(packet);
+				if (vegPreZ)
+				{
+					preZShaders = FetchPreZDepthShaders(this);
+					// No depth variants at all (legacy pipeline JSON):
+					// fall back to the plain single-phase draw.
+					vegPreZ = preZShaders.Plain != nullptr || preZShaders.Inst != nullptr;
+				}
+				if (vegPreZ)
+				{
+					FURY_ZONE_NAMED("VegPreZ");
+					glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+					glDepthFunc(GL_LESS);
+					glDepthMask(GL_TRUE);
+					for (const auto &unit : packet.opaqueUnits)
+						DrawUnit(pass, unit, packet, -1, &preZShaders);
+					DrawInstancedUnits(pass, packet, PreZFilter::Flagged, &preZShaders);
+					glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+				}
+
+				// Main phase: non-flagged units keep LESS + depth write
+				// (they also early-out against the seeded foliage depth).
 				for (const auto &unit : packet.opaqueUnits)
+				{
+					if (vegPreZ && !unit.billboard && unit.material && unit.material->GetPreZ())
+						continue;
 					DrawUnit(pass, unit, packet);
-				DrawInstancedUnits(pass, packet);
+				}
+				DrawInstancedUnits(pass, packet,
+					vegPreZ ? PreZFilter::Unflagged : PreZFilter::None, nullptr);
+
+				// EQUAL reuse: shade the front-most foliage layer only.
+				if (vegPreZ)
+				{
+					glDepthFunc(GL_EQUAL);
+					glDepthMask(GL_FALSE);
+					for (const auto &unit : packet.opaqueUnits)
+					{
+						if (unit.billboard || !unit.material || !unit.material->GetPreZ())
+							continue;
+						DrawUnit(pass, unit, packet);
+					}
+					DrawInstancedUnits(pass, packet, PreZFilter::Flagged, nullptr);
+					glDepthFunc(GL_LESS);
+					glDepthMask(GL_TRUE);
+				}
 			}
 			else if (drawMode == DrawMode::TRANSPARENT)
 			{
@@ -948,6 +1076,21 @@ namespace
 			}
 			else if (drawMode == DrawMode::QUAD)
 			{
+				// The combine pass owns sky LUT/cloud rendering: it is the
+				// first consumer (aerial perspective + cloud composite) and
+				// the renders bind their own FBOs, so run before pass bind.
+				if (packet.hdrMode && packet.sky.valid && packet.sky.enabled && packet.sky.owner
+					&& pass->GetName() == "pass_combine")
+				{
+					int rtw = 1280, rth = 720;
+					if (pass->GetTextureCount(false) > 0 && pass->GetTextureAt(0, false) != nullptr)
+					{
+						rtw = pass->GetTextureAt(0, false)->GetWidth();
+						rth = pass->GetTextureAt(0, false)->GetHeight();
+					}
+					packet.sky.owner->EnsureLutsRender(packet.sky.params, packet.camera,
+						rtw, rth, GetTextureByName("gbuffer_depth"), packet.frameIndex);
+				}
 				pass->Bind();
 				DrawQuad(pass, packet);
 			}
@@ -1114,7 +1257,7 @@ namespace
 	}
 
 	void PrelightPipeline::DrawUnitCached(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
-		FramePacket &packet)
+		FramePacket &packet, const PreZDepthShaders *preZShaders)
 	{
 		auto material = unit.material;
 		auto mesh = unit.mesh;
@@ -1125,19 +1268,41 @@ namespace
 			^ (static_cast<std::uint64_t>(drawSubMesh + 1) << 48)
 			^ (static_cast<std::uint64_t>(pass->GetRenderIndex() & 0xff) << 40)
 			^ (static_cast<std::uint64_t>(unit.lodIndex & 0xff) << 56);
-		auto &cmd = m_DrawCommandCache[key];
+		// Pre-z entries cache separately: same key shape, depth shaders.
+		auto &cache = preZShaders ? m_PreZDrawCommandCache : m_DrawCommandCache;
+		auto &cmd = cache[key];
 
 		if (cmd.shader == nullptr || cmd.material != material || cmd.mesh != mesh
 			|| cmd.materialVersion != material->GetRenderVersion())
 		{
 			++m_CacheRebuilds;
 
-			auto shader = ResolveUnitShader(pass, material, mesh, billboard, false);
-			if (shader == nullptr)
+			const bool wind = material->GetWindEnabled();
+			std::shared_ptr<Shader> shader;
+			if (preZShaders != nullptr)
 			{
-				FURYW << "Failed to draw unit " << unit.nodeKey << ", shader not found!";
-				cmd = DrawCommand();
-				return;
+				// Depth-only pre-phase: the prez_depth_* variants, same
+				// alpha-test/wind inputs as the gbuffer draw so the
+				// displacement and linear depth match bit-for-bit.
+				const bool alphaTest = material->GetAlphaMode() == AlphaMode::MASK &&
+					material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
+				shader = preZShaders->Pick(false, alphaTest, wind);
+				if (shader == nullptr)
+				{
+					FURYW << "Failed to draw pre-z unit " << unit.nodeKey << ", shader not found!";
+					cmd = DrawCommand();
+					return;
+				}
+			}
+			else
+			{
+				shader = ResolveUnitShader(pass, material, mesh, billboard, false);
+				if (shader == nullptr)
+				{
+					FURYW << "Failed to draw unit " << unit.nodeKey << ", shader not found!";
+					cmd = DrawCommand();
+					return;
+				}
 			}
 
 			cmd = DrawCommand();
@@ -1147,7 +1312,11 @@ namespace
 			cmd.materialVersion = material->GetRenderVersion();
 			cmd.subMesh = drawSubMesh;
 			cmd.cullOff = material->GetTwoSided() || billboard;
-			cmd.wind = (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
+			// Depth variants carry no texture flags -- wind comes from the
+			// material so u_time/u_wind_params patch identically to the
+			// gbuffer draw (EQUAL reuse depends on it).
+			cmd.wind = preZShaders ? wind :
+				(shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
 			cmd.alphaCutoff = material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f;
 
 			for (const auto &kv : material->GetTextures())
@@ -1230,12 +1399,28 @@ namespace
 	}
 
 	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
-		FramePacket &packet, int lightIndex)
+		FramePacket &packet, int lightIndex, const PreZDepthShaders *preZShaders)
 	{
 		auto material = unit.material;
 		auto mesh = unit.mesh;
 		if (!mesh || !material)
 			return;
+
+		// Depth-only pre-phase entry: flagged non-billboard units only,
+		// drawn with the depth shader variants (callers gate the pass
+		// on the same predicate, this just skips stragglers).
+		if (preZShaders != nullptr)
+		{
+			if (!material->GetPreZ() || unit.billboard)
+				return;
+			if (!mesh->IsSkinnedMesh())
+			{
+				DrawUnitCached(pass, unit, packet, preZShaders);
+				return;
+			}
+			DrawUnitPreZ(pass, unit, packet, *preZShaders);
+			return;
+		}
 
 		// Static opaque / transparent-base draws go through the
 		// draw-command cache; skinned units and per-light additive
@@ -1454,7 +1639,60 @@ namespace
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet)
+	void PrelightPipeline::DrawUnitPreZ(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+		FramePacket &packet, const PreZDepthShaders &shaders)
+	{
+		auto material = unit.material;
+		auto mesh = unit.mesh;
+		const bool skinned = mesh->IsSkinnedMesh();
+		const bool alphaTest = material->GetAlphaMode() == AlphaMode::MASK &&
+			material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
+		const bool wind = material->GetWindEnabled();
+
+		auto shader = shaders.Pick(skinned, alphaTest, wind);
+		if (shader == nullptr)
+			return;
+
+		shader->Bind();
+		shader->BindCameraData(packet.camera);
+		// Same material bindings as the gbuffer draw: the depth discard
+		// (diffuse alpha x transparency vs cutoff) must match exactly.
+		shader->BindMaterial(material);
+		shader->BindFloat("u_alpha_cutoff", alphaTest ? material->GetAlphaCutoff() : -1.0f);
+		if (wind)
+		{
+			shader->BindFloat("u_time", packet.engineTime);
+			shader->BindFloat("u_wind_params", packet.windParams.x, packet.windParams.y,
+				packet.windParams.z, packet.windParams.w);
+		}
+		shader->BindMatrix(Matrix4::WORLD_MATRIX, skinned ? Matrix4() : unit.worldMatrix);
+		if (skinned)
+			shader->BindMesh(mesh, unit.skinPalette.data(), static_cast<int>(unit.skinPalette.size()));
+		else
+			shader->BindMesh(mesh);
+
+		const bool cullOff = material->GetTwoSided();
+		if (cullOff)
+			glDisable(GL_CULL_FACE);
+
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<GLsizei>(mesh->Indices.Data.size()));
+
+		if (cullOff && pass->GetCullMode() != CullMode::NONE)
+		{
+			glEnable(GL_CULL_FACE);
+			glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
+		}
+
+		if (skinned)
+			RenderUtil::Instance()->IncreaseSkinnedMeshCount();
+		else
+			RenderUtil::Instance()->IncreaseMeshCount();
+		RenderUtil::Instance()->IncreaseDrawCall();
+	}
+
+	void PrelightPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet,
+		PreZFilter filter, const PreZDepthShaders *preZShaders)
 	{
 		if (packet.instanced.empty())
 			return;
@@ -1489,10 +1727,31 @@ namespace
 					if (material == nullptr)
 						continue;
 
+					// Pre-z phase split: flagged materials skip the main
+					// phase (they come back at EQUAL); billboard tiers never
+					// participate (single quads, negligible overdraw).
+					if (filter != PreZFilter::None)
+					{
+						const bool flagged = material->GetPreZ();
+						if (batch.Billboard || (filter == PreZFilter::Flagged) != flagged)
+							continue;
+					}
+
 					// Cache-off escape hatch: straight to the uncached path.
 					if (!kDrawCmdCache)
 					{
-						auto shader = ResolveUnitShader(pass, material, tierMesh, batch.Billboard, false);
+						const bool wind = material->GetWindEnabled();
+						std::shared_ptr<Shader> shader;
+						if (preZShaders != nullptr)
+						{
+							const bool alphaTest = material->GetAlphaMode() == AlphaMode::MASK &&
+								material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
+							shader = preZShaders->PickInstanced(alphaTest, wind);
+						}
+						else
+						{
+							shader = ResolveUnitShader(pass, material, tierMesh, batch.Billboard, false);
+						}
 						if (shader == nullptr)
 							continue;
 						shader->Bind();
@@ -1500,7 +1759,9 @@ namespace
 						shader->BindMaterial(material);
 						shader->BindFloat("u_alpha_cutoff",
 							material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
-						if (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND)
+						const bool windActive = preZShaders != nullptr ? wind :
+							(shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
+						if (windActive)
 						{
 							shader->BindFloat("u_time", packet.engineTime);
 							shader->BindFloat("u_wind_params", packet.windParams.x, packet.windParams.y,
@@ -1524,49 +1785,68 @@ namespace
 						^ (static_cast<std::uint64_t>(sm + 1) << 40)
 						^ (static_cast<std::uint64_t>(pass->GetRenderIndex() & 0xff) << 48)
 						^ (useSSBO ? (1ull << 56) : 0);
-					auto &cmd = m_DrawCommandCache[key];
+					// Pre-z entries cache separately: same key, depth shaders.
+					auto &cache = preZShaders ? m_PreZDrawCommandCache : m_DrawCommandCache;
+					auto &cmd = cache[key];
 
 					if (cmd.shader == nullptr || cmd.material != material || cmd.mesh != tierMesh
 						|| cmd.materialVersion != material->GetRenderVersion())
 					{
 						++m_CacheRebuilds;
 
-						unsigned int textureFlags = material->GetTextureFlags();
-						if (material->GetAlphaMode() == AlphaMode::MASK)
-							textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
-						if (material->GetTwoSided())
-							textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
-						if (material->GetWindEnabled())
-							textureFlags |= (unsigned int)ShaderTexture::WIND;
-						if (batch.Billboard)
-							textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
-								(unsigned int)ShaderTexture::TWO_SIDED |
-								(unsigned int)ShaderTexture::ALPHA_TEST;
-						textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
-						if (useSSBO)
-							textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
-
-						// Fallback order: drop the SSBO bit (divisor variant of
-						// the same shader), then wind, then the remaining
-						// vegetation bits. INSTANCED is never dropped -- a
-						// non-instanced shader would draw the whole batch at
-						// one transform.
-						auto shader = pass->GetShader(ShaderType::STATIC_MESH, textureFlags);
-						if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::INSTANCE_SSBO))
-							shader = pass->GetShader(ShaderType::STATIC_MESH,
-								textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO);
-						if (shader == nullptr)
-							shader = pass->GetShader(ShaderType::STATIC_MESH,
-								textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO & ~(unsigned int)ShaderTexture::WIND);
-						if (shader == nullptr)
-							shader = pass->GetShader(ShaderType::STATIC_MESH,
-								textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO &
-									~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
-						if (shader == nullptr)
+						const bool windMat = material->GetWindEnabled();
+						std::shared_ptr<Shader> shader;
+						if (preZShaders != nullptr)
 						{
-							FURYW << "Failed to draw instanced " << pk.nodeKey << ", shader not found!";
-							cmd = DrawCommand();
-							continue;
+							const bool alphaTest = material->GetAlphaMode() == AlphaMode::MASK &&
+								material->GetTexture(Material::DIFFUSE_TEXTURE) != nullptr;
+							shader = preZShaders->PickInstanced(alphaTest, windMat);
+							if (shader == nullptr)
+							{
+								FURYW << "Failed to draw instanced pre-z " << pk.nodeKey << ", shader not found!";
+								cmd = DrawCommand();
+								continue;
+							}
+						}
+						else
+						{
+							unsigned int textureFlags = material->GetTextureFlags();
+							if (material->GetAlphaMode() == AlphaMode::MASK)
+								textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
+							if (material->GetTwoSided())
+								textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
+							if (material->GetWindEnabled())
+								textureFlags |= (unsigned int)ShaderTexture::WIND;
+							if (batch.Billboard)
+								textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
+									(unsigned int)ShaderTexture::TWO_SIDED |
+									(unsigned int)ShaderTexture::ALPHA_TEST;
+							textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
+							if (useSSBO)
+								textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
+
+							// Fallback order: drop the SSBO bit (divisor variant of
+							// the same shader), then wind, then the remaining
+							// vegetation bits. INSTANCED is never dropped -- a
+							// non-instanced shader would draw the whole batch at
+							// one transform.
+							shader = pass->GetShader(ShaderType::STATIC_MESH, textureFlags);
+							if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::INSTANCE_SSBO))
+								shader = pass->GetShader(ShaderType::STATIC_MESH,
+									textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO);
+							if (shader == nullptr)
+								shader = pass->GetShader(ShaderType::STATIC_MESH,
+									textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO & ~(unsigned int)ShaderTexture::WIND);
+							if (shader == nullptr)
+								shader = pass->GetShader(ShaderType::STATIC_MESH,
+									textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO &
+										~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
+							if (shader == nullptr)
+							{
+								FURYW << "Failed to draw instanced " << pk.nodeKey << ", shader not found!";
+								cmd = DrawCommand();
+								continue;
+							}
 						}
 
 						cmd = DrawCommand();
@@ -1576,7 +1856,10 @@ namespace
 						cmd.materialVersion = material->GetRenderVersion();
 						cmd.subMesh = subCount > 0 ? (int)sm : -1;
 						cmd.cullOff = material->GetTwoSided() || batch.Billboard;
-						cmd.wind = (shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
+						// Depth variants carry no texture flags -- wind comes
+						// from the material so the patch matches the gbuffer.
+						cmd.wind = preZShaders != nullptr ? windMat :
+							(shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
 						cmd.alphaCutoff = material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f;
 
 						for (const auto &kv : material->GetTextures())
@@ -1963,6 +2246,18 @@ namespace
 			shader->BindTexture("u_ap_volume", GetDummyTexture3D());
 		}
 
+		// Volumetric cloud composite over opaque pixels (sky pixels are
+		// composited again in pass_sky, which overwrites them anyway). Bound
+		// post-EnsureLutsRender on this thread, so the target is current.
+		{
+			const bool cloudOn = packet.hdrMode && packet.sky.valid && packet.sky.enabled
+				&& packet.sky.params.cloudsEnabled && packet.sky.owner
+				&& packet.sky.owner->GetCloudTarget() != nullptr;
+			shader->BindInt("u_clouds_enabled", cloudOn ? 1 : 0);
+			shader->BindTexture("u_cloud_tex", cloudOn
+				? packet.sky.owner->GetCloudTarget() : GetDummyTexture2D());
+		}
+
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
 
 		shader->UnBind();
@@ -1984,8 +2279,18 @@ namespace
 			return;
 
 		// LUT/volume/cloud renders bind their own FBOs, so this runs before
-		// the pass bind.
-		packet.sky.owner->EnsureLutsRender(packet.sky.params, packet.camera);
+		// the pass bind. Combine already called this; per-frame guards make
+		// the repeat cheap (static LUTs re-render only on edit frames).
+		{
+			int rtw = 1280, rth = 720;
+			if (pass->GetTextureCount(false) > 0 && pass->GetTextureAt(0, false) != nullptr)
+			{
+				rtw = pass->GetTextureAt(0, false)->GetWidth();
+				rth = pass->GetTextureAt(0, false)->GetHeight();
+			}
+			packet.sky.owner->EnsureLutsRender(packet.sky.params, packet.camera,
+				rtw, rth, GetTextureByName("gbuffer_depth"), packet.frameIndex);
+		}
 
 		pass->Bind(false);   // never clear: hdr_composite holds the scene
 		shader->Bind();

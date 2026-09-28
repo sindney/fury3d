@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cctype>
@@ -703,6 +704,44 @@ namespace fury
 			glGenerateMipmap(m_TypeUint);
 
 		glBindTexture(m_TypeUint, 0);
+	}
+
+	void Texture::SetPixels3D(const void* pixels)
+	{
+		if (m_ID == 0 || m_Type != TextureType::TEXTURE_3D)
+		{
+			FURYW << "SetPixels3D needs a created TEXTURE_3D!";
+			return;
+		}
+
+		glBindTexture(m_TypeUint, m_ID);
+		glTexSubImage3D(m_TypeUint, 0, 0, 0, 0, m_Width, m_Height, m_Depth, EnumUtil::TextureFormatToUint(m_Format, false).second, GL_UNSIGNED_BYTE, pixels);
+
+		if (m_Mipmap)
+			glGenerateMipmap(m_TypeUint);
+
+		glBindTexture(m_TypeUint, 0);
+	}
+
+	bool Texture::GetPixels(std::vector<unsigned char> &outPixels) const
+	{
+		if (m_ID == 0 || (m_Type != TextureType::TEXTURE_3D && m_Type != TextureType::TEXTURE_2D))
+			return false;
+
+		int channels = 4;
+		switch (EnumUtil::TextureFormatToUint(m_Format, false).second)
+		{
+		case GL_RED: channels = 1; break;
+		case GL_RG: channels = 2; break;
+		case GL_RGB: channels = 3; break;
+		default: break;
+		}
+
+		outPixels.resize(static_cast<size_t>(m_Width) * m_Height * std::max(m_Depth, 1) * channels);
+		glBindTexture(m_TypeUint, m_ID);
+		glGetTexImage(m_TypeUint, 0, EnumUtil::TextureFormatToUint(m_Format, false).second, GL_UNSIGNED_BYTE, outPixels.data());
+		glBindTexture(m_TypeUint, 0);
+		return true;
 	}
 
 	void Texture::UpdateBuffer()

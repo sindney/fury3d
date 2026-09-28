@@ -71,6 +71,10 @@ namespace fury
 		bool IsCascadedShadowMap() const;
 		void SetCascadedShadowMap(bool value);
 
+		// Vegetation pre-z pre-phase in the gbuffer pass (default on).
+		bool IsVegetationPreZ() const;
+		void SetVegetationPreZ(bool value);
+
 		// CSM depth map resolution per cascade (default 1024).
 		int GetCsmMapSize() const;
 		void SetCsmMapSize(int size);
@@ -123,6 +127,7 @@ namespace fury
 		std::string m_PipelinePath;
 		bool m_HDR = false;
 		bool m_CascadedShadowMap = true;
+		bool m_VegetationPreZ = true;
 		int m_CsmMapSize = 2048;
 		float m_ShadowFar = 20000.0f;    // cm; 0 = camera far
 		float m_CsmSplitBlend = 0.7f;    // 0 = linear, 1 = logarithmic

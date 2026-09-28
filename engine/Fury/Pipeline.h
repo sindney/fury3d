@@ -66,6 +66,9 @@ namespace fury
 		// UI; SSAO wins if both are set.
 		SSAO_VIEW,
 		SSR_VIEW,
+		// Vegetation pre-z: PreZ-flagged materials get a depth-only
+		// pre-phase inside the gbuffer pass, then an EQUAL-reuse draw.
+		VEGETATION_PREZ,
 		LENGTH
 	};
 

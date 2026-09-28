@@ -46,6 +46,11 @@ uniform sampler2D gbuffer_depth;
 // transmittance); dummy-bound when no sky is active
 uniform sampler3D u_ap_volume;
 
+// half-res volumetric cloud target (premultiplied), composited here for
+// opaque pixels; pass_sky handles sky-mask pixels. Dummy-bound when off.
+uniform sampler2D u_cloud_tex;
+uniform int u_clouds_enabled = 0;
+
 // Constant ambient floor, same role (and value) as the LDR pipeline's
 // pass_light clearColor [0.01]: a faint lift so unlit regions aren't
 // pure black. Multiplied by albedo so dark surfaces stay dark.
@@ -83,6 +88,14 @@ void main()
 			vec4 ap = texture(u_ap_volume, vec3(out_uv, w));
 			col = col * ap.a + ap.rgb;
 		}
+	}
+
+	// clouds over terrain: the march is clipped at scene depth, so alpha is
+	// per-pixel correct (cloud in front of far terrain shows, behind hides)
+	if (u_clouds_enabled != 0)
+	{
+		vec4 cloud = texture(u_cloud_tex, out_uv);
+		col = cloud.rgb + (1.0 - cloud.a) * col;
 	}
 
 	// Output stays linear HDR (rgba16f) — tonemap + sRGB encode happen

@@ -9,6 +9,11 @@ in vec3 vertex_position;
 in vec2 vertex_uv;
 out vec2 out_uv;
 #endif
+#ifdef LINEAR_DEPTH
+// camera-space linear depth (gbuffer convention): the veg pre-z pre-phase
+// reuses these variants and EQUAL-tests against the gbuffer pass
+out float out_depth;
+#endif
 #ifdef WIND
 in vec4 vertex_color;
 uniform float u_time = 0.0;
@@ -59,7 +64,14 @@ void main()
 #ifdef ALPHA_TEST
 	out_uv = vertex_uv;
 #endif
+#ifdef LINEAR_DEPTH
+	// same expression/associativity as GBuffer.glsl or EQUAL never passes
+	vec4 viewPos = invert_view_matrix * worldPos;
+	out_depth = -viewPos.z;
+	gl_Position = projection_matrix * viewPos;
+#else
 	gl_Position = projection_matrix * invert_view_matrix * worldPos;
+#endif
 }
 
 #endif
@@ -72,6 +84,10 @@ uniform sampler2D diffuse_texture;
 uniform float transparency = 0.0;
 uniform float u_alpha_cutoff = 0.5;
 #endif
+#ifdef LINEAR_DEPTH
+in float out_depth;
+uniform float camera_far = 10000;
+#endif
 
 void main()
 {
@@ -80,6 +96,9 @@ void main()
 	vec4 texel = texture(diffuse_texture, out_uv);
 	if (texel.a * (1.0 - transparency) < u_alpha_cutoff)
 		discard;
+#endif
+#ifdef LINEAR_DEPTH
+	gl_FragDepth = out_depth / camera_far;
 #endif
 	// gl_FragDepth = gl_FragCoord.z;
 }

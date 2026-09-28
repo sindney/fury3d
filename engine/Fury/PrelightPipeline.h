@@ -27,6 +27,41 @@ namespace fury
 
 	struct PacketLight;
 
+	// Depth-only shader variant set for the vegetation pre-z pre-phase:
+	// the prez_depth_* entries (shadow variants with LINEAR_DEPTH so the
+	// EQUAL reuse matches the gbuffer's linear gl_FragDepth). Any variant
+	// may be null (legacy pipeline JSONs lack them) -- Pick falls back.
+	struct PreZDepthShaders
+	{
+		std::shared_ptr<Shader> Plain;
+		std::shared_ptr<Shader> Skin;
+		std::shared_ptr<Shader> AlphaTest;
+		std::shared_ptr<Shader> AlphaTestWind;
+		std::shared_ptr<Shader> Wind;
+		std::shared_ptr<Shader> Inst;
+		std::shared_ptr<Shader> InstAlphaTest;
+		std::shared_ptr<Shader> InstAlphaTestWind;
+		std::shared_ptr<Shader> InstWind;
+
+		std::shared_ptr<Shader> Pick(bool skinned, bool alphaTest, bool wind) const;
+
+		// Null when no instanced variant exists -- the caller skips the
+		// batch then (a non-instanced shader would draw all instances at
+		// one transform).
+		std::shared_ptr<Shader> PickInstanced(bool alphaTest, bool wind) const;
+	};
+
+	// Which materials an instanced draw loop draws. The pre-z pre-phase
+	// uses Flagged (with the depth variant set), the main gbuffer phase
+	// uses Unflagged, then an EQUAL-reuse pass uses Flagged again with
+	// the normal gbuffer shaders.
+	enum class PreZFilter
+	{
+		None,
+		Flagged,
+		Unflagged
+	};
+
 	// Render-thread draw-command cache entry (UE mesh-draw-command lite):
 	// everything DrawUnit/DrawInstancedUnits resolves per draw, cached per
 	// (unit, pass, LOD). Values that change per frame (world matrix, wind
@@ -105,9 +140,11 @@ namespace fury
 
 		// lightIndex is only used by TRANSPARENT passes: -1 draws the
 		// ambient/emissive base, otherwise that packet light's additive
-		// contribution.
+		// contribution. preZShaders switches DrawUnit into the depth-only
+		// pre-phase (flagged materials, depth shader variants).
 		void DrawUnit(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
-			FramePacket &packet, int lightIndex = -1);
+			FramePacket &packet, int lightIndex = -1,
+			const PreZDepthShaders *preZShaders = nullptr);
 
 		void DrawPointLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex);
 
@@ -128,7 +165,11 @@ namespace fury
 		// Instanced (ISM/HISM) draw for the OPAQUE pass: one
 		// glDrawElementsInstanced per (component, LOD tier, submesh).
 		// Batches are built from packet data at the top of ExecutePacket.
-		void DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet);
+		// filter splits the loop for the veg pre-z phases; preZShaders
+		// (Flagged only) draws them with the depth variants.
+		void DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet,
+			PreZFilter filter = PreZFilter::None,
+			const PreZDepthShaders *preZShaders = nullptr);
 
 		// Run the active postprocess chain after the pass loop; the
 		// final effect writes to the default FB / editor RenderTarget
@@ -156,13 +197,22 @@ namespace fury
 
 		// Draw-command cache (render thread): opaque + transparent-base
 		// static draws. Skinned units and per-light additive draws bypass.
+		// The pre-z pre-phase caches in its own map (same key shape) so
+		// depth-shader entries never collide with the gbuffer entries.
 		void DrawUnitCached(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
-			FramePacket &packet);
+			FramePacket &packet, const PreZDepthShaders *preZShaders = nullptr);
+
+		// Depth-only pre-phase draw for skinned PreZ units (the cache
+		// path covers static meshes only).
+		void DrawUnitPreZ(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+			FramePacket &packet, const PreZDepthShaders &shaders);
 
 		void ReplayDrawCommand(DrawCommand &cmd, const std::shared_ptr<Pass> &pass,
 			const Matrix4 *worldMatrix, FramePacket &packet);
 
 		std::unordered_map<std::uint64_t, DrawCommand> m_DrawCommandCache;
+
+		std::unordered_map<std::uint64_t, DrawCommand> m_PreZDrawCommandCache;
 
 		unsigned int m_CacheHits = 0;
 

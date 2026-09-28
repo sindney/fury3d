@@ -100,9 +100,12 @@ namespace fury
 
 		// Vegetation flags. TwoSided: cull off + back-face normal flip.
 		// WindEnabled: vertex-color-weighted sway in the WIND shader variant.
+		// PreZ: alpha-tested depth pre-phase in the gbuffer pass (EQUAL reuse).
 		bool m_TwoSided = false;
 
 		bool m_WindEnabled = false;
+
+		bool m_PreZ = false;
 
 		unsigned int m_ID;
 
@@ -172,6 +175,10 @@ namespace fury
 		bool GetWindEnabled() const { return m_WindEnabled; }
 
 		void SetWindEnabled(bool value) { m_WindEnabled = value; ++m_RenderVersion; }
+
+		bool GetPreZ() const { return m_PreZ; }
+
+		void SetPreZ(bool value) { m_PreZ = value; ++m_RenderVersion; }
 
 		// get this material's unique identifier for rendering.
 		unsigned int GetID() const;

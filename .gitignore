@@ -113,5 +113,10 @@ examples/Projects/*/game_settings.cfg
 # Play-mode temp scenes (editor Play writes <scene dir>/.play_<name>.tmp.bin)
 .play_*.tmp.bin
 
+# Volumetric cloud noise cache (SkyAtmosphere generates at load, does
+# glTexSubImage#get... readback, cache file). Set per-machine.
+cloud_noise_*.bin
+examples/Cache/**
+
 # ASAN scratch build dir
 /build-asan/

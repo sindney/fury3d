@@ -44,6 +44,7 @@
 #include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/SkyAtmosphere.h"
 #include "Fury/InstancedMeshRender.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
@@ -2702,6 +2703,26 @@ void RenderViewportToolbar() {
 	static bool lod_debug_on = false;
 	static bool buoyancy_debug = false;
 
+	// Mirror the active sky's cloud debug view (the inspector changes
+	// it too); a submenu click writes every SkyAtmosphere in the scene.
+	std::vector<std::shared_ptr<SceneNode>> skyNodes;
+	if (Scene::Active && Scene::Active->GetRootNode())
+	{
+		std::function<void(const std::shared_ptr<SceneNode> &)> walk =
+			[&](const std::shared_ptr<SceneNode> &node)
+		{
+			if (!node) return;
+			if (node->GetComponent<SkyAtmosphere>()) skyNodes.push_back(node);
+			for (unsigned int i = 0; i < node->GetChildCount(); i++)
+				walk(node->GetChildAt(i));
+		};
+		walk(Scene::Active->GetRootNode());
+	}
+	int sky_debug = 0;
+	if (!skyNodes.empty())
+		if (auto sky = skyNodes.front()->GetComponent<SkyAtmosphere>())
+			sky_debug = std::clamp(sky->GetCloudDebugMode(), 0, 2);
+
 	// Mirror the first ocean's debugView (the inspector can change it
 	// too); a submenu click writes every ocean in the scene.
 	std::vector<std::shared_ptr<SceneNode>> oceanNodes;
@@ -2742,6 +2763,7 @@ void RenderViewportToolbar() {
 		"Off", "Foam Mask", "Displacement Heatmap", "Ring Wireframe"
 	};
 	static const char* kPostFxViews[] = { "Off", "SSAO View", "SSR View" };
+	static const char* kSkyViews[] = { "Off", "Cloud Step Count", "Cloud Transmittance" };
 
 	// Preview: the active pieces joined, or "(none)".
 	std::string preview;
@@ -2801,6 +2823,20 @@ void RenderViewportToolbar() {
 				if (ImGui::Selectable(kPostFxViews[i], postfx_view == i,
 									  ImGuiSelectableFlags_DontClosePopups))
 					postfx_view = i;
+			}
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Sky", !skyNodes.empty())) {
+			for (int i = 0; i < 3; ++i) {
+				if (ImGui::Selectable(kSkyViews[i], sky_debug == i,
+									  ImGuiSelectableFlags_DontClosePopups)) {
+					for (auto &n : skyNodes) {
+						if (auto sky = n->GetComponent<SkyAtmosphere>()) {
+							sky->SetCloudDebugMode(i);
+							Editor::MarkSceneDirty();
+						}
+					}
+				}
 			}
 			ImGui::EndMenu();
 		}

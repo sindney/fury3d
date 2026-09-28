@@ -1278,13 +1278,16 @@ static void KrautImportPostprocess(
 	}
 
 	// Foliage flags on all kraut tree materials: wind everywhere (trunk
-	// weights are ~0 at the base but branches sway), two-sided on MASK
-	// (leaf/frond cutouts).
+	// weights are ~0 at the base but branches sway), two-sided + pre-z on
+	// MASK (leaf/frond cutouts).
 	for (auto& mat : materials)
 	{
 		mat->SetWindEnabled(true);
 		if (mat->GetAlphaMode() == AlphaMode::MASK)
+		{
 			mat->SetTwoSided(true);
+			mat->SetPreZ(true);
+		}
 	}
 
 	// Canopy-normal bend: kraut leaf cards carry horizontal (card-plane)
