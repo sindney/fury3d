@@ -44,6 +44,7 @@
 #include <Fury/Fury.h>
 #include <Fury/GLLoader.h>
 #include <Fury/Gui.h>
+#include <Fury/Log.h>
 #include <Fury/LuaBindings.h>
 #include <Fury/PhysicsWorld.h>
 #include <Fury/RenderThread.h>
@@ -53,6 +54,63 @@
 #undef max
 #undef LoadString
 #undef LoadImage
+
+#if PLATFORM_WINDOWS
+#include <windows.h>
+// Last-resort crash handler: Log<0> may or may not be live (it isn't on
+// startup crashes, and is torn down during static destruction), so mirror
+// the dump to stderr unconditionally and to the engine log when available.
+static LONG WINAPI DumpHandler(EXCEPTION_POINTERS *ep) {
+	auto writeHeader = [](FILE *f, EXCEPTION_POINTERS *ep) {
+		fprintf(f, "Exception 0x%lx at 0x%p\n", ep->ExceptionRecord->ExceptionCode, ep->ExceptionRecord->ExceptionAddress);
+		fprintf(f, "RIP=0x%llx RSP=0x%llx RBP=0x%llx\n",
+			(unsigned long long)ep->ContextRecord->Rip,
+			(unsigned long long)ep->ContextRecord->Rsp,
+			(unsigned long long)ep->ContextRecord->Rbp);
+	};
+	auto writeStack = [](FILE *f) {
+		fprintf(f, "Stack (RtlCaptureStackBackTrace):\n");
+		void *frames[40] = {};
+		USHORT got = RtlCaptureStackBackTrace(0, 40, frames, NULL);
+		for (USHORT i = 0; i < got; ++i) {
+			DWORD64 a = (DWORD64)frames[i];
+			if (!a) break;
+			HMODULE m = NULL;
+			GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				(LPCSTR)a, &m);
+			DWORD64 off = m ? (a - (DWORD64)m) : 0;
+			fprintf(f, "#%2u 0x%llx (mod+0x%llx)\n", i, a, off);
+		}
+	};
+
+	// Engine log first -- gets the formatted [EROR] prefix and lands in
+	// the log file too if Log<0> was set up with file output.
+	if (fury::Log<0>::Instance())
+	{
+		FURYE << "Unhandled exception 0x" << std::hex << ep->ExceptionRecord->ExceptionCode
+			<< " at 0x" << ep->ExceptionRecord->ExceptionAddress << std::dec;
+		writeStack(stderr);
+	}
+	else
+	{
+		fprintf(stderr, "[EROR][DumpHandler] Unhandled exception: ");
+		writeHeader(stderr, ep);
+		writeStack(stderr);
+	}
+
+	// Plain-text dump alongside the binary for post-mortem symbol lookup.
+	FILE *f = fopen("crash_trace.txt", "w");
+	if (f)
+	{
+		writeHeader(f, ep);
+		writeStack(f);
+		fclose(f);
+	}
+
+	fflush(stdout); fflush(stderr);
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 
 namespace
 {
@@ -225,6 +283,9 @@ namespace
 
 int main(int argc, char *argv[])
 {
+#if PLATFORM_WINDOWS
+	SetUnhandledExceptionFilter(DumpHandler);
+#endif
 #if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
 	// `furye-cli render-mesh` needs a GL context, so set up the window + engine here
 	// and delegate to Cli::RenderMesh. Headless-by-default, windowed on demand.

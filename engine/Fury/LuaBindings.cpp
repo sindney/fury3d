@@ -1321,15 +1321,12 @@ namespace fury
 				"SetShadowFar", &RenderSettings::SetShadowFar,
 				"GetCsmSplitBlend", &RenderSettings::GetCsmSplitBlend,
 				"SetCsmSplitBlend", &RenderSettings::SetCsmSplitBlend,
-				"GetChain", [&lua](RenderSettings &self) {
-					// Hand back a Lua table of { effectName, enabled }
-					// entries. sol2's binding for std::vector<struct>
-					// doesn't expose field access cleanly, so we
-					// marshal manually.
+				"GetChain", [lua_state = lua.lua_state()](RenderSettings &self) {
+					sol::state_view sv(lua_state);
 					const auto &c = self.GetChain();
-					sol::table out = lua.create_table();
+					sol::table out = sv.create_table();
 					for (size_t i = 0; i < c.size(); ++i) {
-						sol::table e = lua.create_table();
+						sol::table e = sv.create_table();
 						e["effectName"] = c[i].effectName;
 						e["enabled"] = c[i].enabled;
 						out[static_cast<int>(i + 1)] = e;
@@ -1356,10 +1353,11 @@ namespace fury
 			// Read-only view of the launcher's --flags for scripts:
 			//   Launcher.GetFlag("auto_confirm") / ("auto_focus")
 			sol::table launcher_tbl = lua.create_named_table("Launcher");
-			launcher_tbl["GetFlag"] = [&lua](const std::string &name) -> sol::object {
+			launcher_tbl["GetFlag"] = [lua_state = lua.lua_state()](const std::string &name) -> sol::object {
+				sol::state_view sv(lua_state);
 				if (!s_launcher_options) return sol::nil;
-				if (name == "auto_confirm") return sol::make_object(lua, s_launcher_options->auto_confirm);
-				if (name == "auto_focus") return sol::make_object(lua, s_launcher_options->auto_focus);
+				if (name == "auto_confirm") return sol::make_object(sv, s_launcher_options->auto_confirm);
+				if (name == "auto_focus") return sol::make_object(sv, s_launcher_options->auto_focus);
 				return sol::nil;
 			};
 
@@ -1370,12 +1368,11 @@ namespace fury
 			pp_tbl["Clear"] = []() {
 				fury::PostProcessRegistry::Clear();
 			};
-			pp_tbl["GetAll"] = [&lua]() {
+			pp_tbl["GetAll"] = [lua_state = lua.lua_state()]() {
+				sol::state_view sv(lua_state);
 				std::vector<fury::PostProcessEffect::Ptr> all =
 					fury::PostProcessRegistry::GetAll();
-				// Marshal to a Lua table; capture by ref so the
-				// closure can reach the lua_State.
-				sol::table out = lua.create_table();
+				sol::table out = sv.create_table();
 				int i = 1;
 				for (auto &e : all) {
 					out[i++] = e;
@@ -1418,8 +1415,9 @@ namespace fury
 			// files (leading '.') and subdirectories are excluded. Returns
 			// a Lua array of relative filenames (no path prefix). Empty array
 			// on missing path (with a warning logged).
-			fu_tbl["ListDirectory"] = [&lua](const std::string &path, sol::object filter_obj) {
-				sol::table out = lua.create_table();
+			fu_tbl["ListDirectory"] = [lua_state = lua.lua_state()](const std::string &path, sol::object filter_obj) {
+				sol::state_view sv(lua_state);
+				sol::table out = sv.create_table();
 				std::vector<std::string> filters;
 				if (filter_obj.valid() && filter_obj.get_type() == sol::type::table)
 				{
@@ -1552,7 +1550,8 @@ namespace fury
 			// .gltf/.glb (LoadGltf), .fbx (LoadFbx). Anything else -> nil.
 			// Optional 2nd arg: normal generation mode "smooth" (default) or
 			// "flat" (gltf/fbx only; native scenes ignore it).
-			importer_tbl["LoadScene"] = [&lua](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
+			importer_tbl["LoadScene"] = [lua_state = lua.lua_state()](const std::string &path, sol::optional<std::string> normal_mode) -> std::shared_ptr<Scene> {
+				sol::state_view sv(lua_state);
 				auto dot = path.find_last_of('.');
 				std::string ext = (dot == std::string::npos) ? "" : path.substr(dot);
 				std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -1594,9 +1593,9 @@ namespace fury
 					return ok ? scene : nullptr;
 				}
 				if (ext == ".gltf" || ext == ".glb")
-					return lua["Importer"]["LoadGltf"](path, normal_mode);
+					return sv["Importer"]["LoadGltf"](path, normal_mode);
 				if (ext == ".fbx")
-					return lua["Importer"]["LoadFbx"](path, normal_mode);
+					return sv["Importer"]["LoadFbx"](path, normal_mode);
 				FURYW << "Importer.LoadScene: unsupported extension '" << ext << "'";
 				return nullptr;
 			};
