@@ -475,6 +475,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorParticleWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPicking.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorRenderJobs.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSceneNodePicker.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSelectionViz.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorSkyWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorTerrainWindow.cpp

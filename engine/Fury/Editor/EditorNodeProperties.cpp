@@ -10,6 +10,7 @@
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
 #include "Fury/Editor/EditorAssetPicker.h"
+#include "Fury/Editor/EditorSceneNodePicker.h"
 #include "Fury/Editor/EditorParticleWindow.h"
 #include "Fury/Editor/EditorBodySetupWindow.h"
 #include "Fury/Editor/EditorSkyWindow.h"
@@ -1041,12 +1042,25 @@ void RenderFreeFlyControllerBody(SceneNode* node, FreeFlyController* ctrl) {
 	char buf[256];
 	strncpy(buf, ctrl->GetCameraNodeName().c_str(), sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = '\0';
-	if (ImGui::InputText("Camera Node", buf, sizeof(buf))) {
-		ctrl->SetCameraNodeName(buf);
-		Editor::MarkSceneDirty();
-	}
-	if (ctrl->GetCameraNodeName().empty())
-		ImGui::TextDisabled("(empty = drive the owning node)");
+	// kFreeFlyCameraPopup is a globally-unique ImGui id; distinct from
+	// kCharacterCameraPopup so the per-popup state maps don't alias.
+	static constexpr const char* kFreeFlyCameraPopup = "PickFreeFlyCameraNode";
+	EditorUi::FieldRowWithButton("Camera Node", 220.0f, "...",
+		[]{ ImGui::OpenPopup(kFreeFlyCameraPopup); },
+		[&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::InputText("##camnode", buf, sizeof(buf))) {
+				ctrl->SetCameraNodeName(buf);
+				Editor::MarkSceneDirty();
+			}
+		},
+		"Empty = drive the owning node");
+	Editor::RenderSceneNodePickerModal(kFreeFlyCameraPopup, "Pick Camera Node",
+		typeid(Camera),
+		[ctrl](std::shared_ptr<SceneNode> n) {
+			ctrl->SetCameraNodeName(n ? n->GetName() : std::string());
+			Editor::MarkSceneDirty();
+		});
 
 	float speed = ctrl->GetMoveSpeed();
 	if (ImGui::DragFloat("Move Speed (cm/s)", &speed, 1.0f, 1.0f, 100000.0f)) {
@@ -1071,10 +1085,25 @@ void RenderCharacterControllerBody(SceneNode* node, CharacterController* ctrl) {
 	char buf[256];
 	strncpy(buf, ctrl->GetCameraNodeName().c_str(), sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = '\0';
-	if (ImGui::InputText("Camera Node", buf, sizeof(buf))) {
-		ctrl->SetCameraNodeName(buf);
-		Editor::MarkSceneDirty();
-	}
+	// kCharacterCameraPopup is a globally-unique ImGui id; distinct from
+	// kFreeFlyCameraPopup so the per-popup state maps don't alias.
+	static constexpr const char* kCharacterCameraPopup = "PickCharacterCameraNode";
+	EditorUi::FieldRowWithButton("Camera Node", 220.0f, "...",
+		[]{ ImGui::OpenPopup(kCharacterCameraPopup); },
+		[&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::InputText("##camnode", buf, sizeof(buf))) {
+				ctrl->SetCameraNodeName(buf);
+				Editor::MarkSceneDirty();
+			}
+		},
+		"Empty = drive the owning node");
+	Editor::RenderSceneNodePickerModal(kCharacterCameraPopup, "Pick Camera Node",
+		typeid(Camera),
+		[ctrl](std::shared_ptr<SceneNode> n) {
+			ctrl->SetCameraNodeName(n ? n->GetName() : std::string());
+			Editor::MarkSceneDirty();
+		});
 
 	float height = ctrl->GetHeight();
 	if (ImGui::DragFloat("Capsule Height", &height, 1.0f, 1.0f, 100000.0f)) {
@@ -1140,6 +1169,7 @@ void RenderCharacterControllerBody(SceneNode* node, CharacterController* ctrl) {
 }
 
 // SkyAtmosphere: TOD slider + sun binding + cloud/atmosphere params.
+static constexpr const char* kSkySunPopup = "PickSkySunNode";
 void RenderSkyAtmosphereBody(SceneNode* node, SkyAtmosphere* sky) {
 	if (!sky) return;
 
@@ -1182,25 +1212,26 @@ void RenderSkyAtmosphereBody(SceneNode* node, SkyAtmosphere* sky) {
 	char sunName[128];
 	std::strncpy(sunName, sky->GetSunLightName().c_str(), sizeof(sunName) - 1);
 	sunName[sizeof(sunName) - 1] = '\0';
-	{
-		// input + trailing label + Auto-Detect button, all inside the row width
-		const float avail = ImGui::GetContentRegionAvail().x;
-		const float spacing = ImGui::GetStyle().ItemSpacing.x + ImGui::GetStyle().ItemInnerSpacing.x;
-		const float labelW = ImGui::CalcTextSize("Sun Node").x;
-		const float btnW = ImGui::CalcTextSize("Auto-Detect").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-		ImGui::SetNextItemWidth(std::max(80.0f, avail - labelW - btnW - spacing * 2.0f));
-		if (ImGui::InputText("##sunnode", sunName, sizeof(sunName))) {
-			sky->SetSunLightName(sunName);
-			Editor::MarkSceneDirty();
-		}
-		ImGui::SameLine();
-		ImGui::TextUnformatted("Sun Node");
-		ImGui::SameLine();
-		if (ImGui::Button("Auto-Detect")) {
-			if (sky->AutoSelectSunLight())
+	// kSkySunPopup is a globally-unique ImGui id; the picker keeps per-id
+	// state, so reusing it elsewhere would alias selection.
+	EditorUi::FieldRowWithButton("Sun Node", 220.0f, "...",
+		[]{ ImGui::OpenPopup(kSkySunPopup); },
+		[&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::InputText("##sunnode", sunName, sizeof(sunName))) {
+				sky->SetSunLightName(sunName);
 				Editor::MarkSceneDirty();
-		}
-		EditorUi::HintTooltip("Bind the scene's first directional light as the sun");
+			}
+		},
+		"Bind the scene's first directional light as the sun");
+	Editor::RenderSceneNodePickerModal(kSkySunPopup, "Pick Sun Node", typeid(Light),
+		[sky](std::shared_ptr<SceneNode> n) {
+			sky->SetSunLightName(n ? n->GetName() : std::string());
+			Editor::MarkSceneDirty();
+		});
+	if (ImGui::Button("Auto-Detect")) {
+		if (sky->AutoSelectSunLight())
+			Editor::MarkSceneDirty();
 	}
 
 	// detail settings (clouds/moon/atmosphere coefficients) live in the
@@ -1537,13 +1568,23 @@ void RenderBuoyancyBody(SceneNode* node, BuoyancyComponent* buoyancy) {
 	char oceanName[128];
 	std::strncpy(oceanName, buoyancy->GetOceanNodeName().c_str(), sizeof(oceanName) - 1);
 	oceanName[sizeof(oceanName) - 1] = '\0';
-	EditorUi::FieldRow("Ocean Node", 220.0f, [&](float w) {
-		ImGui::SetNextItemWidth(w);
-		if (ImGui::InputText("##oceanname", oceanName, sizeof(oceanName))) {
-			buoyancy->SetOceanNodeName(oceanName);
+	static constexpr const char* kBuoyancyOceanPopup = "PickBuoyancyOceanNode";
+	EditorUi::FieldRowWithButton("Ocean Node", 220.0f, "...",
+		[]{ ImGui::OpenPopup(kBuoyancyOceanPopup); },
+		[&](float w) {
+			ImGui::SetNextItemWidth(w);
+			if (ImGui::InputText("##oceanname", oceanName, sizeof(oceanName))) {
+				buoyancy->SetOceanNodeName(oceanName);
+				Editor::MarkSceneDirty();
+			}
+		},
+		"Empty = no water; auto-detect at runtime falls back to first OceanComponent in scene");
+	Editor::RenderSceneNodePickerModal(kBuoyancyOceanPopup, "Pick Ocean Node",
+		typeid(OceanComponent),
+		[buoyancy](std::shared_ptr<SceneNode> n) {
+			buoyancy->SetOceanNodeName(n ? n->GetName() : std::string());
 			Editor::MarkSceneDirty();
-		}
-	});
+		});
 
 	// Float-point markers: Debug views dropdown -> "Buoyancy Float Points".
 	ImGui::TextWrapped("Forces tick in play mode only (PhysicsWorld pre-step).");

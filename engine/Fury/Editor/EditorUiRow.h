@@ -2,6 +2,7 @@
 #define _FURY_EDITOR_UI_ROW_H_
 
 #include <algorithm>
+#include <functional>
 
 #include <imgui.h>
 
@@ -76,6 +77,48 @@ namespace EditorUi
 			return;
 		}
 		draw(each);
+		if (label)
+		{
+			ImGui::SameLine();
+			ImGui::TextUnformatted(label);
+			HintTooltip(hint);
+		}
+	}
+
+	// One field + trailing button + label, sharing a row. `fieldWidth` is the
+	// preferred widget width; it is shrunk so [field + label + button] fits
+	// the row. When the panel is too narrow, the label moves above and the
+	// button stays inline with the field (button width is fixed by ImGui).
+	// `onBtnClick` is the popup-open callback the caller closes over.
+	template <typename F>
+	void FieldRowWithButton(const char* label, float fieldWidth,
+							const char* btnLabel,
+							std::function<void()> onBtnClick,
+							F&& draw, const char* hint = nullptr)
+	{
+		const float avail = ImGui::GetContentRegionAvail().x;
+		const float spacing = ImGui::GetStyle().ItemSpacing.x + ImGui::GetStyle().ItemInnerSpacing.x;
+		const float labelW = label ? ImGui::CalcTextSize(label).x + spacing : 0.0f;
+		const float btnW = ImGui::CalcTextSize(btnLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+
+		const float needed = fieldWidth + labelW + btnW + spacing * 2.0f;
+		if (label && needed > avail)
+		{
+			// Wrap: label on top, field + button share the next line.
+			ImGui::TextUnformatted(label);
+			HintTooltip(hint);
+			const float w = std::max(80.0f, avail - btnW - spacing);
+			draw(w);
+			ImGui::SameLine();
+			if (ImGui::Button(btnLabel))
+				if (onBtnClick) onBtnClick();
+			return;
+		}
+		const float w = std::max(80.0f, std::min(fieldWidth, avail - labelW - btnW - spacing * 2.0f));
+		draw(w);
+		ImGui::SameLine();
+		if (ImGui::Button(btnLabel))
+			if (onBtnClick) onBtnClick();
 		if (label)
 		{
 			ImGui::SameLine();

@@ -24,6 +24,7 @@ namespace fury
 			RoseQuartz,
 			Cyberpunk,
 			PaperAndInk,
+			Programmer,
 			Count
 		};
 
