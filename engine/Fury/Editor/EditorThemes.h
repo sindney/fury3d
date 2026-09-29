@@ -12,7 +12,7 @@ namespace fury
 		// table breaks existing imgui.ini files. Append, don't reorder.
 		enum class ETheme : int
 		{
-			Dark = 0,
+			Programmer = 0,
 			ForestGreen,
 			Amethyst,
 			Sapphire,
@@ -24,7 +24,7 @@ namespace fury
 			RoseQuartz,
 			Cyberpunk,
 			PaperAndInk,
-			Programmer,
+			Dark,
 			Count
 		};
 

@@ -1,5 +1,4 @@
 #include "Fury/Editor/EditorThemes.h"
-#include "Fury/Editor/EditorTheme.h"
 
 #include "ImGui/imgui.h"
 
@@ -16,7 +15,7 @@ namespace fury
 		}
 
 		const ThemeEntry kThemes[] = {
-			{"Dark",             &SetupImGuiDarkStyle},
+			{"Programmer",       &SetupImGuiProgrammerStyle},
 			{"Forest Green",     &SetupForestGreenStyle},
 			{"Amethyst",         &SetupImGuiAmethystStyle},
 			{"Sapphire",         &SetupImGuiSapphireStyle},
@@ -28,12 +27,12 @@ namespace fury
 			{"Rose Quartz",      &SetupImGuiRoseQuartzStyle},
 			{"Cyberpunk",        &SetupImGuiCyberpunkStyle},
 			{"Paper And Ink",    &SetupImGuiPaperAndInkStyle},
-			{"Programmer",       &SetupImGuiProgrammerStyle},
+			{"Dark",             &SetupImGuiDarkStyle},
 		};
 
 		const std::size_t kThemesCount = sizeof(kThemes) / sizeof(kThemes[0]);
 
-		static int s_CurrentThemeIndex = (int)ETheme::Programmer;
+		static int s_CurrentThemeIndex = 0;
 
 		void ApplyTheme(ETheme theme)
 		{

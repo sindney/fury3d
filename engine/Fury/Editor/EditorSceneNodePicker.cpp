@@ -235,6 +235,8 @@ void DrawTreeRow(const std::shared_ptr<SceneNode>& node, RenderCtx& ctx) {
 	if (ImGui::IsItemClicked(0) && isMatch && sit != ctx.selectableIndex->end())
 		ctx.state->selectedIndex = sit->second;
 
+	// TreeNode/TreePop must be balanced regardless of nodeOpen (ImGui pushes
+	// an ID for every TreeNode and pops it only via TreePop).
 	if (nodeOpen && hasVisibleChildren) {
 		for (unsigned int i = 0; i < node->GetChildCount(); ++i) {
 			auto c = node->GetChildAt(i);
@@ -242,8 +244,8 @@ void DrawTreeRow(const std::shared_ptr<SceneNode>& node, RenderCtx& ctx) {
 			if (NodeOrDescendantMatches(c, *ctx.matches))
 				DrawTreeRow(c, ctx);
 		}
-		ImGui::TreePop();
 	}
+	ImGui::TreePop();
 
 	ImGui::PopID();
 }
