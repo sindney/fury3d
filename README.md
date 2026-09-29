@@ -20,6 +20,7 @@ Works on Windows and macOS. Designed for study — the editor, importers, and sh
 * **C++17** smart pointers, **`sol2 + Lua 5.4`** scripting bridge.
 * **JSON-configurable pipelines** — every pass, every shader variant, every uniform lives in a `.json` next to the runtime.
 * **Editor (ImGui + ImGuizmo)** — Scene Inspector, Content Browser, Node Properties, viewport gizmo, native file dialogs, configurable dock layout, persisted across launches.
+* **Game UI (RmlUi)** — the in-game runtime UI is RmlUi: RML documents (an HTML subset) styled with RCSS (flexbox, absolute positioning, pseudo-classes, transitions, font effects, ninepatch decorators) and driven from Lua via event listeners and data binding. Rendering rides the render thread's frame packet. See [docs/GAME_UI.md](docs/GAME_UI.md).
 * **CLI** — `fury convert gltf|fbx|scene` translates assets to the runtime form (json or LZ4-compressed bin) with `--auto-scale` for centimetre-native meshes.
 * **glTF 2.0 importer** — vendored `tinygltf`, with alpha-mode (OPAQUE/MASK/BLEND) and KHR_materials_transmission mapping. FBX input is chained through `FBX2glTF` + the glTF importer.
 * **HDR rendering pipeline** — `RGBA16F` intermediate composite, ACES tonemap, automatic chain ordering.
@@ -33,26 +34,35 @@ Works on Windows and macOS. Designed for study — the editor, importers, and sh
 * **Render thread** — a dedicated GL thread pulls `FramePacket` snapshots off the game thread; draw-command cache deduplicates identical packets to skip the entire frame.
 * **Kraut vegetation** — vendor of `kraut` (pinned fork) for billboard-atlas trees + ISM/HISM instancing; grass layer generated from heightmap/splat gates; editor clipper instance list + LOD bucket overlay.
 * **Atmospheric sky** — Rayleigh + Mie single-scattering with sun direction; depth fog and horizon blend driven by the sky shader.
+* **Volumetric clouds** — raymarched, wind-scrolled Perlin-Worley noise (generated at load through fragment passes, cached to disk) shaped by a 2D weather map into stratus / cumulus / cumulonimbus profiles, with detail erosion. Marched on a curved-earth shell between the cloud base and top so clouds sink toward the horizon, with a two-LOD step schedule and an early exit on transmittance. Lighting is Beer + Powder in-scatter over 6 cone-sampled sun-transmittance taps and a two-lobe Henyey-Greenstein phase for the silver lining; ambient reuses the march's coarse sample and is tinted by the sky, so clouds follow the time of day. Rendered at half resolution, clipped against scene depth, composited over the sky, and skipped entirely when disabled.
 * **Heightmap terrain** — 16-bit `.r16` height fields with chunk LOD + splat-blend shader; CPU-driven physics heightfield collider.
 * **FFT ocean** — tiled ring-LOD infinite ocean + CPU-driven FFT wave sampling (Gerstner bands), sky-coupled foam, reflection-via-SSR.
 
 ## Screenshots
 
-![HDR PBR tank fleet with postprocess chain (SSAO, SSR, ACES, FXAA, CRT) — Settings panel on the right showing per-effect toggles and Edit dialog; Profiler GBuffer tabs below.](screenshots/tank.png)
+![Tank fleet in the editor viewport with a translate gizmo on the selected tank; Node Properties shows the MeshRender material slots, Scene Inspector and Content Browser docked around it.](screenshots/editor_lighting.png)
 
-*Tank fleet rendered with HDR PBR + cascaded shadow maps + the full postprocess chain. Settings panel toggles each effect and opens per-effect uniform-override dialogs; Profiler window shows the GBuffer's normal + diffuse blits.*
+*Tank fleet under HDR PBR + cascaded shadow maps, inside the editor. The Scene Inspector tree, the translate gizmo, the MeshRender material slots in Node Properties.*
 
-![SSR reflection of trees and a wooden fence on a wet outdoor ground — postprocess chain visible to the right (SSAO, SSR, ACES, FXAA, CRT).](screenshots/reflection.png)
+![Ocean island jungle: instanced palms and a grass field under the atmospheric sky; the Sky node is selected and the SkyAtmosphere inspector (Time of Day, Day Length, Auto Advance, Sun from TOD) is on the right.](screenshots/editor_island.png)
 
-*SSR screen-space reflections: water-like ground roughness 0.05 reflects trees + fence in real time. Visible in the same Profiler/Chain layout.*
+*Heightmap terrain with Kraut vegetation - instanced palm groves and a heightmap/splat-gated grass layer - lit by the atmospheric sky. Selecting the `Sky` node edits its `SkyAtmosphere` component live: time of day, day length, auto-advance, and whether the sun node follows the TOD; `Open Sky Editor...` opens the full curve editor.*
 
-![Sponza HDR scene rendered with HDR prelight pipeline + full postprocess chain (SSAO, SSR, ACES, FXAA, CRT).](screenshots/sponza.png)
+![Sponza in the editor viewport with the Content Browser showing the scene's texture tiles below and Node Properties on the right.](screenshots/editor_sponza.png)
 
-*Khronos Sponza at HDR — the canonical chain runs across the large texture variety. Composite pre-tonemap HDR panel previews the un-tonemapped accum + the sRGB-encode terminal.*
+*Khronos Sponza under the HDR prelight pipeline, open in the editor. The canonical chain (SSAO, SSR, ACES, FXAA) runs across its large texture variety, and the Content Browser lists the imported textures as thumbnails.*
 
-![James skinned character with skeleton overlay (joints labelled) and Animator state inspector on the right (States, Play / Stop / Rewind / CrossFade).](screenshots/skin.png)
+![James skinned character with the `Show Joints` skeleton overlay (joints labelled) and the Animator component inspector on the right (states, Bind Clip, animate physics).](screenshots/editor_skin.png)
 
-*Skinned mesh + Animator component: skin deformation driven by joint TRS, with the joint-debug overlay drawing bones from the selected mesh's joint hierarchy and the Animator inspector exposing state, weight, speed, layer, wrap mode, scrub, cross-fade.*
+*Skinned mesh + Animator component: skin deformation driven by joint TRS. Ticking `Show Joints` draws the selected mesh's joint hierarchy as labelled bones over the mesh, which is the fastest way to see which part of the deformation is wrong.*
+
+![In-game pause menu (RmlUi) over the running scene: CONTINUE / OPTIONS / EXIT TO MAIN MENU / EXIT TO DESKTOP, with the world dimmed and blurred behind it.](screenshots/game_pause.png)
+
+*The runtime UI is [RmlUi](https://github.com/mikke89/RmlUi), not the editor's ImGui: documents in RML (an HTML subset) styled with RCSS (a CSS subset with flexbox, pseudo-classes, transitions, and font effects), driven from Lua. See [docs/GAME_UI.md](docs/GAME_UI.md).*
+
+![In-game OPTIONS screen (RmlUi): resolution, FPS cap, vsync, field of view, per-effect post-processing toggles, shadow quality, ocean SSR, HDR, and control options.](screenshots/game_settings.png)
+
+*Every control is RCSS-styled and data-bound to the live engine state - toggling HDR or the shadow-quality preset takes effect on the running scene, no restart.*
 
 ## Compatibility
 
@@ -208,3 +218,4 @@ Run `./fury help <subcommand>` for full flags; see `docs/CLI.md` for the referen
 * [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) - Sample assets
 * [Kraut](https://github.com/sindney/Kraut-CLI) — billboard-atlas vegetation pipeline (Kraut-CLI fork)
 * [Tracy](https://github.com/wolfpld/tracy) — real-time CPU/GPU profiler
+* [RmlUi](https://github.com/mikke89/RmlUi) — runtime game UI (RML + RCSS, Lua bindings)
