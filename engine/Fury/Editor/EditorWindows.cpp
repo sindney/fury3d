@@ -620,50 +620,13 @@ void RenderProfilerGBufferTab() {
 		return;
 	}
 
-	// Preview blitter: gbuffer alpha is near-zero under PBR (metallic/roughness pack) and depth samples as (d,0,0,1), so each preview is blitted to an opaque rgba8 scratch via a tiny shader before ImGui::Image sees it.
-	static Shader::Ptr s_previewShader;
-	if (!s_previewShader) {
-		static const char* vs =
-			"#version 330\n"
-			"in vec3 vertex_position;\n"
-			"in vec2 vertex_uv;\n"
-			"out vec2 out_uv;\n"
-			"void main() { out_uv = vertex_uv; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
-		static const char* fs =
-			"#version 330\n"
-			"in vec2 out_uv;\n"
-			"out vec4 fragment_output;\n"
-			"uniform sampler2D src;\n"
-			"uniform int u_depth;\n"
-			"void main() {\n"
-			"    vec4 t = texture(src, out_uv);\n"
-			"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
-			"}\n";
-		s_previewShader = Shader::Create("GBufferPreviewShader", ShaderType::OTHER);
-		if (!s_previewShader->Compile(vs, fs, "")) {
-			FURYE << "GBuffer preview shader failed to compile!";
-			s_previewShader = nullptr;
-			return;
-		}
-	}
-
-	// Size previews to match the rendered framebuffer aspect -- using the Profiler window itself produces tall-narrow distortion when docked on the side.
+	// Preview blitter: gbuffer alpha is near-zero under PBR (metallic/roughness
+	// pack) and depth samples as (d,0,0,1), so each preview blits to an opaque
+	// rgba8 surface on the GL thread before ImGui::Image sees it. All GL work
+	// runs on the render thread (EnqueueJob), matching the Shadows tab pattern.
 	const float content_w = ImGui::GetContentRegionAvail().x;
 	float img_w = content_w > 0.0f ? content_w : 256.0f;
 	if (img_w > 320.0f) img_w = 320.0f;
-
-	static std::unordered_map<std::string, Texture::Ptr> s_previews;
-	static Pass::Ptr s_previewPass;
-	if (!s_previewPass) {
-		s_previewPass = Pass::Create("GBufferPreviewFBO");
-		s_previewPass->SetBlendMode(BlendMode::REPLACE);
-		s_previewPass->SetClearMode(ClearMode::COLOR);
-	}
-
-	GLint prev_fbo = 0;
-	GLint prev_vp[4] = { 0, 0, 0, 0 };
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-	glGetIntegerv(GL_VIEWPORT, prev_vp);
 
 	auto show = [&](const char* label, const char* tex_name, bool is_depth) {
 		ImGui::Text("%s", label);
@@ -676,35 +639,46 @@ void RenderProfilerGBufferTab() {
 		const float tex_h = (float)t->GetHeight();
 		const float aspect = (tex_w > 0.0f && tex_h > 0.0f)
 								 ? tex_h / tex_w
-								 : 0.5625f; // 16:9 fallback
+								 : 0.5625f;
 
-		// Blit into the opaque scratch texture (320-wide, same aspect).
-		auto &preview = s_previews[tex_name];
 		const int pw = 320;
 		const int ph = (int)(pw * aspect);
-		if (!preview || preview->GetWidth() != pw || preview->GetHeight() != ph) {
-			preview = Texture::Create("gbuffer_preview_" + std::string(tex_name));
-			preview->CreateEmpty(pw, ph, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		}
-
-		s_previewPass->RemoveAllTextures();
-		s_previewPass->AddTexture(preview, false);
-		s_previewPass->Bind(false);
-		glDisable(GL_BLEND);
-		glDisable(GL_DEPTH_TEST);
-		glDepthMask(GL_FALSE);
-		glDisable(GL_CULL_FACE);
-		s_previewShader->Bind();
-		s_previewShader->BindMesh(MeshUtil::GetUnitQuad());
-		s_previewShader->BindTexture("src", t);
-		s_previewShader->BindInt("u_depth", is_depth ? 1 : 0);
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(MeshUtil::GetUnitQuad()->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-		s_previewShader->UnBind();
-		s_previewPass->UnBind();
-
-		ImGui::Image((ImTextureID)(intptr_t)preview->GetID(),
+		const std::string key = std::string("GBufferPreview:") + tex_name;
+		ImGui::PushID(key.c_str());
+		RenderThread::Get().EnqueueJob([key, t, is_depth, pw, ph]() {
+			auto &surface = AcquireSurface(key, pw, ph);
+			if (surface.fbo == 0)
+				return;
+			static std::shared_ptr<Shader> blitShader;
+			if (!blitShader)
+			{
+				blitShader = Shader::Create("GBufferPreviewBlitShader", ShaderType::OTHER);
+				const char* blit_vs =
+					"#version 330\n"
+					"in vec3 vertex_position;\n"
+					"in vec2 vertex_uv;\n"
+					"out vec2 out_uv;\n"
+					"void main() { out_uv = vertex_uv; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
+				const char* blit_fs =
+					"#version 330\n"
+					"in vec2 out_uv;\n"
+					"out vec4 fragment_output;\n"
+					"uniform sampler2D src;\n"
+					"uniform int u_depth;\n"
+					"void main() {\n"
+					"    vec4 t = texture(src, out_uv);\n"
+					"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
+					"}\n";
+				blitShader->Compile(blit_vs, blit_fs, "");
+			}
+			blitShader->BindInt("u_depth", is_depth ? 1 : 0);
+			RenderUtil::Instance()->Blit(t, surface.color, blitShader);
+			PublishSurface(key, surface.color);
+		});
+		ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(key),
 					 ImVec2(img_w, img_w * aspect),
 					 ImVec2(0, 1), ImVec2(1, 0));
+		ImGui::PopID();
 	};
 
 	// LDR/HDR auto-switch: the HDR pipeline (DefferedLightingPBR)
@@ -728,12 +702,6 @@ void RenderProfilerGBufferTab() {
 	if (Pipeline::Active->GetDebugViewTexture()) {
 		show("Debug View (SSAO/SSR):", "debug_view", false);
 	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
-	glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
-	glDepthMask(GL_TRUE);
-	glEnable(GL_DEPTH_TEST);
-	glDisable(GL_BLEND);
 }
 
 void RenderProfilerShadowsTab() {

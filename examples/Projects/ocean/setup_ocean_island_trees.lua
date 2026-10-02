@@ -27,9 +27,11 @@ if not terrain or not terrain:HasHeights() then fail("terrain has no heights") e
 
 -- tree name -> (seed, count, minHeightM, maxHeightM). Heights in meters;
 -- the kraut fragment node carries the x100 meters->cm scale.
+-- Tree1 dropped 2026-10-02: LOD0 mesh has no leaves (kraut asset issue);
+-- only the higher-LOD / billboard has foliage, so the trees read as bare
+-- branches popping in across the grove.
 local STANDS = {
     { name = "PalmTree2", seed = 11, count = 1500, minH = 4.5, maxH = 26.0 },
-    { name = "Tree1",     seed = 23, count = 800,  minH = 5.5, maxH = 22.0 },
 }
 
 local HALF_ISLAND_M = 480.0 -- island is 1024 m across, centered at origin

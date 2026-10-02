@@ -580,6 +580,20 @@ namespace fury
 
 	bool SkyAtmosphere::EnsureResources()
 	{
+		// lazy texture reload runs every call so a picker re-select can
+		// recover on the next frame (the m_ResourcesCreated guard below
+		// would otherwise make the reload branch dead after frame 1)
+		if (!m_MoonTexturePath.empty() && m_MoonTexture == nullptr)
+			m_MoonTexture = LoadSkyTexture(m_MoonTexturePath, true);
+		if (!m_CloudNoisePath.empty() && m_CloudNoise == nullptr)
+		{
+			m_CloudNoise = LoadSkyTexture(m_CloudNoisePath, false);
+			// far-field clouds minify hard; without mip filtering they alias
+			// into confetti
+			if (m_CloudNoise)
+				m_CloudNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+		}
+
 		if (m_ResourcesCreated)
 			return true;
 		if (_ptrc_glGenTextures == nullptr)
@@ -633,17 +647,6 @@ namespace fury
 		m_CameraVolumeShader = loadShader("CameraVolume.glsl");
 		m_CloudShader = loadShader("VolumetricClouds.glsl");
 		m_NoiseGenShader = loadShader("CloudNoiseGen.glsl");
-
-		if (!m_MoonTexturePath.empty() && m_MoonTexture == nullptr)
-			m_MoonTexture = LoadSkyTexture(m_MoonTexturePath, true);
-		if (!m_CloudNoisePath.empty() && m_CloudNoise == nullptr)
-		{
-			m_CloudNoise = LoadSkyTexture(m_CloudNoisePath, false);
-			// far-field clouds minify hard; without mip filtering they alias
-			// into confetti
-			if (m_CloudNoise)
-				m_CloudNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
-		}
 
 		m_ResourcesCreated = true;
 		return true;

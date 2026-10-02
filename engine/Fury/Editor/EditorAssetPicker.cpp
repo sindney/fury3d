@@ -196,6 +196,9 @@ void RenderLinkedTextureRow(const char* label, const char* pickerId,
 							std::function<void(std::shared_ptr<Texture>)> onPick) {
 	ImGui::PushID(pickerId);
 	ImVec2 thumb_min = ImGui::GetCursorScreenPos();
+	// the picker nulls the component's texture; CreateFromImage's GL
+	// upload is queued to the render thread, so the new texture's ID is
+	// 0 until that runs -- show the fallback box instead of a black quad
 	if (current && current->GetID() != 0) {
 		ImGui::Image((ImTextureID)(intptr_t)current->GetID(),
 					 ImVec2(48, 48), ImVec2(0, 1), ImVec2(1, 0));
