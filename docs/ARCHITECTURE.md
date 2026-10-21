@@ -845,6 +845,38 @@ Things that need attention when we retarget to ANGLE GLES 3.x:
   content view for a `CAMetalLayer`-backed view when ANGLE's Metal
   backend is selected — the one platform-specific bit of work.
 
+### 9.x Shader cross-compile (GLSL -> SPIR-V / MSL)
+
+Engine shaders stay GLSL. GL compiles the source as-is (runtime path
+unchanged); Metal and Vulkan go through a compile pipeline in
+`engine/Fury/ShaderCompiler.{h,cpp}` (the same code behind
+`furye-cli shaderc <file.glsl> -I <dir>`):
+
+```
+GLSL TU -> slangc (Slang front-end) -> SPIR-V -> SPIRV-Cross -> MSL + reflection sidecar
+```
+
+The sidecar carries the loose-uniform globals block (Slang's
+`globalParams`) member offsets + size and the vertex stage-input
+name -> attribute-location map; the backends bind from it at runtime.
+
+Known limitation (Slang v2026.19, worked around permanently): the GLSL
+front-end cannot lower `mat4 * vec4` to Metal in one step -- the
+operator's `require(...)` in Slang's own glsl module omits `metal`, so
+GLSL -> MSL fails on any matrix transform. The SPIR-V detour above is
+the permanent answer (it feeds Vulkan's SPIR-V too). Two layout quirks
+the downstream backend code must respect:
+
+- Slang packs loose uniforms into a **row-major** globals UBO and its
+  `-matrix-layout-column-major` flag does not reach the synthesized
+  struct; ShaderCompiler rewrites the SPIR-V `OpDecorate`/`OpMemberDecorate`
+  RowMajor -> ColumnMajor so SPIRV-Cross emits the column-major multiply
+  idiom (`M * v`) against the engine's GL column-major uploads.
+- SPIRV-Cross reassigns MSL buffer argument indices when more than one
+  buffer exists (an SSBO pushes the globals block to `[[buffer(1)]]`),
+  so the SPIR-V binding is not the MSL argument index; the backend
+  resolves the block's index per stage from PSO reflection.
+
 ---
 
 ## 10. Cross-cutting infrastructure

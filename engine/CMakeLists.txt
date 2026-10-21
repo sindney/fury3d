@@ -114,6 +114,15 @@ if(FURY_WITH_ASAN AND NOT MSVC)
 	add_link_options(-fsanitize=address)
 endif()
 option(FURY_WITH_DBG_OVERLAY "Compile visual debug overlays (LOD tier tint, ...)" ON)
+
+# RHI backends. OpenGL is always built (the fallback); Vulkan/Metal are
+# optional. Metal only exists on Apple.
+option(FURY_RHI_VULKAN "Build the Vulkan RHI backend." ON)
+if(APPLE)
+	option(FURY_RHI_METAL "Build the Metal RHI backend." ON)
+else()
+	set(FURY_RHI_METAL OFF)
+endif()
 if(FURY_SHIPPING AND FURY_WITH_DBG_OVERLAY)
 	message(STATUS "FURY_SHIPPING=ON: forcing FURY_WITH_DBG_OVERLAY=OFF")
 	set(FURY_WITH_DBG_OVERLAY OFF)
@@ -163,6 +172,39 @@ endif()
 # next to fury/furye POST_BUILD (FBX2glTF pattern) by CopyKrautTools.cmake.
 option(FURY_WITH_KRAUT "Build KrautCLI + KrautPreview tools (ThirdParty/Kraut submodule)." ON)
 option(FURY_WITH_KRAUT_PREVIEW "Build KrautPreview (fetches SDL2 at configure time; off = KrautCLI only)." ON)
+
+# Slang shader compiler prebuilts (see ThirdParty/slang/README.md): the
+# slangc CLI runs as a subprocess, staged under <exe dir>/slang/ beside each
+# binary; nothing links libslang. The include dir serves ShaderCompiler.h's
+# consumers of the SPIRV-Cross types only.
+#
+# The payload is not in git: configure fetches the pinned release when the
+# local copy is missing or holds another version (marker file in the payload
+# dir). -DFURY_WITH_SLANG=OFF skips it entirely.
+option(FURY_WITH_SLANG "Stage the slangc CLI next to engine binaries (fetched into ThirdParty/slang when missing)." ON)
+set(FURY_SLANG_VERSION "v2026.19")
+if(OS_MACOSX)
+	set(FURY_SLANG_PLATFORM_DIR "macos-arm64")
+	set(FURY_SLANG_ARCHIVE_NAME "slang-2026.19-macos-aarch64.tar.gz")
+	set(FURY_SLANG_ARCHIVE_TYPE "TAR_GZ")
+elseif(OS_WINDOWS)
+	set(FURY_SLANG_PLATFORM_DIR "windows-x86_64")
+	set(FURY_SLANG_ARCHIVE_NAME "slang-2026.19-windows-x86_64.zip")
+	set(FURY_SLANG_ARCHIVE_TYPE "ZIP")
+else()
+	set(FURY_SLANG_PLATFORM_DIR "linux-x86_64")
+	set(FURY_SLANG_ARCHIVE_NAME "slang-2026.19-linux-x86_64-glibc-2.27.tar.gz")
+	set(FURY_SLANG_ARCHIVE_TYPE "TAR_GZ")
+endif()
+set(FURY_SLANG_DIR "${PROJECT_SOURCE_DIR}/ThirdParty/slang/${FURY_SLANG_PLATFORM_DIR}")
+if(FURY_WITH_SLANG)
+	include("${PROJECT_SOURCE_DIR}/../tools/cmake/FetchPinnedArchive.cmake")
+	fetch_pinned_archive(
+		DEST_DIR "${FURY_SLANG_DIR}"
+		VERSION "${FURY_SLANG_VERSION}"
+		URL "https://github.com/shader-slang/slang/releases/download/${FURY_SLANG_VERSION}/${FURY_SLANG_ARCHIVE_NAME}"
+		ARCHIVE "${FURY_SLANG_ARCHIVE_TYPE}")
+endif()
 
 if(FURY_WITH_KRAUT)
 	if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/Kraut/CMakeLists.txt")
@@ -297,6 +339,23 @@ set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
 set(RMLUI_TESTS OFF CACHE BOOL "" FORCE)
 set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/RmlUi)
+
+# SPIRV-Cross: vendored submodule via add_subdirectory (SFML/Jolt precedent).
+# Static core+glsl+msl only: Slang's SPIR-V crosses to MSL and reflects
+# globals-block members through it (see Fury/ShaderCompiler.cpp).
+set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_GLSL ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_MSL ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_CPP OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_REFLECT OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_C_API OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_UTIL OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_SHARED OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_STATIC ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/SPIRV-Cross)
 foreach(_RMLUI_TGT rmlui_core rmlui_debugger rmlui_lua)
 	get_target_property(_RMLUI_IFACE ${_RMLUI_TGT} INTERFACE_INCLUDE_DIRECTORIES)
 	if(_RMLUI_IFACE)
@@ -320,6 +379,17 @@ include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty)
 
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/STB)
 
+# Slang compiler API headers; lib/ linking arrives with the IShaderCompiler task.
+if(FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/include")
+	include_directories(SYSTEM ${FURY_SLANG_DIR}/include)
+endif()
+
+# apple/metal-cpp: header-only C++ bindings (one impl TU inside RHI/Metal).
+# The headers include as <Metal/Metal.hpp> / <QuartzCore/QuartzCore.hpp>.
+if(OS_MACOSX AND FURY_RHI_METAL)
+	include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/metal-cpp)
+endif()
+
 file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
 # Backends live in their own subdirectory so we glob them separately;
 # both backends (OpenGL3 + the fury-3d-bespoke SFML3) are required whenever
@@ -328,6 +398,14 @@ file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui)
 file(GLOB IMGUI_BACKEND_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/backends/*.cpp)
 list(APPEND IMGUI_SRC ${IMGUI_BACKEND_SRC})
+# Upstream ships the Metal renderer as Objective-C++ (.mm, so the .cpp glob
+# misses it) and it reaches the engine's Metal objects through metal-cpp,
+# which the Metal backend already includes.
+if(OS_MACOSX AND FURY_RHI_METAL)
+	set(IMGUI_METAL_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/backends/imgui_impl_metal.mm)
+	set_source_files_properties(${IMGUI_METAL_SRC} PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_METAL_CPP")
+	list(APPEND IMGUI_SRC ${IMGUI_METAL_SRC})
+endif()
 
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4)
 file(GLOB LZ4_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/LZ4/*.c)
@@ -405,6 +483,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/GltfImporter.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GameUI.cpp
 	${PROJECT_SOURCE_DIR}/Fury/GameUIRenderer.cpp
+	${PROJECT_SOURCE_DIR}/Fury/GpuDump.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Gui.cpp
 	${PROJECT_SOURCE_DIR}/Fury/InputUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/InstancedMeshRender.cpp
@@ -451,13 +530,36 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/SceneNode.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Serializable.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Shader.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ShaderCompiler.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SphereBounds.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Texture.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ThreadUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Transform.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Uniform.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Vector4.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/RHIBackend.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/OpenGL/GLEnumMap.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/OpenGL/GLCommandList.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/OpenGL/GLInputAssembler.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/OpenGL/GLResources.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/OpenGL/GLShaderModule.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/OpenGL/RHIOpenGLDevice.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/RHIVulkanDevice.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalCommandList.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalEnumMap.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalResources.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalShaderModule.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/RHIMetalDevice.cpp
 	${PROJECT_SOURCE_DIR}/Fury/WaveSampler.cpp)
+
+# The ImGui Metal backend reaches the engine's Metal objects through
+# metal-cpp, so both sides must agree on the binding.
+if(OS_MACOSX AND FURY_RHI_METAL)
+	set_source_files_properties(
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalCommandList.cpp
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/RHIMetalDevice.cpp
+		PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_METAL_CPP")
+endif()
 
 set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/Editor.cpp
@@ -514,6 +616,10 @@ set(FURY_COMMON_SRC ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${SHA1_SRC} ${TINYG
 # pick up the file would be no-ops. See platform-window-dpi spec.
 if(OS_MACOSX)
 	list(APPEND FURY_COMMON_SRC "${PROJECT_SOURCE_DIR}/Fury/Engine_dpi_mac.mm")
+	if(FURY_RHI_METAL)
+		# ObjC++ bridge: attaches a CAMetalLayer to the SFML window's NSView.
+		list(APPEND FURY_COMMON_SRC "${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalWindowBridge.mm")
+	endif()
 endif()
 
 # Windows-only V2 DPI awareness manifest. Linker flag form (`LINK_FLAGS`)
@@ -530,6 +636,17 @@ if(OS_WINDOWS)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 comctl32 lua meshoptimizer Jolt rmlui_core rmlui_debugger rmlui_lua)
 elseif(OS_MACOSX)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt rmlui_core rmlui_debugger rmlui_lua)
+	if(FURY_RHI_METAL)
+		# Metal RHI backend: system frameworks + header-only metal-cpp include.
+		list(APPEND FURY_PLATFORM_LIBS "-framework Metal" "-framework Foundation" "-framework QuartzCore" "-framework AppKit")
+	endif()
+endif()
+
+# Shader cross-compile toolchain (Fury/ShaderCompiler.cpp): SPIRV-Cross static
+# libs (MSL codegen derives from the GLSL one). The Slang front-end runs as
+# the vendored slangc CLI (subprocess), so nothing links libslang.
+if(FURY_WITH_SLANG)
+	list(APPEND FURY_PLATFORM_LIBS spirv-cross-msl spirv-cross-glsl spirv-cross-core)
 endif()
 if(FURY_WITH_TRACY)
 	# Tracy needs winsock2 (ws2_32) and dial-up box (dbghelp) on Windows.
@@ -566,7 +683,10 @@ function(fury_add_target NAME)
 	# Shipping strip + debug-overlay gate (see the options above).
 	target_compile_definitions(${NAME} PRIVATE
 		$<$<BOOL:${FURY_SHIPPING}>:FURY_BUILD_SHIPPING>
-		WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>)
+		WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>
+		FURY_RHI_VULKAN=$<BOOL:${FURY_RHI_VULKAN}>
+		FURY_RHI_METAL=$<BOOL:${FURY_RHI_METAL}>
+		FURY_WITH_SLANG=$<BOOL:${FURY_WITH_SLANG}>)
 	if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
 		target_compile_definitions(${NAME} PRIVATE FURY_TRACY_GPU)
 	endif()
@@ -638,6 +758,18 @@ function(fury_add_target NAME)
 			COMMENT "Staging ktx CLI next to ${NAME}"
 			VERBATIM)
 	endif()
+	# Slang compiler CLI (see ThirdParty/slang/README.md): the vendored
+	# package layout (bin/slangc + lib/ with its stdlib modules) is staged
+	# under <exe dir>/slang/ so the front-end runs as a subprocess with its
+	# sibling dylibs and module discovery intact.
+	if(FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin")
+		add_custom_command(TARGET ${NAME} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${FURY_SLANG_DIR}"
+				"$<TARGET_FILE_DIR:${NAME}>/slang"
+			COMMENT "Staging slangc CLI under ${NAME}/slang"
+			VERBATIM)
+	endif()
 	# Regenerate docs/LUA_API.md from LuaBindings.cpp. Off by default;
 	# pass -DFURY_DOCGEN=ON to enable. When on, the post-build step
 	# invokes engine/Tools/lua_api_docgen.py (deterministic, byte-identical
@@ -689,7 +821,10 @@ if(BUILD_SHARED_LIBS)
 		add_library(furye SHARED ${FURY_CORE_SRC} ${FURY_EDITOR_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 		target_compile_definitions(furye PRIVATE WITH_EDITOR=1
 			$<$<BOOL:${FURY_SHIPPING}>:FURY_BUILD_SHIPPING>
-			WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>)
+			WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>
+			FURY_RHI_VULKAN=$<BOOL:${FURY_RHI_VULKAN}>
+			FURY_RHI_METAL=$<BOOL:${FURY_RHI_METAL}>
+			FURY_WITH_SLANG=$<BOOL:${FURY_WITH_SLANG}>)
 		target_link_libraries(furye PUBLIC ${FURY_PLATFORM_LIBS} nfd::nfd)
 		if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
 			target_compile_definitions(furye PRIVATE FURY_TRACY_GPU)
@@ -701,7 +836,10 @@ if(BUILD_SHARED_LIBS)
 		add_library(fury SHARED ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${TINYGLTF_SRC})
 		target_compile_definitions(fury PRIVATE WITH_EDITOR=0
 			$<$<BOOL:${FURY_SHIPPING}>:FURY_BUILD_SHIPPING>
-			WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>)
+			WITH_DBG_OVERLAY=$<BOOL:${FURY_WITH_DBG_OVERLAY}>
+			FURY_RHI_VULKAN=$<BOOL:${FURY_RHI_VULKAN}>
+			FURY_RHI_METAL=$<BOOL:${FURY_RHI_METAL}>
+			FURY_WITH_SLANG=$<BOOL:${FURY_WITH_SLANG}>)
 		target_link_libraries(fury PUBLIC ${FURY_PLATFORM_LIBS})
 		if(FURY_WITH_TRACY AND FURY_WITH_TRACY_GPU)
 			target_compile_definitions(fury PRIVATE FURY_TRACY_GPU)

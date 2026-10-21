@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <unordered_map>
 
+#include "Fury/RHI/RHITypes.h"
 #include "Fury/TypeComparable.h"
 #include "Fury/Serializable.h"
 
@@ -19,10 +20,10 @@ namespace fury
 
 		UniformBase();
 
-		virtual void Bind(unsigned int program, const std::string &name) = 0;
+		virtual void Bind(const std::string &name) = 0;
 
 		// Location-cached variant (draw-command cache replay).
-		virtual void BindLocation(int location) = 0;
+		virtual void BindAt(RHIUniformHandle handle) = 0;
 
 		virtual bool Load(const void* wrapper, bool object = true) override = 0;
 
@@ -56,9 +57,9 @@ namespace fury
 
 		Uniform();
 
-		virtual void Bind(unsigned int program, const std::string &name) override;
+		virtual void Bind(const std::string &name) override;
 
-		virtual void BindLocation(int location) override;
+		virtual void BindAt(RHIUniformHandle handle) override;
 
 		virtual bool Load(const void* wrapper, bool object = true) override;
 

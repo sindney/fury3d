@@ -1,12 +1,31 @@
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderThread.h"
 
-#include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Texture.h"
+#include "Fury/RHI/RHIDevice.h"
 
 namespace fury
 {
+	namespace
+	{
+		RHIRenderTargetSetRef CreateTargetSet(const std::shared_ptr<Texture> &color, const std::shared_ptr<Texture> &depth)
+		{
+			RHIRenderTargetSetDesc desc;
+
+			RHIRenderTargetAttachment colorAttach;
+			colorAttach.Texture = color->GetRHITexture();
+			desc.Colors.push_back(colorAttach);
+
+			RHIRenderTargetAttachment depthAttach;
+			depthAttach.Texture = depth->GetRHITexture();
+			desc.Depth = depthAttach;
+			desc.HasDepth = true;
+
+			return GRHIDevice->CreateRenderTargetSet(desc);
+		}
+	}
+
 	RenderTarget::Ptr RenderTarget::Create(const std::string &name)
 	{
 		return std::make_shared<RenderTarget>(name);
@@ -27,16 +46,16 @@ namespace fury
 		if (width <= 0 || height <= 0)
 			return false;
 
-		if (m_FBO != 0 && width == m_Width && height == m_Height)
+		if (m_TargetSet != nullptr && width == m_Width && height == m_Height)
 			return true;
 
 		// Foreign-thread callers (editor game thread): rebuild the CPU
 		// side now (texture objects exist immediately and self-marshal
-		// their GL uploads), then wire the FBO on the GL thread after
-		// those uploads land (FIFO job order guarantees it).
+		// their GL uploads), then build the target set on the GL thread
+		// after those uploads land (FIFO job order guarantees it).
 		if (!RenderThread::Get().MayUseGL())
 		{
-			if (m_FBOPending.load() && width == m_Width && height == m_Height)
+			if (m_TargetPending.load() && width == m_Width && height == m_Height)
 				return true;
 
 			Release();
@@ -50,38 +69,20 @@ namespace fury
 			m_Depth->CreateEmpty(width, height, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D, false);
 			m_Width = width;
 			m_Height = height;
-			m_FBOPending.store(true);
+			m_TargetPending.store(true);
 
 			// RenderTarget is owned by the editor viewport static (process
 			// lifetime); textures ride as shared_ptr captures.
 			auto color = m_Color;
 			auto depth = m_Depth;
 			RenderThread::Get().EnqueueJob([this, color, depth]() {
-				unsigned int fbo = 0;
-				glGenFramebuffers(1, &fbo);
-				glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-					GL_TEXTURE_2D, color->GetID(), 0);
-				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-					GL_TEXTURE_2D, depth->GetID(), 0);
-				GLenum drawBufs[1] = { GL_COLOR_ATTACHMENT0 };
-				glDrawBuffers(1, drawBufs);
-				GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				if (status != GL_FRAMEBUFFER_COMPLETE)
-				{
-					FURYE << "RenderTarget '" << m_Name << "' FBO incomplete, status=0x" << std::hex << status;
-					glDeleteFramebuffers(1, &fbo);
-				}
-				else
-				{
-					m_FBO = fbo;
-				}
-				m_FBOPending.store(false);
+				if (GRHIDevice != nullptr)
+					m_TargetSet = CreateTargetSet(color, depth);
+				m_TargetPending.store(false);
 			});
 			return true;
 		}
-		FURY_GL_THREAD_GUARD();
+		FURY_RHI_THREAD_GUARD();
 		// Tear down any existing allocation so we can rebuild at the
 		// new size. Texture::CreateEmpty re-uploads at the new dims.
 		Release();
@@ -101,24 +102,15 @@ namespace fury
 		m_Depth->SetWrapMode(WrapMode::CLAMP_TO_EDGE);
 		m_Depth->CreateEmpty(width, height, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D, false);
 
-		glGenFramebuffers(1, &m_FBO);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			GL_TEXTURE_2D, m_Color->GetID(), 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-			GL_TEXTURE_2D, m_Depth->GetID(), 0);
-
-		GLenum drawBufs[1] = { GL_COLOR_ATTACHMENT0 };
-		glDrawBuffers(1, drawBufs);
-
-		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-		if (status != GL_FRAMEBUFFER_COMPLETE)
+		if (GRHIDevice != nullptr)
 		{
-			FURYE << "RenderTarget '" << m_Name << "' FBO incomplete, status=0x" << std::hex << status;
-			Release();
-			return false;
+			m_TargetSet = CreateTargetSet(m_Color, m_Depth);
+			if (m_TargetSet == nullptr)
+			{
+				FURYE << "RenderTarget '" << m_Name << "' target set creation failed";
+				Release();
+				return false;
+			}
 		}
 
 		m_Width = width;
@@ -128,11 +120,10 @@ namespace fury
 
 	void RenderTarget::Release()
 	{
-		if (m_FBO != 0)
+		if (m_TargetSet != nullptr)
 		{
-			unsigned int fbo = m_FBO;
-			RenderThread::Get().EnqueueJob([fbo]() { glDeleteFramebuffers(1, &fbo); });
-			m_FBO = 0;
+			RHIRenderTargetSetRef set = std::move(m_TargetSet);
+			RenderThread::Get().EnqueueJob([set]() mutable { set.reset(); });
 		}
 		m_Color.reset();
 		m_Depth.reset();

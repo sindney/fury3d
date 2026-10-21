@@ -19,6 +19,8 @@
 #include "Fury/Scene.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Frustum.h"
+#include "Fury/RHI/RHICommandList.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/GLLoader.h"
 #include "Fury/InstancedMeshRender.h"
 #include "Fury/InstancedMeshStreamer.h"
@@ -434,6 +436,16 @@ namespace fury
 		return m_EntityManager->Get<Texture>(name);
 	}
 
+	void Pipeline::ForEachPass(const std::function<bool(const std::shared_ptr<Pass> &)> &func)
+	{
+		m_EntityManager->ForEach<Pass>(func);
+	}
+
+	void Pipeline::ForEachTexture(const std::function<bool(const std::shared_ptr<Texture> &)> &func) const
+	{
+		m_EntityManager->ForEach<Texture>(func);
+	}
+
 	std::shared_ptr<Shader> Pipeline::GetShaderByName(const std::string &name)
 	{
 		return m_EntityManager->Get<Shader>(name);
@@ -513,6 +525,7 @@ namespace fury
 
 		Matrix4 projMatrix;
 		projMatrix.OrthoOffCenter(-1.0f, 1.0f, -1.0f, 1.0f, maxZ, minZ);
+		projMatrix = Matrix4::DepthConvention(projMatrix);
 
 		// limit xy
 		float maxX = 0.0f, maxY = 0.0f;
@@ -631,6 +644,7 @@ namespace fury
 			// Whole-mesh draw when nothing material-dependent splits the
 			// draws: skinned meshes (no alpha test on skin in v1) and
 			// submesh-less meshes.
+			auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
 			if (skinned || subCount == 0)
 			{
 				bool wind = false;
@@ -649,7 +663,8 @@ namespace fury
 				shader->BindMatrix(Matrix4::WORLD_MATRIX, skinned ? identityWorld : caster.worldMatrix);
 				if (wind)
 					BindShadowWindUniforms(shader, engineTime, windParams);
-				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(casterMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+				if (cmd)
+					cmd->DrawIndexed(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(casterMesh->Indices.Data.size()));
 				return 1;
 			}
@@ -680,7 +695,8 @@ namespace fury
 					BindShadowWindUniforms(shader, engineTime, windParams);
 				shader->BindSubMesh(casterMesh, sm);
 				auto subMesh = casterMesh->GetSubMeshAt(sm);
-				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+				if (cmd)
+					cmd->DrawIndexed(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 				RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 				draws++;
 			}
@@ -760,6 +776,23 @@ namespace fury
 
 	}
 
+	namespace
+	{
+		// Clip-NDC -> shadow-map uv/depth offset. GL clip z is [-1,1] and
+		// needs the full *0.5+0.5 remap; [0,1] backends (Metal/D3D) keep z
+		// as-is (x/y still remap).
+		const Matrix4 &ShadowOffsetMatrix(const Matrix4 &glForm)
+		{
+			static const Matrix4 zeroToOne({
+				0.5, 0.0, 0.0, 0.0,
+				0.0, 0.5, 0.0, 0.0,
+				0.0, 0.0, 1.0, 0.0,
+				0.5, 0.5, 0.0, 1.0
+			});
+			return Matrix4::GetDepthZeroToOne() ? zeroToOne : glForm;
+		}
+	}
+
 	std::pair<std::shared_ptr<Texture>, std::vector<Matrix4>> Pipeline::DrawCascadedShadowMap(FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
@@ -788,8 +821,8 @@ namespace fury
 
 			m_SharedPass->Bind();
 
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(1.0f, 1024.0f);
+			if (auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr)
+				cmd->SetDepthBias(1.0f, 1024.0f);
 
 			// Foliage depth variants (alpha test / wind / instanced).
 			// Missing entries fall back to the plain shaders.
@@ -829,7 +862,8 @@ namespace fury
 				}
 			}
 
-			glDisable(GL_POLYGON_OFFSET_FILL);
+			if (auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr)
+				cmd->SetDepthBias(0.0f, 0.0f);
 			if (boundShader) boundShader->UnBind();
 
 			m_SharedPass->UnBind();
@@ -837,7 +871,7 @@ namespace fury
 
 		std::vector<Matrix4> matrices;
 		for (int i = 0; i < numSplit; i++)
-			matrices.push_back(m_OffsetMatrix * plight.csmProj[i] * lightMatrix * packet.camera.worldMatrix);
+			matrices.push_back(ShadowOffsetMatrix(m_OffsetMatrix) * plight.csmProj[i] * lightMatrix * packet.camera.worldMatrix);
 
 		return std::make_pair(depth_buffer, matrices);
 	}
@@ -866,8 +900,8 @@ namespace fury
 
 			m_SharedPass->Bind();
 
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(1.0f, 1024.0f);
+			if (auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr)
+				cmd->SetDepthBias(1.0f, 1024.0f);
 
 			// Skinned casters use the skin depth shader (bone_matrices +
 			// identity world_matrix) so their shadows deform; static
@@ -902,13 +936,14 @@ namespace fury
 				for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 			}
 
-			glDisable(GL_POLYGON_OFFSET_FILL);
+			if (auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr)
+				cmd->SetDepthBias(0.0f, 0.0f);
 			if (boundShader) boundShader->UnBind();
 
 			m_SharedPass->UnBind();
 		}
 
-		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * packet.camera.worldMatrix);
+		return std::make_pair(depth_buffer, ShadowOffsetMatrix(m_OffsetMatrix) * projMatrix * lightMatrix * packet.camera.worldMatrix);
 	}
 
 	std::pair<std::shared_ptr<Texture>, Matrix4> Pipeline::DrawPointLightShadowMap(FramePacket &packet, int lightIndex)
@@ -924,6 +959,7 @@ namespace fury
 		float aspect = (float)depth_buffer->GetWidth() / depth_buffer->GetHeight();
 		Matrix4 projMatrix;
 		projMatrix.PerspectiveFov(MathUtil::DegToRad * 90.0f, aspect, 1.0f, radius);
+		projMatrix = Matrix4::DepthConvention(projMatrix);
 
 		// draw casters to depth map, aka shadow map.
 		{
@@ -1018,8 +1054,8 @@ namespace fury
 
 			m_SharedPass->Bind();
 
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(1.0f, 1024.0f);
+			if (auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr)
+				cmd->SetDepthBias(1.0f, 1024.0f);
 
 			// Skinned casters use the skin depth shader (bone_matrices +
 			// identity world_matrix) so their shadows deform; static
@@ -1054,13 +1090,14 @@ namespace fury
 				for (int d = 0; d < draws; d++) RenderUtil::Instance()->IncreaseDrawCall();
 			}
 
-			glDisable(GL_POLYGON_OFFSET_FILL);
+			if (auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr)
+				cmd->SetDepthBias(0.0f, 0.0f);
 			if (boundShader) boundShader->UnBind();
 
 			m_SharedPass->UnBind();
 		}
 
-		return std::make_pair(depth_buffer, m_OffsetMatrix * projMatrix * lightMatrix * packet.camera.worldMatrix);
+		return std::make_pair(depth_buffer, ShadowOffsetMatrix(m_OffsetMatrix) * projMatrix * lightMatrix * packet.camera.worldMatrix);
 	}
 
 	void Pipeline::UpdateShadowTextureCache(
@@ -1080,16 +1117,17 @@ namespace fury
 	{
 		ASSERT_MSG(packet.camera.valid, "FramePacket.camera not valid!");
 
-		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
+		if (cmd == nullptr)
+			return;
+
+		cmd->Clear(ClearMode::STENCIL_DEPTH, Color(0, 0, 0, 0));
 
 		// Reference grid first: screen-space pass with no depth
 		// interaction, so the bounds lines below composite over it.
 		DrawEditorGrid(packet);
 
-		glEnable(GL_DEPTH_TEST);
-		glEnable(GL_CULL_FACE);
-		glCullFace(GL_BACK);
-		glDisable(GL_BLEND);
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::BACK);
 
 		auto meshBoundsOn = packet.switches.test((size_t)PipelineSwitch::MESH_BOUNDS);
 		auto customBoundsOn = packet.switches.test((size_t)PipelineSwitch::CUSTOM_BOUNDS);
@@ -1161,7 +1199,7 @@ namespace fury
 
 		renderUtil->EndDrawMeshes();
 
-		glDisable(GL_DEPTH_TEST);
+		cmd->SetDepthState(CompareMode::LESS, false, true);
 	}
 
 	void Pipeline::DrawEditorGrid(FramePacket &packet)
@@ -1235,30 +1273,35 @@ namespace fury
 			}
 		}
 
-		GLint vp[4] = { 0, 0, 0, 0 };
-		glGetIntegerv(GL_VIEWPORT, vp);
+		auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
+		if (cmd == nullptr)
+			return;
+
+		// u_rt_size = the current viewport: the editor's offscreen RT
+		// when set, else the window backbuffer.
+		float rtW = (float)packet.windowW, rtH = (float)packet.windowH;
+		if (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated())
+		{
+			rtW = (float)packet.renderTarget->GetWidth();
+			rtH = (float)packet.renderTarget->GetHeight();
+		}
 
 		auto quad = MeshUtil::GetUnitQuad();
 		gridShader->Bind();
 		gridShader->BindMesh(quad);
 		gridShader->BindCameraData(packet.camera);
 		gridShader->BindTexture("gbuffer_depth", depth);
-		gridShader->BindFloat("u_rt_size", (float)vp[2], (float)vp[3]);
+		gridShader->BindFloat("u_rt_size", rtW, rtH);
 		// NOTE: BindCamera's "invert_view_matrix" is the VIEW matrix
 		// (world->view) in this engine's naming, not view->world -- the
 		// world ray needs the camera's world matrix, bound explicitly.
 		gridShader->BindMatrix("camera_world_matrix", packet.camera.worldMatrix);
 
-		glDisable(GL_DEPTH_TEST);
-		glDepthMask(GL_FALSE);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		cmd->SetRasterState(BlendMode::ALPHA, CompareMode::LESS, false, false, CullMode::NONE);
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
 
-		glDisable(GL_BLEND);
-		glDepthMask(GL_TRUE);
-		glEnable(GL_DEPTH_TEST);
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::BACK);
 
 		gridShader->UnBind();
 

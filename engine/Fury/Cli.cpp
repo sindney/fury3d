@@ -24,7 +24,9 @@
 #include "Fury/EntityManager.h"
 #include "Fury/FbxConverter.h"
 #include "Fury/FileUtil.h"
-#include "Fury/GLLoader.h"
+#include "Fury/ShaderCompiler.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/GltfImporter.h"
 #include "Fury/GameUI.h"
 #include "Fury/InputUtil.h"
@@ -108,6 +110,13 @@ namespace fury
 			"  exec           load a scene and run a Lua script against it (headless)\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version    print the engine version and exit\n"
+			"\n"
+			"LAUNCHER FLAGS (Lua launcher and pak boot paths)\n"
+			"  --rhi=<backend>   render backend for this launch: opengl, vulkan, metal.\n"
+			"                    Resolution: --rhi > FURY_RHI env > Engine.run rhi option\n"
+			"                    > editor ini > default opengl. Unknown or unsupported\n"
+			"                    values warn and resolve to opengl; a backend that fails\n"
+			"                    to initialize falls back to opengl.\n"
 			"\n"
 			"EXIT CODES\n"
 			"  0  success\n"
@@ -823,6 +832,10 @@ namespace fury
 				if (take_value("--ddc", opts.ddcRoot)) continue;
 				if (take_value("--ktx", opts.ktxPath)) continue;
 				if (take_value("--manifest", opts.manifestOut)) continue;
+				// Accepted and ignored: headless paths create no RHI device.
+				// The per-backend cook semantics land with the cook/pak group.
+				std::string ignoredRhi;
+				if (take_value("--rhi", ignoredRhi)) continue;
 				if (a == "--verbose" || a == "-v") { opts.verbose = true; continue; }
 				std::cerr << "furye-cli cook: unknown option '" << a << "'\n";
 				return 1;
@@ -914,6 +927,10 @@ namespace fury
 				if (take_value("--ddc", cook_opts.ddcRoot)) continue;
 				if (take_value("--ktx", cook_opts.ktxPath)) continue;
 				if (take_value("--manifest", cook_opts.manifestOut)) continue;
+				// Accepted and ignored: headless paths create no RHI device.
+				// The per-backend cook semantics land with the cook/pak group.
+				std::string ignoredRhi;
+				if (take_value("--rhi", ignoredRhi)) continue;
 				if (a == "--no-cook") { no_cook = true; continue; }
 				if (a == "--verbose" || a == "-v") { cook_opts.verbose = true; continue; }
 				std::cerr << "furye-cli package: unknown option '" << a << "'\n";
@@ -1515,6 +1532,73 @@ namespace fury
 			std::cerr << "furye-cli kraut: unknown verb '" << verb << "' (expected generate|import)\n";
 			return 1;
 		}
+
+		// `furye-cli shaderc <file.glsl> [-I dir]... [-D name[=value]]...`
+		// Single-shader smoke of the GLSL -> SPIR-V -> MSL cross pipeline.
+		int DoShaderc(int argc, char **argv)
+		{
+			if (argc < 3)
+			{
+				std::cerr << "furye-cli shaderc: expected <file.glsl> [-I dir]... [-D name[=value]]...\n";
+				return 1;
+			}
+
+			ShaderCompileInput in;
+			std::string source;
+			in.name = argv[2];
+			for (int i = 3; i < argc; ++i)
+			{
+				const std::string a = argv[i];
+				if (a == "-I" && i + 1 < argc) { in.searchPaths.push_back(argv[++i]); continue; }
+				if (a == "-D" && i + 1 < argc)
+				{
+					const std::string d = argv[++i];
+					const size_t eq = d.find('=');
+					in.defines.emplace_back(d.substr(0, eq), eq == std::string::npos ? "" : d.substr(eq + 1));
+					continue;
+				}
+				std::cerr << "furye-cli shaderc: unknown option '" << a << "'\n";
+				return 1;
+			}
+			if (!FileUtil::LoadString(in.name, source))
+			{
+				std::cerr << "furye-cli shaderc: cannot read '" << in.name << "'\n";
+				return 1;
+			}
+			if (in.searchPaths.empty())
+				in.searchPaths.push_back(DirOf(in.name));
+			in.vertexSource = source;
+			in.fragmentSource = source;
+
+			ShaderModuleCompile out;
+			if (!CompileGlslToMSL(in, out))
+			{
+				std::cerr << "furye-cli shaderc: FAIL\n" << out.error << "\n";
+				return 1;
+			}
+
+			auto report = [](const char *stage, const ShaderStageCompile &s) {
+				std::cout << stage << ": msl " << s.msl.size() << " bytes, globals block '"
+					<< s.globalsBlockName << "' " << s.globalsBlockSize << " bytes, "
+					<< s.globals.size() << " members, " << s.stageInputs.size() << " stage inputs\n";
+				for (const auto &m : s.globals)
+					std::cout << "  member " << m.name << " offset=" << m.offset << " size=" << m.size << "\n";
+				for (const auto &si : s.stageInputs)
+					std::cout << "  input " << si.name << " -> attribute " << si.location << "\n";
+			};
+			report("vertex", out.vertex);
+			report("fragment", out.fragment);
+
+			const std::string stem = in.name.substr(0, in.name.find_last_of('.'));
+			{
+				std::ofstream vertOut(stem + ".vert.metal");
+				vertOut << out.vertex.msl;
+				std::ofstream fragOut(stem + ".frag.metal");
+				fragOut << out.fragment.msl;
+			}
+			std::cout << "furye-cli shaderc OK: wrote " << stem << ".vert.metal / .frag.metal\n";
+			return 0;
+		}
 #endif
 
 		int InfoEngineScene(const std::string &path, const std::string &ext)
@@ -1680,7 +1764,7 @@ namespace fury
 			"convert", "info", "exec", "help", "--help", "-h", "version", "--version",
 #if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
 			// furye-cli: editor-side tooling joins the dispatch.
-			"cook", "package", "exec-script", "kraut",
+			"cook", "package", "exec-script", "kraut", "shaderc",
 #endif
 			nullptr,
 		};
@@ -1774,48 +1858,47 @@ namespace fury
 			}
 
 			const int W = 256, H = 256;
-			GLuint fbo = 0;
-			glGenFramebuffers(1, &fbo);
 			auto color = fury::Texture::GetTemporary(W, H, 1,
 				fury::TextureFormat::RGBA8, fury::TextureType::TEXTURE_2D);
 			auto depth = fury::Texture::GetTemporary(W, H, 1,
 				fury::TextureFormat::DEPTH24, fury::TextureType::TEXTURE_2D);
-			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-				GL_TEXTURE_2D, color->GetID(), 0);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-				GL_TEXTURE_2D, depth->GetID(), 0);
-			const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			if (status != GL_FRAMEBUFFER_COMPLETE)
+
+			fury::RHIRenderTargetSetDesc rtDesc;
+			fury::RHIRenderTargetAttachment colorAt;
+			colorAt.Texture = color->GetRHITexture();
+			rtDesc.Colors.push_back(colorAt);
+			fury::RHIRenderTargetAttachment depthAt;
+			depthAt.Texture = depth->GetRHITexture();
+			rtDesc.Depth = depthAt;
+			rtDesc.HasDepth = true;
+			auto rtSet = fury::GRHIDevice->CreateRenderTargetSet(rtDesc);
+			if (rtSet == nullptr)
 			{
-				std::cerr << "fury render-mesh: FBO incomplete (0x"
-						  << std::hex << status << std::dec << ")\n";
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glDeleteFramebuffers(1, &fbo);
+				std::cerr << "fury render-mesh: render target set incomplete\n";
 				return 1;
 			}
 
-			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-			glViewport(0, 0, W, H);
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glEnable(GL_DEPTH_TEST);
+			auto *cmd = fury::GRHIDevice->GetCommandList();
+			cmd->BeginRenderTargets(rtSet, fury::ClearMode::COLOR_DEPTH, fury::Color(0, 0, 0, 1));
+			cmd->SetRasterState(fury::BlendMode::REPLACE, fury::CompareMode::LESS, true, true, fury::CullMode::NONE);
 
 			fury::RenderMeshLambert(mesh, W, H);
 
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glDisable(GL_DEPTH_TEST);
+			cmd->EndRenderTargets();
+			cmd->SetRasterState(fury::BlendMode::REPLACE, fury::CompareMode::LESS, false, true, fury::CullMode::NONE);
 
 			// Read back + flip rows (GL origin is bottom-left, PNG is top-left).
-			std::vector<unsigned char> pixels(W * H * 4);
-			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-			glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			std::vector<unsigned char> flipped(pixels.size());
+			fury::RHIPixelData shot;
+			if (!fury::GRHIDevice->Readback(color->GetRHITexture(), shot))
+			{
+				std::cerr << "fury render-mesh: color readback failed\n";
+				return 1;
+			}
+			std::vector<unsigned char> flipped(shot.Pixels.size());
 			const size_t row_bytes = W * 4;
 			for (int y = 0; y < H; ++y)
 				std::memcpy(&flipped[y * row_bytes],
-							&pixels[(H - 1 - y) * row_bytes], row_bytes);
+							&shot.Pixels[(H - 1 - y) * row_bytes], row_bytes);
 
 			const int rc = stbi_write_png(output_path.c_str(),
 				W, H, 4, flipped.data(), static_cast<int>(row_bytes));
@@ -1831,7 +1914,8 @@ namespace fury
 					  << " (mesh='" << mesh_name << "', scene='"
 					  << scene_path << "')";
 			}
-			glDeleteFramebuffers(1, &fbo);
+			fury::Texture::ReleaseTemporary(color);
+			fury::Texture::ReleaseTemporary(depth);
 			fury::Scene::Active.reset();
 		}
 		catch (const std::exception &e)
@@ -1886,6 +1970,7 @@ namespace fury
 			if (sub == "cook")                                     return DoCook(argc, argv);
 			if (sub == "package")                                  return DoPackage(argc, argv);
 			if (sub == "exec-script")                              return DoExecScript(argc, argv);
+			if (sub == "shaderc")                                  return DoShaderc(argc, argv);
 #endif
 			std::cerr << kProgName << ": unknown subcommand '" << sub << "'\n\n" << TopHelp();
 			return 1;
@@ -2327,14 +2412,16 @@ end
 						shotRc = 2; break;
 					}
 					const unsigned int rbw = shotSize.x, rbh = shotSize.y;
-					std::vector<unsigned char> rbPixels(
-						static_cast<size_t>(rbw) * rbh * 4);
-					glReadPixels(0, 0, static_cast<GLsizei>(rbw), static_cast<GLsizei>(rbh),
-						GL_RGBA, GL_UNSIGNED_BYTE, rbPixels.data());
+					fury::RHIPixelData shot;
+					if (!fury::GRHIDevice->ReadbackBackbuffer(shot))
+					{
+						std::cerr << "furye-cli gui shot: backbuffer capture failed\n";
+						shotRc = 2; break;
+					}
 					const size_t rowBytes = static_cast<size_t>(rbw) * 4;
-					std::vector<unsigned char> flipped(rbPixels.size());
+					std::vector<unsigned char> flipped(shot.Pixels.size());
 					for (unsigned int y = 0; y < rbh; ++y)
-						std::memcpy(&flipped[y * rowBytes], &rbPixels[(rbh - 1 - y) * rowBytes], rowBytes);
+						std::memcpy(&flipped[y * rowBytes], &shot.Pixels[(rbh - 1 - y) * rowBytes], rowBytes);
 					if (stbi_write_png(outPath.c_str(), static_cast<int>(rbw), static_cast<int>(rbh),
 							4, flipped.data(), static_cast<int>(rowBytes)) == 0)
 					{

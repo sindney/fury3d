@@ -201,6 +201,10 @@ input[type=range] sliderarrowinc {
 	font-size: 14px;
 	color: #4fd1ff;
 }
+.opt-note {
+	font-size: 11px;
+	color: #9fb4c8;
+}
 
 /* HUD */
 #crosshair {

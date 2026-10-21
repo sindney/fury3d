@@ -18,6 +18,7 @@
 // Runtime flags (not subcommands) that the launcher path recognizes:
 //   --screenshot <path>         capture a PNG of the rendered scene
 //   --screenshot-frame <N>      configure the frame index for capture
+//   --rhi=<backend>             render backend: opengl, vulkan, metal
 // These are stripped from argv before the Lua `arg` table is built, so user
 // scripts never see them.
 //
@@ -48,6 +49,7 @@
 #include <Fury/LuaBindings.h>
 #include <Fury/PhysicsWorld.h>
 #include <Fury/RenderThread.h>
+#include <Fury/RHI/RHIBackend.h>
 
 #undef near
 #undef far
@@ -210,6 +212,45 @@ namespace
 				}
 				continue;
 			}
+			if (std::strcmp(a, "--gpu-dump") == 0)
+			{
+				if (i + 1 >= argc)
+				{
+					std::cerr << "fury: --gpu-dump requires a directory argument\n";
+					return false;
+				}
+				out_options.gpu_dump_dir = argv[++i];
+				continue;
+			}
+			if (std::strcmp(a, "--gpu-dump-frame") == 0)
+			{
+				if (i + 1 >= argc)
+				{
+					std::cerr << "fury: --gpu-dump-frame requires an integer argument\n";
+					return false;
+				}
+				const char *value = argv[++i];
+				try
+				{
+					int n = std::stoi(value);
+					if (n <= 0)
+					{
+						std::cerr << "fury: --gpu-dump-frame must be a positive integer (got "
+							<< value << ")\n";
+						return false;
+					}
+					if (n > 1000)
+						n = 1000;
+					out_options.gpu_dump_frame = n;
+				}
+				catch (const std::exception &)
+				{
+					std::cerr << "fury: --gpu-dump-frame must be an integer (got '"
+						<< value << "')\n";
+					return false;
+				}
+				continue;
+			}
 			if (std::strcmp(a, "--screenshot-frame") == 0)
 			{
 				if (i + 1 >= argc)
@@ -275,6 +316,22 @@ namespace
 				out_options.render_thread = value[0] - '0';
 				continue;
 			}
+			if (std::strcmp(a, "--rhi") == 0 || std::strncmp(a, "--rhi=", 6) == 0)
+			{
+				// Accepts "--rhi <name>" and "--rhi=<name>".
+				const char *value = nullptr;
+				if (a[5] == '=')
+					value = a + 6;
+				else if (i + 1 < argc)
+					value = argv[++i];
+				if (value == nullptr || value[0] == '\0')
+				{
+					std::cerr << "fury: --rhi requires a backend name (opengl, vulkan, metal)\n";
+					return false;
+				}
+				out_options.rhi = value;
+				continue;
+			}
 			out_filtered.push_back(a);
 		}
 		return true;
@@ -299,8 +356,11 @@ int main(int argc, char *argv[])
 		window.setVerticalSyncEnabled(false);
 		(void)window.setActive();
 		int rc = 1;
+		// Headless capture tools always run OpenGL, ignoring any selection.
+		fury::RHI::SetCommandLineBackend("opengl");
 		if (fury::Engine::Initialize(window, 2, fury::LogLevel::DBUG,
-				fury::FileUtil::GetAbsPath("Log.txt").c_str())) {
+				fury::FileUtil::GetAbsPath("Log.txt").c_str())
+			&& fury::Engine::InitGraphics(window, "")) {
 			rc = fury::Cli::RenderMesh(argc, argv);
 			fury::Engine::Shutdown();
 		} else {
@@ -330,8 +390,11 @@ int main(int argc, char *argv[])
 		window.setVerticalSyncEnabled(false);
 		(void)window.setActive();
 		int rc = 1;
+		// Headless capture tools always run OpenGL, ignoring any selection.
+		fury::RHI::SetCommandLineBackend("opengl");
 		if (fury::Engine::Initialize(window, 2, fury::LogLevel::DBUG,
-				fury::FileUtil::GetAbsPath("Log.txt").c_str())) {
+				fury::FileUtil::GetAbsPath("Log.txt").c_str())
+			&& fury::Engine::InitGraphics(window, "")) {
 			rc = fury::Cli::Gui(argc, argv, window);
 			fury::Engine::Shutdown();
 		} else {
@@ -451,6 +514,21 @@ int main(int argc, char *argv[])
 	// the rest of argv flows on to the Lua `arg` table.
 	fury::LuaBindings::LauncherEngineOptions launcher_options;
 	std::vector<std::string> filtered_args;
+
+	// A bare `--rhi=<backend>` at argv[1] is a launcher flag, not a script
+	// path: the default launcher script runs with the backend selected.
+	bool arg1_is_rhi = false;
+	if (argc > 1 && std::strncmp(argv[1], "--rhi=", 6) == 0)
+	{
+		if (argv[1][6] == '\0')
+		{
+			std::cerr << "fury: --rhi requires a backend name (opengl, vulkan, metal)\n";
+			return 1;
+		}
+		launcher_options.rhi = argv[1] + 6;
+		arg1_is_rhi = true;
+	}
+
 	if (!ParseLauncherFlags(argc, argv, launcher_options, filtered_args))
 		return 1;
 
@@ -508,7 +586,7 @@ int main(int argc, char *argv[])
 		fury::LuaBindings::SetLauncherOptions(&launcher_options);
 		lua["__window"] = &window;
 
-		const std::string script_path_default = (argc > 1) ? argv[1] : "Editor.lua";
+		const std::string script_path_default = (argc > 1 && !arg1_is_rhi) ? argv[1] : "Editor.lua";
 		// Pak boot: run Player.lua against the pak's boot scene. The script is
 		// read through the asset backend below, so a packed Player.lua wins
 		// over the loose one when the pak carries it.

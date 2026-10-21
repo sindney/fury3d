@@ -15,6 +15,7 @@
 #include "Fury/MeshRender.h"
 #include "Fury/Pipeline.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 
@@ -78,6 +79,8 @@ extern bool g_ShowGrid;
 extern bool g_TracyEnabled;
 // Persisted render-thread default (EditorWindows.cpp).
 extern int g_RenderThreadIni;
+// Persisted RHI backend name (EditorWindows.cpp).
+extern std::string g_RhiIni;
 
 // Public-ish accessors used by the window rendering code, kept in
 // this TU so we don't multiply globals.
@@ -256,6 +259,15 @@ void SettingsHandler_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void*, const
 		return;
 	}
 
+	// RHI backend default (applied at startup; resolution order in
+	// RHI::ResolveBackend). Startup-only, no runtime switching.
+	char rhi[32];
+	if (std::sscanf(line, "RHI=%31s", rhi) == 1) {
+		g_RhiIni = rhi;
+		RHI::SetIniBackend(g_RhiIni);
+		return;
+	}
+
 	// Import flags -- one line per flag: ImportFlag=<name>=<0|1>.
 	// Persisted so toggles in Settings -> Import survive a restart.
 	char flagname[128];
@@ -380,6 +392,8 @@ void SettingsHandler_WriteAll(ImGuiContext*, ImGuiSettingsHandler* handler, ImGu
 	buf->appendf("ShowGrid=%d\n", g_ShowGrid ? 1 : 0);
 	buf->appendf("Tracy=%d\n", g_TracyEnabled ? 1 : 0);
 	buf->appendf("RenderThread=%d\n", g_RenderThreadIni);
+	if (!g_RhiIni.empty())
+		buf->appendf("RHI=%s\n", g_RhiIni.c_str());
 	// Import flags -- one line per flag so adding/removing flags
 	// doesn't break the format.
 	for (const auto& kv : g_ImportFlags)
@@ -1046,6 +1060,28 @@ bool GetPersistedWindowSize(int &width, int &height, int &posX, int &posY) {
 			height = ph;
 			posX = px2;
 			posY = py2;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool GetPersistedRhiBackend(std::string &out) {
+	std::ifstream in("imgui.ini");
+	if (!in.good()) return false;
+
+	std::string line;
+	bool in_section = false;
+	while (std::getline(in, line))
+	{
+		if (line.rfind("[FuryEditor][Editor]", 0) == 0) { in_section = true; continue; }
+		if (!in_section) continue;
+		if (!line.empty() && line[0] == '[') break;
+
+		char name[32];
+		if (std::sscanf(line.c_str(), "RHI=%31s", name) == 1)
+		{
+			out = name;
 			return true;
 		}
 	}

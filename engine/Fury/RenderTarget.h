@@ -5,19 +5,20 @@
 #include <memory>
 
 #include "Fury/Macros.h"
+#include "Fury/RHI/RHIResources.h"
 
 namespace fury
 {
 	class Texture;
 
 	// A simple offscreen render target: one RGBA8 color texture + one
-	// DEPTH24 depth texture attached to a dedicated FBO. Used by the
-	// editor's dockable Viewport window to capture the 3D scene and
+	// DEPTH24 depth texture attached to a dedicated render target set. Used
+	// by the editor's dockable Viewport window to capture the 3D scene and
 	// present it via ImGui::Image.
 	//
 	// Lifecycle: lazy-allocated on the first Resize() with a non-zero
 	// size; recreated when the size changes. Call Release() to tear
-	// down the GL objects. Not serialized -- owned by the editor at
+	// down the GPU objects. Not serialized -- owned by the editor at
 	// runtime.
 	class FURY_API RenderTarget
 	{
@@ -31,20 +32,24 @@ namespace fury
 
 		~RenderTarget();
 
-		// No copy -- owns GL resources.
+		// No copy -- owns GPU resources.
 		RenderTarget(const RenderTarget&) = delete;
 		RenderTarget& operator=(const RenderTarget&) = delete;
 
-		// Ensure the FBO + attachments exist at the given size. Returns
-		// true when the FBO is usable (complete). A no-op (returns true)
+		// Ensure the target set + attachments exist at the given size. Returns
+		// true when the target is usable. A no-op (returns true)
 		// when the size already matches. Returns false for zero/negative
-		// sizes or incomplete FBO.
+		// sizes or a failed target set.
 		bool Resize(int width, int height);
 
-		// Tear down GL objects. Safe to call multiple times.
+		// Tear down GPU objects. Safe to call multiple times.
 		void Release();
 
-		unsigned int GetFBO() const { return m_FBO; }
+		// Transitional native-handle accessor (GL FBO name) for interop
+		// paths that have not migrated yet.
+		unsigned int GetFBO() const { return m_TargetSet != nullptr ? (unsigned int)m_TargetSet->GetNativeHandle() : 0; }
+
+		RHIRenderTargetSetRef GetTargetSet() const { return m_TargetSet; }
 
 		std::shared_ptr<Texture> GetColorTexture() const { return m_Color; }
 
@@ -54,21 +59,23 @@ namespace fury
 
 		int GetHeight() const { return m_Height; }
 
-		bool IsAllocated() const { return m_FBO != 0; }
+		bool IsAllocated() const { return m_TargetSet != nullptr; }
 
 	private:
 
 		std::string m_Name;
 
-		unsigned int m_FBO = 0;
+		RHIRenderTargetSetRef m_TargetSet;
 
-		// True while a deferred (game-thread) FBO build is in flight.
-		std::atomic<bool> m_FBOPending{ false };
+		// True while a deferred (game-thread) target build is in flight.
+		std::atomic<bool> m_TargetPending{ false };
 
 		std::shared_ptr<Texture> m_Color;
+
 		std::shared_ptr<Texture> m_Depth;
 
 		int m_Width = 0;
+
 		int m_Height = 0;
 	};
 }

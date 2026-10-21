@@ -6,6 +6,7 @@
 #include "Fury/Entity.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/Matrix4.h"
+#include "Fury/RHI/RHITypes.h"
 
 namespace fury
 {
@@ -40,9 +41,7 @@ namespace fury
 
 		std::vector<std::string> m_Defines;
 
-		unsigned int m_Program = 0;
-
-		unsigned int m_TextureID = 0;
+		RHIShaderModuleRef m_Module;
 
 		bool m_Dirty = true;
 
@@ -60,6 +59,8 @@ namespace fury
 
 		unsigned int GetProgram() const;
 
+		RHIShaderModuleRef GetRHIModule() const { return m_Module; }
+
 		bool GetDirty() const;
 
 		std::string GetFilePath() const;
@@ -75,18 +76,18 @@ namespace fury
 		bool LoadAndCompile(const std::string &shaderPath, bool useGeomShader = false);
 
 		// Compile only the COMPUTE_SHADER section of a shader file as a
-		// single-stage GL_COMPUTE_SHADER program (#version 430 injected when
-		// the file declares none). Requires gl::HasComputeShaders().
+		// single-stage compute program (#version 430 injected when the file
+		// declares none). Requires compute capability.
 		bool LoadAndCompileCompute(const std::string &shaderPath);
 
 		// Same, from an in-memory source string.
 		bool CompileCompute(const std::string &source);
 
-		// UseProgram + glDispatchCompute. No-op with a warning when compute
-		// entry points are missing or the program failed to build.
+		// BindShaderModule + dispatch. No-op with a warning when the module
+		// failed to build or the backend lacks compute.
 		void DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ);
 
-		// glMemoryBarrier over image/fetch/storage/update bits. Call between
+		// Memory barrier over image/fetch/storage/update bits. Call between
 		// a compute write pass and any later image/sampler read.
 		static void ComputeBarrier();
 
@@ -109,12 +110,7 @@ namespace fury
 		// bind texture to 1st texture
 		void BindTexture(const std::shared_ptr<Texture> &texture);
 
-		// bind texture to 1st texture
-		void BindTexture(size_t textureId, TextureType type);
-
 		void BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture);
-
-		void BindTexture(const std::string &name, size_t textureId, TextureType type);
 
 		void BindMaterial(const std::shared_ptr<Material> &material);
 
@@ -186,8 +182,8 @@ namespace fury
 		void BindIntLocation(int location, int x);
 		void BindMatrixLocation(int location, const float *matrix);
 		void BindMatricesLocation(int location, int count, const float *matrices);
-		// glActiveTexture(GL_TEXTURE0 + unitOffset) + bind + sampler uniform;
-		// returns the next unit offset.
+		// Binds at unitOffset and assigns it to the uniform; returns the
+		// next unit offset.
 		int BindTextureAt(int unitOffset, int location, const std::shared_ptr<Texture> &texture);
 		void SetTextureUnitCursor(int unitOffset);
 

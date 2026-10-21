@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "Fury/Buffer.h"
+#include "Fury/RHI/RHITypes.h"
 #include "Fury/Signal.h"
 #include "Fury/TypeComparable.h"
 
@@ -17,13 +18,13 @@ namespace fury
 
 		std::type_index m_TypeIndex;
 
-		unsigned int m_ID;
+		RHIBufferRef m_RHIBuffer;
 
 		unsigned int m_SizeOld;
 
-		unsigned int m_BufferTarget;
+		RHIBufferType m_BufferType;
 
-		unsigned int m_BufferUsage;
+		RHIBufferUsage m_BufferUsage;
 
 	public:
 
@@ -31,7 +32,7 @@ namespace fury
 
 		std::vector<DataType> Data;
 
-		ArrayBuffer(const std::string &name, unsigned int bufferTarget, unsigned int bufferUsage);
+		ArrayBuffer(const std::string &name, RHIBufferType bufferType, RHIBufferUsage bufferUsage);
 
 		virtual std::type_index GetTypeIndex() const;
 
@@ -43,7 +44,9 @@ namespace fury
 
 		unsigned int GetID() const;
 
-		void SetBufferUsage(unsigned int usage);
+		RHIBufferRef GetRHIBuffer() const;
+
+		void SetBufferUsage(RHIBufferUsage usage);
 	};
 
 	typedef ArrayBuffer<float> ArrayBufferf;

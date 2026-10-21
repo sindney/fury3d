@@ -48,6 +48,7 @@ local S = {
 	fov = 75, sens = 1.0,
 	hdr = true, ocean_ssr = true,
 	hide_cursor = true,
+	rhi = "",   -- "" = platform default; applies at next launch
 }
 
 local CFG_PATH = "Projects/ocean/game_settings.cfg"
@@ -193,6 +194,24 @@ local function options_sync()
 	if sens_el then sens_el:SetAttribute("value", tostring(S.sens)) end
 	local sens_val = doc:GetElementById("sens-value")
 	if sens_val then sens_val.inner_rml = string.format("%.1f", S.sens) end
+	-- render backend: platform-supported list, generated (varies by OS)
+	local rhi_ctl = doc:GetElementById("rhi-controls")
+	if rhi_ctl then
+		local names = Engine.GetSupportedRhiBackends()
+		local html = {}
+		for _, n in ipairs(names) do
+			html[#html + 1] = '<div class="seg" id="rhi-' .. n ..
+				'" onclick="Opt_Rhi(\'' .. n .. '\')">' .. n:upper() .. '</div>'
+		end
+		rhi_ctl.inner_rml = table.concat(html)
+		for _, n in ipairs(names) do
+			set_seg(doc, "rhi-" .. n, S.rhi == n or (S.rhi == "" and n == "opengl"))
+		end
+		local note = doc:GetElementById("rhi-note")
+		if note then
+			note.inner_rml = "applies at next launch (active: " .. Engine.GetRhiBackend() .. ")"
+		end
+	end
 end
 
 -- ---------------------------------------------------------------- states
@@ -297,6 +316,14 @@ end
 function Opt_CsmRes(n)
 	S.csm_res = n
 	settings_apply("csm_res")
+	options_sync()
+end
+
+-- Backend switching is startup-only; the choice persists and feeds the
+-- Engine.run rhi option on the next launch.
+function Opt_Rhi(name)
+	S.rhi = name
+	settings_save()
 	options_sync()
 end
 
@@ -560,5 +587,10 @@ if _G.ISLANDGAME_NO_RUN then
 		is_swimming = function() return swimming end,
 	}
 else
-	Engine.run({ on_init = on_init, on_update = on_update })
+	-- Settings load once before Engine.run so a persisted rhi choice feeds
+	-- the backend resolution chain (it resolves at device creation inside
+	-- run); on_init loads them again for the gameplay-facing values.
+	settings_load()
+	Engine.run({ on_init = on_init, on_update = on_update },
+		{ rhi = S.rhi ~= "" and S.rhi or nil })
 end

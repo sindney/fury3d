@@ -43,6 +43,17 @@
 
 			<div class="opt-section">GRAPHICS</div>
 			<div class="opt-row">
+				<div class="opt-label">RENDER BACKEND</div>
+				<div class="opt-controls" id="rhi-controls">
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label"></div>
+				<div class="opt-controls">
+					<div class="opt-note" id="rhi-note"></div>
+				</div>
+			</div>
+			<div class="opt-row">
 				<div class="opt-label">POST-PROCESSING</div>
 				<div class="opt-controls">
 					<div class="seg" id="postfx" onclick="Opt_Toggle('postfx')">ON</div>

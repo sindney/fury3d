@@ -53,8 +53,14 @@ The second argument (the options table) is also optional. Calling `Engine.run({.
 - `gui_scale` (number, default `0.0` — sentinel meaning "use system DPI"): multiplier passed to `ImGuiStyle::ScaleAllSizes`. Controls widget sizes, padding, borders. The default of `0.0` is a sentinel that makes the editor Just Work on HiDPI displays — on a 200%-scaled monitor the UI is scaled by 2.0× without the user having to opt in. Pass an explicit value (e.g., `1.0`) to bypass the system DPI and get a fixed size.
 - `gui_font_scale` (number, default `0.0` — sentinel meaning "follow `gui_scale`"): assigned to `ImGuiStyle::FontScaleMain` (the ImGui 1.92 replacement for the deprecated `ImGuiIO::FontGlobalScale`). Controls the bitmap font density. The default follows `gui_scale` so the font scales with the system DPI alongside the widget layout. Pass an explicit value (e.g., `1.0`) to override.
 - `dpi_aware_override` (boolean, default `false`): when `true`, the system DPI is multiplied with `gui_scale` (so `gui_scale = 1.0` becomes `2.0` on a 200% display). When `false`, an explicit `gui_scale` wins over the system DPI. See the `platform-window-dpi` spec for details.
+- `rhi` (string, optional): render backend for this launch — `"opengl"`, `"vulkan"`, or `"metal"`. The backend resolves at device creation (inside `Engine.run`, before `on_init`), first source winning: `--rhi=` CLI arg > `FURY_RHI` env > this option > editor ini > default `opengl`. Unknown or unsupported values warn and resolve to `opengl`; a backend that fails initialization falls back to `opengl`. There is no runtime switching.
 
 Unknown keys in the options table are silently ignored, so you can leave a `vsync = true` (or similar) entry in your script and it won't error — it just won't do anything yet.
+
+Two related query functions exist for game-side options menus:
+
+- `Engine.GetRhiBackend()` → string: the backend actually in use (after any fallback), e.g. `"opengl"`.
+- `Engine.GetSupportedRhiBackends()` → array of strings: the current platform's support matrix (Windows: `opengl, vulkan`; macOS: `opengl, vulkan, metal`; Linux: `opengl, vulkan`).
 
 Ordering guarantees per frame:
 1. `RenderUtil:BeginFrame()` (engine-internal).

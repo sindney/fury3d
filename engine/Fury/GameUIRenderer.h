@@ -51,6 +51,9 @@ namespace fury
 		// GL-thread replay inside the frame executor.
 		void Replay(const std::shared_ptr<GameUIFrameData> &frame);
 
+		// Live UI textures (font atlases, document images) for the GPU dump.
+		const std::vector<std::shared_ptr<Texture>> &GetTextures() const { return m_Textures; }
+
 		// RenderInterface (game thread only).
 		Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices, Rml::Span<const int> indices) override;
 		void RenderGeometry(Rml::CompiledGeometryHandle geometry, Rml::Vector2f translation, Rml::TextureHandle texture) override;

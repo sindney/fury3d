@@ -41,26 +41,6 @@ namespace fury
 		// case.
 		FURY_API OrbitState &OrbitFor(const std::string &popup_id);
 
-		// Per-window FBO + color/depth attachments. Reallocated on
-		// resize. Returns 0 if the FBO is incomplete (caller must
-		// skip the draw).
-		struct FURY_API PreviewRT
-		{
-			unsigned int fbo = 0;
-			std::shared_ptr<::fury::Texture> colorRT;
-			std::shared_ptr<::fury::Texture> depthRT;
-			int width = 0;
-			int height = 0;
-		};
-
-		// Returns the FBO for `popup_id`, creating it on first call
-		// and resizing on width/height change. The caller binds it
-		// (BindFramebuffer), draws into it, then binds framebuffer 0
-		// again. `out_resized` (optional) is set true when this call
-		// (re)allocated -- callers reframe their orbit on it.
-		FURY_API PreviewRT &EnsureRT(const std::string &popup_id, int w, int h,
-			bool *out_resized = nullptr);
-
 		struct FURY_API ViewProj
 		{
 			Matrix4 view;

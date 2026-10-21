@@ -39,6 +39,8 @@ namespace fury
 
 	class Shader;
 
+	class Pass;
+
 	class PostProcessEffect;
 
 	class UniformBase;
@@ -358,7 +360,9 @@ namespace fury
 
 		std::shared_ptr<Pipeline> pipeline;
 
-		std::vector<std::string> sortedPasses;
+		// Passes resolved at gather time: the packet keeps them alive even
+		// when a mid-frame pipeline reload replaces the manager's entries.
+		std::vector<std::shared_ptr<Pass>> sortedPasses;
 
 		PacketCamera camera;
 

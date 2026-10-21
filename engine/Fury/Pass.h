@@ -7,6 +7,7 @@
 #include "Fury/Color.h"
 #include "Fury/Entity.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/RHI/RHITypes.h"
 #include "Fury/Vector4.h"
 
 #undef OPAQUE
@@ -20,7 +21,7 @@ namespace fury
 	class Shader;
 
 	class Texture;
-	
+
 	class FURY_API Pass : public Entity
 	{
 		friend class FileUtil;
@@ -56,9 +57,8 @@ namespace fury
 
 		unsigned int m_RenderIndex = 0;
 
-		unsigned int m_FrameBuffer = 0;
-
-		unsigned int m_ColorAttachmentCount = 0;
+		// Built from m_OutputTextures; rebuilt when m_RenderTargetDirty.
+		RHIRenderTargetSetRef m_RTSet;
 
 		int m_ViewPortWidth = 0;
 
@@ -67,10 +67,6 @@ namespace fury
 		bool m_RenderTargetDirty = false;
 
 		bool m_Binded = false;
-
-		std::vector<std::pair<unsigned int, std::shared_ptr<Texture>>> m_LayerTextures;
-
-		std::vector<std::pair<unsigned int, std::shared_ptr<Texture>>> m_CubeTextures;
 
 	public:
 
@@ -148,23 +144,21 @@ namespace fury
 
 		unsigned int GetTextureCount(bool input) const;
 
-		unsigned int GetFBO() const;
-
 		void RemoveAllTextures();
-
-		void CreateFrameBuffer();
-
-		void BindRenderTargets();
-
-		void UnBindRenderTargets();
-
-		void DeleteFrameBuffer();
 
 		void Clear(ClearMode mode, Color color = Color(0.0f, 0.0f, 0.0f, 0.0f));
 
 		void Bind(bool clear = true);
 
 		void UnBind();
+
+	private:
+
+		void RebuildRenderTarget();
+
+		void DestroyRenderTarget();
+
+		unsigned int GetAttachmentIndex(const std::shared_ptr<Texture> &texture) const;
 	};
 }
 

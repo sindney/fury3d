@@ -7,7 +7,7 @@
 
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/Heightmap.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
@@ -366,8 +366,8 @@ namespace fury
 
 	void Terrain::ReloadTextures()
 	{
-		if (_ptrc_glGenTextures == nullptr)
-			return;   // headless: no GL, no material needed
+		if (GRHIDevice == nullptr)
+			return;   // headless: no device, no material needed
 
 		if (!m_Material)
 			m_Material = Material::Create("terrain_mat");

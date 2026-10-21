@@ -174,12 +174,13 @@ namespace fury
 #endif
 }
 
-// Fires when GL is used from a thread that does not own the context while
-// the render thread is running. Active in every build except Shipping.
+// Fires when the GPU API is used from a thread that does not own the
+// context while the render thread is running. Active in every build
+// except Shipping.
 #if !defined(FURY_BUILD_SHIPPING)
-#define FURY_GL_THREAD_GUARD() ASSERT_MSG(fury::RenderThread::Get().MayUseGL(), "GL call from a thread that does not own the context")
+#define FURY_RHI_THREAD_GUARD() ASSERT_MSG(fury::RenderThread::Get().MayUseGL(), "RHI call from a thread that does not own the context")
 #else
-#define FURY_GL_THREAD_GUARD()
+#define FURY_RHI_THREAD_GUARD()
 #endif
 
 namespace fury
@@ -189,7 +190,7 @@ namespace fury
 	// skipped if the object died first -- a re-dispatched create/upload
 	// must never fire on a dead resource.
 	template<class T, class F>
-	inline void DispatchGL(T *obj, F &&fn)
+	inline void DispatchRHI(T *obj, F &&fn)
 	{
 		auto &rt = RenderThread::Get();
 		if (rt.MayUseGL())

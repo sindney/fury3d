@@ -13,6 +13,7 @@
 #include "ImGui/backends/imgui_impl_sfml3.h"
 
 #include "Fury/Gui.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Log.h"
 
@@ -24,13 +25,38 @@ namespace fury
 {
 	namespace Gui
 	{
+		// Which renderer backend draws the UI. Backends whose window is a
+		// GL context draw the UI with the GL backend; Metal draws it with
+		// the backend's own ImGui renderer (the RHI draws the overlay
+		// into the backbuffer pass).
+		enum class UiRenderer
+		{
+			OpenGL3,
+			Backend
+		};
+
 		static sf::Window *m_Window = nullptr;
 
 		static float m_GlobalScale = 1.0f;
 
+		static UiRenderer m_Renderer = UiRenderer::OpenGL3;
+
 		// Optional Lua-supplied callback invoked inside the main menu bar.
 		// Cleared by the launcher before sol::state destruction.
 		static std::function<void()> m_MenuBarCallback;
+
+		// Submits one frame of ImGui draw data with the active renderer.
+		static void SubmitDrawData(ImDrawData *drawData)
+		{
+			if (drawData == nullptr) return;
+			if (m_Renderer == UiRenderer::Backend)
+			{
+				if (GRHIDevice != nullptr)
+					GRHIDevice->DrawUiOverlay(drawData);
+				return;
+			}
+			ImGui_ImplOpenGL3_RenderDrawData(drawData);
+		}
 
 		bool Initialize(sf::Window *window, float scale, float fontScale)
 		{
@@ -65,22 +91,36 @@ namespace fury
 				return false;
 			}
 
-			// 3.3 core matches the GL context the engine already requests.
-			if (!ImGui_ImplOpenGL3_Init("#version 330 core"))
+			// A backend whose window is not a GL context (Metal) brings
+			// its own ImGui renderer; the RHI draws the overlay into the
+			// backbuffer pass.
+			if (GRHIDevice != nullptr && GRHIDevice->InitUiRenderer())
 			{
-				FURYE << "ImGui OpenGL3 backend init failed";
-				return false;
+				m_Renderer = UiRenderer::Backend;
+			}
+			else
+			{
+				m_Renderer = UiRenderer::OpenGL3;
+				// 3.3 core matches the GL context the engine already requests.
+				if (!ImGui_ImplOpenGL3_Init("#version 330 core"))
+				{
+					FURYE << "ImGui OpenGL3 backend init failed";
+					return false;
+				}
 			}
 
-			// Pre-bake one full frame on the main thread (GL is current
-			// here, before the render-thread handoff): the font atlas
-			// uploads and the backend's device objects get created up
-			// front, so neither lands on the render thread later.
-			ImGui_ImplSFML3_NewFrame(m_Window, 1.0f / 60.0f);
-			ImGui::NewFrame();
-			ImGui::Render();
-			ImGui_ImplOpenGL3_NewFrame();
-			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			if (m_Renderer == UiRenderer::OpenGL3)
+			{
+				// Pre-bake one full frame on the main thread (GL is current
+				// here, before the render-thread handoff): the font atlas
+				// uploads and the backend's device objects get created up
+				// front, so neither lands on the render thread later.
+				ImGui_ImplSFML3_NewFrame(m_Window, 1.0f / 60.0f);
+				ImGui::NewFrame();
+				ImGui::Render();
+				ImGui_ImplOpenGL3_NewFrame();
+				ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			}
 
 			return true;
 		}
@@ -89,7 +129,15 @@ namespace fury
 		{
 			if (ImGui::GetCurrentContext() == nullptr) return;
 
-			ImGui_ImplOpenGL3_Shutdown();
+			if (m_Renderer == UiRenderer::Backend)
+			{
+				if (GRHIDevice != nullptr)
+					GRHIDevice->ShutdownUiRenderer();
+			}
+			else
+			{
+				ImGui_ImplOpenGL3_Shutdown();
+			}
 			ImGui_ImplSFML3_Shutdown();
 			ImGui::DestroyContext();
 			m_Window = nullptr;
@@ -107,7 +155,7 @@ namespace fury
 			// The GL backend's NewFrame is one-time device setup; after the
 			// pre-bake it is a no-op. Post-handoff it must not run on the
 			// game thread (it is a GL call).
-			if (RenderThread::Get().MayUseGL())
+			if (m_Renderer == UiRenderer::OpenGL3 && RenderThread::Get().MayUseGL())
 				ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplSFML3_NewFrame(m_Window, frameTime);
 			ImGui::NewFrame();
@@ -230,10 +278,10 @@ namespace fury
 
 		void Render()
 		{
-			FURY_GL_THREAD_GUARD();
+			FURY_RHI_THREAD_GUARD();
 			if (ImGui::GetCurrentContext() == nullptr) return;
 			ImGui::Render();
-			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			SubmitDrawData(ImGui::GetDrawData());
 		}
 
 		// Deep-cloned draw data for one frame. Owned by the caller; the
@@ -292,8 +340,9 @@ namespace fury
 			if (ImGui::GetCurrentContext() == nullptr) return;
 			auto *data = static_cast<GuiFrameData*>(frame.get());
 			if (data == nullptr || !data->drawData.Valid) return;
-			ImGui_ImplOpenGL3_NewFrame();
-			ImGui_ImplOpenGL3_RenderDrawData(&data->drawData);
+			if (m_Renderer == UiRenderer::OpenGL3)
+				ImGui_ImplOpenGL3_NewFrame();
+			SubmitDrawData(&data->drawData);
 		}
 	}
 }

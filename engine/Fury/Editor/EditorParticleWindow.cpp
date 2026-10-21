@@ -13,7 +13,8 @@
 #include "Fury/EntityManager.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/EnumUtil.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/ParticleRenderer.h"
@@ -128,29 +129,23 @@ namespace fury
 					const auto center = aabb_center;
 					RenderThread::Get().EnqueueJob([key, w, h, pk, cam, view, proj, center, radius]() mutable {
 						auto &surface = AcquireSurface(key, w, h);
-						if (surface.fbo == 0)
+						if (surface.targetSet == nullptr)
 							return;
 
-						glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
-						glViewport(0, 0, w, h);
-						glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-						glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-						glEnable(GL_DEPTH_TEST);
+						auto *cmd = GRHIDevice->GetCommandList();
+						cmd->BeginRenderTargets(surface.targetSet, ClearMode::COLOR_DEPTH, Color(0, 0, 0, 1));
 
-						glEnable(GL_BLEND);
-						glDepthMask(GL_FALSE);
-						if (pk.blendMode == ParticleBlend::ADDITIVE)
-							glBlendFunc(GL_ONE, GL_ONE);
-						else
-							glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+						cmd->SetBlendMode(pk.blendMode == ParticleBlend::ADDITIVE
+							? BlendMode::ADD : BlendMode::ALPHA);
+						cmd->SetDepthState(CompareMode::LESS, true, false);
 						ParticleRenderer::DrawPacket(pk, cam, nullptr);
-						glDepthMask(GL_TRUE);
-						glDisable(GL_BLEND);
+						cmd->SetDepthState(CompareMode::LESS, true, true);
+						cmd->SetBlendMode(BlendMode::REPLACE);
 
 						DrawGroundGrid(view, proj, center, 0.0f, radius);
 
-						glBindFramebuffer(GL_FRAMEBUFFER, 0);
-						glDisable(GL_DEPTH_TEST);
+						cmd->EndRenderTargets();
+						cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, true, CullMode::NONE);
 
 						PublishSurface(key, surface.color);
 					});

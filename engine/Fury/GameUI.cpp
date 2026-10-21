@@ -460,5 +460,13 @@ namespace fury
 			if (s_Renderer == nullptr || frame == nullptr) return;
 			s_Renderer->Replay(std::static_pointer_cast<GameUIFrameData>(frame));
 		}
+
+		void CollectUITextures(std::vector<std::shared_ptr<Texture>> &out)
+		{
+			if (s_Renderer == nullptr) return;
+			for (const auto &tex : s_Renderer->GetTextures())
+				if (tex != nullptr)
+					out.push_back(tex);
+		}
 	}
 }

@@ -135,6 +135,33 @@ namespace fury
 		PerspectiveOffCenter(-right, right, -top, top, near, far);
 	}
 
+	static bool s_DepthZeroToOne = false;
+
+	void Matrix4::SetDepthZeroToOne(bool enabled)
+	{
+		s_DepthZeroToOne = enabled;
+	}
+
+	bool Matrix4::GetDepthZeroToOne()
+	{
+		return s_DepthZeroToOne;
+	}
+
+	Matrix4 Matrix4::DepthZeroToOneRemap() const
+	{
+		// clip'.z = (clip.z + clip.w) / 2: row 2 of the product picks up half
+		// of row 3, everything else unchanged. Valid for perspective + ortho.
+		Matrix4 out(Raw);
+		out.Raw[10] = 0.5f * (Raw[10] + Raw[11]);
+		out.Raw[14] = 0.5f * (Raw[14] + Raw[15]);
+		return out;
+	}
+
+	Matrix4 Matrix4::DepthConvention(const Matrix4 &m)
+	{
+		return GetDepthZeroToOne() ? m.DepthZeroToOneRemap() : m;
+	}
+
 	void Matrix4::PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far)
 	{
 		for(int i = 0; i < 16; i++) Raw[i] = 0.0f;
@@ -147,7 +174,7 @@ namespace fury
 		Raw[11] = -1;
 		Raw[14] = - 2 * far * near / (far - near);
 	}
-	
+
 	void Matrix4::OrthoOffCenter(float left, float right, float bottom, float top, float near, float far)
 	{
 		for(int i = 0; i < 16; i++) Raw[i] = 0.0f;

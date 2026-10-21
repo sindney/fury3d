@@ -3,7 +3,6 @@
 
 #include <vector>
 #include <string>
-#include <tuple>
 
 #include "Macros.h"
 
@@ -237,33 +236,26 @@ namespace fury
 
 		static const std::vector<std::pair<ClearMode, std::string>> m_ClearMode;
 
-		static const std::vector<std::tuple<CompareMode, unsigned int, std::string>> m_CompareMode;
+		static const std::vector<std::pair<CompareMode, std::string>> m_CompareMode;
 
 		static const std::vector<std::pair<BlendMode, std::string>> m_BlendMode;
 
-		static const std::vector<unsigned int> m_BlendModeSrc;
-
-		static const std::vector<unsigned int> m_BlendModeDest;
-
-		static const std::vector<unsigned int> m_BlendModeOp;
-
-		static const std::vector<std::tuple<TextureFormat, std::string, unsigned int, unsigned int>> m_TextureFormat;
+		// Indexed by enum value, order must match.
+		static const std::vector<std::pair<TextureFormat, std::string>> m_TextureFormat;
 
 		static const std::vector<std::pair<TextureFormat, unsigned int>> m_TextureFormatBitPerPixel;
 
-		static const std::vector<std::tuple<TextureType, std::string, unsigned int>> m_TextureType;
+		static const std::vector<std::pair<TextureType, std::string>> m_TextureType;
 
-		static const std::vector<std::tuple<FilterMode, unsigned int, std::string>> m_FilterMode;
+		static const std::vector<std::pair<FilterMode, std::string>> m_FilterMode;
 
-		static const std::vector<std::tuple<WrapMode, unsigned int, std::string>> m_WrapMode;
+		static const std::vector<std::pair<WrapMode, std::string>> m_WrapMode;
 
 		static const std::vector<std::pair<LightType, std::string>> m_LightType;
 
 		static const std::vector<std::pair<ShaderType, std::string>> m_ShaderType;
 
 		static const std::vector<std::pair<ShaderTexture, std::string>> m_ShaderTexture;
-
-		static const std::vector<unsigned int> m_LineMode;
 
 		static const std::vector<std::pair<AnimWrapMode, std::string>> m_AnimWrapMode;
 
@@ -278,25 +270,15 @@ namespace fury
 		static ClearMode ClearModeFromString(const std::string &name);
 
 
-		static unsigned int CompareModeToUint(CompareMode mode);
-
 		static std::string CompareModeToString(CompareMode mode);
 
 		static CompareMode CompareModeFromString(const std::string &name);
 
 
-		static unsigned int BlendModeSrc(BlendMode mode);
-
-		static unsigned int BlendModeDest(BlendMode mode);
-
-		static unsigned int BlendModeOp(BlendMode mode);
-
 		static std::string BlendModeToString(BlendMode mode);
 
 		static BlendMode BlendModeFromString(const std::string &name);
 
-
-		static std::pair<bool, unsigned int> CullModeToUint(CullMode mode);
 
 		static std::string CullModeToString(CullMode mode);
 
@@ -307,8 +289,6 @@ namespace fury
 
 		static DrawMode DrawModeFromString(const std::string &name);
 
-
-		static std::pair<bool, unsigned int> TextureFormatToUint(TextureFormat format, bool internalFormat = true);
 
 		// True for BC1/BC3/BC5/BC6H/BC7 formats: upload via
 		// glCompressedTexImage2D, no base-format tuple entry.
@@ -325,29 +305,19 @@ namespace fury
 		static unsigned int TextureBitPerPixel(TextureFormat format);
 
 
-		static unsigned int TextureTypeToUnit(TextureType type);
-
 		static std::string TextureTypeToString(TextureType type);
 
 		static TextureType TextureTypeFromString(const std::string &name);
 
 
-		static unsigned int FilterModeToUint(FilterMode mode);
-
 		static std::string FilterModeToString(FilterMode mode);
 
 		static FilterMode FilterModeFromString(const std::string &name);
 
-		static FilterMode FilterModeFromUint(unsigned int value);
-
-
-		static unsigned int WrapModeToUint(WrapMode mode);
 
 		static std::string WrapModeToString(WrapMode mode);
 
 		static WrapMode WrapModeFromString(const std::string &name);
-
-		static WrapMode WrapModeFromUint(unsigned int value);
 
 
 		static std::string LightTypeToString(LightType type);
@@ -366,8 +336,6 @@ namespace fury
 
 		static void GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures);
 
-
-		static unsigned int LineModeToUnit(LineMode mode);
 
 		static std::string AnimWrapModeToString(AnimWrapMode mode);
 

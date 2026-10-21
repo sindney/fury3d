@@ -15,7 +15,8 @@
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
 #include "Fury/FramePacket.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
@@ -596,8 +597,8 @@ namespace fury
 
 		if (m_ResourcesCreated)
 			return true;
-		if (_ptrc_glGenTextures == nullptr)
-			return false;   // headless (fury exec): no GL
+		if (GRHIDevice == nullptr)
+			return false;   // headless (fury exec): no device
 
 		// Members are published under the mutex: the game thread copies
 		// them into frame packets while this runs on the GL thread.
@@ -659,7 +660,7 @@ namespace fury
 		auto mesh = MeshUtil::GetUnitQuad();
 		pass->Bind();
 		shader->BindMesh(mesh);
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		GRHIDevice->GetCommandList()->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		pass->UnBind();
 	}
 
@@ -705,7 +706,7 @@ namespace fury
 		{
 			m_CameraVolumePass->SetArrayTextureLayer(slice);
 			m_CameraVolumeShader->BindFloat("u_slice_id", static_cast<float>(slice));
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			GRHIDevice->GetCommandList()->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
 		m_CameraVolumeShader->UnBind();
 		m_CameraVolumePass->UnBind();
@@ -715,7 +716,7 @@ namespace fury
 	{
 		if (m_CloudBaseNoise != nullptr && m_CloudDetailNoise != nullptr && m_WeatherMap != nullptr)
 			return true;
-		if (_ptrc_glGetTexImage == nullptr)
+		if (GRHIDevice == nullptr)
 			return false;
 
 		std::lock_guard<std::mutex> resourceLock(s_SkyResourceMutex);
@@ -775,7 +776,7 @@ namespace fury
 			{
 				pass->SetArrayTextureLayer(slice);
 				m_NoiseGenShader->BindFloat("u_slice_id", (float)slice);
-				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+				GRHIDevice->GetCommandList()->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 			}
 			pass->UnBind();
 		};

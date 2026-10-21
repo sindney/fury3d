@@ -2,10 +2,10 @@
 #include <cstdio>
 
 #include "Fury/Log.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/OpenGL/GLInputAssembler.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Joint.h"
@@ -23,7 +23,7 @@ namespace fury
 
 	SubMesh::SubMesh() :
 		m_TypeIndex(typeid(SubMesh)), m_VAO(0),
-		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW)
+		Indices("vertex_index", RHIBufferType::INDEX, RHIBufferUsage::STATIC)
 	{
 
 	}
@@ -43,15 +43,8 @@ namespace fury
 		if (m_VAO != 0)
 		{
 			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
+			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
 			m_VAO = 0;
-		}
-
-		glGenVertexArrays(1, &m_VAO);
-		if (m_VAO == 0)
-		{
-			m_Dirty = true;
-			FURYW << "Failed to glGenVertexArrays!";
 		}
 	}
 
@@ -62,7 +55,7 @@ namespace fury
 		if (m_VAO != 0)
 		{
 			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
+			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
 			m_VAO = 0;
 		}
 
@@ -87,14 +80,14 @@ namespace fury
 	}
 
 	Mesh::Mesh(const std::string &name) : Entity(name), m_VAO(0),
-		Positions("vertex_position", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Normals("vertex_normal", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Tangents("vertex_tangent", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		UVs("vertex_uv", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Colors("vertex_color", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Weights("bone_weights", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		IDs("bone_ids", GL_ARRAY_BUFFER, GL_STATIC_DRAW),
-		Indices("vertex_index", GL_ELEMENT_ARRAY_BUFFER, GL_STATIC_DRAW)
+		Positions("vertex_position", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		Normals("vertex_normal", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		Tangents("vertex_tangent", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		UVs("vertex_uv", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		Colors("vertex_color", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		Weights("bone_weights", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		IDs("bone_ids", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
+		Indices("vertex_index", RHIBufferType::INDEX, RHIBufferUsage::STATIC)
 	{
 		m_TypeIndex = typeid(Mesh);
 	};
@@ -448,10 +441,10 @@ namespace fury
 	{
 		if (!RenderThread::Get().MayUseGL())
 		{
-			DispatchGL(this, [this]() { UpdateBuffer(); });
+			DispatchRHI(this, [this]() { UpdateBuffer(); });
 			return;
 		}
-		FURY_GL_THREAD_GUARD();
+		FURY_RHI_THREAD_GUARD();
 		Positions.UpdateBuffer();
 		Normals.UpdateBuffer();
 		Tangents.UpdateBuffer();
@@ -474,22 +467,13 @@ namespace fury
 		if (m_VAO != 0)
 		{
 			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
+			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
 			m_VAO = 0;
 		}
 
-		glGenVertexArrays(1, &m_VAO);
-		if (m_VAO == 0)
-		{
-			m_Dirty = true;
-			FURYW << "Failed to glGenVertexArrays!";
-		}
-		else
-		{
-			for (auto subMesh : m_SubMeshes)
-				if (subMesh != nullptr)
-					subMesh->UpdateBuffer();
-		}
+		for (auto subMesh : m_SubMeshes)
+			if (subMesh != nullptr)
+				subMesh->UpdateBuffer();
 	}
 
 	void Mesh::DeleteBuffer()
@@ -499,7 +483,7 @@ namespace fury
 		if (m_VAO != 0)
 		{
 			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { glDeleteVertexArrays(1, &vao); });
+			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
 			m_VAO = 0;
 		}
 		Positions.DeleteBuffer();

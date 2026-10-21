@@ -21,6 +21,7 @@ end
 local octree = nil
 local pl = nil
 local imr = nil
+local exit_frame = tonumber(os.getenv("FURY_EXIT_FRAME") or "10")
 
 local function on_init()
     octree = OcTree.Create()
@@ -122,6 +123,9 @@ local function on_update(dt)
             fail("draw calls not flat: " .. dc .. " (per-instance submission suspected)")
         end
         print("instancing_smoke OK")
+    end
+    if frame == exit_frame then
+        os.exit(0)
     end
 end
 

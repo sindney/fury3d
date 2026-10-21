@@ -60,6 +60,7 @@
 #include "Fury/Quaternion.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
@@ -2354,6 +2355,20 @@ namespace fury
 			// headless sway screenshots.
 			engine_tbl["GetTime"] = &Engine::GetTime;
 			engine_tbl["SetTime"] = &Engine::SetTime;
+			// Active RHI backend name (after any fallback), and the platform's
+			// supported list -- for game-side options menus (startup-only
+			// switching; a change applies at next launch).
+			engine_tbl["GetRhiBackend"] = []() -> std::string {
+				return GRHIDevice != nullptr ? RHI::BackendToString(GRHIDevice->GetBackend()) : "none";
+			};
+			engine_tbl["GetSupportedRhiBackends"] = [](sol::this_state s) {
+				sol::state_view l(s);
+				sol::table t = l.create_table();
+				int i = 1;
+				for (const auto &name : RHI::GetSupportedBackendNames())
+					t[i++] = name;
+				return t;
+			};
 			engine_tbl["run"] = [lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
@@ -2394,6 +2409,11 @@ namespace fury
 					sol::object rt = o["render_thread"];
 					if (rt.valid() && rt.get_type() == sol::type::boolean)
 						opts.render_thread = rt.as<bool>() ? 1 : 0;
+					// rhi = "vulkan" requests a backend; resolution order
+					// lives in RHI::ResolveBackend.
+					sol::object rhi = o["rhi"];
+					if (rhi.valid() && rhi.get_type() == sol::type::string)
+						opts.rhi = rhi.as<std::string>();
 				}
 
 				// Layer launcher-supplied options over the script's. Launcher
@@ -2415,10 +2435,22 @@ namespace fury
 					opts.exit_code_out = &s_launcher_options->exit_code;
 				}
 
+				if (s_launcher_options && !s_launcher_options->gpu_dump_dir.empty())
+				{
+					opts.gpu_dump_dir = s_launcher_options->gpu_dump_dir;
+					opts.gpu_dump_frame = s_launcher_options->gpu_dump_frame;
+					opts.exit_code_out = &s_launcher_options->exit_code;
+				}
+
 				// CLI --render-thread=0|1 wins over env and lua (resolution
 				// order in RenderThread::ResolveEnabled).
 				if (s_launcher_options && s_launcher_options->render_thread != -1)
 					RenderThread::SetCommandLineOverride(s_launcher_options->render_thread);
+
+				// CLI --rhi=<backend> wins over env, lua and ini (resolution
+				// order in RHI::ResolveBackend).
+				if (s_launcher_options && !s_launcher_options->rhi.empty())
+					RHI::SetCommandLineBackend(s_launcher_options->rhi);
 
 				Engine::Run(*window, cb, opts);
 

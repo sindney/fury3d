@@ -134,6 +134,15 @@ fury <script.lua> [args...] --screenshot <path> [--screenshot-frame <N>]
   grid, chronological left-to-right top-to-bottom) to `<path>` and exit.
   For diagnosing temporal artifacts (flicker, popping, stepping) that a
   single screenshot can't show. `N` 1..64, `interval` >= 1.
+- `--gpu-dump <dir> [--gpu-dump-frame <N>]` — GPU frame dump: after frame
+  `N` (default 2) presents, write every render-target texture of that
+  frame as PNGs (per array/3D slice) to `<dir>/textures/`, a per-texture
+  min/max/mean `stats` list and the pass/texture/chain render graph to
+  `<dir>/rendergraph.json`, then exit 0. Works on every backend (float
+  and depth formats clamp to [0,1] like GL's UNSIGNED_BYTE readback).
+  The render graph is derived from the pipeline's live passes/textures,
+  so runtime-created targets (shadow maps, sky LUTs, chain temps) appear
+  alongside the JSON-described passes.
 
 **Headless caveat.** SFML/OpenGL needs a window to provide a GL context,
 so an `sf::Window` opens briefly during capture (typically 50–150 ms
@@ -163,6 +172,39 @@ before the engine exits). True offscreen rendering is out of scope for v1.
 ./furye Editor.lua Projects/outdoor/outdoor_water.bin \
   particle:FireEmber,mesh:Feu --screenshot /tmp/editors.png --screenshot-frame 90
 ```
+
+## RHI backend selection
+
+The launcher and pak-boot paths accept a startup render-backend flag:
+
+```
+fury <script.lua> --rhi=<backend>
+fury game.pak --rhi=vulkan
+fury --rhi=metal          # bare flag: runs the default launcher script
+```
+
+`--rhi` takes `opengl`, `vulkan`, or `metal` (also spelled `--rhi <name>`;
+at `argv[1]` only the `=` form is recognized). The active backend resolves
+at engine startup, first source winning:
+
+1. `--rhi=` CLI arg
+2. `FURY_RHI` environment variable
+3. Lua `Engine.run` option (`Engine.run(cb, { rhi = "vulkan" })`)
+4. editor ini setting (`imgui.ini` `[FuryEditor][Editor] RHI=<name>`)
+5. platform default: `opengl`
+
+Platform support matrix: Windows `opengl, vulkan`; macOS
+`opengl, vulkan, metal`; Linux `opengl, vulkan`. A backend compiled out via
+CMake (`FURY_RHI_VULKAN=OFF` / `FURY_RHI_METAL=OFF`) counts as unsupported.
+An unknown or unsupported value logs a warning and resolves to `opengl`.
+After device creation the backend runs a probe (texture upload, trivial
+pipeline, one cleared+presented frame); any failure logs the failing step
+and re-initializes with `opengl` in the same launch. There is no runtime
+switching — changing the backend takes effect on the next launch.
+
+Headless CLI paths ignore the selection: `furye-cli` subcommands (`cook`,
+`package`) create no RHI device at all, and the capture tools
+(`render-mesh`, `gui shot`) always run OpenGL.
 
 ## Subcommands
 

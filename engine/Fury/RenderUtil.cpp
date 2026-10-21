@@ -5,10 +5,10 @@
 #include "Fury/RenderThread.h"
 #include "Fury/RenderUtil.h"
 
+#include "Fury/Camera.h"
 #include "Fury/FramePacket.h"
 #include "Fury/BoxBounds.h"
 #include "Fury/FileUtil.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Vector4.h"
 #include "Fury/Shader.h"
@@ -18,42 +18,33 @@
 #include "Fury/MeshUtil.h"
 #include "Fury/Texture.h"
 
+#include "Fury/RHI/RHICommandList.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/OpenGL/GLInputAssembler.h"
+
 namespace fury
 {
 	namespace
 	{
 		void EnsureDummyTextures();
-	}
 
-	RenderUtil::RenderUtil()
-	{
+		const char *BLIT_VS =
+			"in vec3 vertex_position;\n"
+			"out vec2 out_uv;\n"
+			"void main() {\n"
+			"	out_uv = vertex_position.xy * 0.5 + 0.5;\n"
+			"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);\n"
+			"}\n";
 
-		// blit shader
-		{
-			const char *blit_vs = 
-				"in vec3 vertex_position;\n"
-				"out vec2 out_uv;\n"
-				"void main() {\n"
-				"	out_uv = vertex_position.xy * 0.5 + 0.5;\n"
-				"	gl_Position = vec4(vertex_position.xy, 0.0, 1.0);\n"
-				"}\n";
+		const char *BLIT_FS =
+			"uniform sampler2D src;\n"
+			"in vec2 out_uv;\n"
+			"out vec4 fragment_output;\n"
+			"void main() {\n"
+			"	fragment_output = texture(src, out_uv);\n"
+			"}\n";
 
-			const char *blit_fs = 
-				"uniform sampler2D src;\n"
-				"in vec2 out_uv;\n"
-				"out vec4 fragment_output;\n"
-				"void main() {\n"
-				"	fragment_output = texture(src, out_uv);\n"
-				"}\n";
-
-			m_BlitShader = Shader::Create("BlitShader", ShaderType::OTHER);
-			if (!m_BlitShader->Compile(blit_vs, blit_fs, ""))
-				FURYE << "Failed to compile line shader!";
-		}
-
-		// debug shader
-		{
-			const char *debug_vs =
+		const char *DEBUG_VS =
 			"#version 330\n"
 			"in vec3 vertex_position;\n"
 			"uniform mat4 projection_matrix;\n"
@@ -63,7 +54,7 @@ namespace fury
 			"    gl_Position = projection_matrix * invert_view_matrix * world_matrix * vec4(vertex_position, 1.0);\n"
 			"}\n";
 
-		const char *debug_fs =
+		const char *DEBUG_FS =
 			"#version 330\n"
 			"uniform vec3 color;\n"
 			"out vec4 fragment_output;\n"
@@ -71,31 +62,83 @@ namespace fury
 			"    fragment_output = vec4(color, 1.0);\n"
 			"}\n";
 
-		m_DebugShader = Shader::Create("DebugShader", ShaderType::OTHER);
-		if (!m_DebugShader->Compile(debug_vs, debug_fs, ""))
-			FURYE << "Failed to compile line shader!";
-
-		m_DebugShader->Bind();
-
-		auto shaderId = m_DebugShader->GetProgram();
-
-		glBindAttribLocation(shaderId, 0, "vertex_position");
-
-		glGenVertexArrays(1, &m_LineVAO);
-		glGenBuffers(1, &m_LineVBO);
-
-		glBindVertexArray(m_LineVAO);
-
-		glBindBuffer(GL_ARRAY_BUFFER, m_LineVBO);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-		glEnableVertexAttribArray(0);
-
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-		glBindVertexArray(0);
-
-		m_DebugShader->UnBind();
+		// GLShaderModule wants complete translation units; inject the default
+		// version line the engine shader path prepends to version-less files.
+		RHIShaderBlob MakeSourceBlob(const char *source)
+		{
+			std::string text = source;
+			if (text.find("#version") == std::string::npos)
+				text.insert(0, "#version 330 core\n");
+			RHIShaderBlob blob;
+			blob.IsSource = true;
+			blob.Data.assign(text.begin(), text.end());
+			return blob;
 		}
 
+		RHIShaderModuleRef GetBlitShaderModule()
+		{
+			static RHIShaderModuleRef s_Module;
+			static bool s_Attempted = false;
+			if (!s_Attempted && GRHIDevice != nullptr && RenderThread::Get().MayUseGL())
+			{
+				s_Attempted = true;
+				s_Module = GRHIDevice->CreateShaderModule("BlitShader",
+					MakeSourceBlob(BLIT_VS), MakeSourceBlob(BLIT_FS), RHIShaderBlob());
+				if (s_Module == nullptr)
+					FURYE << "Failed to create BlitShader module!";
+			}
+			return s_Module;
+		}
+
+		RHIShaderModuleRef GetDebugShaderModule()
+		{
+			static RHIShaderModuleRef s_Module;
+			static bool s_Attempted = false;
+			if (!s_Attempted && GRHIDevice != nullptr && RenderThread::Get().MayUseGL())
+			{
+				s_Attempted = true;
+				s_Module = GRHIDevice->CreateShaderModule("DebugShader",
+					MakeSourceBlob(DEBUG_VS), MakeSourceBlob(DEBUG_FS), RHIShaderBlob());
+				if (s_Module == nullptr)
+					FURYE << "Failed to create DebugShader module!";
+			}
+			return s_Module;
+		}
+
+		RHIMeshGeometryDesc MakePositionDesc(const char *meshName, int attrib,
+			const RHIBufferRef &buffer, bool dirty, bool empty)
+		{
+			RHIMeshGeometryDesc desc;
+			desc.MeshName = meshName;
+			desc.ChannelCount = 1;
+			auto &channel = desc.Channels[0];
+			channel.Name = "vertex_position";
+			channel.Attrib = attrib;
+			channel.Buffer = buffer;
+			channel.Dirty = dirty;
+			channel.Empty = empty;
+			channel.Components = 3;
+			channel.Integer = false;
+			return desc;
+		}
+
+		RHIPrimitiveMode LineModeToRHI(LineMode mode)
+		{
+			switch (mode)
+			{
+			case LineMode::LINE_LOOP:
+				return RHIPrimitiveMode::LINE_LOOP;
+			case LineMode::LINE_STRIP:
+				return RHIPrimitiveMode::LINE_STRIP;
+			case LineMode::LINES:
+			default:
+				return RHIPrimitiveMode::LINES;
+			}
+		}
+	}
+
+	RenderUtil::RenderUtil()
+	{
 		m_BlitPass = Pass::Create("BlitPass");
 		m_BlitPass->SetBlendMode(BlendMode::REPLACE);
 		m_BlitPass->SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
@@ -105,20 +148,54 @@ namespace fury
 
 	RenderUtil::~RenderUtil()
 	{
-		if (m_LineVAO != 0)
-			glDeleteVertexArrays(1, &m_LineVAO);
-
-		if (m_LineVBO != 0)
-			glDeleteBuffers(1, &m_LineVBO);
+		// GPU handles die on the render thread (direct-exec there).
+		RHIBufferRef lineBuffer = m_LineBuffer;
+		m_LineBuffer = nullptr;
+		RenderThread::Get().EnqueueJob([lineBuffer]() mutable {
+			lineBuffer.reset();
+		});
 	}
 
-	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
+	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest,
 		ClearMode clearMode, BlendMode blendMode)
 	{
-		Blit(src, dest, m_BlitShader, clearMode, blendMode);
+		auto module = GetBlitShaderModule();
+		if (module == nullptr || GRHIDevice == nullptr)
+			return;
+
+		if (dest != nullptr)
+			m_BlitPass->AddTexture(dest, false);
+
+		m_BlitPass->SetClearMode(clearMode);
+		m_BlitPass->SetBlendMode(blendMode);
+
+		m_BlitPass->Bind(true);
+
+		auto quad = MeshUtil::GetUnitQuad();
+		if (quad->GetDirty())
+			quad->UpdateBuffer();
+
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->BindShaderModule(module);
+		cmd->SetTexture("src", src->GetRHITexture());
+
+		auto desc = MakePositionDesc(quad->GetName().c_str(),
+			module->ResolveAttribLocation("vertex_position"),
+			quad->Positions.GetRHIBuffer(), quad->Positions.GetDirty(), quad->Positions.Data.empty());
+		cmd->SetMeshGeometry(desc);
+		cmd->SetIndexBuffer(quad->Indices.GetRHIBuffer());
+		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+		cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
+
+		m_BlitPass->UnBind();
+
+		m_BlitPass->RemoveAllTextures();
+
+		m_TriangleCount += 2;
+		m_DrawCall++;
 	}
 
-	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
+	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest,
 		const std::shared_ptr<Shader> &shader, ClearMode clearMode, BlendMode blendMode)
 	{
 		if (dest != nullptr)
@@ -132,9 +209,16 @@ namespace fury
 		shader->Bind();
 
 		shader->BindTexture(src);
-		shader->BindMesh(MeshUtil::GetUnitQuad());
+		auto quad = MeshUtil::GetUnitQuad();
+		shader->BindMesh(quad);
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(MeshUtil::GetUnitQuad()->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		if (GRHIDevice != nullptr)
+		{
+			auto *cmd = GRHIDevice->GetCommandList();
+			cmd->SetIndexBuffer(quad->Indices.GetRHIBuffer());
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+			cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
+		}
 
 		shader->UnBind();
 
@@ -148,32 +232,37 @@ namespace fury
 
 	void RenderUtil::BeginDrawLines(const PacketCamera &camera)
 	{
-		if (m_DrawingLine || m_LineVAO == 0 || m_LineVBO == 0 || m_DebugShader->GetDirty())
+		auto module = GetDebugShaderModule();
+		if (m_DrawingLine || module == nullptr || GRHIDevice == nullptr)
 			return;
 
 		m_DrawingLine = true;
 
-		m_DebugShader->Bind();
-		m_DebugShader->BindCameraData(camera);
-		m_DebugShader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
-
-		glBindVertexArray(m_LineVAO);
-		glBindBuffer(GL_ARRAY_BUFFER, m_LineVBO);
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->BindShaderModule(module);
+		cmd->SetUniformMatrix(Matrix4::PROJECTION_MATRIX, camera.projectionMatrix);
+		cmd->SetUniformMatrix(Matrix4::INVERT_VIEW_MATRIX, camera.invertWorldMatrix);
+		cmd->SetUniformMatrix(Matrix4::WORLD_MATRIX, Matrix4());
 	}
 
 	void RenderUtil::BeginDrawLines(const std::shared_ptr<SceneNode> &camera)
 	{
-		if (m_DrawingLine || m_LineVAO == 0 || m_LineVBO == 0 || m_DebugShader->GetDirty())
+		auto module = GetDebugShaderModule();
+		if (m_DrawingLine || module == nullptr || GRHIDevice == nullptr)
 			return;
 
 		m_DrawingLine = true;
 
-		m_DebugShader->Bind();
-		m_DebugShader->BindCamera(camera);
-		m_DebugShader->BindMatrix(Matrix4::WORLD_MATRIX, Matrix4());
-
-		glBindVertexArray(m_LineVAO);
-		glBindBuffer(GL_ARRAY_BUFFER, m_LineVBO);
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->BindShaderModule(module);
+		if (auto cam = camera->GetComponent<Camera>())
+		{
+			Matrix4 invView = camera->GetInvertWorldMatrix();
+			Matrix4 proj = cam->GetProjectionMatrix();
+			cmd->SetUniformMatrix(Matrix4::INVERT_VIEW_MATRIX, invView);
+			cmd->SetUniformMatrix(Matrix4::PROJECTION_MATRIX, proj);
+		}
+		cmd->SetUniformMatrix(Matrix4::WORLD_MATRIX, Matrix4());
 	}
 
 	void RenderUtil::DrawLines(const float* positions, unsigned int size, Color color, LineMode lineMode)
@@ -184,13 +273,39 @@ namespace fury
 			return;
 		}
 
-		auto dataSize = sizeof(float) * size;
-		glBufferData(GL_ARRAY_BUFFER, dataSize, 0, GL_STREAM_DRAW);
-		glBufferSubData(GL_ARRAY_BUFFER, 0, dataSize, positions);
+		if (GRHIDevice == nullptr)
+			return;
 
-		m_DebugShader->BindFloat("color", color.r, color.g, color.b);
-		
-		glDrawArrays(EnumUtil::LineModeToUnit(lineMode), 0, size / 3);
+		auto dataSize = sizeof(float) * size;
+		if (m_LineBuffer == nullptr)
+		{
+			RHIBufferDesc desc;
+			desc.Name = "DebugLines";
+			desc.Type = RHIBufferType::VERTEX;
+			desc.Usage = RHIBufferUsage::DYNAMIC;
+			desc.Size = dataSize;
+			desc.Stride = sizeof(float);
+			m_LineBuffer = GRHIDevice->CreateBuffer(desc, positions);
+		}
+		else
+		{
+			GRHIDevice->UpdateBuffer(m_LineBuffer, positions, dataSize, 0);
+		}
+
+		if (m_LineBuffer == nullptr)
+			return;
+
+		auto module = GetDebugShaderModule();
+		auto *cmd = GRHIDevice->GetCommandList();
+
+		auto desc = MakePositionDesc("DebugLines",
+			module->ResolveAttribLocation("vertex_position"),
+			m_LineBuffer, false, false);
+		cmd->SetMeshGeometry(desc);
+
+		cmd->SetUniformFloat("color", color.r, color.g, color.b);
+		cmd->SetPrimitiveMode(LineModeToRHI(lineMode));
+		cmd->Draw(size / 3);
 
 		m_DrawCall++;
 	}
@@ -247,36 +362,46 @@ namespace fury
 	{
 		m_DrawingLine = false;
 
-		glBindVertexArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-		m_DebugShader->UnBind();
+		if (GRHIDevice != nullptr)
+		{
+			GLUnbindGeometry();
+			GRHIDevice->GetCommandList()->BindShaderModule(nullptr);
+		}
 	}
 
 	void RenderUtil::BeginDrawMeshs(const PacketCamera &camera)
 	{
-		if (m_DebugShader->GetDirty() || m_DrawingMesh)
+		auto module = GetDebugShaderModule();
+		if (module == nullptr || m_DrawingMesh || GRHIDevice == nullptr)
 			return;
 
 		m_DrawingMesh = true;
 
-		m_DebugShader->Bind();
-		m_DebugShader->BindCameraData(camera);
-
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->BindShaderModule(module);
+		cmd->SetUniformMatrix(Matrix4::PROJECTION_MATRIX, camera.projectionMatrix);
+		cmd->SetUniformMatrix(Matrix4::INVERT_VIEW_MATRIX, camera.invertWorldMatrix);
+		cmd->SetFillMode(RHIFillMode::WIREFRAME);
 	}
 
 	void RenderUtil::BeginDrawMeshs(const std::shared_ptr<SceneNode> &camera)
 	{
-		if (m_DebugShader->GetDirty() || m_DrawingMesh)
+		auto module = GetDebugShaderModule();
+		if (module == nullptr || m_DrawingMesh || GRHIDevice == nullptr)
 			return;
 
 		m_DrawingMesh = true;
 
-		m_DebugShader->Bind();
-		m_DebugShader->BindCamera(camera);
-
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->BindShaderModule(module);
+		if (auto cam = camera->GetComponent<Camera>())
+		{
+			Matrix4 invView = camera->GetInvertWorldMatrix();
+			Matrix4 proj = cam->GetProjectionMatrix();
+			cmd->SetUniformMatrix(Matrix4::INVERT_VIEW_MATRIX, invView);
+			cmd->SetUniformMatrix(Matrix4::PROJECTION_MATRIX, proj);
+		}
+		cmd->SetFillMode(RHIFillMode::WIREFRAME);
 	}
 
 	void RenderUtil::DrawMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 &worldMatrix, Color color)
@@ -284,11 +409,27 @@ namespace fury
 		if (!m_DrawingMesh || mesh->IsSkinnedMesh() || mesh->GetSubMeshCount() > 0)
 			return;
 
-		m_DebugShader->BindFloat("color", color.r, color.g, color.b);
-		m_DebugShader->BindMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
-		m_DebugShader->BindMesh(mesh);
+		if (GRHIDevice == nullptr)
+			return;
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		if (mesh->GetDirty())
+			mesh->UpdateBuffer();
+
+		auto module = GetDebugShaderModule();
+		if (module == nullptr || mesh->GetDirty() || mesh->Indices.GetDirty())
+			return;
+
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->SetUniformFloat("color", color.r, color.g, color.b);
+		cmd->SetUniformMatrix(Matrix4::WORLD_MATRIX, worldMatrix);
+
+		auto desc = MakePositionDesc(mesh->GetName().c_str(),
+			module->ResolveAttribLocation("vertex_position"),
+			mesh->Positions.GetRHIBuffer(), mesh->Positions.GetDirty(), mesh->Positions.Data.empty());
+		cmd->SetMeshGeometry(desc);
+		cmd->SetIndexBuffer(mesh->Indices.GetRHIBuffer());
+		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 
 		m_DrawCall++;
 	}
@@ -296,9 +437,12 @@ namespace fury
 	void RenderUtil::EndDrawMeshes()
 	{
 		m_DrawingMesh = false;
-		m_DebugShader->UnBind();
 
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		if (GRHIDevice != nullptr)
+		{
+			GRHIDevice->GetCommandList()->SetFillMode(RHIFillMode::SOLID);
+			GRHIDevice->GetCommandList()->BindShaderModule(nullptr);
+		}
 	}
 
 	void RenderUtil::BeginFrame()
@@ -509,6 +653,9 @@ namespace fury
 	{
 		if (!mesh) return 0.0f;
 
+		if (GRHIDevice == nullptr)
+			return 0.0f;
+
 		if (mesh->GetDirty())
 			mesh->UpdateBuffer();
 		for (unsigned int s = 0; s < mesh->GetSubMeshCount(); ++s)
@@ -557,6 +704,8 @@ namespace fury
 		shader->BindMatrix("_ViewMatrix", view);
 		shader->BindMatrix("_ProjectionMatrix", proj);
 
+		auto *cmd = GRHIDevice->GetCommandList();
+
 		const bool bindPalette = palette != nullptr && !palette->empty();
 		auto bindMesh = [&]() {
 			if (bindPalette)
@@ -569,9 +718,9 @@ namespace fury
 		if (submeshCount == 0)
 		{
 			bindMesh();
-			glDrawElements(GL_TRIANGLES,
-				static_cast<GLsizei>(mesh->Indices.Data.size()),
-				GL_UNSIGNED_INT, 0);
+			cmd->SetIndexBuffer(mesh->Indices.GetRHIBuffer());
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+			cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
 		else
 		{
@@ -583,9 +732,9 @@ namespace fury
 				auto sm = mesh->GetSubMeshAt(i);
 				if (!sm) continue;
 				shader->BindSubMesh(mesh, i);
-				glDrawElements(GL_TRIANGLES,
-					static_cast<GLsizei>(sm->Indices.Data.size()),
-					GL_UNSIGNED_INT, 0);
+				cmd->SetIndexBuffer(sm->Indices.GetRHIBuffer());
+				cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+				cmd->DrawIndexed(static_cast<unsigned int>(sm->Indices.Data.size()));
 			}
 		}
 		return radius;

@@ -28,3 +28,9 @@
 [submodule "engine/ThirdParty/RmlUi"]
 	path = engine/ThirdParty/RmlUi
 	url = https://github.com/mikke89/RmlUi.git
+[submodule "engine/ThirdParty/metal-cpp"]
+	path = engine/ThirdParty/metal-cpp
+	url = https://github.com/apple/metal-cpp
+[submodule "engine/ThirdParty/SPIRV-Cross"]
+	path = engine/ThirdParty/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross

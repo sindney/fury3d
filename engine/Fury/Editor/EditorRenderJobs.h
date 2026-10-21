@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "Fury/Macros.h"
+#include "Fury/RHI/RHITypes.h"
 
 namespace fury
 {
@@ -22,7 +23,7 @@ namespace fury
 		// touches it directly.
 		struct OffscreenSurface
 		{
-			unsigned int fbo = 0;
+			RHIRenderTargetSetRef targetSet;
 
 			std::shared_ptr<Texture> color;
 
@@ -53,7 +54,7 @@ namespace fury
 
 		// Game thread: the current displayable texture id (0 until the
 		// first publish lands; pre-render frames show the fallback).
-		unsigned int DisplayTextureId(const std::string &key);
+		uintptr_t DisplayTextureId(const std::string &key);
 
 		// Game thread: drop one slot (window closed / asset deleted).
 		void ResetDisplaySlot(const std::string &key);

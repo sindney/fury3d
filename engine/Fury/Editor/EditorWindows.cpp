@@ -23,7 +23,6 @@
 #include "Fury/EntityUtil.h"
 #include "Fury/Engine.h"
 #include "Fury/FileUtil.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
@@ -42,6 +41,7 @@
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/SkyAtmosphere.h"
@@ -107,6 +107,9 @@ bool g_ShowGrid = true;
 bool g_TracyEnabled = true;
 // Persisted render-thread default (next launch's ResolveEnabled input).
 int g_RenderThreadIni = 1;
+// Persisted RHI backend name (next launch's ResolveBackend ini input).
+// Empty = unset (platform default).
+std::string g_RhiIni;
 
 // Content Browser view/sort state. Persisted via the FuryEditor Settings
 // handler in Editor.cpp. Defined at namespace scope (not the anonymous
@@ -323,6 +326,33 @@ void RenderSettingsWindow(bool* open) {
 				}
 				ImGui::TextDisabled("Rendering on a dedicated thread; applies at next launch.%s",
 					RenderThread::ResolveEnabled(-1) ? " (currently ON)" : " (currently OFF)");
+			}
+
+			// RHI backend for the NEXT launch (device creation is
+			// startup-only; no runtime switching). Platform matrix only.
+			{
+				extern std::string g_RhiIni;
+				const auto names = RHI::GetSupportedBackendNames();
+				int current = 0;
+				for (size_t ni = 0; ni < names.size(); ++ni)
+					if (names[ni] == g_RhiIni) { current = (int)ni; break; }
+				if (ImGui::BeginCombo("RHI Backend", names[current].c_str()))
+				{
+					for (size_t ni = 0; ni < names.size(); ++ni)
+					{
+						const bool selected = ((int)ni == current);
+						if (ImGui::Selectable(names[ni].c_str(), selected))
+						{
+							g_RhiIni = names[ni];
+							RHI::SetIniBackend(g_RhiIni);
+						}
+						if (selected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+				ImGui::TextDisabled("Render backend; applies at next launch (active: %s).",
+					GRHIDevice != nullptr ? RHI::BackendToString(GRHIDevice->GetBackend()).c_str() : "none");
 			}
 
 			ImGui::Spacing();
@@ -647,7 +677,7 @@ void RenderProfilerGBufferTab() {
 		ImGui::PushID(key.c_str());
 		RenderThread::Get().EnqueueJob([key, t, is_depth, pw, ph]() {
 			auto &surface = AcquireSurface(key, pw, ph);
-			if (surface.fbo == 0)
+			if (surface.targetSet == nullptr)
 				return;
 			static std::shared_ptr<Shader> blitShader;
 			if (!blitShader)
@@ -808,7 +838,7 @@ void RenderProfilerShadowsTab() {
 					const std::string key = baseKey + std::to_string(i);
 					RenderThread::Get().EnqueueJob([key, shadowTex, i]() {
 						auto &surface = AcquireSurface(key, 128, 128);
-						if (surface.fbo == 0)
+						if (surface.targetSet == nullptr)
 							return;
 						static std::shared_ptr<Shader> blitShader;
 						if (!blitShader)
@@ -857,13 +887,13 @@ void RenderProfilerShadowsTab() {
 				}
 				ImGui::EndGroup();
 			} else {
-				ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
+				ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetUiTextureId(),
 							 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
 			}
 			break;
 
 		case LightType::SPOT:
-			ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
+			ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetUiTextureId(),
 						 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
 			break;
 
@@ -891,7 +921,7 @@ void RenderProfilerShadowsTab() {
 				const Matrix4 matrix = dirMatrices[i];
 				RenderThread::Get().EnqueueJob([key, shadowTex, matrix]() {
 					auto &surface = AcquireSurface(key, 128, 128);
-					if (surface.fbo == 0)
+					if (surface.targetSet == nullptr)
 						return;
 					static std::shared_ptr<Shader> blitShader;
 					if (!blitShader)
@@ -1684,14 +1714,14 @@ bool TilePassesFilter(const TileEntry& tile) {
 // Lazily load + cache the bake's swell height preview PNG for an
 // OceanWaves tile (editor-only: a GL context always exists here).
 // Lives next to the wave json as <dir>/swell_height_preview.png.
-unsigned int GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
+uintptr_t GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 	static std::unordered_map<std::string, Texture::Ptr> cache;
 	static std::unordered_set<std::string> missing;
 	if (!waves) return 0;
 	const std::string& path = waves->GetFilePath();
 	if (missing.count(path)) return 0;
 	auto it = cache.find(path);
-	if (it != cache.end()) return it->second->GetID();
+	if (it != cache.end()) return it->second->GetUiTextureId();
 	std::string dir;
 	auto slash = path.find_last_of("/\\");
 	if (slash != std::string::npos) dir = path.substr(0, slash + 1);
@@ -1707,7 +1737,7 @@ unsigned int GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 		return 0;
 	}
 	cache[path] = tex;
-	return tex->GetID();
+	return tex->GetUiTextureId();
 }
 
 // Tile label: basename of the asset path, falling back to the entity
@@ -1784,7 +1814,7 @@ void RenderMaterialThumbnail(const std::shared_ptr<Material>& mat,
 		// Flip Y to match the engine's texture convention
 		// (EditorNodeProperties.cpp:304 pattern).
 		ImGui::SetCursorScreenPos(thumb_min);
-		ImGui::Image((ImTextureID)(intptr_t)diffuse->GetID(),
+		ImGui::Image((ImTextureID)(intptr_t)diffuse->GetUiTextureId(),
 					 ImVec2(kTileThumbnail, kTileThumbnail),
 					 ImVec2(0, 1), ImVec2(1, 0));
 		return;
@@ -2004,7 +2034,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		auto tex = std::static_pointer_cast<Texture>(tile.ptr);
 		if (tex->GetID() != 0) {
 			ImGui::SetCursorScreenPos(thumb_min);
-			ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
+			ImGui::Image((ImTextureID)(intptr_t)tex->GetUiTextureId(),
 						 ImVec2(kTileThumbnail, kTileThumbnail),
 						 ImVec2(0, 1), ImVec2(1, 0));
 		} else {
@@ -2047,7 +2077,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		// GL), else a flat placeholder rect (same SIGBUS reason as
 		// ParticleSystem: the fallthrough casts to Mesh).
 		auto waves = std::static_pointer_cast<OceanWaves>(tile.ptr);
-		unsigned int texId = waves ? GetOceanWavesPreviewTex(waves) : 0;
+		uintptr_t texId = waves ? GetOceanWavesPreviewTex(waves) : 0;
 		if (texId) {
 			ImGui::SetCursorScreenPos(thumb_min);
 			ImGui::Image((ImTextureID)(intptr_t)texId,
@@ -2915,9 +2945,9 @@ void RenderViewportWindow(bool* open) {
 		// (SSAO/SSR) while one is active. The texture is sampled
 		// during Gui::Render (after Pipeline::Execute has written
 		// this frame's scene into it), so there's no one-frame lag.
-		ImTextureID tex = (ImTextureID)(intptr_t)rt->GetColorTexture()->GetID();
+		ImTextureID tex = (ImTextureID)(intptr_t)rt->GetColorTexture()->GetUiTextureId();
 		if (auto dbg = Pipeline::Active->GetDebugViewTexture())
-			tex = (ImTextureID)(intptr_t)dbg->GetID();
+			tex = (ImTextureID)(intptr_t)dbg->GetUiTextureId();
 		ImGui::Image(tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
 		// Render the TRS gizmo into the Viewport window's own draw

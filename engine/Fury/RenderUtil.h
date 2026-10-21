@@ -15,6 +15,7 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/Pass.h"
 #include "Fury/Matrix4.h"
+#include "Fury/RHI/RHITypes.h"
 
 namespace fury
 {
@@ -40,15 +41,13 @@ namespace fury
 
 	private:
 
-		std::shared_ptr<Shader> m_DebugShader;
-
-		std::shared_ptr<Shader> m_BlitShader;
-
 		std::shared_ptr<Pass> m_BlitPass;
 
-		unsigned int m_LineVAO = 0;
 
-		unsigned int m_LineVBO = 0;
+
+
+
+		RHIBufferRef m_LineBuffer;
 
 		// Counters are bumped on the GL thread and read by the editor UI
 		// on the game thread (render-threaded mode).

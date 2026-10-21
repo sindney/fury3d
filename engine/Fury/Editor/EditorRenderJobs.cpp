@@ -3,10 +3,10 @@
 #include "Fury/Editor/EditorRenderJobs.h"
 
 #include "Fury/EnumUtil.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Texture.h"
+#include "Fury/RHI/RHIDevice.h"
 
 namespace fury
 {
@@ -26,15 +26,10 @@ namespace fury
 		{
 			ASSERT_MSG(RenderThread::Get().MayUseGL(), "AcquireSurface off the GL thread");
 			auto &surface = g_Surfaces[key];
-			if (surface.fbo != 0 && surface.w == w && surface.h == h)
+			if (surface.targetSet != nullptr && surface.w == w && surface.h == h)
 				return surface;
 
-			if (surface.fbo != 0)
-			{
-				unsigned int fbo = surface.fbo;
-				RenderThread::Get().EnqueueJob([fbo]() { glDeleteFramebuffers(1, &fbo); });
-				surface.fbo = 0;
-			}
+			surface.targetSet = nullptr;
 			surface.color.reset();
 			surface.depth.reset();
 
@@ -48,23 +43,18 @@ namespace fury
 			surface.depth->SetWrapMode(WrapMode::CLAMP_TO_EDGE);
 			surface.depth->CreateEmpty(w, h, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D, false);
 
-			glGenFramebuffers(1, &surface.fbo);
-			glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-				GL_TEXTURE_2D, surface.color->GetID(), 0);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-				GL_TEXTURE_2D, surface.depth->GetID(), 0);
-			GLenum drawBufs[1] = { GL_COLOR_ATTACHMENT0 };
-			glDrawBuffers(1, drawBufs);
-			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			if (status != GL_FRAMEBUFFER_COMPLETE)
+			RHIRenderTargetSetDesc desc;
+			RHIRenderTargetAttachment colorAt;
+			colorAt.Texture = surface.color->GetRHITexture();
+			desc.Colors.push_back(colorAt);
+			RHIRenderTargetAttachment depthAt;
+			depthAt.Texture = surface.depth->GetRHITexture();
+			desc.Depth = depthAt;
+			desc.HasDepth = true;
+			surface.targetSet = GRHIDevice->CreateRenderTargetSet(desc);
+			if (surface.targetSet == nullptr)
 			{
-				FURYW << "Editor offscreen surface '" << key << "' incomplete, status=0x"
-					<< std::hex << status;
-				unsigned int fbo = surface.fbo;
-				RenderThread::Get().EnqueueJob([fbo]() { glDeleteFramebuffers(1, &fbo); });
-				surface.fbo = 0;
+				FURYW << "Editor offscreen surface '" << key << "' incomplete";
 				surface.w = surface.h = 0;
 				return surface;
 			}
@@ -83,14 +73,14 @@ namespace fury
 			++slot.seq;
 		}
 
-		unsigned int DisplayTextureId(const std::string &key)
+		uintptr_t DisplayTextureId(const std::string &key)
 		{
 			std::lock_guard<std::mutex> mapLock(g_SlotMapMutex);
 			auto it = g_DisplaySlots.find(key);
 			if (it == g_DisplaySlots.end())
 				return 0;
 			std::lock_guard<std::mutex> slotLock(it->second.mutex);
-			return it->second.color ? it->second.color->GetID() : 0;
+			return it->second.color ? it->second.color->GetUiTextureId() : 0;
 		}
 
 		void ResetDisplaySlot(const std::string &key)
