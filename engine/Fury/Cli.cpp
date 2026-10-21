@@ -766,6 +766,11 @@ namespace fury
 			}
 			try
 			{
+				// Same headless stand-ins the exec path sets up: a script that
+				// polls input state must not hit an uninitialised singleton.
+				InputUtil::Initialize(0, 0);
+				JoyInputUtil::Initialize();
+
 				sol::state lua;
 				lua.open_libraries(
 					sol::lib::base,

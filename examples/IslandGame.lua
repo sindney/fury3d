@@ -161,6 +161,12 @@ local function set_seg(doc, id, active, text)
 	if text then el.inner_rml = text end
 end
 
+-- The RENDER BACKEND segments are generated from the platform's supported
+-- backends, so their element ids are only known after the options document
+-- has been synced. options_sync fills RHI_ROW_IDS; the focus grid
+-- expands the "@rhi" marker into it.
+local RHI_ROW_IDS = {}
+
 local function options_sync()
 	local doc = ui_doc(DOC_OPTIONS)
 	if not doc then return end
@@ -190,9 +196,11 @@ local function options_sync()
 	if rhi_ctl then
 		local names = Engine.GetSupportedRhiBackends()
 		local html = {}
+		RHI_ROW_IDS = {}
 		for _, n in ipairs(names) do
 			html[#html + 1] = '<div class="seg" id="rhi-' .. n ..
 				'" onclick="Opt_Rhi(\'' .. n .. '\')">' .. n:upper() .. '</div>'
+			RHI_ROW_IDS[#RHI_ROW_IDS + 1] = "rhi-" .. n
 		end
 		rhi_ctl.inner_rml = table.concat(html)
 		for _, n in ipairs(names) do
@@ -583,12 +591,19 @@ end
 -- the start of row N lands at the start of row N+1, not in the
 -- middle). Single-column chains are 1-wide rows.
 
--- RmlUi Input::KeyIdentifier constants for the keys we drive
--- directly (slider adjust). Stable across RmlUi versions.
-local KI_LEFT   = 90
-local KI_UP     = 91
-local KI_RIGHT  = 92
-local KI_DOWN   = 93
+-- RmlUi's range input has no arrow-key handling, so a stick or d-pad steps
+-- the value directly and dispatches the change event the RML listens for.
+local function slider_step(el, dir)
+	local cur = tonumber(el:GetAttribute("value")) or 0
+	local lo = tonumber(el:GetAttribute("min")) or 0
+	local hi = tonumber(el:GetAttribute("max")) or 100
+	local step = tonumber(el:GetAttribute("step")) or 1
+	local v = cur + dir * step
+	if v < lo then v = lo end
+	if v > hi then v = hi end
+	el:SetAttribute("value", tostring(v))
+	el:DispatchEvent("change", { value = tostring(v) })
+end
 
 local FOCUS_GRIDS = {
 	[DOC_MENU] = {
@@ -606,6 +621,7 @@ local FOCUS_GRIDS = {
 		{ "res-1280", "res-1920", "res-2560", "res-3840" },
 		{ "fps-60",   "fps-90",   "fps-144",  "fps-0" },
 		{ "vsync" },
+		{ "@rhi" },
 		{ "postfx" },
 		{ "ssao" },
 		{ "ssr" },
@@ -617,6 +633,20 @@ local FOCUS_GRIDS = {
 		{ "back" },
 	},
 }
+
+local function resolve_grid(doc_path)
+	local grid = FOCUS_GRIDS[doc_path]
+	if not grid then return nil end
+	local rows = {}
+	for _, row in ipairs(grid) do
+		if row[1] == "@rhi" then
+			rows[#rows + 1] = RHI_ROW_IDS
+		else
+			rows[#rows + 1] = row
+		end
+	end
+	return rows
+end
 
 local function grid_locate(grid, id)
 	for r, row in ipairs(grid) do
@@ -708,7 +738,8 @@ local slider_step_accum = 0.0
 
 -- D-pad Y inversion: SFML reports dpad-up as a positive PovY reading
 -- on the tester's controller, so the d-pad Y is flipped by default.
--- The analog left stick (Axis.Y) follows standard SFML convention.
+-- The analog left stick (Axis.Y) follows standard SFML convention
+-- (stick-up is negative), which the movement path negates.
 -- ISLANDGAME_REVERSE_Y=0 disables the d-pad inversion.
 local reverse_y = (os.getenv("ISLANDGAME_REVERSE_Y") ~= "0")
 
@@ -743,7 +774,7 @@ local function gamepad_ui_update(dt)
 	-- press has somewhere to navigate from. The grid's first cell is
 	-- always a sensible anchor (top-left of the menu).
 	if gpu_focused_doc ~= doc_path then
-		local grid = FOCUS_GRIDS[doc_path]
+		local grid = resolve_grid(doc_path)
 		if grid and grid[1] and grid[1][1] then
 			local el = doc:GetElementById(grid[1][1])
 			if el then el:Focus() end
@@ -816,9 +847,7 @@ local function gamepad_ui_update(dt)
 		slider_step_accum = slider_step_accum + dt
 		if slider_step_accum >= interval then
 			slider_step_accum = 0.0
-			local ki = (x_raw > DEADZONE) and KI_RIGHT or KI_LEFT
-			ctx:ProcessKeyDown(ki, 0)
-			ctx:ProcessKeyUp(ki, 0)
+			slider_step(slider_input, (x_raw > DEADZONE) and 1 or -1)
 			glog(string.format("slider stick dir=%s mag=%.2f value=%s",
 				(x_raw > DEADZONE and "+" or "-"), mag,
 				tostring(slider_input:GetAttribute("value"))))
@@ -833,22 +862,16 @@ local function gamepad_ui_update(dt)
 			-- D-pad / keyboard: one press = one step. (Analog stick
 			-- path is above, runs every frame the stick is held.)
 			if slider_input ~= cur then slider_input:Focus() end
-			if nav_x > 0 then
-				ctx:ProcessKeyDown(KI_RIGHT, 0)
-				ctx:ProcessKeyUp(KI_RIGHT, 0)
-			else
-				ctx:ProcessKeyDown(KI_LEFT, 0)
-				ctx:ProcessKeyUp(KI_LEFT, 0)
-			end
+			slider_step(slider_input, nav_x > 0 and 1 or -1)
 			glog(string.format("slider adjust dir=(%d,0) value=%s",
 				nav_x, tostring(slider_input:GetAttribute("value"))))
 		elseif is_slider then
 			-- Vertical press on a focused slider: leave it to the next row.
-			local grid = FOCUS_GRIDS[doc_path]
+			local grid = resolve_grid(doc_path)
 			local next_el = grid_neighbor(doc, grid, cur, 0, nav_y)
 			if next_el then next_el:Focus() end
 		else
-			local grid = FOCUS_GRIDS[doc_path]
+			local grid = resolve_grid(doc_path)
 			local next_el = grid_neighbor(doc, grid, cur, nav_x, nav_y)
 			if next_el then next_el:Focus() end
 			glog(string.format("nav dir=(%d,%d) focus=%s",
@@ -918,9 +941,8 @@ local function on_update(dt)
 			end
 		end
 
-		-- Left stick drives planar move; Y is inverted (SFML reports
-		-- positive Y for stick-up on the tester's controller). RB
-		-- sprints while held.
+		-- Left stick drives planar move; Y is negated so stick-up
+		-- (negative in SFML) moves forward. RB sprints while held.
 		if pad_present and controller then
 			local lx = stick_dir(gp_axis(gp_id, JoystickAxis.X) or 0.0)
 			local ly = stick_dir(gp_axis(gp_id, JoystickAxis.Y) or 0.0)
