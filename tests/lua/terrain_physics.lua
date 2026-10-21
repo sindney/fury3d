@@ -1,7 +1,7 @@
 -- tests/lua/terrain_physics.lua - headless test for the Terrain component
 -- and the BodySetup heightfield shape (change: add-sky-atmosphere-terrain).
 --
--- Builds a terrain from the mini fixture (tests/lua/fixtures/terrain_mini),
+-- Builds a terrain from the mini fixture (tests/lua/_fixtures/terrain_mini),
 -- drops a dynamic box on it, and asserts the box rests at GetHeight.
 -- Also covers: chunk meshes skipped at serialization, Terrain round-trip,
 -- GetHeight edge clamp, heightfield-without-Terrain failure path.
@@ -28,8 +28,8 @@ Scene.SetActive(scene)
 
 local terrain_node = SceneNode.Create("Ground")
 local terrain = Terrain.Create()
-terrain:SetHeightmapPath("../tests/lua/fixtures/terrain_mini/height.r16")
-terrain:SetSplatmapPath("../tests/lua/fixtures/terrain_mini/splat.png")
+terrain:SetHeightmapPath("../tests/lua/_fixtures/terrain_mini/height.r16")
+terrain:SetSplatmapPath("../tests/lua/_fixtures/terrain_mini/splat.png")
 terrain:SetChunkCount(4)
 terrain:SetLodCount(2)
 terrain_node:AddComponent(terrain)

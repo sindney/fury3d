@@ -173,12 +173,6 @@ namespace fury
 									sky->SetCloudAmbientScale(amb);
 									Editor::MarkSceneDirty();
 								}
-								int dbg = sky->GetCloudDebugMode();
-								if (ImGui::Combo("Debug View", &dbg, "Off\0Step Count\0Transmittance\0"))
-								{
-									sky->SetCloudDebugMode(dbg);
-									Editor::MarkSceneDirty();
-								}
 								float wBias = sky->GetCloudWeatherBias();
 								if (ImGui::SliderFloat("Weather Bias (regen)", &wBias, -0.5f, 0.5f))
 								{

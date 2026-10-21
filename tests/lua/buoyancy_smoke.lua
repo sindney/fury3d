@@ -40,7 +40,7 @@ scene:AddMesh(cube_mesh)
 local ocean_node = SceneNode.Create("Ocean")
 local ocean = OceanComponent.Create()
 ocean:SetMode(0) -- finite; geometry is irrelevant headless
-ocean:SetWaveAssetPath("../tests/lua/fixtures/ocean_mini/ocean.json")
+ocean:SetWaveAssetPath("../tests/lua/_fixtures/ocean_mini/ocean.json")
 ocean_node:AddComponent(ocean)
 if ocean:GetResolvedSource() ~= 1 then
     fail("fixture ocean did not resolve baked: " .. ocean:GetResolvedReason())

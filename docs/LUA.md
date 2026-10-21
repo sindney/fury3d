@@ -97,13 +97,13 @@ arg[1..N] = argv[2..argc-1] (each entry a string)
 This matches the convention of the standalone `lua` interpreter, so scripts authored elsewhere drop in. `Editor.lua` honors `arg[1]` as an optional startup-scene path:
 
 ```sh
-./fury Editor.lua                 # loads Resource/Scene/scene.bin (the default)
-./fury Editor.lua outdoor.fbx     # loads Resource/Scene/outdoor.fbx as the startup scene
+./fury Editor.lua                 # starts with an empty scene
+./fury Editor.lua Projects/ocean/ocean_island.bin  # loads that scene as the startup scene
 ./fury Editor.lua /path/to/x.glb  # absolute paths work too
-./fury Editor.lua nope.fbx        # logs a warning, falls back to scene.bin
+./fury Editor.lua nope.fbx        # logs a warning, leaves the scene empty
 ```
 
-The resolution rule Editor.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Resource/Scene/`. If both miss, surface a status message and fall back to `scene.bin` so the editor is still interactive.
+The resolution rule Editor.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Projects/`, then `Resource/Scene/`. If all three miss, surface a status message and leave the scene empty.
 
 The launcher also recognizes two **runtime flags** — `--screenshot <path>` and `--screenshot-frame <N>` — anywhere in `argv` after the script path. They drive a debug PNG capture and are stripped from `arg` before the script sees it; scripts run identically with or without them. See `docs/CLI.md` (§ "Screenshot mode") for the full reference.
 

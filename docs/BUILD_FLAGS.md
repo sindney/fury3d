@@ -43,7 +43,7 @@ LOD 0 green, 1 yellow, 2 red, 3 cyan, 4 magenta, 5 white (wraps modulo 6).
 - Editor: viewport Debug views dropdown -> LOD colors
   (`EditorWindows.cpp`).
 - Headless: `pl:SetSwitch(5, true)` from Lua (5 = `LOD_DEBUG_COLORS`
-  ordinal), e.g. `tests/lua/lod_transition_check.lua` with
+  ordinal), e.g. `tests/lua/scenes/lod_transition_check.lua` with
   `FURY_LOD_DEBUG=1`.
 
 ### Adding a new overlay feature

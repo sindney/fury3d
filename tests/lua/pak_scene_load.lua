@@ -15,7 +15,7 @@
 --   arg[3] known texture name    (default "Palm1.tga"; path-created textures
 --                                 carry GetName == GetFilePath)
 --
--- Asserts (same enumeration APIs as asset_path_identity.lua):
+-- Asserts (same enumeration APIs as scene_asset_path_identity.lua):
 --   1. Scene.ForEachTexture yields exactly arg[1] entries, unique non-empty
 --      GetFilePath values.
 --   2. Scene.GetTexture(arg[3]) resolves the canonical entry at that path.

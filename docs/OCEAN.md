@@ -14,8 +14,7 @@
   and buoyancy; the chop band is **normals + foam only** (its job is the
   fine glint texture - it never moves vertices). The committed baseline
   bake is an ENGINE asset (`examples/Resource/Ocean/`, referenced
-  `Engine/Ocean/ocean.json`); `examples/Projects/ocean/OceanStorm/` holds a
-  storm sample (22 m/s wind, 2.5 m swell) used by `ocean_storm.bin`.
+  `Engine/Ocean/ocean.json`).
 - **Rendering**: `pass_ocean` in `DefferedLightingPBR.json` between the sky
   and transparent passes; the vertex shader displaces the grid from the baked
   bands, the fragment shader shades (wrapped diffuse body + sun GGX with a
@@ -42,7 +41,7 @@ determinism, sidecar match). Key params: `--seed`, `--swell-resolution`
 `--swell-tile-cm` (10000) / `--ripple-tile-cm` (800), `--wind-speed`,
 `--wind-direction`, `--fetch-cm`, `--choppiness`. Auto-detects numpy for a
 ~50x speedup; the pure-Python radix-2 IFFT path is minutes-scale at defaults.
-The mini fixture (`tests/lua/fixtures/ocean_mini/`, 32^2 x 8 frames) bakes in
+The mini fixture (`tests/lua/_fixtures/ocean_mini/`, 32^2 x 8 frames) bakes in
 seconds for tests.
 
 ## Asset layout (per bake directory)

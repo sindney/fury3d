@@ -5,7 +5,7 @@ ocean_island (change: add-kraut-vegetation, task 10.6).
 Reads the island's heightmap + splatmap (TerrainIsland/height.r16,
 splat.png -- both 513x513 over a 102400cm square, heightScale 4000) and
 writes examples/Projects/ocean/grass_points.lua: a flat {x,y,z,yaw,scale}
-tuple list consumed by tests/lua/populate_island_grass.lua.
+tuple list consumed by tests/lua/scenes/populate_island_grass.lua.
 
 Accept rule: grass is the dominant splat channel (R of R=grass,G=rock,
 B=mud,A=snow), slope < ~31 deg, height > 30cm (above the waterline).

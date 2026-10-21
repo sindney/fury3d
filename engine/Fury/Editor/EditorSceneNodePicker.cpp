@@ -260,6 +260,19 @@ void RenderSceneNodePickerModal(const char* popup_id, const char* title,
 	ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
 	if (!ImGui::BeginPopupModal(popup_id, nullptr)) return;
 
+	// Clamp the popup size: users can drag the corner smaller than the
+	// tree + details panes can render meaningfully, so refuse to go below
+	// (min_w, min_h). SetWindowSize from inside Begin is the ImGui-blessed
+	// way to enforce a minimum while staying resizable.
+	const ImVec2 min_size(580.0f, 320.0f);
+	{
+		const ImVec2 cur = ImGui::GetWindowSize();
+		if (cur.x < min_size.x || cur.y < min_size.y)
+			ImGui::SetWindowSize(ImVec2(std::max(cur.x, min_size.x),
+										std::max(cur.y, min_size.y)),
+								 ImGuiCond_Always);
+	}
+
 	ImGui::TextUnformatted(title);
 	ImGui::Separator();
 
@@ -309,9 +322,16 @@ void RenderSceneNodePickerModal(const char* popup_id, const char* title,
 	if (state.selectedIndex >= (int)selectable.size())
 		state.selectedIndex = selectable.empty() ? -1 : 0;
 
-	// Two-pane layout: tree on left, details on right.
+	// Two-pane layout: tree on left, details on right. Both panes stretch
+	// with the dialog; OK/Cancel below stay at a fixed frame height so the
+	// dialog auto-fits without an extra scrollbar wrapping the center.
+	const float footer_reserve = ImGui::GetFrameHeightWithSpacing()
+							   + ImGui::GetStyle().ItemSpacing.y * 2.0f
+							   + ImGui::GetTextLineHeightWithSpacing();
+	const float pane_h = std::max(160.0f, ImGui::GetContentRegionAvail().y - footer_reserve);
+
 	ImGui::BeginChild((std::string("##snpick_tree_") + popup_id).c_str(),
-					  ImVec2(360, 280), true);
+					  ImVec2(360, pane_h), true);
 	if (Scene::Active) {
 		auto root = Scene::Active->GetRootNode();
 		if (root) {
@@ -336,8 +356,9 @@ void RenderSceneNodePickerModal(const char* popup_id, const char* title,
 	ImGui::EndChild();
 
 	ImGui::SameLine();
+	// Width 0 = fill the rest of the row, leaving room for the details pane.
 	ImGui::BeginChild((std::string("##snpick_details_") + popup_id).c_str(),
-					  ImVec2(200, 280), true);
+					  ImVec2(0, pane_h), true);
 	std::shared_ptr<SceneNode> selNode;
 	if (state.selectedIndex >= 0 && state.selectedIndex < (int)selectable.size())
 		selNode = selectable[state.selectedIndex];

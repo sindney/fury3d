@@ -128,7 +128,7 @@ Island layer: `tools/gen_island_grass.py` computes splat-aware placement
 (dominant grass splat channel + slope/height gates) in **meadow patches**
 (habitat seeds -> gaussian blobs; uniform density can't read dense at island
 scale) -> `Projects/ocean/grass_points.lua`;
-`tests/lua/populate_island_grass.lua` merges the clump fragment into a scene
+`tests/lua/scenes/populate_island_grass.lua` merges the clump fragment into a scene
 copy and bakes a `GrassField` InstancedMeshRender (45k instances, no shadow
 casting). Wind waves roll across the field via the position-phase term in
 the WIND variant (`dot(worldPos.xz, windDir) * 0.00785`, ~800 m wavelength).
@@ -139,8 +139,8 @@ instance: ocean_island with 45k grass + 2.3k trees runs ~3.6 ms avg
 (278 fps, 123 draw calls). Beyond ~50k VISIBLE instances the remaining
 frustum/coverage pass becomes the cost center -- per-cell cluster culling
 is the documented next step.
-Headless harnesses: `tests/lua/grass_field_perf.lua` (FURY_GRASS_N),
-`tests/lua/grass_island_check.lua` (FURY_SCENE/FURY_CAM/FURY_TOD_HOURS).
+Headless harnesses: `tests/lua/scenes/grass_field_perf.lua` (FURY_GRASS_N),
+`tests/lua/scenes/grass_island_check.lua` (FURY_SCENE/FURY_CAM/FURY_TOD_HOURS).
 
 **ToD in scenes with SkyAtmosphere**: when a sky component has
 `sun_from_tod` on (ocean_island does), it overwrites the bound sun node's
@@ -182,29 +182,29 @@ instance add/remove/duplicate, and a seeded scatter-over-terrain helper
 
 ## Validation (headless, `fury` + fixed-frame screenshots)
 
-- `tests/lua/instancing_smoke.lua` — 2500 instanced cubes: instance count
+- `tests/lua/scenes/instancing_smoke.lua` — 2500 instanced cubes: instance count
   asserted, draw calls flat (< 200; per-instance submission would be >2500).
 - `tests/lua/kraut_import_roundtrip.lua` — import a kraut glb, save, reload:
   chain length / thresholds / billboard flag / vertex colors / material
   flags all survive.
 - `tests/lua/pipeline_compile_check.lua` — both pipeline JSONs load (every
   new shader variant compiles; SSBO variants skip cleanly on GL < 4.3).
-- `tests/lua/tree_preview.lua` — LOD tiers transition with distance
+- `tests/lua/scenes/tree_preview.lua` — LOD tiers transition with distance
   (prints the active tier per node), billboard tier renders the atlas.
-- `tests/lua/vegetation_perf.lua` — ocean_island with ~2300 trees:
+- `tests/lua/scenes/vegetation_perf.lua` — ocean_island with ~2300 trees:
   avg frame ms + flat draw-call assert.
-- `tests/lua/lod_transition_check.lua` — dithered LOD transitions: a line
+- `tests/lua/scenes/lod_transition_check.lua` — dithered LOD transitions: a line
   of same-distance instances splits across tier buckets with jitter on vs
   flipping in lockstep with `FURY_LOD_JITTER=0` (batch readout via Lua
   `GetBatchCount`/`GetBatchInfo`); debug-tint speckle:
   `screenshots/lod_jitter_speckle.png`.
-- `tests/lua/grass_field_perf.lua` — 3k/12k/48k grass instances:
+- `tests/lua/scenes/grass_field_perf.lua` — 3k/12k/48k grass instances:
   ~0.7 us/instance/frame, draw calls flat (6) at every scale.
-- `tests/lua/grass_island_check.lua` — island grass layer: ~160 fps avg,
+- `tests/lua/scenes/grass_island_check.lua` — island grass layer: ~160 fps avg,
   ~121 draw calls with 80k grass + 2.3k trees; `FURY_TOD_HOURS` for
   time-of-day variants. Shots: `screenshots/island_grass_{vista,close}
   [_tod2].png`.
-- `tests/lua/billboard_pop_check.lua` — dolly across the mesh->billboard
+- `tests/lua/scenes/billboard_pop_check.lua` — dolly across the mesh->billboard
   boundary while `--screenshot-series "out.png,N,interval"` captures a
   contact-sheet atlas (the CLI's temporal-capture mode; see docs/CLI.md) —
   per-cell ink/luminance continuity verifies the swap doesn't pop.

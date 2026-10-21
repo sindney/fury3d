@@ -31,8 +31,9 @@ share the same router; the binary decides what `argv[1]` may do.
    behavior; defaults to `Editor.lua` if no arg). See `docs/LUA.md` for
    that surface. Any remaining `argv[2..]` is forwarded to the script as
    a standard Lua `arg` table - `Editor.lua` honors `arg[1]` as an
-   optional startup scene (e.g. `./fury Editor.lua outdoor.fbx`). See
-   LUA.md for the convention. Two **runtime flags** (`--screenshot`,
+   optional startup scene (e.g. `./fury Editor.lua
+   Projects/ocean/ocean_island.bin`). See LUA.md for the convention.
+   Two **runtime flags** (`--screenshot`,
    `--screenshot-frame`) are recognized on the launcher path and
    stripped from `arg` before the script sees it. See "Screenshot mode"
    below.
@@ -162,7 +163,7 @@ before the engine exits). True offscreen rendering is out of scope for v1.
 ./fury Editor.lua --screenshot /tmp/demo_default.png
 
 # Capture an FBX import — verify imported textures applied correctly.
-./fury Editor.lua tank.fbx --screenshot /tmp/demo_tank.png
+./fury Editor.lua Projects/samples/tank/tank.fbx --screenshot /tmp/demo_tank.png
 
 # Wait 30 frames so an on_update animation has progressed.
 ./fury Editor.lua --screenshot /tmp/late.png --screenshot-frame 30
@@ -316,7 +317,7 @@ and proceeds without scaling — so it's safe to leave in scripted batches.
 ./fury convert gltf character.glb character.json
 
 # FBX → engine .bin (chained via FBX2glTF)
-./fury convert fbx examples/Resource/Scene/james.fbx /tmp/james.bin
+./fury convert fbx examples/Projects/samples/james/james.fbx /tmp/james.bin
 
 # FBX → glTF only (no engine chain)
 ./fury convert fbx in.fbx out.glb
@@ -433,16 +434,16 @@ screenshots, or GUI should use the Lua launcher path with `--screenshot`
 
 ```bash
 # Iterate scene contents from Lua (read-only).
-./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_iterate.lua
+./fury exec examples/Resource/Scene/scene.json tests/lua/scene_smoke_iterate.lua
 
 # Round-trip a scene to .bin via the Lua save binding.
-./fury exec examples/Resource/Scene/scene.json tests/lua/smoke_save.lua /tmp/out.bin
+./fury exec examples/Resource/Scene/scene.json tests/lua/scene_smoke_save.lua /tmp/out.bin
 
 # Generate LODs and save to a new scene file.
-./fury exec examples/Resource/Scene/scene.json tests/lua/gen_lod.lua --all /tmp/out.json
+./fury exec examples/Resource/Scene/scene.json tests/lua/scenes/gen_lod.lua --all /tmp/out.json
 
 # Run on an FBX (FBX2glTF chain runs first).
-./fury exec model.fbx tests/lua/smoke_iterate.lua
+./fury exec model.fbx tests/lua/scene_smoke_iterate.lua
 
 # Help (no scene loaded, no sol::state created).
 ./fury exec --help
@@ -537,7 +538,7 @@ line with `| grep '^{'`.
 
 ```
 ./furye-cli gui tree Projects/ocean/ocean_island.bin ui/main_menu.rml
-./furye-cli gui inspect Projects/ocean/ocean_island.bin ui/options.rml '#fov'
+./furye-cli gui inspect Projects/ocean/ocean_island.bin ui/options.rml '#shadow-2'
 ./furye-cli gui event Projects/ocean/ocean_island.bin ui/main_menu.rml '#start' click
 ./furye-cli gui shot Projects/ocean/ocean_island.bin ui/main_menu.rml /tmp/menu.png --frame 30
 ```

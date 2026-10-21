@@ -1562,6 +1562,23 @@ void RenderConsoleWindow(bool* open) {
 
 	if (ImGui::Button("Clear")) GlobalLogBuffer().Clear();
 
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Level:");
+	ImGui::SameLine();
+	{
+		// Drive the global Log<0> level so the engine file/console output
+		// matches what the user sees on screen. Survives until the next
+		// launch unless persisted via --log-level.
+		fury::LogLevel current = fury::Log<0>::Instance()->GetLevel();
+		const char *items[] = { "EROR", "WARN", "INFO", "DBUG" };
+		int idx = static_cast<int>(current);
+		if (idx < 0 || idx > 3) idx = 3;
+		ImGui::PushItemWidth(80);
+		if (ImGui::Combo("##LogLevel", &idx, items, 4))
+			fury::Log<0>::Instance()->SetLevel(static_cast<fury::LogLevel>(idx));
+		ImGui::PopItemWidth();
+	}
+
 	const float footer_h = ImGui::GetFrameHeightWithSpacing();
 	ImGui::BeginChild("##log", ImVec2(0, -footer_h), true,
 					  ImGuiWindowFlags_HorizontalScrollbar);
@@ -2471,15 +2488,15 @@ void RenderContentBrowserWindow(bool* open) {
 	ImGui::Combo("##cb_type", &g_FilterType, kFilterTypeNames,
 				 IM_ARRAYSIZE(kFilterTypeNames));
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(90.0f);
+	ImGui::SetNextItemWidth(180.0f);
 	ImGui::Combo("##cb_display", &g_DisplayMode, kDisplayModeNames,
 				 IM_ARRAYSIZE(kDisplayModeNames));
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(70.0f);
+	ImGui::SetNextItemWidth(105.0f);
 	ImGui::Combo("##cb_sort_key", &g_CBSortKey, kSortKeyNames,
 				 IM_ARRAYSIZE(kSortKeyNames));
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(70.0f);
+	ImGui::SetNextItemWidth(105.0f);
 	ImGui::Combo("##cb_sort_dir", &g_CBSortDir, kSortDirNames,
 				 IM_ARRAYSIZE(kSortDirNames));
 	ImGui::SameLine();

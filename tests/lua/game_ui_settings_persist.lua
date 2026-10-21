@@ -6,20 +6,29 @@ local CFG = "Projects/ocean/game_settings.cfg"
 -- back up a pre-existing cfg
 local backup = nil
 do
-	local f = io.open(CFG, "r")
+	local f = io.open(CFG, "rb")
 	if f then backup = f:read("a") f:close() end
 end
 
-local f = assert(io.open(CFG, "w"))
-f:write("fov=95\nfps_cap=60\nvsync=true\nhide_cursor=false\nsens=2.5\n")
+local f = assert(io.open(CFG, "wb"))
+f:write("shadow_quality=3\nfps_cap=60\nvsync=true\nhide_cursor=false\nsens=2.5\n")
 f:close()
 
 local function restore()
 	if backup then
-		local w = assert(io.open(CFG, "w"))
+		local w = assert(io.open(CFG, "wb"))
 		w:write(backup) w:close()
 	else
 		os.remove(CFG)
+	end
+end
+
+local function check(label, fn)
+	local ok, res = pcall(fn)
+	if not ok or not res then
+		restore()
+		print("PERSIST FAIL: " .. label)
+		os.exit(1)
 	end
 end
 
@@ -30,21 +39,16 @@ _G.ISLANDGAME.on_init()
 -- open options (syncs the panel from S), then read the doc
 Menu_OpenOptions("main")
 local doc = rmlui.contexts["main"].documents["ui/options.rml"]
-assert(doc, "options doc")
+check("options doc", function() return doc ~= nil end)
 
-local function check(label, fn)
-	if not fn() then
-		restore()
-		print("PERSIST FAIL: " .. label)
-		os.exit(1)
-	end
-end
-
-check("fov slider=95", function()
-	return tonumber(doc:GetElementById("fov"):GetAttribute("value")) == 95
+check("shadow-3 active", function()
+	return doc:GetElementById("shadow-3"):IsClassSet("active")
 end)
-check("fov label=95", function()
-	return doc:GetElementById("fov-value").inner_rml == "95"
+check("shadow-2 inactive", function()
+	return not doc:GetElementById("shadow-2"):IsClassSet("active")
+end)
+check("shadow-3 label=HIGH", function()
+	return doc:GetElementById("shadow-3").inner_rml == "HIGH"
 end)
 check("fps-60 active", function()
 	return doc:GetElementById("fps-60"):IsClassSet("active")

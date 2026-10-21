@@ -1,139 +1,84 @@
 # tests/lua/ — runnable Lua smoke tests for `fury exec`
 
 This folder holds Lua scripts invoked via `./fury exec <scene> <script.lua> [args...]`.
-They serve a dual purpose: **binding smoke tests** that prove the new Lua
-bindings work end-to-end from the `exec` path, and **worked examples** that
-AI agents can copy as starting points.
+Two sub-conventions:
 
-These scripts are intentionally NOT replacements for existing CLI features.
-`fury convert` already does headless format conversion, and `fury info`
-already does headless scene summarization — replicating those from Lua
-would be redundant. The scripts here exercise specific Lua binding surface
-that no existing CLI feature touches:
+- **`tests/lua/`** — binding-smoke regression guards. Each script exits
+  non-zero on invariant violation and is suitable for headless CI.
+- **`tests/lua/scenes/`** — scene-generation samples and render harnesses.
+  Some produce an asset (LOD chain, populated island) that the caller
+  inspects by hand; others run a windowed harness used by the shell
+  suites in `tests/`.
 
-- `smoke_save.lua` — proves `Scene.SaveActive` / `FileUtil.SaveByExtension`
-  works from Lua (round-trip a scene to `.json` or `.bin`). NOT a replacement
-  for `fury convert`; the conversion feature itself is the `convert`
-  subcommand's job.
-- `smoke_iterate.lua` — proves `Scene.ForEachMesh` / `ForEachMaterial` /
-  `ForEachNode` work from Lua. NOT a replacement for `fury info`; the
-  summarization feature is the `info` subcommand's job.
-- `dump_nodes.lua` / `dump_ground.lua` — scene-graph + material-uniform
-  dump helpers for debugging content regressions (ad-hoc, kept as
-  examples of the exec-inspection pattern).
-- `gen_lod.lua` — exercises `MeshSimplifier.SimplifyMesh` +
-  `Mesh.SetLodMeshes`. Genuinely new — no existing CLI feature generates
-  LODs.
-- `smoke_particles.lua` — particle-system regression guards: name-based
-  renderer→system resolution, save/reload module round-trip, and the
-  `Importer.MergeInto` ParticleSystem transfer. Exercises
-  `SceneNode.GetParticleRenderer`, `ParticleRenderer.GetSystem(Name)`,
-  and `Scene.GetParticleSystem` — surface no CLI subcommand touches.
+Scripts in `tests/lua/` are invoked via the `fury exec` contract documented in
+`docs/CLI.md` (no SFML window, no `Engine::Initialize`, no GL context on the
+`exec` path). Scripts in `tests/lua/scenes/` open a window and drive
+`Engine.run`; see `tests/lua/scenes/README.md`.
 
-## Usage
+## Naming convention
 
-From the repo root:
+Regression-guard scripts in `tests/lua/` begin with a feature prefix that
+matches one of the engine systems the script exercises:
 
-```bash
-# Iterate scene contents (read-only).
-./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_iterate.lua
+- `physics_*`, `game_ui_*`, `editor_*`, `ocean_*`, `buoyancy_*`,
+  `terrain_*`, `vegetation_*`, `particle_*`, `cloud_*`, `render_*`,
+  `shadow_*`, `scene_*`, `joystick_*`, `kraut_*`, `pak_*`, `pipeline_*`.
 
-# Round-trip a scene to .bin (proves the save binding works).
-./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_save.lua /tmp/out.bin
+Generic binding-smoke scripts that exercise only the scene-graph or
+material iteration surface use `scene_*`. Scripts under `tests/lua/scenes/`
+may omit the prefix.
 
-# Round-trip a scene to .json (the inverse direction).
-./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_save.lua /tmp/out.json
+## Surviving regression guards
 
-# Generate LODs on every mesh and save.
-./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all /tmp/out.json
+- `scene_smoke_iterate.lua` — exercise `Scene.ForEach*` iteration bindings.
+  Read-only; not a replacement for `fury info`.
+- `scene_smoke_save.lua` — round-trip a scene through the Lua save
+  binding. Not a replacement for `fury convert`.
+- `scene_asset_path_identity.lua` — merged unique-path-identity invariant
+  covering both the bundled `ocean_island.bin` (legacy collapse) and a
+  synthetic Terrain scene (deliberate duplicate). Replaces the prior
+  `asset_path_identity.lua` + `content_browser_folders.lua` pair.
+- `physics_smoke.lua` — `BodySetup` box drop + rest + save/reload.
+- `terrain_physics.lua` — Terrain heightfield + chunk-meshes-excluded
+  invariant.
+- `terrain_sky_scene.lua` — outdoor_terrain.bin Sky + Terrain assertions.
+- `buoyancy_smoke.lua` — `BuoyancyComponent` flat / wave / save/reload.
+- `ocean_scene_roundtrip.lua` — every `OceanComponent` field round-trip.
+- `ocean_asset_flow.lua` — `OceanWaves` transferred through `MergeInto`.
+- `ocean_waves_spec.lua` — `WaveSampler` loop/tile wrap, determinism.
+- `cloud_sky_roundtrip.lua` — `SkyAtmosphere` cloud block + TOD.
+- `scene_node_picker_roundtrip.lua` — `*NodeName` setter round-trip.
+- `pak_scene_load.lua` — loose scene vs scene.pak identical enumeration
+  (also called by `tests/pak_pipeline.sh`).
+- `kraut_import_roundtrip.lua` — Kraut-imported `*_LOD0` chain.
+- `pipeline_compile_check.lua` — load both PBR + Lambert pipelines.
+- `editor_only_nodes.lua` — `editorOnly` flag serialization.
+- `joystick_smoke.lua` — `JoyInputUtil` bindings + `JoystickAxis`.
+- `render_smoke_settings_roundtrip.lua` — `RenderSettings` save/reload.
+- `shadow_smoke_receive.lua` — shadow-receive + particle resolution.
+- `particle_smoke.lua` — `ParticleSystem` name resolution + save/reload.
+- `game_ui_smoke.lua`, `game_ui.lua`, `game_ui_capture.lua`,
+  `game_ui_demo.lua`, `game_ui_settings_persist.lua`,
+  `game_ui_slider_param.lua`, `game_ui_spawn.lua`, `game_ui_swim.lua`,
+  `game_ui_window.lua` — RmlUi + IslandGame regression guards.
 
-# Generate LODs and just log counts (no save).
-./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all
+## Removed in this change
 
-# Target a single mesh by name.
-./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua TankMesh /tmp/out.json
-```
+- `dump_nodes.lua`, `dump_ground.lua`, `dump_lights.lua` — debug-only
+  scene dumpers. No assert; the iteration pattern is covered by
+  `scene_smoke_iterate.lua`.
+- `game_ui_close.lua`, `game_ui_close_all.lua`, `game_ui_look_probe.lua`,
+  `game_ui_options_shot.lua`, `game_ui_osexit.lua`,
+  `game_ui_pause_shot.lua`, `game_ui_slider_probe.lua` — windowed repros
+  for manual screenshot review; no automated assert.
+- `smoke_hdr_import.lua` — 29-line HDR-import binding smoke; removed when its
+  required `examples/Projects/samples/tank/tank.fbx` fixture was missing.
+- `asset_path_identity.lua` — 71-line unique-path test that hit a STATUS_BREAKPOINT
+  in `Importer.LoadScene` with absolute `/tmp/...` paths. Invariant kept
+  under `scene_asset_path_identity.lua` (fixture A).
+- `content_browser_folders.lua` — 177-line synthetic-fixture twin of the
+  above. Invariant kept under `scene_asset_path_identity.lua` (fixture B).
 
-## Script reference
+## Scene samples (`tests/lua/scenes/`)
 
-### `smoke_iterate.lua`
-
-**Purpose:** exercise the iteration bindings end-to-end.
-**Args:** none.
-**Sample:**
-```bash
-./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_iterate.lua
-```
-**Output:**
-```
-ForEachMesh callbacks: <n>
-ForEachMaterial callbacks: <n>
-ForEachNode callbacks: <n>
-```
-**Notes:** read-only; no file written. NOT a replacement for `fury info`.
-
-### `smoke_save.lua`
-
-**Purpose:** round-trip a scene through the Lua save binding.
-**Args:** `<out_path>` — output file; extension `.json` or `.bin` selects
-the serializer.
-**Sample:**
-```bash
-./fury exec examples/Projects/tank/scene.bin tests/lua/smoke_save.lua /tmp/out.bin
-```
-**Notes:** proves the Lua save binding works. The actual format-conversion
-feature is `fury convert`'s job.
-
-### `smoke_particles.lua`
-
-**Purpose:** regression-guard the particle system's asset-model invariants.
-**Args:** none.
-**Sample:**
-```bash
-./fury exec examples/Projects/outdoor/outdoor_water.bin tests/lua/smoke_particles.lua
-```
-**Output:**
-```
-1. name resolution OK (2 renderers -> 2 systems)
-2. serialization round-trip OK (systems + renderers + modules survive)
-3. MergeInto transfer OK (systems resolve in the merged scene)
-smoke_particles: OK
-```
-**Notes:** hardcodes the outdoor_water scene's two emitters (`FireEmber`,
-`SmokePlume`) — run it against that scene. The GPU/GUI-only traps
-(dynamic-mesh `SetDirty`, content-browser tile casts) are covered by the
-furye screenshot captures, not by this exec script (no GL context there).
-
-### `gen_lod.lua`
-
-**Purpose:** generate LODs via `MeshSimplifier.SimplifyMesh` and attach them
-via `Mesh.SetLodMeshes`. Genuinely new — no existing CLI feature does this.
-**Args:**
-- `<mesh_name|--all>` — which mesh to target (or `--all` for every mesh).
-- `[out_path]` — optional output path; if omitted, just logs counts.
-
-**Sample (save):**
-```bash
-./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all /tmp/out.json
-```
-**Sample (no save, just log counts):**
-```bash
-./fury exec examples/Projects/tank/scene.bin tests/lua/gen_lod.lua --all
-```
-
-## Exit codes
-
-All scripts follow the `fury exec` convention:
-
-- `0` — script ran to completion.
-- `1` — missing arg / no match / save failure (with stderr message).
-- `2` — internal C++ exception escaping `DoExec`.
-
-## See also
-
-- [`docs/CLI.md`](../CLI.md) — full `fury exec` reference (syntax, accepted
-  extensions, exit codes, no-window / no-engine-boot invariants).
-- [`docs/LUA_API.md`](../LUA_API.md) — auto-generated per-binding Lua API
-  reference.
-- [`engine/Fury/LuaBindings.cpp`](../../engine/Fury/LuaBindings.cpp) — C++
-  side of every binding.
+See `tests/lua/scenes/README.md` for the moved sample / harness scripts.

@@ -489,6 +489,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/InstancedMeshRender.cpp
 	${PROJECT_SOURCE_DIR}/Fury/InstancedMeshStreamer.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Joint.cpp
+	${PROJECT_SOURCE_DIR}/Fury/JoyInputUtil.cpp
 	${PROJECT_SOURCE_DIR}/Fury/KrautConverter.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Light.cpp
 	${PROJECT_SOURCE_DIR}/Fury/LuaBindings.cpp

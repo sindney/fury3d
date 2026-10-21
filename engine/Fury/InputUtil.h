@@ -35,8 +35,6 @@ namespace fury
 
 		bool m_KeyDown[sf::Keyboard::KeyCount];
 
-		// Bound by Engine::Run; needed for cursor grab/visibility and the
-		// grabbed-mode recentering in Engine::HandleEvent.
 		sf::Window *m_Window = nullptr;
 
 		bool m_CursorGrabbed = false;
@@ -100,6 +98,11 @@ namespace fury
 		// read). Only meaningful while the cursor is grabbed.
 		std::pair<int, int> ConsumeMouseDelta();
 
+		// Add an arbitrary (dx, dy) to the accumulated mouse delta so a
+		// script-side input source (e.g. a right-stick on a gamepad) can
+		// drive the same first-person look pipeline as a real mouse.
+		void AddMouseDelta(int dx, int dy);
+
 		bool GetWindowFocused();
 
 		float GetMouseWheel();
@@ -110,7 +113,6 @@ namespace fury
 
 		bool GetKeyDown(sf::Keyboard::Key key);
 
-		// Zero held keys, buttons, wheel, and position.
 		void ResetTransientInputState();
 	};
 }

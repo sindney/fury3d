@@ -505,22 +505,6 @@ namespace fury
 		}
 	}
 
-	bool SkyAtmosphere::AutoSelectSunLight()
-	{
-		// clear the name so ResolveSunLight takes the first-directional
-		// fallback, then pin whatever it finds
-		std::string prev = m_SunLightName;
-		m_SunLightName.clear();
-		auto node = ResolveSunLight();
-		if (!node)
-		{
-			m_SunLightName = prev;
-			return false;
-		}
-		m_SunLightName = node->GetName();
-		return true;
-	}
-
 	std::shared_ptr<SceneNode> SkyAtmosphere::ResolveSunLight() const
 	{
 		if (Scene::Active == nullptr)

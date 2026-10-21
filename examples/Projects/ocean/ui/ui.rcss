@@ -181,11 +181,11 @@ input[type=range] sliderprogress {
 	border-radius: 2px;
 }
 input[type=range] sliderbar {
-	width: 14px;
-	height: 14px;
-	margin-top: 4px;
-	border-radius: 7px;
-	background: #e8eef4;
+	width: 6px;
+	height: 18px;
+	margin-top: 1px;
+	border-radius: 2px;
+	background: #c6d4e0;
 }
 input[type=range] sliderbar:hover {
 	background: #4fd1ff;
@@ -194,6 +194,29 @@ input[type=range] sliderarrowdec,
 input[type=range] sliderarrowinc {
 	display: none;
 }
+
+/* Console-style focus navigation: Lua walks the focus ring on stick / dpad
+   input (RmlUi 6.3 has no built-in spatial-nav handler). */
+.btn, .seg, input[type=range] {
+	tab-index: auto;
+}
+.btn:focus {
+	color: #ffffff;
+	background: #4fd1ff18;
+	border-left-color: #4fd1ff;
+	padding-left: 24px;
+}
+.seg:focus {
+	color: #ffffff;
+	background: #4fd1ff26;
+}
+input[type=range]:focus sliderbar {
+	background: #4fd1ff;
+}
+input[type=range]:focus sliderprogress {
+	background: #4fd1ff80;
+}
+
 .opt-value {
 	width: 56px;
 	flex-shrink: 0;

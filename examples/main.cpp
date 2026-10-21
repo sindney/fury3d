@@ -316,6 +316,30 @@ namespace
 				out_options.render_thread = value[0] - '0';
 				continue;
 			}
+			if (std::strcmp(a, "--log-level") == 0
+				|| std::strncmp(a, "--log-level=", 12) == 0)
+			{
+				// Accepts "--log-level EROR|WARN|INFO|DBUG" and "--log-level=...".
+				const char *value = nullptr;
+				if (a[11] == '=')
+					value = a + 12;
+				else if (i + 1 < argc)
+					value = argv[++i];
+				if (value == nullptr)
+				{
+					std::cerr << "fury: --log-level requires one of EROR|WARN|INFO|DBUG\n";
+					return false;
+				}
+				int level = fury::ParseLogLevel(value);
+				if (level < 0)
+				{
+					std::cerr << "fury: --log-level must be one of EROR|WARN|INFO|DBUG (got '"
+						<< value << "')\n";
+					return false;
+				}
+				out_options.log_level = level;
+				continue;
+			}
 			if (std::strcmp(a, "--rhi") == 0 || std::strncmp(a, "--rhi=", 6) == 0)
 			{
 				// Accepts "--rhi <name>" and "--rhi=<name>".
@@ -557,12 +581,22 @@ int main(int argc, char *argv[])
 	window.setVerticalSyncEnabled(false);
 	(void)window.setActive();
 
-	if (!fury::Engine::Initialize(window, 2, fury::LogLevel::DBUG,
+	if (!fury::Engine::Initialize(window, 2,
+#if defined(NDEBUG) && !defined(_DEBUG)
+		fury::LogLevel::WARN,
+#else
+		fury::LogLevel::DBUG,
+#endif
 		fury::FileUtil::GetAbsPath("Log.txt").c_str()))
 	{
 		std::cerr << "Engine::Initialize failed" << std::endl;
 		return 1;
 	}
+
+	// CLI --log-level always wins over the build-config default. The script
+	// may still change it later via Log.SetLevel().
+	if (launcher_options.log_level >= 0)
+		fury::Log<0>::Instance()->SetLevel(static_cast<fury::LogLevel>(launcher_options.log_level));
 
 	// Play-mode gate: the plain runtime simulates physics; the editor never
 	// does (it launches a fury child process for play sessions instead).

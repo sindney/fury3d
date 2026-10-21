@@ -19,6 +19,7 @@
 #include "Fury/GpuDump.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
+#include "Fury/JoyInputUtil.h"
 #include "Fury/InstancedMeshStreamer.h"
 #include "Fury/Log.h"
 #include "Fury/MeshUtil.h"
@@ -223,6 +224,7 @@ namespace fury
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
+		JoyInputUtil::Initialize();
 
 		Editor::SetWindowForPersistence(&window);
 
@@ -836,6 +838,7 @@ namespace fury
 		}
 		{
 			FURY_ZONE_NAMED("Engine::Update");
+			JoyInputUtil::Instance()->PollState();
 			Update(dt);
 			GameUI::Update(dt);
 		}

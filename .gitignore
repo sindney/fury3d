@@ -114,13 +114,11 @@ examples/Resource/Scene/scene_saved.json
 # smaller) as the runtime form. JSON versions get staged when the editor
 # does File→Save or the CLI's `convert` writes both; .bin is canonical.
 examples/Projects/*/*.json
-!examples/Projects/tank/scene-hdr.json
-!examples/Projects/tank/scene-hdr-noshadowsun.json
-!examples/Projects/tank/scene-ldr.json
-!examples/Projects/sponza/metadata.json
+examples/Projects/samples/*/*.json
 
 # Per-user settings file written by game demos (Options panel persistence)
 examples/Projects/*/game_settings.cfg
+examples/Projects/samples/*/game_settings.cfg
 
 # Play-mode temp scenes (editor Play writes <scene dir>/.play_<name>.tmp.bin)
 .play_*.tmp.bin

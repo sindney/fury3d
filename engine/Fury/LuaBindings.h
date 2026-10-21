@@ -36,6 +36,10 @@ namespace fury
 			// --render-thread=0|1 CLI override. -1 = unset (falls through to
 			// FURY_RENDER_THREAD env, then the script's option, then ini).
 			int render_thread = -1;
+			// --log-level=EROR|WARN|INFO|DBUG CLI override. -1 = unset
+			// (uses build-config default: WARN for Release/MinSizeRel,
+			// DBUG for Debug/RelWithDebInfo).
+			int log_level = -1;
 			// --rhi=<backend> CLI override. Empty = unset (falls through to
 			// FURY_RHI env, then the script's option, then editor ini).
 			std::string rhi;

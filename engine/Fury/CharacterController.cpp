@@ -370,6 +370,8 @@ void CharacterController::PhysicsTick(float fixedDt)
 		if (input->GetKeyDown(sf::Keyboard::Key::D) || input->GetKeyDown(sf::Keyboard::Key::Right)) move = move + rgt;
 		jump = input->GetKeyDown(sf::Keyboard::Key::Space);
 	}
+	// Gamepad left-stick contribution; renormalized on length so stick + key don't double-speed.
+	move = move + fwd * m_MoveInputFwd + rgt * m_MoveInputRight;
 
 	const float moveLen = move.Length();
 	float speed = input->GetKeyDown(sf::Keyboard::Key::LShift) ? m_RunSpeed : m_WalkSpeed;

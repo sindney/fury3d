@@ -143,8 +143,8 @@ cd examples && ./furye Editor.lua
 
 Editor.lua picks the startup scene by argv:
 
-* No argv → `Projects/tank/scene.bin` (the bundled tank scene).
-* `./furye Editor.lua outdoor.fbx` → loads `outdoor.fbx` (or its `Projects/`, `Resource/Scene/` prefixed variants) via the glTF importer.
+* No argv -> starts with an empty scene; open one via File -> Open... or pass a path.
+* `./furye Editor.lua Projects/ocean/ocean_island.bin` -> loads that scene at startup (the literal path, or its `Projects/`, `Resource/Scene/` prefixed variants).
 
 If you only built `fury`, the launch is the same (`./fury Editor.lua`) but the ImGui editor windows are absent — drop the `.lua` to run your own script.
 

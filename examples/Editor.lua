@@ -25,11 +25,11 @@
 -- Pipeline.SetCurrentCamera.
 --
 -- Startup scene:
---   * No argv: load Projects/tank/scene.bin (engine's bundled tank scene).
+--   * No argv: start with an empty scene; open one via File -> Open.
 --   * argv:    `./fury Editor.lua <name>` opens <name> at startup.
 --              The path is tried literally first, then with Projects/ and
 --              Resource/Scene/ prefixes, then any extension Importer.LoadScene supports.
---              On failure: fall back to scene.bin so the editor stays interactive.
+--              On failure: report it and leave the scene empty.
 
 local octree           = nil
 local cam_node         = nil
@@ -398,15 +398,6 @@ ensure_default_sun = ensure_default_sun_impl
 -- ---------------------------------------------------------------------------
 -- Startup scene resolution
 
-local function load_default_scene()
-    local path = FileUtil.GetAbsPath("Projects/tank/scene.bin")
-    -- Route through open_scene_at_path so the loading scene's
-    -- working_dir is set correctly for texture path resolution.
-    if open_scene_at_path(path) then return end
-    FileUtil.LoadSceneFromCompressedFile(Scene.GetActive(), path)
-    Editor.SetCurrentScene(path, true)
-end
-
 local function file_exists(path)
     local f = io.open(path, "rb")
     if f then f:close(); return true end
@@ -444,7 +435,7 @@ frame_scene = function(scene)
         or 10.0
     if distance < 1.0 then distance = 1.0 end
 
-    -- Big scenes (tank / outdoor auto-scaled to ~1.4k units) need a
+    -- Big scenes (auto-scaled to ~1.4k units) need a
     -- far plane beyond the editor's default 5000 to keep the
     -- terrain visible from the framed pose. Without this the
     -- background mesh is sliced off when auto-scale grows the
@@ -620,17 +611,13 @@ local function on_init()
             -- Route through the shared open path so startup imports
             -- get the same unit-scale prompt as File → Open.
             if not open_scene_at_path(resolved) then
-                print("Editor.lua: Importer.LoadScene rejected '" .. startup .. "'; falling back to scene.bin")
-                set_status("failed to open " .. startup .. " — using default scene")
-                load_default_scene()
+                print("Editor.lua: Importer.LoadScene rejected '" .. startup .. "'")
+                set_status("failed to open " .. startup)
             end
         else
-            print("Editor.lua: startup scene '" .. startup .. "' not found (tried literal and Resource/Scene/ prefix); falling back to scene.bin")
-            set_status("not found: " .. startup .. " — using default scene")
-            load_default_scene()
+            print("Editor.lua: startup scene '" .. startup .. "' not found (tried literal, Projects/ and Resource/Scene/ prefixes)")
+            set_status("not found: " .. startup)
         end
-    else
-        load_default_scene()
     end
 
     -- arg[2] (automation): comma-separated "type:name" asset editors to

@@ -30,6 +30,7 @@
 #include "Fury/GltfImporter.h"
 #include "Fury/GameUI.h"
 #include "Fury/InputUtil.h"
+#include "Fury/JoyInputUtil.h"
 #include "Fury/KrautConverter.h"
 
 #include <RmlUi/Core.h>
@@ -118,6 +119,9 @@ namespace fury
 			"                    values warn and resolve to opengl; a backend that fails\n"
 			"                    to initialize falls back to opengl.\n"
 			"\n"
+			"GLOBAL OPTIONS\n"
+			"  --log-level EROR|WARN|INFO|DBUG  set the log level (default: build-config)\n"
+			"\n"
 			"EXIT CODES\n"
 			"  0  success\n"
 			"  1  user error (bad arguments, unsupported input)\n"
@@ -144,6 +148,9 @@ namespace fury
 			"  gui            headless game-UI (RmlUi) inspection: tree/inspect/event/shot\n"
 			"  help           show this help; `help <subcommand>` for detail\n"
 			"  version        print the engine version and exit\n"
+			"\n"
+			"GLOBAL OPTIONS\n"
+			"  --log-level EROR|WARN|INFO|DBUG  set the log level (default: build-config)\n"
 			"\n"
 			"EXIT CODES\n"
 			"  0  success\n"
@@ -663,6 +670,7 @@ namespace fury
 				// scripts can poll input state and cursor getters without a
 				// window; cursor setters no-op (m_Window stays null).
 				InputUtil::Initialize(0, 0);
+				JoyInputUtil::Initialize();
 
 				sol::state lua;
 				lua.open_libraries(
@@ -692,6 +700,7 @@ namespace fury
 					sol::error err = load_result;
 					std::cerr << "fury exec: failed to load '" << script_path
 						<< "': " << err.what() << "\n";
+					GameUI::Shutdown(); // drain listeners before sol::state dtor
 					return 1;
 				}
 				sol::protected_function script = load_result;
@@ -699,6 +708,7 @@ namespace fury
 				{
 					std::cerr << "fury exec: loadfile returned no function for '"
 						<< script_path << "'\n";
+					GameUI::Shutdown(); // drain listeners before sol::state dtor
 					return 1;
 				}
 
@@ -718,11 +728,13 @@ namespace fury
 			catch (const std::exception &e)
 			{
 				std::cerr << "fury exec: " << e.what() << "\n";
+				GameUI::Shutdown(); // drain listeners before sol::state dtor
 				return 2;
 			}
 			catch (...)
 			{
 				std::cerr << "fury exec: unknown exception\n";
+				GameUI::Shutdown(); // drain listeners before sol::state dtor
 				return 2;
 			}
 		}
@@ -1957,20 +1969,41 @@ namespace fury
 		(void)loader_guard;
 
 		if (argc < 2) { std::cout << TopHelp(); return 0; }
+
+		// --log-level applies to every subcommand; pulled out of argv before dispatch so subcommands see clean positionals.
+		std::vector<char *> cli_argv;
+		cli_argv.reserve(static_cast<size_t>(argc));
+		cli_argv.push_back(argv[0]);
+		for (int i = 1; i < argc; ++i)
+		{
+			const char *a = argv[i];
+			if (std::strcmp(a, "--log-level") == 0 && i + 1 < argc)
+			{
+				int level = ParseLogLevel(argv[++i]);
+				if (level >= 0)
+					Log<0>::Instance()->SetLevel(static_cast<LogLevel>(level));
+				continue;
+			}
+			cli_argv.push_back(argv[i]);
+		}
+		if (cli_argv.size() < 2) { std::cout << TopHelp(); return 0; }
+		const int cli_argc = static_cast<int>(cli_argv.size());
+		char **cli_argv_ptr = cli_argv.data();
+
 		try
 		{
-			const std::string sub = argv[1];
-			if (sub == "help" || sub == "--help" || sub == "-h")   return DoHelp(argc, argv);
-			if (sub == "version" || sub == "--version")            return DoVersion(argc, argv);
-			if (sub == "convert")                                  return DoConvert(argc, argv);
-			if (sub == "info")                                     return DoInfo(argc, argv);
-			if (sub == "exec")                                     return DoExec(argc, argv);
+			const std::string sub = cli_argv_ptr[1];
+			if (sub == "help" || sub == "--help" || sub == "-h")   return DoHelp(cli_argc, cli_argv_ptr);
+			if (sub == "version" || sub == "--version")            return DoVersion(cli_argc, cli_argv_ptr);
+			if (sub == "convert")                                  return DoConvert(cli_argc, cli_argv_ptr);
+			if (sub == "info")                                     return DoInfo(cli_argc, cli_argv_ptr);
+			if (sub == "exec")                                     return DoExec(cli_argc, cli_argv_ptr);
 #if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
-			if (sub == "kraut")                                    return DoKraut(argc, argv);
-			if (sub == "cook")                                     return DoCook(argc, argv);
-			if (sub == "package")                                  return DoPackage(argc, argv);
-			if (sub == "exec-script")                              return DoExecScript(argc, argv);
-			if (sub == "shaderc")                                  return DoShaderc(argc, argv);
+			if (sub == "kraut")                                    return DoKraut(cli_argc, cli_argv_ptr);
+			if (sub == "cook")                                     return DoCook(cli_argc, cli_argv_ptr);
+			if (sub == "package")                                  return DoPackage(cli_argc, cli_argv_ptr);
+			if (sub == "exec-script")                              return DoExecScript(cli_argc, cli_argv_ptr);
+			if (sub == "shaderc")                                  return DoShaderc(cli_argc, cli_argv_ptr);
 #endif
 			std::cerr << kProgName << ": unknown subcommand '" << sub << "'\n\n" << TopHelp();
 			return 1;
