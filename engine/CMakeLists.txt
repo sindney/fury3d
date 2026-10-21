@@ -668,6 +668,40 @@ else()
 endif()
 set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BINARY}")
 
+# Shared runtime output dir: every fury* binary lands here, next to the
+# examples/ content they load.
+set(FURY_RUNTIME_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/../examples")
+
+# Staging the vendored tool payloads (ktx CLI, slang compiler) into the
+# shared runtime output dir. One target, one pass: a per-target copy step
+# would have three concurrent copies writing the same directory and the
+# parallel build would fail.
+#   - KTX-Software CLI (see ThirdParty/KTX-Software/README.md) so the cook
+#     command finds ktx beside furye-cli. A missing platform dir is fine:
+#     cook then resolves via FURY_KTX_CLI or fails with an actionable error.
+#   - Slang compiler CLI (see ThirdParty/slang/README.md): the vendored
+#     package layout (bin/slangc + lib/ with its stdlib modules) is staged
+#     under <exe dir>/slang/ so the front-end runs as a subprocess with its
+#     sibling dylibs and module discovery intact.
+if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}" OR (FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin"))
+	add_custom_target(fury_stage_tools
+		COMMENT "Staging ktx + slang next to the engine binaries")
+	if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}")
+		add_custom_command(TARGET fury_stage_tools POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${FURY_KTX_TOOL_DIR}"
+				"${FURY_RUNTIME_OUTPUT_DIR}"
+			VERBATIM)
+	endif()
+	if(FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin")
+		add_custom_command(TARGET fury_stage_tools POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${FURY_SLANG_DIR}"
+				"${FURY_RUNTIME_OUTPUT_DIR}/slang"
+			VERBATIM)
+	endif()
+endif()
+
 # Helper: configure a fury* target with the standard post-build steps
 # (output into examples/, copy FBX2glTF, regenerate docs/LUA_API.md).
 # Avoids repeating the output / FBX2glTF copy stanza for each variant.
@@ -692,7 +726,7 @@ function(fury_add_target NAME)
 		target_compile_definitions(${NAME} PRIVATE FURY_TRACY_GPU)
 	endif()
 	set_target_properties(${NAME} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/../examples"
+		RUNTIME_OUTPUT_DIRECTORY "${FURY_RUNTIME_OUTPUT_DIR}"
 		# Multi-Config generators (Visual Studio / Xcode / Ninja Multi-Config)
 		# append $(Configuration) to RUNTIME_OUTPUT_DIRECTORY by default,
 		# dropping binaries into examples/Debug/, examples/Release/, etc.
@@ -746,30 +780,12 @@ function(fury_add_target NAME)
 			COMMENT "Copying KrautCLI/KrautPreview next to ${NAME}"
 			VERBATIM)
 	endif()
-	# KTX-Software CLI: vendored per-platform binaries (see
-	# ThirdParty/KTX-Software/README.md) are staged next to the binary so
-	# the cook command finds ktx beside furye-cli. Missing platform dir
-	# is fine: cook then resolves via FURY_KTX_CLI or fails with an
-	# actionable error.
-	if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}")
-		add_custom_command(TARGET ${NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_directory
-				"${FURY_KTX_TOOL_DIR}"
-				"$<TARGET_FILE_DIR:${NAME}>"
-			COMMENT "Staging ktx CLI next to ${NAME}"
-			VERBATIM)
-	endif()
-	# Slang compiler CLI (see ThirdParty/slang/README.md): the vendored
-	# package layout (bin/slangc + lib/ with its stdlib modules) is staged
-	# under <exe dir>/slang/ so the front-end runs as a subprocess with its
-	# sibling dylibs and module discovery intact.
-	if(FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin")
-		add_custom_command(TARGET ${NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_directory
-				"${FURY_SLANG_DIR}"
-				"$<TARGET_FILE_DIR:${NAME}>/slang"
-			COMMENT "Staging slangc CLI under ${NAME}/slang"
-			VERBATIM)
+	# The vendored ktx and slang payloads are staged into the shared runtime
+	# output dir by the fury_stage_tools target, which every engine binary
+	# depends on. Staging them per-target would run several concurrent
+	# copies into the same directory and the parallel build would fail.
+	if(TARGET fury_stage_tools)
+		add_dependencies(${NAME} fury_stage_tools)
 	endif()
 	# Regenerate docs/LUA_API.md from LuaBindings.cpp. Off by default;
 	# pass -DFURY_DOCGEN=ON to enable. When on, the post-build step
