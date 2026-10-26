@@ -230,6 +230,51 @@ namespace fury
 		m_DrawCall++;
 	}
 
+	RHIShaderBlob RenderUtil::MakeSourceBlob(const std::string &source)
+	{
+		return ::fury::MakeSourceBlob(source.c_str());
+	}
+
+	void RenderUtil::Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest,
+		const RHIShaderModuleRef &module, const std::function<void(RHICommandList*)> &bindExtras,
+		ClearMode clearMode, BlendMode blendMode)
+	{
+		if (module == nullptr || GRHIDevice == nullptr)
+			return;
+
+		if (dest != nullptr)
+			m_BlitPass->AddTexture(dest, false);
+
+		m_BlitPass->SetClearMode(clearMode);
+		m_BlitPass->SetBlendMode(blendMode);
+
+		m_BlitPass->Bind(true);
+
+		auto *cmd = GRHIDevice->GetCommandList();
+		cmd->BindShaderModule(module);
+		cmd->SetTexture("src", src->GetRHITexture());
+		if (bindExtras)
+			bindExtras(cmd);
+
+		auto quad = MeshUtil::GetUnitQuad();
+		if (quad->GetDirty())
+			quad->UpdateBuffer();
+		cmd->SetMeshGeometry(MakePositionDesc(quad->GetName().c_str(),
+			module->ResolveAttribLocation("vertex_position"),
+			quad->Positions.GetRHIBuffer(), quad->Positions.GetDirty(), quad->Positions.Data.empty()));
+		cmd->SetIndexBuffer(quad->Indices.GetRHIBuffer());
+		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+		cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
+		cmd->BindShaderModule(nullptr);
+
+		m_BlitPass->UnBind();
+
+		m_BlitPass->RemoveAllTextures();
+
+		m_TriangleCount += 2;
+		m_DrawCall++;
+	}
+
 	void RenderUtil::BeginDrawLines(const PacketCamera &camera)
 	{
 		auto module = GetDebugShaderModule();
@@ -528,13 +573,6 @@ namespace fury
 			const char *vs =
 				"in vec3 vertex_position;"
 				"in vec3 vertex_normal;"
-				// Referenced (via a zero uniform) so the linker keeps
-				// the attributes and skinned meshes don't trip the
-				// "Can't find bone_ids/bone_weights" bind warnings --
-				// thumbnails render the bind pose.
-				"in ivec4 bone_ids;"
-				"in vec3 bone_weights;"
-				"uniform float u_bone_keep = 0.0;"
 				"uniform mat4 _WorldMatrix;"
 				"uniform mat4 _ViewMatrix;"
 				"uniform mat4 _ProjectionMatrix;"
@@ -543,9 +581,8 @@ namespace fury
 				"{"
 				"	vec4 worldPos = _WorldMatrix * vec4(vertex_position, 1.0);"
 				"	v_normal = mat3(_WorldMatrix) * vertex_normal;"
-				"	gl_Position = _ProjectionMatrix * _ViewMatrix * worldPos"
-				"		+ vec4(u_bone_keep * float(bone_ids.x) * bone_weights.x);"
-				"}";
+				"	gl_Position = _ProjectionMatrix * _ViewMatrix * worldPos;"
+								"}";
 			const char *fs =
 				"in vec3 v_normal;"
 				"out vec4 fragment_output;"

@@ -468,7 +468,10 @@ namespace fury
 			const MetalStageGlobals emptyGlobals;
 			const MetalStageGlobals &globals = module != nullptr ? module->GetStageGlobals(stage) : emptyGlobals;
 			m_GlobalsActive[stage] = globals.HasBlock();
-			m_GlobalsShadow[stage].assign(globals.HasBlock() ? globals.blockSize : 0, 0);
+			if (globals.HasBlock() && globals.defaultValues.size() == globals.blockSize)
+				m_GlobalsShadow[stage] = globals.defaultValues;
+			else
+				m_GlobalsShadow[stage].assign(globals.HasBlock() ? globals.blockSize : 0, 0);
 		}
 	}
 

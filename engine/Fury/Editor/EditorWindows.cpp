@@ -42,6 +42,7 @@
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
 #include "Fury/RHI/RHIBackend.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/SkyAtmosphere.h"
@@ -652,8 +653,7 @@ void RenderProfilerGBufferTab() {
 
 	// Preview blitter: gbuffer alpha is near-zero under PBR (metallic/roughness
 	// pack) and depth samples as (d,0,0,1), so each preview blits to an opaque
-	// rgba8 surface on the GL thread before ImGui::Image sees it. All GL work
-	// runs on the render thread (EnqueueJob), matching the Shadows tab pattern.
+	// rgba8 surface on the frame executor before ImGui::Image sees it.
 	const float content_w = ImGui::GetContentRegionAvail().x;
 	float img_w = content_w > 0.0f ? content_w : 256.0f;
 	if (img_w > 320.0f) img_w = 320.0f;
@@ -675,20 +675,18 @@ void RenderProfilerGBufferTab() {
 		const int ph = (int)(pw * aspect);
 		const std::string key = std::string("GBufferPreview:") + tex_name;
 		ImGui::PushID(key.c_str());
-		RenderThread::Get().EnqueueJob([key, t, is_depth, pw, ph]() {
+		Editor::QueueOverlayJob([key, t, is_depth, ph]() {
 			auto &surface = AcquireSurface(key, pw, ph);
 			if (surface.targetSet == nullptr)
 				return;
-			static std::shared_ptr<Shader> blitShader;
-			if (!blitShader)
+			static RHIShaderModuleRef blitModule;
+			if (!blitModule && GRHIDevice != nullptr)
 			{
-				blitShader = Shader::Create("GBufferPreviewBlitShader", ShaderType::OTHER);
 				const char* blit_vs =
 					"#version 330\n"
 					"in vec3 vertex_position;\n"
-					"in vec2 vertex_uv;\n"
 					"out vec2 out_uv;\n"
-					"void main() { out_uv = vertex_uv; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
+					"void main() { out_uv = vertex_position.xy * 0.5 + 0.5; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
 				const char* blit_fs =
 					"#version 330\n"
 					"in vec2 out_uv;\n"
@@ -699,10 +697,14 @@ void RenderProfilerGBufferTab() {
 					"    vec4 t = texture(src, out_uv);\n"
 					"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
 					"}\n";
-				blitShader->Compile(blit_vs, blit_fs, "");
+				blitModule = GRHIDevice->CreateShaderModule("GBufferPreviewBlitShader",
+					RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+				if (blitModule == nullptr)
+					FURYE << "GBufferPreviewBlitShader: module creation failed";
 			}
-			blitShader->BindInt("u_depth", is_depth ? 1 : 0);
-			RenderUtil::Instance()->Blit(t, surface.color, blitShader);
+			const int depthFlag = is_depth ? 1 : 0;
+			RenderUtil::Instance()->Blit(t, surface.color, blitModule,
+				[depthFlag](RHICommandList *cmd) { cmd->SetUniformInt("u_depth", depthFlag); });
 			PublishSurface(key, surface.color);
 		});
 		ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(key),
@@ -836,14 +838,13 @@ void RenderProfilerShadowsTab() {
 				for (int i = 0; i < 4; ++i)
 				{
 					const std::string key = baseKey + std::to_string(i);
-					RenderThread::Get().EnqueueJob([key, shadowTex, i]() {
+					Editor::QueueOverlayJob([key, shadowTex, i]() {
 						auto &surface = AcquireSurface(key, 128, 128);
 						if (surface.targetSet == nullptr)
 							return;
-						static std::shared_ptr<Shader> blitShader;
-						if (!blitShader)
+						static RHIShaderModuleRef blitModule;
+						if (!blitModule && GRHIDevice != nullptr)
 						{
-							blitShader = Shader::Create("EditorBlitArrayShader", ShaderType::OTHER);
 							const char* blit_vs =
 								"in vec3 vertex_position;"
 								"out vec2 out_uv;"
@@ -861,11 +862,14 @@ void RenderProfilerShadowsTab() {
 								"{"
 								"	fragment_output = texture(src, vec3(out_uv, index));"
 								"}";
-							blitShader->Compile(blit_vs, blit_fs, "");
+							blitModule = GRHIDevice->CreateShaderModule("EditorBlitArrayShader",
+								RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+							if (blitModule == nullptr)
+								FURYE << "EditorBlitArrayShader: module creation failed";
 						}
-						blitShader->Bind();
-						blitShader->BindFloat("index", (float)i);
-						RenderUtil::Instance()->Blit(shadowTex, surface.color, blitShader);
+						const float slice = (float)i;
+						RenderUtil::Instance()->Blit(shadowTex, surface.color, blitModule,
+							[slice](RHICommandList *cmd) { cmd->SetUniformFloat("index", slice); });
 						PublishSurface(key, surface.color);
 					});
 				}
@@ -887,13 +891,13 @@ void RenderProfilerShadowsTab() {
 				}
 				ImGui::EndGroup();
 			} else {
-				ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetUiTextureId(),
+				ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
 							 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
 			}
 			break;
 
 		case LightType::SPOT:
-			ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetUiTextureId(),
+			ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
 						 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
 			break;
 
@@ -919,14 +923,13 @@ void RenderProfilerShadowsTab() {
 			{
 				const std::string key = baseKey + std::to_string(i);
 				const Matrix4 matrix = dirMatrices[i];
-				RenderThread::Get().EnqueueJob([key, shadowTex, matrix]() {
+				Editor::QueueOverlayJob([key, shadowTex, matrix]() {
 					auto &surface = AcquireSurface(key, 128, 128);
 					if (surface.targetSet == nullptr)
 						return;
-					static std::shared_ptr<Shader> blitShader;
-					if (!blitShader)
+					static RHIShaderModuleRef blitModule;
+					if (!blitModule && GRHIDevice != nullptr)
 					{
-						blitShader = Shader::Create("EditorBlitCubeShader", ShaderType::OTHER);
 						const char* blit_vs =
 							"in vec3 vertex_position;"
 							"out vec2 out_uv;"
@@ -945,11 +948,14 @@ void RenderProfilerShadowsTab() {
 							"   vec4 dir = matrix * vec4(out_uv.x, 1.0 - out_uv.y, 1.0, 1.0);"
 							"	fragment_output = texture(src, dir.xyz);"
 							"}";
-						blitShader->Compile(blit_vs, blit_fs, "");
+						blitModule = GRHIDevice->CreateShaderModule("EditorBlitCubeShader",
+							RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+						if (blitModule == nullptr)
+							FURYE << "EditorBlitCubeShader: module creation failed";
 					}
-					blitShader->Bind();
-					blitShader->BindMatrix("matrix", matrix);
-					RenderUtil::Instance()->Blit(shadowTex, surface.color, blitShader);
+					const Matrix4 faceMatrix = matrix;
+					RenderUtil::Instance()->Blit(shadowTex, surface.color, blitModule,
+						[faceMatrix](RHICommandList *cmd) { cmd->SetUniformMatrix("matrix", faceMatrix); });
 					PublishSurface(key, surface.color);
 				});
 			}
@@ -1738,7 +1744,7 @@ uintptr_t GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 	const std::string& path = waves->GetFilePath();
 	if (missing.count(path)) return 0;
 	auto it = cache.find(path);
-	if (it != cache.end()) return it->second->GetUiTextureId();
+	if (it != cache.end()) return it->second->GetID();
 	std::string dir;
 	auto slash = path.find_last_of("/\\");
 	if (slash != std::string::npos) dir = path.substr(0, slash + 1);
@@ -1754,7 +1760,7 @@ uintptr_t GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 		return 0;
 	}
 	cache[path] = tex;
-	return tex->GetUiTextureId();
+	return tex->GetID();
 }
 
 // Tile label: basename of the asset path, falling back to the entity
@@ -1831,7 +1837,7 @@ void RenderMaterialThumbnail(const std::shared_ptr<Material>& mat,
 		// Flip Y to match the engine's texture convention
 		// (EditorNodeProperties.cpp:304 pattern).
 		ImGui::SetCursorScreenPos(thumb_min);
-		ImGui::Image((ImTextureID)(intptr_t)diffuse->GetUiTextureId(),
+		ImGui::Image((ImTextureID)(intptr_t)diffuse->GetID(),
 					 ImVec2(kTileThumbnail, kTileThumbnail),
 					 ImVec2(0, 1), ImVec2(1, 0));
 		return;
@@ -2051,7 +2057,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		auto tex = std::static_pointer_cast<Texture>(tile.ptr);
 		if (tex->GetID() != 0) {
 			ImGui::SetCursorScreenPos(thumb_min);
-			ImGui::Image((ImTextureID)(intptr_t)tex->GetUiTextureId(),
+			ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
 						 ImVec2(kTileThumbnail, kTileThumbnail),
 						 ImVec2(0, 1), ImVec2(1, 0));
 		} else {
@@ -2110,7 +2116,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	} else // Mesh
 	{
 			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
-			unsigned int texId = GetMeshThumbnail(mesh);
+			uintptr_t texId = GetMeshThumbnail(mesh);
 			if (texId) {
 				ImGui::SetCursorScreenPos(thumb_min);
 				ImGui::Image((ImTextureID)(intptr_t)texId,
@@ -2962,9 +2968,9 @@ void RenderViewportWindow(bool* open) {
 		// (SSAO/SSR) while one is active. The texture is sampled
 		// during Gui::Render (after Pipeline::Execute has written
 		// this frame's scene into it), so there's no one-frame lag.
-		ImTextureID tex = (ImTextureID)(intptr_t)rt->GetColorTexture()->GetUiTextureId();
+		ImTextureID tex = (ImTextureID)(intptr_t)rt->GetColorTexture()->GetID();
 		if (auto dbg = Pipeline::Active->GetDebugViewTexture())
-			tex = (ImTextureID)(intptr_t)dbg->GetUiTextureId();
+			tex = (ImTextureID)(intptr_t)dbg->GetID();
 		ImGui::Image(tex, avail, ImVec2(0, 1), ImVec2(1, 0));
 
 		// Render the TRS gizmo into the Viewport window's own draw

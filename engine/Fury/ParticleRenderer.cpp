@@ -362,6 +362,7 @@ namespace fury
 					shadow->shadowFar.z, shadow->shadowFar.w);
 			}
 			shader->BindFloat("u_receive_shadows", receive);
+			shader->BindFloat("u_shadow_floor", 0.25f);
 		}
 	}
 

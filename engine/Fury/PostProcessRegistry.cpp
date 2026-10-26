@@ -2,10 +2,10 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <unordered_set>
 
 #include "Fury/FileUtil.h"
+#include "Fury/AssetBackend.h"
 #include "Fury/Log.h"
 #include "Fury/Scene.h"
 #include "Fury/Serializable.h"
@@ -81,63 +81,76 @@ namespace fury
 		// against CWD.
 		const std::string absDir = FileUtil::GetAbsPath(dir);
 
-		std::error_code ec;
-		if (!fs::exists(absDir, ec) || ec)
+		std::vector<std::string> paths;
+		std::string packedPrefix = FileUtil::ToCanonicalAssetKey(absDir);
+		if (packedPrefix.empty() && !fs::path(dir).is_absolute())
+			packedPrefix = dir;
+		std::replace(packedPrefix.begin(), packedPrefix.end(), '\\', '/');
+		if (!packedPrefix.empty() && packedPrefix.back() != '/')
+			packedPrefix += '/';
+		std::unordered_set<std::string> pathKeys;
+		for (const auto &key : AssetBackend::ListPackedKeys(packedPrefix))
 		{
-			FURYW << "PostProcessRegistry: directory '" << absDir
-				  << "' does not exist (no postprocess effects loaded)";
+			const std::string rest = key.substr(packedPrefix.size());
+			if (!rest.empty() && rest.find('/') == std::string::npos
+				&& fs::path(rest).extension() == ".json")
+			{
+				paths.push_back(key);
+				pathKeys.insert(key);
+			}
+		}
+		{
+			std::error_code ec;
+			for (const auto &entry : fs::directory_iterator(absDir, ec))
+			{
+				if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+				std::string key = FileUtil::ToCanonicalAssetKey(entry.path().string());
+				if (key.empty()) key = entry.path().string();
+				if (pathKeys.insert(key).second)
+					paths.push_back(entry.path().string());
+			}
+		}
+		std::sort(paths.begin(), paths.end());
+		if (paths.empty())
+		{
+			FURYW << "PostProcessRegistry: no effects found in '" << absDir << "'";
 			return 0;
 		}
 
 		unsigned int loaded = 0;
-		for (auto &entry : fs::directory_iterator(absDir, ec))
+		for (const auto &path : paths)
 		{
-			if (ec) break;
-			if (!entry.is_regular_file()) continue;
-			const auto &path = entry.path();
-			if (path.extension().string() != ".json") continue;
-
-			std::ifstream stream(path.string());
-			if (!stream)
+			std::string text;
+			if (!FileUtil::LoadString(path, text))
 			{
-				FURYW << "PostProcessRegistry: failed to open " << path.string();
+				FURYW << "PostProcessRegistry: failed to open " << path;
 				continue;
 			}
-
-			std::stringstream buf;
-			buf << stream.rdbuf();
-			stream.close();
 
 			rapidjson::Document dom;
-			dom.Parse(buf.str().c_str());
+			dom.Parse(text.c_str());
 			if (dom.HasParseError())
 			{
-				FURYE << "PostProcessRegistry: parse error in "
-					  << path.string() << ": " << dom.GetParseError();
+				FURYE << "PostProcessRegistry: parse error in " << path << ": " << dom.GetParseError();
 				continue;
 			}
-
-			// Each file holds one effect object. Top-level "name"
-			// becomes the registration key.
 			if (!dom.IsObject())
 			{
-				FURYW << "PostProcessRegistry: " << path.string()
-					  << " is not an object; skipping";
+				FURYW << "PostProcessRegistry: " << path << " is not an object; skipping";
 				continue;
 			}
 
 			auto effect = PostProcessEffect::Create("");
 			if (!effect->Load(&dom))
 			{
-				FURYW << "PostProcessRegistry: failed to load effect from "
-					  << path.string();
+				FURYW << "PostProcessRegistry: failed to load effect from " << path;
 				continue;
 			}
 
 			Register(effect);
 			++loaded;
 			FURYD << "PostProcessRegistry: registered '" << effect->GetName()
-				  << "' from " << path.filename().string();
+				<< "' from " << fs::path(path).filename().string();
 		}
 		return loaded;
 	}

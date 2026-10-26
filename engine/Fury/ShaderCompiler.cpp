@@ -2,13 +2,16 @@
 
 #if defined(FURY_WITH_SLANG) && FURY_WITH_SLANG
 
-#include <cstdio>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
+#include <cstring>
 #include <mutex>
+#include <regex>
+#include <sstream>
+#include <unordered_map>
 
-#include "Fury/FileUtil.h"
+#include <slang.h>
+#include <slang-deprecated.h>
+#include <slang-com-ptr.h>
 
 #include "SPIRV-Cross/spirv_msl.hpp"
 
@@ -17,45 +20,6 @@ namespace fury
 	namespace
 	{
 		std::mutex s_CompileMutex;
-
-		std::string ShellQuote(const std::string &s)
-		{
-			std::string out = "'";
-			for (char c : s)
-			{
-				if (c == '\'') out += "'\\''";
-				else out += c;
-			}
-			out += "'";
-			return out;
-		}
-
-		// slangc resolution: FURY_SLANG_CLI env first, then <exe dir>/slang/bin/slangc
-		// (the vendored package layout staged beside each binary).
-		std::string ResolveSlangc()
-		{
-			if (const char *env = std::getenv("FURY_SLANG_CLI"))
-			{
-				if (env[0] != '\0')
-					return env;
-			}
-			const std::string exe = FileUtil::GetExecutablePath();
-			if (exe.empty())
-				return "slangc";
-			std::filesystem::path bin = std::filesystem::path(exe).parent_path() / "slang" / "bin" / "slangc";
-		#if PLATFORM_WINDOWS
-			bin += ".exe";
-		#endif
-			return bin.string();
-		}
-
-		std::filesystem::path MakeCompileTempDir()
-		{
-			std::filesystem::path base = std::filesystem::temp_directory_path() / "fury_shaderc";
-			std::error_code ec;
-			std::filesystem::create_directories(base, ec);
-			return base;
-		}
 
 		// Injects defines right after the #version line (GLSL requires it first).
 		std::string InjectDefines(const std::string &source, const std::string &stageDefine,
@@ -99,49 +63,191 @@ namespace fury
 			}
 		};
 
-		bool CompileStage(const ShaderCompileInput &in, const std::string &source,
+		struct UniformDefault
+		{
+			bool integer = false;
+			int components = 1;
+			std::vector<float> values;
+		};
+
+		std::string StripComments(const std::string &source)
+		{
+			std::string out = source;
+			bool line = false, block = false;
+			for (size_t i = 0; i < out.size(); ++i)
+			{
+				if (!line && !block && i + 1 < out.size() && out[i] == '/' && out[i + 1] == '/')
+				{
+					line = true;
+					out[i] = out[i + 1] = ' ';
+					++i;
+				}
+				else if (!line && !block && i + 1 < out.size() && out[i] == '/' && out[i + 1] == '*')
+				{
+					block = true;
+					out[i] = out[i + 1] = ' ';
+					++i;
+				}
+				else if (line && out[i] == '\n') line = false;
+				else if (block && i + 1 < out.size() && out[i] == '*' && out[i + 1] == '/')
+				{
+					out[i] = out[i + 1] = ' ';
+					++i;
+					block = false;
+				}
+				else if ((line || block) && out[i] != '\n') out[i] = ' ';
+			}
+			return out;
+		}
+
+		std::unordered_map<std::string, UniformDefault> ParseUniformDefaults(const std::string &source,
+			std::string &error)
+		{
+			std::unordered_map<std::string, UniformDefault> out;
+			const std::string stripped = StripComments(source);
+			const std::regex pattern("\\buniform\\s+(float|int|vec[234]|ivec[234])\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*([^;]+);");
+			for (std::sregex_iterator it(stripped.begin(), stripped.end(), pattern), end; it != end; ++it)
+			{
+				const std::string type = (*it)[1].str();
+				const std::string name = (*it)[2].str();
+				std::string expression = (*it)[3].str();
+				UniformDefault value;
+				value.integer = type == "int" || type.compare(0, 4, "ivec") == 0;
+				value.components = type.size() > 1 && type.back() >= '2' && type.back() <= '4'
+					? type.back() - '0' : 1;
+				const size_t open = expression.find('(');
+				if (open != std::string::npos)
+				{
+					const size_t close = expression.rfind(')');
+					if (close == std::string::npos || expression.substr(0, open) != type)
+					{
+						error = "unsupported default initializer for " + name + ": " + expression;
+						return {};
+					}
+					expression = expression.substr(open + 1, close - open - 1);
+				}
+				std::stringstream stream(expression);
+				std::string token;
+				while (std::getline(stream, token, ','))
+				{
+					char *end = nullptr;
+					const float v = std::strtof(token.c_str(), &end);
+					if (end == token.c_str())
+					{
+						error = "unsupported default initializer for " + name + ": " + expression;
+						return {};
+					}
+					while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') ++end;
+					if (*end != '\0')
+					{
+						error = "unsupported default initializer for " + name + ": " + expression;
+						return {};
+					}
+					value.values.push_back(v);
+				}
+				if (value.values.size() == 1 && value.components > 1)
+					value.values.assign(value.components, value.values.front());
+				if (value.values.size() != static_cast<size_t>(value.components))
+				{
+					error = "wrong component count in default initializer for " + name;
+					return {};
+				}
+				const auto existing = out.find(name);
+				if (existing != out.end() && (existing->second.integer != value.integer
+					|| existing->second.components != value.components || existing->second.values != value.values))
+				{
+					error = "conflicting default initializers for " + name;
+					return {};
+				}
+				out[name] = std::move(value);
+			}
+			const std::regex anyDefault("\\buniform\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s*\\[[^\\]]+\\])?\\s*=");
+			for (std::sregex_iterator it(stripped.begin(), stripped.end(), anyDefault), end; it != end; ++it)
+			{
+				const std::string name = (*it)[2].str();
+				if (out.find(name) == out.end())
+				{
+					error = "unsupported default initializer for " + name;
+					return {};
+				}
+			}
+			return out;
+		}
+
+		std::vector<unsigned char> DefaultBytes(const UniformDefault &value)
+		{
+			std::vector<unsigned char> out(value.values.size() * 4);
+			for (size_t i = 0; i < value.values.size(); ++i)
+			{
+				if (value.integer)
+				{
+					const int32_t v = static_cast<int32_t>(value.values[i]);
+					std::memcpy(out.data() + i * 4, &v, 4);
+				}
+				else
+				{
+					const float v = value.values[i];
+					std::memcpy(out.data() + i * 4, &v, 4);
+				}
+			}
+			return out;
+		}
+
+		bool CompileStage(slang::IGlobalSession *global, const ShaderCompileInput &in, const std::string &source,
 			const char *stageDefine, const char *stageName, const char *entryName,
 			ShaderStageCompile &out, std::string &error)
 		{
-			const auto tmp = MakeCompileTempDir();
-			const std::string stem = Sanitize(in.name) + "_" + stageName;
-			const auto srcPath = tmp / (stem + ".glsl");
-			const auto spvPath = tmp / (stem + ".spv");
-			const auto logPath = tmp / (stem + ".log");
-
+			std::string defaultError;
+			const auto defaults = ParseUniformDefaults(source, defaultError);
+			if (!defaultError.empty())
 			{
-				std::ofstream src(srcPath);
-				src << InjectDefines(source, stageDefine, in.defines);
-			}
-
-			std::string cmd = ShellQuote(ResolveSlangc()) + " -target spirv -stage " + stageName + " -entry main";
-			for (const auto &p : in.searchPaths)
-				cmd += " -I " + ShellQuote(p);
-			cmd += " " + ShellQuote(srcPath.string()) + " -o " + ShellQuote(spvPath.string())
-				+ " > " + ShellQuote(logPath.string()) + " 2>&1";
-
-			const int rc = std::system(cmd.c_str());
-			std::string log;
-			{
-				std::ifstream inLog(logPath);
-				log.assign(std::istreambuf_iterator<char>(inLog), std::istreambuf_iterator<char>());
-			}
-			if (rc != 0)
-			{
-				error = in.name + ": slangc failed (" + stageDefine + ", exit " + std::to_string(rc) + ")\n" + log;
+				error = in.name + ": " + defaultError;
 				return false;
 			}
-
-			std::vector<unsigned char> spirv;
+			const std::string stem = Sanitize(in.name) + "_" + stageName;
+			slang::TargetDesc target = {};
+			target.format = SLANG_SPIRV;
+			slang::SessionDesc sessionDesc = {};
+			sessionDesc.targets = &target;
+			sessionDesc.targetCount = 1;
+			slang::ISession *sessionRaw = nullptr;
+			if (SLANG_FAILED(global->createSession(sessionDesc, &sessionRaw)))
 			{
-				std::ifstream spv(spvPath, std::ios::binary);
-				if (!spv.good())
-				{
-					error = in.name + ": slangc wrote no SPIR-V (" + stageDefine + ")\n" + log;
-					return false;
-				}
-				spirv.assign(std::istreambuf_iterator<char>(spv), std::istreambuf_iterator<char>());
+				error = in.name + ": cannot create Slang session";
+				return false;
 			}
+			Slang::ComPtr<slang::ISession> session(Slang::INIT_ATTACH, sessionRaw);
+			SlangCompileRequest *requestRaw = nullptr;
+			if (SLANG_FAILED(session->createCompileRequest(&requestRaw)))
+			{
+				error = in.name + ": cannot create Slang compile request";
+				return false;
+			}
+			Slang::ComPtr<slang::ICompileRequest> request(Slang::INIT_ATTACH, requestRaw);
+			request->setCodeGenTarget(SLANG_SPIRV);
+			request->setMatrixLayoutMode(SLANG_MATRIX_LAYOUT_ROW_MAJOR);
+			for (const auto &path : in.searchPaths)
+				request->addSearchPath(path.c_str());
+			const std::string stageSource = InjectDefines(source, stageDefine, in.defines);
+			const int unit = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_GLSL, Sanitize(in.name).c_str());
+			request->addTranslationUnitSourceString(unit, (stem + ".glsl").c_str(), stageSource.c_str());
+			const SlangStage stage = std::strcmp(stageName, "vertex") == 0 ? SLANG_STAGE_VERTEX : SLANG_STAGE_FRAGMENT;
+			request->addEntryPoint(unit, "main", stage);
+			SlangResult rc = request->compile();
+			if (SLANG_FAILED(rc))
+			{
+				error = in.name + ": Slang compile failed (" + stageDefine + ")\n" + request->getDiagnosticOutput();
+				return false;
+			}
+			Slang::ComPtr<slang::IBlob> code;
+			rc = request->getEntryPointCodeBlob(0, 0, code.writeRef());
+			if (SLANG_FAILED(rc))
+			{
+				error = in.name + ": Slang output failed (" + stageDefine + ")\n" + request->getDiagnosticOutput();
+				return false;
+			}
+			const auto *bytes = static_cast<const unsigned char *>(code->getBufferPointer());
+			std::vector<unsigned char> spirv(bytes, bytes + code->getBufferSize());
 
 			// Slang packs loose GLSL uniforms into a row-major globals UBO and
 			// ignores -matrix-layout-column-major there; the engine's matrices
@@ -164,11 +270,7 @@ namespace fury
 					wi += wc;
 				}
 			}
-			if (!log.empty() && log.find("error") != std::string::npos)
-			{
-				error = in.name + ": slangc diagnostics (" + stageDefine + ")\n" + log;
-				return false;
-			}
+			out.spirv = spirv;
 
 			try
 			{
@@ -188,10 +290,20 @@ namespace fury
 				out.msl = compiler.compile();
 
 				auto resources = compiler.get_shader_resources();
+				if (resources.uniform_buffers.size() > 1)
+				{
+					error = in.name + ": expected at most one globals UBO (" + stageDefine + ")";
+					return false;
+				}
 				if (!resources.uniform_buffers.empty())
 				{
 					const auto &block = resources.uniform_buffers[0];
 					out.globalsBlockName = compiler.get_name(block.id);
+					if (out.globalsBlockName != "globalParams")
+					{
+						error = in.name + ": unexpected uniform block '" + out.globalsBlockName + "'";
+						return false;
+					}
 					out.globalsBlockIndex = static_cast<int>(compiler.get_decoration(block.id, spv::DecorationBinding));
 					const auto &type = compiler.get_type(block.base_type_id);
 					// MSL-side struct size (the validation target); member
@@ -205,6 +317,21 @@ namespace fury
 						member.name = compiler.get_member_name(block.base_type_id, static_cast<uint32_t>(i));
 						member.offset = compiler.type_struct_member_offset(type, static_cast<uint32_t>(i));
 						member.size = compiler.get_declared_struct_member_size(type, static_cast<uint32_t>(i));
+						if (member.offset + member.size > out.globalsBlockSize)
+						{
+							error = in.name + ": globals member '" + member.name + "' exceeds the MSL block";
+							return false;
+						}
+						const auto defaultIt = defaults.find(member.name);
+						if (defaultIt != defaults.end())
+						{
+							member.defaultValue = DefaultBytes(defaultIt->second);
+							if (member.defaultValue.size() > member.size)
+							{
+								error = in.name + ": default for '" + member.name + "' exceeds its reflected size";
+								return false;
+							}
+						}
 						out.globals.push_back(std::move(member));
 					}
 				}
@@ -223,25 +350,51 @@ namespace fury
 				return false;
 			}
 
-			std::error_code ec;
-			std::filesystem::remove(srcPath, ec);
-			std::filesystem::remove(spvPath, ec);
-			std::filesystem::remove(logPath, ec);
 			return true;
 		}
+		class SlangShaderCompiler final : public IShaderCompiler
+		{
+		public:
+			SlangShaderCompiler()
+			{
+				SlangGlobalSessionDesc desc = {};
+				desc.enableGLSL = true;
+				slang::IGlobalSession *global = nullptr;
+				if (SLANG_FAILED(slang_createGlobalSession2(&desc, &global)))
+					return;
+				m_Global.attach(global);
+			}
+
+			bool Compile(const ShaderCompileInput &in, ShaderModuleCompile &out) override
+			{
+				std::lock_guard<std::mutex> lock(s_CompileMutex);
+				if (m_Global == nullptr)
+				{
+					out.error = in.name + ": cannot initialize Slang";
+					return false;
+				}
+				if (!CompileStage(m_Global.get(), in, in.vertexSource, "VERTEX_SHADER", "vertex", "vertexMain", out.vertex, out.error))
+					return false;
+				if (!CompileStage(m_Global.get(), in, in.fragmentSource, "FRAGMENT_SHADER", "fragment", "fragmentMain", out.fragment, out.error))
+					return false;
+				out.ok = true;
+				return true;
+			}
+
+		private:
+			Slang::ComPtr<slang::IGlobalSession> m_Global;
+		};
+	}
+
+	IShaderCompiler &GetShaderCompiler()
+	{
+		static SlangShaderCompiler compiler;
+		return compiler;
 	}
 
 	bool CompileGlslToMSL(const ShaderCompileInput &in, ShaderModuleCompile &out)
 	{
-		std::lock_guard<std::mutex> lock(s_CompileMutex);
-
-		if (!CompileStage(in, in.vertexSource, "VERTEX_SHADER", "vertex", "vertexMain", out.vertex, out.error))
-			return false;
-		if (!CompileStage(in, in.fragmentSource, "FRAGMENT_SHADER", "fragment", "fragmentMain", out.fragment, out.error))
-			return false;
-
-		out.ok = true;
-		return true;
+		return GetShaderCompiler().Compile(in, out);
 	}
 }
 
@@ -249,6 +402,25 @@ namespace fury
 
 namespace fury
 {
+	namespace
+	{
+		class UnsupportedShaderCompiler final : public IShaderCompiler
+		{
+		public:
+			bool Compile(const ShaderCompileInput &in, ShaderModuleCompile &out) override
+			{
+				out.error = in.name + ": built without Slang (FURY_WITH_SLANG=OFF)";
+				return false;
+			}
+		};
+	}
+
+	IShaderCompiler &GetShaderCompiler()
+	{
+		static UnsupportedShaderCompiler compiler;
+		return compiler;
+	}
+
 	bool CompileGlslToMSL(const ShaderCompileInput &in, ShaderModuleCompile &out)
 	{
 		out.error = in.name + ": built without Slang (FURY_WITH_SLANG=OFF)";

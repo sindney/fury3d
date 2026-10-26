@@ -6,7 +6,6 @@
 #include "Fury/FileUtil.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
-#include "Fury/RHI/OpenGL/GLInputAssembler.h"
 #include "Fury/Joint.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
@@ -272,7 +271,7 @@ void SubmitThumbnailJob(const std::shared_ptr<Mesh>& mesh, size_t bufferId,
 		}
 	}
 	const std::string key = "MeshThumb:" + std::to_string(bufferId);
-	RenderThread::Get().EnqueueJob([mesh, key, cacheHit, contentHash, palette = std::move(palette)]() mutable {
+	Editor::QueueOverlayJob([mesh, key, cacheHit, contentHash, palette = std::move(palette)]() mutable {
 		RenderThumbnailJob(mesh, key, cacheHit, contentHash, palette);
 	});
 }
@@ -818,7 +817,6 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 		const int grid_vertex_count = grid_lines_per_axis * 4;
 		static std::vector<float> grid_vbo_data;
 		static RHIBufferRef grid_vbo;
-		static unsigned int grid_vao = 0;
 		static float cached_extent = -1.0f;
 		if (grid_vbo == nullptr || cached_extent != grid_extent) {
 			grid_vbo_data.clear();
@@ -861,7 +859,6 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 			mn.x, mn.y, mx.z,  mn.x, mx.y, mx.z,
 		};
 		static RHIBufferRef aabb_vbo;
-		static unsigned int aabb_vao = 0;
 		if (aabb_vbo == nullptr) {
 			RHIBufferDesc desc;
 			desc.Name = "MeshPreviewAABB";
@@ -1006,7 +1003,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	Matrix4 view;
 	view.LookAt(eye, os.target, Vector4(0, 1, 0, 0));
 
-	// Submit the render as a GL-thread job; the published texture is
+	// Submit the render to the frame executor; the published texture is
 	// sampled below (lands the same frame when single-threaded).
 	MeshPreviewRequest req;
 	req.mesh = render_mesh;
@@ -1019,7 +1016,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	req.key = "MeshPreview:" + popup_id;
 	req.w = w;
 	req.h = h;
-	RenderThread::Get().EnqueueJob([req]() { RenderMeshPreviewJob(req); });
+	Editor::QueueOverlayJob([req]() { RenderMeshPreviewJob(req); });
 
 	ImGui::BeginChild("preview", size, false,
 					  ImGuiWindowFlags_NoScrollbar);
@@ -1165,10 +1162,10 @@ void OpenMaterialEditor(const std::shared_ptr<Material>& mat) {
 	g_OpenMaterialEditors.insert(popup);
 }
 
-// Lookup or allocate a 128x128 thumbnail for `mesh`; returns the color RT's GL
-// texture ID (0 until populated). Enqueues an async content hash on dirty
+// Lookup or allocate a 128x128 thumbnail for `mesh`; returns the color RT's
+// texture id (0 until populated). Enqueues an async content hash on dirty
 // transitions and warms from the disk cache on a hit.
-unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
+uintptr_t GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 	if (!mesh) return 0;
 	const size_t bufferId = mesh->GetBufferId();
 	auto& entry = g_MeshThumbnails[bufferId];

@@ -14,7 +14,6 @@
 #include "Fury/EntityManager.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
-#include "Fury/RHI/OpenGL/GLInputAssembler.h"
 #include "Fury/Log.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -69,8 +68,7 @@ namespace fury
 				return g_LineShader;
 			}
 
-			// Scratch VAO/VBO for box / sphere wireframes (rebuilt per draw).
-			unsigned int g_LineVao = 0;
+			// Scratch VBO for box / sphere wireframes (rebuilt per draw).
 			RHIBufferRef g_LineVbo;
 
 			void DrawLineSegments(const std::vector<float> &verts, const Color &color)
@@ -201,7 +199,7 @@ namespace fury
 				const auto halfExtents = body ? body->GetHalfExtents() : Vector4(0.0f, 0.0f, 0.0f);
 				const float shapeRadius = body ? body->GetRadius() : 0.0f;
 				const float gridY = mn.y;
-				RenderThread::Get().EnqueueJob(
+				Editor::QueueOverlayJob(
 					[key, w, h, renderMesh, collisionMesh, body, shapeType, halfExtents,
 						shapeRadius, view, proj, center, gridY, radius]() {
 					auto &surface = AcquireSurface(key, w, h);

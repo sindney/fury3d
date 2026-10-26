@@ -105,7 +105,7 @@ namespace fury
 
 				// Bake the billboard mesh + resolve the draw inputs on the
 				// game thread (particle pool is game state), then draw on
-				// the GL thread.
+				// the frame executor.
 				PacketCamera cam;
 				cam.valid = true;
 				cam.worldPos = Vector4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -127,7 +127,7 @@ namespace fury
 					const auto view = vp.view;
 					const auto proj = vp.proj;
 					const auto center = aabb_center;
-					RenderThread::Get().EnqueueJob([key, w, h, pk, cam, view, proj, center, radius]() mutable {
+					Editor::QueueOverlayJob([key, w, h, pk, cam, view, proj, center, radius]() mutable {
 						auto &surface = AcquireSurface(key, w, h);
 						if (surface.targetSet == nullptr)
 							return;

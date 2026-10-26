@@ -20,4 +20,5 @@ its own setup.
 Shell wrappers that reference these paths:
 - `tests/cloud_visual_suite.sh` -> `tests/lua/scenes/cloud_visual_check.lua`
 - `tests/prez_ab_suite.sh` -> `tests/lua/scenes/cloud_visual_check.lua`
+- `tests/metal_gl_compare.sh` -> `tests/lua/scenes/cloud_visual_check.lua`
 - `tests/pak_pipeline.sh` -> `tests/lua/pak_scene_load.lua` (kept under `tests/lua/`)

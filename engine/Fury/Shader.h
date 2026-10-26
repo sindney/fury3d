@@ -57,8 +57,6 @@ namespace fury
 
 		virtual void Save(void* wrapper, bool object = true) override;
 
-		unsigned int GetProgram() const;
-
 		RHIShaderModuleRef GetRHIModule() const { return m_Module; }
 
 		bool GetDirty() const;

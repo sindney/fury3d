@@ -51,6 +51,7 @@
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/ThreadUtil.h"
@@ -258,10 +259,13 @@ namespace fury
 			"                                   env or <exe dir>/ktx)\n"
 			"  --manifest <path>                manifest output (default:\n"
 			"                                   <scene>.cookmanifest.json)\n"
+			"  --rhi <list>                     shader targets: comma-separated\n"
+			"                                   opengl,vulkan,metal (default: host)\n"
 			"  --verbose, -v                    verbose progress\n"
 			"\n"
 			"Textures compress to BCn KTX2 via the vendored ktx CLI and cache in\n"
 			"the DDC keyed by content+settings; unchanged textures are cache hits.\n"
+			"Shaders cross-compile per backend and cache with versioned reflection.\n"
 			"HDR sources pass through uncompressed (ktx 4.4.2 has no uastc-hdr).\n"
 			"Per-path overrides: <scene>.cook.json mapping canonical path ->\n"
 			"{\"usage\": \"color|color_alpha|normal|hdr\"}.\n"
@@ -286,11 +290,13 @@ namespace fury
 			"  --texture-target legacy|modern   cook target passthrough\n"
 			"  --ddc <path>                     DDC root passthrough\n"
 			"  --ktx <path>                     ktx CLI passthrough\n"
+			"  --rhi <list>                     shader target passthrough\n"
 			"  --verbose, -v                    verbose progress\n"
 			"\n"
-			"The pak contains every cooked texture, every passthrough asset, the\n"
-			"scene itself as boot entry, and Player.lua when present in the\n"
-			"working directory. Play it with: fury <scene>.pak\n"
+			"The pak contains every cooked texture, targeted shader blob and\n"
+			"reflection sidecar, every passthrough asset, the scene itself as\n"
+			"boot entry, and Player.lua when present in the working directory.\n"
+			"Play it with: fury <scene>.pak\n"
 			"\n"
 			"EXIT CODES: 0 success, 1 user error / missing artifact, 2 internal.\n";
 
@@ -849,10 +855,7 @@ namespace fury
 				if (take_value("--ddc", opts.ddcRoot)) continue;
 				if (take_value("--ktx", opts.ktxPath)) continue;
 				if (take_value("--manifest", opts.manifestOut)) continue;
-				// Accepted and ignored: headless paths create no RHI device.
-				// The per-backend cook semantics land with the cook/pak group.
-				std::string ignoredRhi;
-				if (take_value("--rhi", ignoredRhi)) continue;
+				if (take_value("--rhi", opts.rhi)) continue;
 				if (a == "--verbose" || a == "-v") { opts.verbose = true; continue; }
 				std::cerr << "furye-cli cook: unknown option '" << a << "'\n";
 				return 1;
@@ -906,8 +909,10 @@ namespace fury
 				return 1;
 			}
 			if (report)
-				std::cout << "cook done: " << result.texturesCooked << " cooked, "
-					<< result.texturesDdcHits << " ddc-hits, manifest " << result.manifestPath << "\n";
+				std::cout << "cook done: " << result.texturesCooked << " textures cooked, "
+					<< result.texturesDdcHits << " ddc-hits; " << result.shadersCooked
+					<< " shader targets cooked, " << result.shadersDdcHits << " ddc-hits; manifest "
+					<< result.manifestPath << "\n";
 			return 0;
 		}
 
@@ -944,10 +949,7 @@ namespace fury
 				if (take_value("--ddc", cook_opts.ddcRoot)) continue;
 				if (take_value("--ktx", cook_opts.ktxPath)) continue;
 				if (take_value("--manifest", cook_opts.manifestOut)) continue;
-				// Accepted and ignored: headless paths create no RHI device.
-				// The per-backend cook semantics land with the cook/pak group.
-				std::string ignoredRhi;
-				if (take_value("--rhi", ignoredRhi)) continue;
+				if (take_value("--rhi", cook_opts.rhi)) continue;
 				if (a == "--no-cook") { no_cook = true; continue; }
 				if (a == "--verbose" || a == "-v") { cook_opts.verbose = true; continue; }
 				std::cerr << "furye-cli package: unknown option '" << a << "'\n";
@@ -1057,6 +1059,8 @@ namespace fury
 			};
 
 			if (!add_manifest_entries("textures", true))
+				return 1;
+			if (!add_manifest_entries("shaders", true))
 				return 1;
 			if (!add_manifest_entries("passthrough", false))
 				return 1;
@@ -1550,13 +1554,37 @@ namespace fury
 			return 1;
 		}
 
-		// `furye-cli shaderc <file.glsl> [-I dir]... [-D name[=value]]...`
+		// `furye-cli shaderc --all [--rhi list]` or one <file.glsl>.
 		// Single-shader smoke of the GLSL -> SPIR-V -> MSL cross pipeline.
 		int DoShaderc(int argc, char **argv)
 		{
+			if (argc >= 3 && std::strcmp(argv[2], "--all") == 0)
+			{
+				std::string rhi;
+				for (int i = 3; i < argc; ++i)
+				{
+					const std::string a = argv[i];
+					if (a == "--rhi" && i + 1 < argc) { rhi = argv[++i]; continue; }
+					if (a.rfind("--rhi=", 0) == 0) { rhi = a.substr(6); continue; }
+					std::cerr << "furye-cli shaderc --all: unknown option '" << a << "'\n";
+					return 1;
+				}
+				auto scene = Scene::Create("shaderc", "", OcTree::Create());
+				scene->GetRenderSettings()->SetPipelinePath("Resource/Pipeline/DefferedLightingPBR.json");
+				ActiveSceneGuard active_guard(scene);
+				CookResult result = ValidateSceneShaders(scene, rhi);
+				if (!result.error.empty())
+				{
+					std::cerr << "furye-cli shaderc --all: FAIL\n" << result.error << "\n";
+					return 1;
+				}
+				std::cout << "furye-cli shaderc --all OK: " << result.shadersCooked
+					<< " shader/target compilations (" << result.shadersTotal << " expected)\n";
+				return 0;
+			}
 			if (argc < 3)
 			{
-				std::cerr << "furye-cli shaderc: expected <file.glsl> [-I dir]... [-D name[=value]]...\n";
+				std::cerr << "furye-cli shaderc: expected --all [--rhi list] or <file.glsl> [-I dir]... [-D name[=value]]...\n";
 				return 1;
 			}
 

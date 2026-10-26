@@ -2,7 +2,10 @@
 
 #if FURY_RHI_METAL
 
+#include <cstring>
+
 #include "Fury/Log.h"
+#include "Fury/ShaderCache.h"
 #include "Fury/ShaderCompiler.h"
 
 namespace fury
@@ -59,8 +62,13 @@ namespace fury
 			out.blockSize = compiled.globalsBlockSize;
 			out.blockIndex = compiled.globalsBlockIndex;
 			out.members.reserve(compiled.globals.size());
+			out.defaultValues.assign(compiled.globalsBlockSize, 0);
 			for (const auto &m : compiled.globals)
+			{
 				out.members.push_back({ m.name, m.offset, m.size });
+				if (!m.defaultValue.empty() && m.offset + m.defaultValue.size() <= out.defaultValues.size())
+					std::memcpy(out.defaultValues.data() + m.offset, m.defaultValue.data(), m.defaultValue.size());
+			}
 		}
 	}
 
@@ -93,11 +101,14 @@ namespace fury
 			input.fragmentSource = fragSource;
 
 			ShaderModuleCompile compiled;
-			if (!CompileGlslToMSL(input, compiled))
+			bool cacheHit = false;
+			std::string cacheError;
+			if (!CompileOrLoadMetalShader(input, compiled, &cacheHit, cacheError))
 			{
-				FURYE << name << ": GLSL cross-compile failed:\n" << compiled.error;
+				FURYE << name << ": GLSL cross-compile failed:\n" << cacheError;
 				return nullptr;
 			}
+			FURYD << name << ": Metal shader " << (cacheHit ? "DDC hit" : "compiled");
 
 			if (getenv("FURY_METAL_DUMP_MSL") != nullptr)
 			{
@@ -193,12 +204,17 @@ namespace fury
 
 	fury::RHIUniformHandle MetalShaderModule::ResolveUniform(const std::string &name)
 	{
-		// Globals members carry their offsets: kind-2 handle directly.
-		if (FindMemberIndex(name) >= 0)
-			return ((static_cast<int>(FindMemberIndex(name)) + 1) & 0xFFFFFF) | (2 << 24) | (2 << 26);
-		// Everything else defers by name (resolved per PSO at bind time).
+		const long memberIndex = FindMemberIndex(name);
+		if (memberIndex >= 0)
+			return ((static_cast<int>(memberIndex) + 1) & 0xFFFFFF) | (2 << 24) | (2 << 26);
+		const auto existing = m_DeferredHandles.find(name);
+		if (existing != m_DeferredHandles.end())
+			return existing->second;
 		m_HandleNames.push_back(name);
-		return (static_cast<int>(m_HandleNames.size() - 1) + 1) | (3 << 24) | (3 << 26);
+		const RHIUniformHandle handle = ((static_cast<int>(m_HandleNames.size() - 1) + 1) & 0xFFFFFF)
+			| (3 << 24) | (3 << 26);
+		m_DeferredHandles[name] = handle;
+		return handle;
 	}
 
 	long MetalShaderModule::FindMemberIndex(const std::string &name) const

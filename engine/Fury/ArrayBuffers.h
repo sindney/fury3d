@@ -42,8 +42,6 @@ namespace fury
 
 		virtual void DeleteBuffer();
 
-		unsigned int GetID() const;
-
 		RHIBufferRef GetRHIBuffer() const;
 
 		void SetBufferUsage(RHIBufferUsage usage);

@@ -79,12 +79,6 @@ namespace fury
 	}
 
 	template<class DataType>
-	unsigned int ArrayBuffer<DataType>::GetID() const
-	{
-		return m_RHIBuffer != nullptr ? (unsigned int)m_RHIBuffer->GetNativeHandle() : 0;
-	}
-
-	template<class DataType>
 	RHIBufferRef ArrayBuffer<DataType>::GetRHIBuffer() const
 	{
 		return m_RHIBuffer;

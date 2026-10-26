@@ -8,6 +8,7 @@
 #include "Fury/Mesh.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
+#include "Fury/ShaderCache.h"
 
 #include "Fury/FramePacket.h"
 #include "Fury/RenderThread.h"
@@ -226,11 +227,6 @@ namespace fury
 			EndObject(wrapper);
 	}
 
-	unsigned int Shader::GetProgram() const
-	{
-		return m_Module ? (unsigned int)m_Module->GetNativeHandle() : 0;
-	}
-
 	bool Shader::GetDirty() const
 	{
 		return m_Dirty;
@@ -307,50 +303,28 @@ namespace fury
 
 		m_UseGeomShader = gsData.size() > 0;
 
-		std::stringstream defineStream;
-		// Mirror the C++ build flags into the shader preprocessor.
 #if WITH_EDITOR
-		defineStream << "#define WITH_EDITOR\n";
+		constexpr bool withEditor = true;
+#else
+		constexpr bool withEditor = false;
 #endif
 #if WITH_DBG_OVERLAY
-		defineStream << "#define WITH_DBG_OVERLAY\n";
+		constexpr bool withDebugOverlay = true;
+#else
+		constexpr bool withDebugOverlay = false;
 #endif
-		for (auto define : m_Defines)
-			defineStream << "#define " << define << "\n";
-
-		std::string defines = defineStream.str();
-
-		// SSBO layout syntax needs GLSL 4.30; keep the file version otherwise.
-		bool ssbo = std::find(m_Defines.begin(), m_Defines.end(),
-			std::string("INSTANCE_SSBO")) != m_Defines.end();
-
-		std::string vsVersion, vsMain;
-		GetVersionInfo(vsData, vsVersion, vsMain);
-		if (ssbo)
-			vsVersion = "#version 430 core\n";
-		vsVersion += "\n#define VERTEX_SHADER\n";
-
-		std::string fsVersion, fsMain;
-		GetVersionInfo(fsData, fsVersion, fsMain);
-		if (ssbo)
-			fsVersion = "#version 430 core\n";
-		fsVersion += "\n#define FRAGMENT_SHADER\n";
-
-		std::string gsSource;
-		if (m_UseGeomShader)
-		{
-			std::string gsVersion, gsMain;
-			GetVersionInfo(gsData, gsVersion, gsMain);
-			gsVersion += "\n#define GEOMETRY_SHADER\n";
-			gsSource = gsVersion + defines + gsMain;
-		}
+		const std::string vsSource = BuildShaderStageSource(vsData, "VERTEX_SHADER", m_Defines,
+			withEditor, withDebugOverlay);
+		const std::string fsSource = BuildShaderStageSource(fsData, "FRAGMENT_SHADER", m_Defines,
+			withEditor, withDebugOverlay);
+		const std::string gsSource = m_UseGeomShader
+			? BuildShaderStageSource(gsData, "GEOMETRY_SHADER", m_Defines, withEditor, withDebugOverlay)
+			: std::string{};
 
 		if (GRHIDevice)
 		{
 			m_Module = GRHIDevice->CreateShaderModule(m_Name,
-				MakeSourceBlob(vsVersion + defines + vsMain),
-				MakeSourceBlob(fsVersion + defines + fsMain),
-				MakeSourceBlob(gsSource));
+				MakeSourceBlob(vsSource), MakeSourceBlob(fsSource), MakeSourceBlob(gsSource));
 		}
 
 		m_Dirty = m_Module == nullptr || !m_Module->IsValid();

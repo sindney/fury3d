@@ -34,3 +34,6 @@
 [submodule "engine/ThirdParty/SPIRV-Cross"]
 	path = engine/ThirdParty/SPIRV-Cross
 	url = https://github.com/KhronosGroup/SPIRV-Cross
+[submodule "engine/ThirdParty/imgui-node-editor"]
+	path = engine/ThirdParty/imgui-node-editor
+	url = https://github.com/thedmd/imgui-node-editor.git

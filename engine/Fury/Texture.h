@@ -171,12 +171,9 @@ namespace fury
 
 		int GetDepth() const;
 
-		unsigned int GetID() const;
-
-		// The id a UI toolkit binds this texture by (ImGui's ImTextureID).
-		// GetID() is 32-bit and truncates the handle; on Metal the handle is
-		// a 64-bit pointer to the MTLTexture, so the UI path needs it whole.
-		uintptr_t GetUiTextureId() const;
+		// The RHI native handle (0 until the upload lands). A 32-bit GL
+		// name on OpenGL, a 64-bit pointer to the MTLTexture on Metal.
+		uintptr_t GetID() const;
 
 		// The RHI texture backing this Texture (nullptr before upload).
 		RHITextureRef GetRHITexture() const;

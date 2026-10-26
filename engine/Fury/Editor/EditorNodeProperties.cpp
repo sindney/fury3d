@@ -1672,7 +1672,7 @@ void RenderMaterialTextureRow(Material* mat, const std::string& key) {
 	// first so the user sees a clickable target.
 	ImVec2 thumb_min = ImGui::GetCursorScreenPos();
 	if (tex) {
-		ImGui::Image((ImTextureID)(intptr_t)tex->GetUiTextureId(),
+		ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
 					 ImVec2(48, 48), ImVec2(0, 1), ImVec2(1, 0));
 	} else {
 		// Pure black rect for empty slots.

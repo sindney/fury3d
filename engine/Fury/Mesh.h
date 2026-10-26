@@ -29,8 +29,6 @@ namespace fury
 
 		std::type_index m_TypeIndex;
 
-		unsigned int m_VAO;
-
 	public:
 
 		ArrayBufferui Indices;
@@ -128,8 +126,6 @@ namespace fury
 		static Ptr Create(const std::string &name);
 
 	protected:
-
-		unsigned int m_VAO;
 
 		BoxBounds m_AABB;
 

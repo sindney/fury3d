@@ -174,14 +174,13 @@ option(FURY_WITH_KRAUT "Build KrautCLI + KrautPreview tools (ThirdParty/Kraut su
 option(FURY_WITH_KRAUT_PREVIEW "Build KrautPreview (fetches SDL2 at configure time; off = KrautCLI only)." ON)
 
 # Slang shader compiler prebuilts (see ThirdParty/slang/README.md): the
-# slangc CLI runs as a subprocess, staged under <exe dir>/slang/ beside each
-# binary; nothing links libslang. The include dir serves ShaderCompiler.h's
-# consumers of the SPIRV-Cross types only.
+# package is staged under <exe dir>/slang/ beside each binary and linked
+# in-process by ShaderCompiler.cpp.
 #
 # The payload is not in git: configure fetches the pinned release when the
 # local copy is missing or holds another version (marker file in the payload
 # dir). -DFURY_WITH_SLANG=OFF skips it entirely.
-option(FURY_WITH_SLANG "Stage the slangc CLI next to engine binaries (fetched into ThirdParty/slang when missing)." ON)
+option(FURY_WITH_SLANG "Link and stage the in-process Slang compiler (fetched into ThirdParty/slang when missing)." ON)
 set(FURY_SLANG_VERSION "v2026.19")
 if(OS_MACOSX)
 	set(FURY_SLANG_PLATFORM_DIR "macos-arm64")
@@ -532,6 +531,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Serializable.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Shader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ShaderCompiler.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ShaderCache.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SphereBounds.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Texture.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ThreadUtil.cpp
@@ -573,6 +573,7 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorPackageDialog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorFolderTree.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGizmo.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorGpuProfilerWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorLog.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorNodeProperties.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorParticleWindow.cpp
@@ -584,6 +585,10 @@ set(FURY_EDITOR_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorTerrainWindow.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorThemes.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Editor/EditorWindows.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/imgui-node-editor/imgui_node_editor.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/imgui-node-editor/imgui_node_editor_api.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/imgui-node-editor/imgui_canvas.cpp
+	${PROJECT_SOURCE_DIR}/ThirdParty/imgui-node-editor/crude_json.cpp
 	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImGuizmo.cpp
 	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImSequencer.cpp
 	${PROJECT_SOURCE_DIR}/ThirdParty/ImGuizmo/ImCurveEdit.cpp)
@@ -643,11 +648,17 @@ elseif(OS_MACOSX)
 	endif()
 endif()
 
-# Shader cross-compile toolchain (Fury/ShaderCompiler.cpp): SPIRV-Cross static
-# libs (MSL codegen derives from the GLSL one). The Slang front-end runs as
-# the vendored slangc CLI (subprocess), so nothing links libslang.
+# Shader cross-compile toolchain (Fury/ShaderCompiler.cpp): in-process Slang
+# front-end + SPIRV-Cross static libs (MSL codegen derives from GLSL).
 if(FURY_WITH_SLANG)
-	list(APPEND FURY_PLATFORM_LIBS spirv-cross-msl spirv-cross-glsl spirv-cross-core)
+	if(OS_WINDOWS)
+		set(FURY_SLANG_LINK_LIBRARY "${FURY_SLANG_DIR}/lib/slang.lib")
+	elseif(OS_MACOSX)
+		set(FURY_SLANG_LINK_LIBRARY "${FURY_SLANG_DIR}/lib/libslang.dylib")
+	else()
+		set(FURY_SLANG_LINK_LIBRARY "${FURY_SLANG_DIR}/lib/libslang.so")
+	endif()
+	list(APPEND FURY_PLATFORM_LIBS "${FURY_SLANG_LINK_LIBRARY}" spirv-cross-msl spirv-cross-glsl spirv-cross-core)
 endif()
 if(FURY_WITH_TRACY)
 	# Tracy needs winsock2 (ws2_32) and dial-up box (dbghelp) on Windows.
@@ -679,10 +690,9 @@ set(FURY_RUNTIME_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/../examples")
 #   - KTX-Software CLI (see ThirdParty/KTX-Software/README.md) so the cook
 #     command finds ktx beside furye-cli. A missing platform dir is fine:
 #     cook then resolves via FURY_KTX_CLI or fails with an actionable error.
-#   - Slang compiler CLI (see ThirdParty/slang/README.md): the vendored
-#     package layout (bin/slangc + lib/ with its stdlib modules) is staged
-#     under <exe dir>/slang/ so the front-end runs as a subprocess with its
-#     sibling dylibs and module discovery intact.
+#   - Slang compiler + modules (see ThirdParty/slang/README.md): the vendored
+#     package layout is staged under <exe dir>/slang/ so libslang and its GLSL
+#     modules resolve at runtime.
 if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}" OR (FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin"))
 	add_custom_target(fury_stage_tools
 		COMMENT "Staging ktx + slang next to the engine binaries")
@@ -699,6 +709,13 @@ if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}" OR (FURY_WITH_SLA
 				"${FURY_SLANG_DIR}"
 				"${FURY_RUNTIME_OUTPUT_DIR}/slang"
 			VERBATIM)
+		if(OS_WINDOWS)
+			add_custom_command(TARGET fury_stage_tools POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_directory
+					"${FURY_SLANG_DIR}/bin"
+					"${FURY_RUNTIME_OUTPUT_DIR}"
+				VERBATIM)
+		endif()
 	endif()
 endif()
 
@@ -738,6 +755,15 @@ function(fury_add_target NAME)
 		RUNTIME_OUTPUT_DIRECTORY_RELEASE        "${PROJECT_SOURCE_DIR}/../examples"
 		RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${PROJECT_SOURCE_DIR}/../examples"
 		RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     "${PROJECT_SOURCE_DIR}/../examples")
+	if(FURY_WITH_SLANG)
+		if(OS_MACOSX)
+			set_property(TARGET ${NAME} APPEND PROPERTY BUILD_RPATH "@executable_path/slang/lib")
+			set_property(TARGET ${NAME} APPEND PROPERTY INSTALL_RPATH "@executable_path/slang/lib")
+		elseif(NOT OS_WINDOWS)
+			set_property(TARGET ${NAME} APPEND PROPERTY BUILD_RPATH "$ORIGIN/slang/lib")
+			set_property(TARGET ${NAME} APPEND PROPERTY INSTALL_RPATH "$ORIGIN/slang/lib")
+		endif()
+	endif()
 	# Windows-only V2 DPI awareness manifest (see platform-window-dpi
 	# spec). The manifest linker flag is defined at the top of the
 	# static-binary section (gated by if(OS_WINDOWS)). We also disable

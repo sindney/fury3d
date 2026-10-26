@@ -8,7 +8,6 @@
 
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
-#include "Fury/RHI/OpenGL/GLInputAssembler.h"
 #include "Fury/Log.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
@@ -28,7 +27,6 @@ namespace fury
 			// multiple editor previews share the same GL objects.
 			std::shared_ptr<Shader> g_LineShader;
 			RHIBufferRef g_GridVBO;
-			unsigned int g_GridVAO = 0;
 			float g_GridCachedExtent = -1.0f;
 
 			std::shared_ptr<Shader> GetLineShader()

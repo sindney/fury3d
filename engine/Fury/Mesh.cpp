@@ -5,7 +5,6 @@
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/RenderThread.h"
-#include "Fury/RHI/OpenGL/GLInputAssembler.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Joint.h"
@@ -22,7 +21,7 @@ namespace fury
 	}
 
 	SubMesh::SubMesh() :
-		m_TypeIndex(typeid(SubMesh)), m_VAO(0),
+		m_TypeIndex(typeid(SubMesh)),
 		Indices("vertex_index", RHIBufferType::INDEX, RHIBufferUsage::STATIC)
 	{
 
@@ -39,25 +38,11 @@ namespace fury
 		Indices.UpdateBuffer();
 
 		m_Dirty = Indices.GetDirty();
-
-		if (m_VAO != 0)
-		{
-			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
-			m_VAO = 0;
-		}
 	}
 
 	void SubMesh::DeleteBuffer()
 	{
 		m_Dirty = true;
-
-		if (m_VAO != 0)
-		{
-			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
-			m_VAO = 0;
-		}
 
 		Indices.DeleteBuffer();
 	}
@@ -79,7 +64,7 @@ namespace fury
 		return std::make_shared<Mesh>(name);
 	}
 
-	Mesh::Mesh(const std::string &name) : Entity(name), m_VAO(0),
+	Mesh::Mesh(const std::string &name) : Entity(name),
 		Positions("vertex_position", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
 		Normals("vertex_normal", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
 		Tangents("vertex_tangent", RHIBufferType::VERTEX, RHIBufferUsage::STATIC),
@@ -464,13 +449,6 @@ namespace fury
 		else
 			m_Dirty = Positions.GetDirty();
 
-		if (m_VAO != 0)
-		{
-			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
-			m_VAO = 0;
-		}
-
 		for (auto subMesh : m_SubMeshes)
 			if (subMesh != nullptr)
 				subMesh->UpdateBuffer();
@@ -480,12 +458,6 @@ namespace fury
 	{
 		m_Dirty = true;
 
-		if (m_VAO != 0)
-		{
-			unsigned int vao = m_VAO;
-			RenderThread::Get().EnqueueJob([vao]() { GLDestroyVertexArray(vao); });
-			m_VAO = 0;
-		}
 		Positions.DeleteBuffer();
 		Normals.DeleteBuffer();
 		Tangents.DeleteBuffer();

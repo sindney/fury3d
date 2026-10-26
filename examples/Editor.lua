@@ -604,7 +604,28 @@ local function on_init()
         print("Editor: loaded " .. pp_loaded .. " postprocess effect(s)")
     end
 
-    local startup = arg and arg[1]
+    local startup, editors, gpu_capture
+    local i = 1
+    while arg and arg[i] do
+        local value = arg[i]
+        if value == "--gpu-profiler" then
+            gpu_capture = arg[i + 1] or ""
+            i = i + 2
+        else
+            gpu_capture = value:match("^%-%-gpu%-profiler=(.*)$") or gpu_capture
+            if not value:match("^%-%-gpu%-profiler=") then
+                if not startup then
+                    startup = value
+                elseif not editors then
+                    editors = value
+                end
+            end
+            i = i + 1
+        end
+    end
+    if gpu_capture then
+        Editor.OpenGpuProfiler(gpu_capture)
+    end
     if startup and startup ~= "" then
         local resolved = resolve_startup_scene(startup)
         if resolved then
@@ -626,7 +647,6 @@ local function on_init()
     --       particle:FireEmber,mesh:Feu --screenshot /tmp/x.png
     -- Lets verification scripts screenshot the per-asset editors
     -- headlessly without driving the content browser by hand.
-    local editors = arg and arg[2]
     if editors and editors ~= "" then
         for spec in string.gmatch(editors, "[^,]+") do
             local kind, name = spec:match("^(%w+):(.+)$")

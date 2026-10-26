@@ -14,6 +14,7 @@
 --   arg[2] expected node count    (default 267)
 --   arg[3] known texture name    (default "Palm1.tga"; path-created textures
 --                                 carry GetName == GetFilePath)
+--   arg[4] optional "check_postprocess": require all 5 registry JSONs from pak
 --
 -- Asserts (same enumeration APIs as scene_asset_path_identity.lua):
 --   1. Scene.ForEachTexture yields exactly arg[1] entries, unique non-empty
@@ -61,6 +62,11 @@ local nodes = 0
 scene:ForEachNode(function(nd) nodes = nodes + 1 end)
 if nodes ~= EXPECT_NODES then
     fail("expected " .. EXPECT_NODES .. " nodes, got " .. nodes)
+end
+
+if arg and arg[4] == "check_postprocess" then
+    local count = PostProcess.LoadFromDirectory("Resource/PostProcess")
+    if count ~= 5 then fail("expected 5 packed postprocess effects, got " .. tostring(count)) end
 end
 
 print("pak_scene_load: " .. n .. " textures, " .. nodes ..

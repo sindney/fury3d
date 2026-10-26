@@ -200,7 +200,7 @@ void RenderLinkedTextureRow(const char* label, const char* pickerId,
 	// upload is queued to the render thread, so the new texture's ID is
 	// 0 until that runs -- show the fallback box instead of a black quad
 	if (current && current->GetID() != 0) {
-		ImGui::Image((ImTextureID)(intptr_t)current->GetUiTextureId(),
+		ImGui::Image((ImTextureID)(intptr_t)current->GetID(),
 					 ImVec2(48, 48), ImVec2(0, 1), ImVec2(1, 0));
 	} else {
 		ImGui::GetWindowDrawList()->AddRectFilled(thumb_min,
@@ -325,7 +325,7 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 			if (type == typeid(Texture)) {
 				auto tex = std::static_pointer_cast<Texture>(entries[i].ptr);
 				if (tex) {
-					ImGui::Image((ImTextureID)(intptr_t)tex->GetUiTextureId(),
+					ImGui::Image((ImTextureID)(intptr_t)tex->GetID(),
 								 ImVec2(48, 48), ImVec2(0, 1), ImVec2(1, 0));
 					ImGui::SameLine();
 				}

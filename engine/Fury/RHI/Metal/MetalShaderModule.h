@@ -34,6 +34,8 @@ namespace fury
 
 		std::vector<Member> members;
 
+		std::vector<unsigned char> defaultValues;
+
 		bool HasBlock() const { return blockSize > 0 && !blockName.empty(); }
 
 		// -1 when the member is absent.
@@ -129,6 +131,8 @@ namespace fury
 		// Names registered through deferred (kind-3) handles; the command
 		// list resolves them against the live PSO's reflection maps.
 		std::vector<std::string> m_HandleNames;
+
+		std::unordered_map<std::string, RHIUniformHandle> m_DeferredHandles;
 
 		const std::string &GetHandleName(size_t index) const { return m_HandleNames[index]; }
 

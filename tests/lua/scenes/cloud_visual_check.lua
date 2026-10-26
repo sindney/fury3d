@@ -9,6 +9,9 @@
 --      FURY_TOD_HOURS=<h>        time of day override (sun via sky)
 --      FURY_CLOUD_COVERAGE=<f>   coverage override
 --      FURY_CLOUD_DEBUG=<n>      debug view (1 steps, 2 transmittance)
+--      FURY_FIXED_TIME=<s>       pin the engine clock (and ocean wave
+--                                time) to a constant, so two runs of the
+--                                same backend render identical pixels
 
 local function fail(msg)
     io.stderr:write("cloud_visual_check FAIL: " .. msg .. "\n")
@@ -26,6 +29,8 @@ local base_pitch = 0.0
 -- sweep = camera pans every frame (worst case: cloud target re-renders
 -- per frame, like real gameplay) and the wall clock starts at spawn
 local sweep = os.getenv("FURY_CLOUD_SWEEP") == "1"
+local fixed_time = tonumber(os.getenv("FURY_FIXED_TIME"))
+local ocean_ref = nil
 
 local function split_csv(s)
     local out = {}
@@ -56,6 +61,8 @@ local function on_init()
     Scene.ForEachNode(scene, function(n)
         local s = n:GetSkyAtmosphere()
         if s then sky = s end
+        local o = n:GetOceanComponent()
+        if o then ocean_ref = o end
     end)
     if not sky then fail("no SkyAtmosphere in scene") end
     sky:SetCloudsEnabled(os.getenv("FURY_CLOUD_OFF") ~= "1")
@@ -131,6 +138,10 @@ local function on_update(dt)
         cam_ref:Recompose(false)
     end
     if frame == 10 then t0 = os.clock() end
+    if fixed_time then
+        Engine.SetTime(fixed_time)
+        if ocean_ref then ocean_ref:SetWaveTime(fixed_time) end
+    end
     pl:Execute(octree)
     if frame == exit_frame then
         local ms = (os.clock() - t0) * 1000.0 / (exit_frame - 10)

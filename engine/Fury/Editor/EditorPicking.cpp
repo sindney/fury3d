@@ -2,6 +2,7 @@
 
 #include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorRenderJobs.h"
 
 #include "Fury/Camera.h"
 #include "Fury/EnumUtil.h"
@@ -437,6 +438,7 @@ namespace fury
 		{
 			Picking::TickPostRender();
 			DrawSelectionOverlay();
+			FlushOverlayJobs();
 		}
 	}
 }

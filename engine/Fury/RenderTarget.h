@@ -45,10 +45,6 @@ namespace fury
 		// Tear down GPU objects. Safe to call multiple times.
 		void Release();
 
-		// Transitional native-handle accessor (GL FBO name) for interop
-		// paths that have not migrated yet.
-		unsigned int GetFBO() const { return m_TargetSet != nullptr ? (unsigned int)m_TargetSet->GetNativeHandle() : 0; }
-
 		RHIRenderTargetSetRef GetTargetSet() const { return m_TargetSet; }
 
 		std::shared_ptr<Texture> GetColorTexture() const { return m_Color; }

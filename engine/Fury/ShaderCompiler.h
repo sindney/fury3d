@@ -17,6 +17,8 @@ namespace fury
 	{
 		std::string msl;
 
+		std::vector<unsigned char> spirv;
+
 		// MSL argument name of the globals constant block ("globalParams");
 		// empty when the stage has no loose uniforms.
 		std::string globalsBlockName;
@@ -37,6 +39,9 @@ namespace fury
 			size_t offset = 0;
 
 			size_t size = 0;
+
+			// CPU shadow initializer from the GLSL declaration; empty means zero.
+			std::vector<unsigned char> defaultValue;
 		};
 
 		std::vector<Member> globals;
@@ -81,6 +86,17 @@ namespace fury
 		// JSON permutation defines, applied to both stages.
 		std::vector<std::pair<std::string, std::string>> defines;
 	};
+
+	// Pluggable GLSL cross-compiler interface. Outputs include SPIR-V, MSL,
+	// and reflection; the input's stage sources are the GLSL passthrough.
+	class FURY_API IShaderCompiler
+	{
+	public:
+		virtual ~IShaderCompiler() = default;
+		virtual bool Compile(const ShaderCompileInput &in, ShaderModuleCompile &out) = 0;
+	};
+
+	FURY_API IShaderCompiler &GetShaderCompiler();
 
 	// GLSL -> (Slang front-end) -> SPIR-V -> (SPIRV-Cross) -> MSL + reflection.
 	// One compilation may run on any thread; calls are serialized internally.

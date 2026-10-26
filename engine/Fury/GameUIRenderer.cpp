@@ -14,6 +14,7 @@
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/RHI/OpenGL/GLInputAssembler.h"
+#include "Fury/RHI/OpenGL/GLResources.h"
 
 namespace
 {
@@ -232,8 +233,15 @@ namespace fury
 			{ 1, 4, true, (unsigned int)offsetof(Rml::Vertex, colour) },
 			{ 2, 2, false, (unsigned int)offsetof(Rml::Vertex, tex_coord) },
 		};
-		GLBindInterleavedGeometry(s.vao, (unsigned int)s.vbo->GetNativeHandle(),
-			(unsigned int)s.ebo->GetNativeHandle(), attribs, 3, sizeof(Rml::Vertex));
+		// TODO(rhi): GL-only VAO bind in shared code - move it behind the RHI
+		// (GL backend binds the VAO, others no-op) or give Metal a real vertex descriptor.
+		if (GRHIDevice->GetBackend() == fury::RHIBackend::OPENGL)
+		{
+			GLBindInterleavedGeometry(s.vao,
+				static_cast<GLBuffer *>(s.vbo.get())->GetID(),
+				static_cast<GLBuffer *>(s.ebo.get())->GetID(),
+				attribs, 3, sizeof(Rml::Vertex));
+		}
 
 		// Stream binds for backends that don't keep geometry in VAO state
 		// (GL no-ops; Metal binds the buffers per draw).

@@ -2,6 +2,8 @@
 
 #include <fstream>
 #include <mutex>
+#include <algorithm>
+#include <unordered_set>
 
 #include "Fury/FileUtil.h"
 #include "Fury/AssetLoader.h"
@@ -56,6 +58,27 @@ namespace fury
 		return stream.good() || stream.eof();
 	}
 
+	bool AssetBackend::ReadPackedBytes(const std::string& key, std::vector<unsigned char>& out)
+	{
+		std::vector<std::shared_ptr<PakFile>> mounts;
+		{
+			std::lock_guard<std::mutex> lock(s_MountMutex);
+			mounts = m_Mounts;
+		}
+
+		for (auto it = mounts.rbegin(); it != mounts.rend(); ++it)
+		{
+			if (!(*it)->HasEntry(key))
+				continue;
+			std::string err;
+			if ((*it)->ReadEntry(key, out, err))
+				return true;
+			FURYE << "Pak read failed for " << key << " from " << (*it)->Path() << ": " << err;
+			return false;
+		}
+		return false;
+	}
+
 	bool AssetBackend::AssetExists(const std::string& resolvedPath)
 	{
 		std::vector<std::shared_ptr<PakFile>> mounts;
@@ -104,6 +127,23 @@ namespace fury
 	{
 		std::lock_guard<std::mutex> lock(s_MountMutex);
 		return !m_Mounts.empty();
+	}
+
+	std::vector<std::string> AssetBackend::ListPackedKeys(const std::string& prefix)
+	{
+		std::vector<std::shared_ptr<PakFile>> mounts;
+		{
+			std::lock_guard<std::mutex> lock(s_MountMutex);
+			mounts = m_Mounts;
+		}
+		std::unordered_set<std::string> keys;
+		for (const auto& mount : mounts)
+			for (const auto& key : mount->ListKeys())
+				if (key.compare(0, prefix.size(), prefix) == 0)
+					keys.insert(key);
+		std::vector<std::string> out(keys.begin(), keys.end());
+		std::sort(out.begin(), out.end());
+		return out;
 	}
 
 	std::string AssetBackend::MountedBootEntry()

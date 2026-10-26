@@ -54,7 +54,7 @@ uniform mat4 projection_matrix;
 uniform mat4 shadow_matrix[4];
 uniform sampler2DArray shadow_buffer;
 
-uniform float bias = 0.002;
+const float bias = 0.002;
 uniform vec4 shadow_far;
 
 #endif

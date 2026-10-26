@@ -19,7 +19,7 @@ new binding), read `engine/Fury/LuaBindings.cpp` directly.
 
 The `fury` executable is a Lua launcher. It:
 
-1. Opens an `sf::Window` at 1920×1080 with depth-24 / stencil-8 / GL 3.3 context settings (matching the previous C++ demo).
+1. Opens an `sf::Window` at 1920×1080 with depth-24 / stencil-8 / GL 3.3 context settings (matching the previous C++ demo). On the Metal backend the window carries no GL context; the RHI device attaches its own `CAMetalLayer`-backed surface.
 2. Calls `fury::Engine::Initialize(...)` to bring up the engine subsystems.
 3. Opens a `sol::state` and calls `fury::LuaBindings::Register(lua)` to wire engine types into the script's global namespace.
 4. Injects the active SFML window into Lua as `__window` (a private global the bindings read; don't shadow it in your scripts).
@@ -60,7 +60,7 @@ Unknown keys in the options table are silently ignored, so you can leave a `vsyn
 Two related query functions exist for game-side options menus:
 
 - `Engine.GetRhiBackend()` → string: the backend actually in use (after any fallback), e.g. `"opengl"`.
-- `Engine.GetSupportedRhiBackends()` → array of strings: the current platform's support matrix (Windows: `opengl, vulkan`; macOS: `opengl, vulkan, metal`; Linux: `opengl, vulkan`).
+- `Engine.GetSupportedRhiBackends()` → array of strings: the current platform's support matrix (Windows: `opengl, vulkan`; macOS: `opengl, vulkan, metal`; Linux: `opengl, vulkan`). This reflects compilation + platform gating, not working runtimes: only `opengl` and `metal` create a real device today. `vulkan` is a stub whose device creation logs "not implemented yet" and fails over to `opengl`.
 
 Ordering guarantees per frame:
 1. `RenderUtil:BeginFrame()` (engine-internal).
@@ -105,7 +105,16 @@ This matches the convention of the standalone `lua` interpreter, so scripts auth
 
 The resolution rule Editor.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Projects/`, then `Resource/Scene/`. If all three miss, surface a status message and leave the scene empty.
 
-The launcher also recognizes two **runtime flags** — `--screenshot <path>` and `--screenshot-frame <N>` — anywhere in `argv` after the script path. They drive a debug PNG capture and are stripped from `arg` before the script sees it; scripts run identically with or without them. See `docs/CLI.md` (§ "Screenshot mode") for the full reference.
+The launcher also recognizes several **runtime flags** anywhere in `argv`
+after the script path: `--screenshot <path>` / `--screenshot-frame <N>` /
+`--screenshot-series <path,N,interval>` drive debug PNG capture, `--gpu-dump
+<dir>` / `--gpu-dump-frame <N>` write a full GPU frame dump, and `--rhi=<name>`
+selects the render backend (see `docs/CLI.md`). All are stripped from `arg`
+before the script sees it; scripts run identically with or without them. The
+editor script additionally consumes `--gpu-profiler <dir>` (open the GPU
+Capture Profiler on a `--gpu-dump` capture) and `--gpu-profiler=<dir>`. See
+`docs/CLI.md` (sections "Screenshot mode" and "GPU capture profiler") for the
+full reference.
 
 ## Hello, world
 

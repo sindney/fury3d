@@ -31,7 +31,9 @@ namespace fury
 			[metalView release];
 
 			CAMetalLayer *layer = [CAMetalLayer layer];
-			layer.contentsScale = nsWindow.backingScaleFactor;
+			// Point resolution like the GL surface (SFML macOS renders
+			// 1x): the window server upscales the whole window once.
+			layer.contentsScale = 1.0;
 			[metalView setWantsLayer:YES];
 			[metalView setLayer:layer];
 

@@ -18,6 +18,7 @@
 #include "Fury/Editor/EditorTerrainWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorParticleWindow.h"
+#include "Fury/Editor/EditorGpuProfilerWindow.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
 #include "Fury/EntityManager.h"
@@ -1856,6 +1857,9 @@ namespace fury
 			// so the same script runs unchanged in both build modes.
 			sol::table editor_tbl = lua.create_named_table("Editor");
 #if WITH_EDITOR
+			editor_tbl["OpenGpuProfiler"] = [](const std::string &dir) {
+				Editor::OpenGpuProfilerWindow(dir);
+			};
 			editor_tbl["SetSceneIO"] = [](sol::table tbl) {
 				Editor::SceneIO io;
 				if (auto v = tbl["on_new"]; v.valid() && v.get_type() == sol::type::function)

@@ -174,6 +174,25 @@ before the engine exits). True offscreen rendering is out of scope for v1.
   particle:FireEmber,mesh:Feu --screenshot /tmp/editors.png --screenshot-frame 90
 ```
 
+## GPU capture profiler (furye)
+
+`furye` ships a **GPU Capture Profiler** window (editor `Window` menu) that
+views a `--gpu-dump <dir>` capture: the render graph plus every render-target
+texture of the captured frame with per-texture min/max/mean stats and PNG
+previews. Launch the editor straight into a capture with:
+
+```
+./furye Editor.lua --gpu-profiler /tmp/dump
+./furye Editor.lua --gpu-profiler=/tmp/dump   # same, = form
+```
+
+`--gpu-profiler <dir>` is consumed by `Editor.lua` (it does not reach the
+script's `arg` as a startup scene). An empty or missing dir opens the window
+without a capture loaded. **Load...** opens a native file dialog; choose a
+capture's `rendergraph.json` to load its directory. The capture itself is produced by any launcher
+run (see "Screenshot mode" above): `./fury Editor.lua --gpu-dump /tmp/dump
+[--gpu-dump-frame N]`.
+
 ## RHI backend selection
 
 The launcher and pak-boot paths accept a startup render-backend flag:
@@ -203,9 +222,18 @@ pipeline, one cleared+presented frame); any failure logs the failing step
 and re-initializes with `opengl` in the same launch. There is no runtime
 switching — changing the backend takes effect on the next launch.
 
+The matrix above is about compilation and platform gating. Of the three
+names, only `opengl` and `metal` create a real device today: the Vulkan
+device is a stub that logs "not implemented yet", fails the startup probe,
+and falls back to `opengl`. Vulkan remains useful on the cook side, where
+`furye-cli cook --rhi` can still produce and pack Vulkan shader artifacts
+(see the cook section).
+
 Headless CLI paths ignore the selection: `furye-cli` subcommands (`cook`,
 `package`) create no RHI device at all, and the capture tools
-(`render-mesh`, `gui shot`) always run OpenGL.
+(`render-mesh`, `gui shot`) open a window and go through
+`Engine::Initialize`, so they honor the same resolution chain (defaulting
+to `opengl`).
 
 ## Subcommands
 
@@ -581,7 +609,8 @@ needs a GL context and opens a short-lived hidden window.
 
 ```
 furye-cli cook <scene.json|.bin> [--texture-target legacy|modern]
-                 [--ddc <path>] [--ktx <path>] [--manifest <path>] [--verbose]
+                 [--ddc <path>] [--ktx <path>] [--manifest <path>]
+                 [--rhi <list>] [--verbose]
 ```
 
 **Options:**
@@ -590,11 +619,15 @@ furye-cli cook <scene.json|.bin> [--texture-target legacy|modern]
   on macOS, `modern` elsewhere). An explicit value always overrides the
   host default.
 - `--ddc <path>` - DDC root (default: `FURY_DDC` env, else `<exe
-  dir>/DDC`).
+  dir>/DDC`). Textures and shaders share this one root.
 - `--ktx <path>` - ktx CLI binary (default: `FURY_KTX_CLI` env, else
   `<exe dir>/ktx`; see "KTX-Software tooling" below).
 - `--manifest <path>` - manifest output (default:
   `<scene-stem>.cookmanifest.json`).
+- `--rhi <list>` - shader targets: comma-separated `opengl,vulkan,metal`
+  (default: host platform backends). Artifacts cook even for targets
+  whose runtime is not implemented yet (Vulkan); a pak carrying only
+  Vulkan shader artifacts will not run until the Vulkan device lands.
 - `--verbose` / `-v` - echo each ktx invocation.
 
 **What it does.** Loads the scene headlessly and enumerates every
@@ -629,6 +662,29 @@ decoded and re-encoded to PNG first (`ktx create` ingests png/jpg/exr/
 hdr/ktx only). A failure at any stage fails the cook with the failing
 command and the log tail quoted in the error.
 
+**Shader cooking.** Cook also cross-compiles every shader the pipeline
+can hit, discovered from three places: every `shaders` entry of the
+built-in Lambert pipeline JSON plus the scene's own pipeline JSON; a
+fixed set of runtime-generated shaders (terrain draw, particle with and
+without `SHADOW`, the atmosphere LUT / sky-view / volumetric-cloud /
+cloud-noise shaders); and the `shader` of every `.json` effect in
+`Resource/PostProcess` (the postprocess registry is packaged as data,
+not re-authored per project). Quoted relative `#include`s inside a
+shader are resolved recursively (depth 8, cycle detection). Each
+shader compiles once per `--rhi` target through the ShaderCompiler
+chain (see `docs/ARCHITECTURE.md` §9.x): GLSL stage sources for
+OpenGL, SPIR-V for Vulkan, MSL plus a versioned reflection sidecar
+(version 2: globals block name/size/index, member offsets + defaults,
+stage-input locations) for Metal. The runtime loads the Metal MSL +
+reflection from the DDC or the pak on a hit and only invokes the
+compiler on a miss.
+
+Run the same discovery as a compile-only gate with `furye-cli shaderc --all`
+(optionally `--rhi=<list>`). It compiles both engine pipelines, the dynamic
+shaders, and all postprocess permutations, and reports the shader,
+permutation, and target list on failure. Single-file mode remains available
+as `furye-cli shaderc <file.glsl> [-I dir] [-D name[=value]]`.
+
 **Overrides.** An optional `<scene-stem>.cook.json` next to the scene
 maps canonical texture path -> usage and overrides the inferred usage:
 
@@ -641,22 +697,33 @@ maps canonical texture path -> usage and overrides the inferred usage:
 
 Usage strings: `color`, `color_alpha`, `normal`, `hdr`.
 
-**DDC.** Cooked textures cache in a Derived Data Cache so recooks are
-incremental. The key is a SHA-1 over the source file's content hash,
-the cook settings (target, format, sRGB), and the ktx tool version -
-a source edit, a settings change, or a `FURY_KTX_VERSION` bump changes
-the key and recooks that texture only. Entries live in hash-prefix
-subfolders: `DDC/<hex[0:2]>/<hex[2:4]>/<full-hash>.ktx2`, so no folder
-holds a large number of files. On a hit the cached KTX2 is reused and
-no ktx process runs; a miss compresses and then stores the entry.
+**DDC.** Cooked assets cache in a Derived Data Cache so recooks are
+incremental. Texture and shader entries share one root (`--ddc`,
+`FURY_DDC` env, or `<exe dir>/DDC`) and are namespaced by type tag:
+`TEX_` keys hash the source file's content, the cook settings (target,
+format, sRGB), and the ktx tool version - a source edit, a settings
+change, or a `FURY_KTX_VERSION` bump changes the key and recooks that
+texture only; `SHADER_` keys hash the assembled stage sources, the
+backend, the define set, and the compiler version
+(`FURY_SHADER_DDC_MASTER_VERSION`). Entries live in hash-prefix
+subfolders: `DDC/<hex[0:2]>/<hex[2:4]>/<full-hash>.<ext>` (`.ktx2` for
+textures; `.vert.glsl`/`.frag.glsl`/`.refl` for OpenGL,
+`.vert.spv`/`.frag.spv`/`.refl` for Vulkan, `.vert.metal`/`.frag.metal`/
+`.refl` for Metal), so no folder holds a large number of files. On a
+hit the cached artifact is reused and no ktx process (or shader
+compiler) runs; a miss cooks and then stores the entry.
 
 **Manifest.** On success cook writes `<scene-stem>.cookmanifest.json`
 (or `--manifest <path>`): the cook target and tool version, a
 `textures` array mapping each canonical path to its DDC file, BC format,
-dimensions, mip count, and sRGB flag, a `passthrough` array mapping
-canonical paths to source files (with a reason), and an `unresolved`
-array. `furye-cli package` consumes this manifest instead of
-rediscovering assets.
+dimensions, mip count, and sRGB flag, a `shaders` array mapping each
+cooked shader permutation to its backend (`opengl` / `vulkan` /
+`metal`), DDC files, and source shader, a `passthrough` array mapping
+canonical paths to source files (with a reason; this includes the
+pipeline JSONs and every `.glsl`/`.json` file under `Resource/Shader`,
+`Resource/Pipeline`, and `Resource/PostProcess` as `shader-source`
+entries), and an `unresolved` array. `furye-cli package` consumes this
+manifest instead of rediscovering assets.
 
 **Exit codes:**
 
@@ -686,7 +753,8 @@ furye-cli package <scene.json|.bin> [--compression none|lz4]
 **Options:** `--compression none|lz4` (default `lz4`), `--output <path>`
 (default `<scene-stem>.pak` next to the scene), `--no-cook` (reuse the
 existing manifest; requires one to be present), plus the cook
-passthrough options (`--texture-target`, `--ddc`, `--ktx`, `--verbose`).
+passthrough options (`--texture-target`, `--ddc`, `--ktx`, `--rhi`,
+`--verbose`).
 
 **Flow.** Runs `cook` first - incremental through the DDC, so a fresh
 manifest normally costs no ktx invocations - then packs per the
@@ -694,6 +762,15 @@ manifest into the output pak:
 
 - every cooked texture, keyed by its canonical source path, payload read
   from the DDC entry the manifest names;
+- every cooked shader artifact (per-backend stage blob + `.refl`
+  reflection sidecar), keyed `DDC/<tiered path>` - the runtime resolves
+  this key from the pak before falling back to the loose DDC, so a
+  Metal launch loads its MSL + reflection straight out of the pak
+  (verified by `tests/pak_pipeline.sh`). Vulkan artifacts ride along
+  when targeted, but the Vulkan runtime device is not implemented;
+- every shader / pipeline / postprocess source under `Resource/Shader`,
+  `Resource/Pipeline`, and `Resource/PostProcess`, as `shader-source`
+  passthrough entries;
 - every passthrough asset by source file: heightmaps plus their `.json`
   sidecar, ocean wave json plus the baked payload files it references,
   and other external file assets;
@@ -721,6 +798,7 @@ unfinished output file is removed on failure.
 
 ```bash
 ./furye-cli package Projects/ocean/ocean_island.bin
+./furye-cli package Projects/ocean/ocean_island.bin --rhi opengl,metal
 ./furye-cli package Projects/ocean/ocean_island.bin --compression none --output /tmp/ocean-dev.pak
 ./fury /tmp/ocean-dev.pak
 ```
@@ -770,6 +848,27 @@ touching the rest of the entry.
 error surface to callers). LZ4 entries decompress to their recorded
 uncompressed size; the returned bytes are verified against the entry's
 SHA-1, so on-disk corruption is detected with an error naming the entry.
+
+## Pak pipeline test
+
+`tests/pak_pipeline.sh` is the end-to-end gate for everything above. It
+builds a synthetic project in `/tmp/paktest-<pid>` and stages: scene
+build via `furye-cli exec-script` + headless load-back verify; cook
+(manifest shape, tiered DDC layout, BCn formats, full mip chains,
+shader artifacts for all three backends); recook all-DDC-hits; touch
+one texture and confirm exactly one recook; lz4 package + headless
+`fury exec` on the pak; the `--no-cook` missing-artifact negative;
+`--compression none` footer/index checks; and a full round trip -
+unpack both paks with an independent pure-python reader, byte-compare
+every entry against the scene file + DDC artifacts, repack with an
+independent writer, re-mount the repacked pak from an isolated cwd (no
+loose files, so disk fallback cannot mask a bad entry), and confirm the
+SHA-1 tripwires fire on a corrupted payload byte ("payload SHA-1
+mismatch") and a corrupted index byte ("index SHA-1 mismatch").
+
+Requires the built `examples/fury` and `examples/furye-cli` plus
+`python3`; cleans up its `/tmp` directory on exit. Run from anywhere:
+`tests/pak_pipeline.sh`.
 
 ## Exit codes
 

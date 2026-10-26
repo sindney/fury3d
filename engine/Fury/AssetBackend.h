@@ -23,6 +23,10 @@ namespace fury
 		// resolvedPath: Scene::ResolveAsset / FileUtil::GetAbsPath output.
 		static bool ReadAssetBytes(const std::string& resolvedPath, std::vector<unsigned char>& out);
 
+		// Reads an exact pak index key from the mounted paks (later mounts
+		// shadow earlier ones). No disk fallback, no missing-key logging.
+		static bool ReadPackedBytes(const std::string& key, std::vector<unsigned char>& out);
+
 		static bool AssetExists(const std::string& resolvedPath);
 
 		// Mounts a pak. Multiple mounts: later mounts shadow earlier ones.
@@ -32,6 +36,9 @@ namespace fury
 		static void UnmountAll();
 
 		static bool HasMountedPak();
+
+		// Sorted union of exact pak index keys under prefix.
+		static std::vector<std::string> ListPackedKeys(const std::string& prefix);
 
 		// Boot entry key of the most recently mounted pak ("" when none).
 		static std::string MountedBootEntry();

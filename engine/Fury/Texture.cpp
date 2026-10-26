@@ -811,12 +811,7 @@ namespace fury
 		return m_Depth;
 	}
 
-	unsigned int Texture::GetID() const
-	{
-		return m_RHITexture != nullptr ? (unsigned int)m_RHITexture->GetNativeHandle() : 0;
-	}
-
-	uintptr_t Texture::GetUiTextureId() const
+	uintptr_t Texture::GetID() const
 	{
 		return m_RHITexture != nullptr ? m_RHITexture->GetNativeHandle() : 0;
 	}

@@ -3,6 +3,7 @@
 #include "Fury/Editor/EditorRenderJobs.h"
 
 #include "Fury/EnumUtil.h"
+#include "Fury/FramePacket.h"
 #include "Fury/Log.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Texture.h"
@@ -80,7 +81,7 @@ namespace fury
 			if (it == g_DisplaySlots.end())
 				return 0;
 			std::lock_guard<std::mutex> slotLock(it->second.mutex);
-			return it->second.color ? it->second.color->GetUiTextureId() : 0;
+			return it->second.color ? it->second.color->GetID() : 0;
 		}
 
 		void ResetDisplaySlot(const std::string &key)
@@ -91,6 +92,41 @@ namespace fury
 				return;
 			std::lock_guard<std::mutex> slotLock(it->second.mutex);
 			it->second.color.reset();
+		}
+
+		namespace
+		{
+			// Pending overlay jobs (game thread producers only; the mutex
+			// covers the executor taking the staged packet concurrently).
+			std::mutex g_OverlayJobsMutex;
+
+			std::vector<std::function<void()>> g_PendingOverlayJobs;
+
+			const size_t kOverlayJobCap = 2048;
+		}
+
+		void QueueOverlayJob(std::function<void()> job)
+		{
+			std::lock_guard<std::mutex> lock(g_OverlayJobsMutex);
+			if (g_PendingOverlayJobs.size() >= kOverlayJobCap)
+				return; // producers re-queue every frame; drop the excess
+			g_PendingOverlayJobs.emplace_back(std::move(job));
+		}
+
+		void FlushOverlayJobs()
+		{
+			FramePacket *packet = RenderThread::Get().PeekStagedPacket();
+			if (packet == nullptr)
+				return; // no staged frame; keep pending for next frame
+			std::vector<std::function<void()>> jobs;
+			{
+				std::lock_guard<std::mutex> lock(g_OverlayJobsMutex);
+				if (g_PendingOverlayJobs.empty())
+					return;
+				jobs.swap(g_PendingOverlayJobs);
+			}
+			for (auto &job : jobs)
+				packet->overlayJobs.emplace_back(std::move(job));
 		}
 	}
 }

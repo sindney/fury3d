@@ -43,15 +43,16 @@ namespace fury
 		return m_Root + "/" + hexKey.substr(0, 2) + "/" + hexKey.substr(2, 2) + "/" + hexKey + ext;
 	}
 
-	bool DdcStore::Has(const std::string& hexKey) const
+	bool DdcStore::Has(const std::string& hexKey, const std::string& ext) const
 	{
 		std::error_code ec;
-		return std::filesystem::exists(PathForKey(hexKey), ec);
+		return std::filesystem::exists(PathForKey(hexKey, ext), ec);
 	}
 
-	std::string DdcStore::Store(const std::string& hexKey, const std::string& srcFile)
+	std::string DdcStore::Store(const std::string& hexKey, const std::string& srcFile,
+		const std::string& ext)
 	{
-		std::string dest = PathForKey(hexKey);
+		std::string dest = PathForKey(hexKey, ext);
 		std::error_code ec;
 		std::filesystem::create_directories(std::filesystem::path(dest).parent_path(), ec);
 		if (ec)
@@ -62,9 +63,9 @@ namespace fury
 		return dest;
 	}
 
-	std::string DdcStore::Lookup(const std::string& hexKey) const
+	std::string DdcStore::Lookup(const std::string& hexKey, const std::string& ext) const
 	{
-		std::string path = PathForKey(hexKey);
+		std::string path = PathForKey(hexKey, ext);
 		std::error_code ec;
 		return std::filesystem::exists(path, ec) ? path : "";
 	}

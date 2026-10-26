@@ -5,6 +5,7 @@
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorLog.h"
+#include "Fury/Editor/EditorGpuProfilerWindow.h"
 #include "Fury/Editor/EditorPackageDialog.h"
 #include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/EditorThemes.h"
@@ -764,6 +765,8 @@ void RenderMenuBar() {
 	if (ImGui::BeginMenu("Window")) {
 		ImGui::MenuItem("Viewport", nullptr, &g_ShowViewport);
 		ImGui::MenuItem("Profiler", nullptr, &g_ShowProfiler);
+		if (ImGui::MenuItem("GPU Capture Profiler"))
+			OpenGpuProfilerWindow("");
 		ImGui::MenuItem("Scene Inspector", nullptr, &g_ShowSceneInspector);
 		ImGui::MenuItem("Node Properties", nullptr, &g_ShowNodeProperties);
 		ImGui::MenuItem("Console", nullptr, &g_ShowConsole);
@@ -936,6 +939,7 @@ void Tick() {
 	// Content Browser so a double-click this frame opens the
 	// editor modal on the same frame.
 	RenderAllOpenAssetEditors();
+	RenderGpuProfilerWindow();
 
 	// Mesh thumbnail refresh poll (mesh-thumbnail-disk-cache).
 	// Re-checks live mesh tiles against the disk cache every
@@ -1029,6 +1033,7 @@ void Tick() {
 }
 
 void Shutdown() {
+	ShutdownGpuProfilerWindow();
 	UnhookEngineLog();
 	ClearSceneIO();
 	ClearSceneTreeProvider();
