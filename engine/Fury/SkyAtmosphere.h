@@ -212,10 +212,6 @@ namespace fury
 		const std::string &GetSunLightName() const { return m_SunLightName; }
 		void SetSunLightName(const std::string &name) { m_SunLightName = name; }
 
-		// Sets the sun light to the scene's first directional light.
-		// Returns false when the scene has none.
-		bool AutoSelectSunLight();
-
 		// --- clouds ---
 		bool GetCloudsEnabled() const { return m_CloudsEnabled; }
 		void SetCloudsEnabled(bool v) { m_CloudsEnabled = v; }

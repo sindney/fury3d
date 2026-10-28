@@ -68,8 +68,22 @@ namespace fury
 		void PerspectiveFov(float fov, float ratio, float near, float far);
 
 		void PerspectiveOffCenter(float left, float right, float bottom, float top, float near, float far);
-		
+
 		void OrthoOffCenter(float left, float right, float bottom, float top, float near, float far);
+
+		// NDC depth convention for the projection builders above: GL maps z to
+		// [-1,1], Metal/D3D/Vulkan clip z to [0,1] so they need the [0,1] form.
+		// Set once from the active RHI device's capabilities at InitGraphics.
+		static void SetDepthZeroToOne(bool enabled);
+
+		static bool GetDepthZeroToOne();
+
+		// Copy remapped from GL's [-1,1] NDC z to [0,1] (clip'.z = (clip.z + clip.w)/2).
+		Matrix4 DepthZeroToOneRemap() const;
+
+		// Projection in the active backend's NDC depth convention. GL keeps
+		// [-1,1]; Metal/D3D/Vulkan clip z to [0,1] and need the remapped form.
+		static Matrix4 DepthConvention(const Matrix4 &m);
 
 		void LookAt(Vector4 eye, Vector4 at, Vector4 up);
 

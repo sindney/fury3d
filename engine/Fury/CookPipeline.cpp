@@ -42,6 +42,9 @@
 #include "Fury/ParticleSystem.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
+#include "Fury/ShaderCache.h"
+#include "Fury/SkyAtmosphere.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/Terrain.h"
 #include "Fury/Texture.h"
 
@@ -70,6 +73,23 @@ namespace fury
 			std::string note;
 		};
 
+		struct ShaderManifestEntry
+		{
+			std::string key;
+			std::string ddcRel;
+			std::string shader;
+			std::string permutation;
+			std::string backend;
+		};
+
+		struct ShaderWork
+		{
+			ShaderCompileInput input;
+			std::string shader;
+			std::string resolvedPath;
+			std::string permutation;
+		};
+
 		std::string ToLower(const std::string& s)
 		{
 			std::string out = s;
@@ -80,6 +100,9 @@ namespace fury
 
 		std::string ShellQuote(const std::string& s)
 		{
+#if PLATFORM_WINDOWS
+			return "\"" + s + "\"";
+#else
 			std::string out = "'";
 			for (char c : s)
 			{
@@ -90,13 +113,18 @@ namespace fury
 			}
 			out += "'";
 			return out;
+#endif
 		}
 
 		// Runs a shell command with output landing in logPath. Returns the
 		// process exit code, -1 when the shell could not run at all.
 		int RunShell(const std::string& cmd, const std::string& logPath)
 		{
+#if PLATFORM_WINDOWS
+			const std::string full = "\"" + cmd + " > " + ShellQuote(logPath) + " 2>&1\"";
+#else
 			const std::string full = cmd + " > " + ShellQuote(logPath) + " 2>&1";
+#endif
 			const int rc = std::system(full.c_str());
 #if PLATFORM_WINDOWS
 			return rc;
@@ -159,9 +187,10 @@ namespace fury
 			}
 
 			const std::string exe = FileUtil::GetExecutablePath();
+			const char *toolName = PLATFORM_WINDOWS ? "ktx.exe" : "ktx";
 			if (exe.empty())
-				return "ktx";
-			return (std::filesystem::path(exe).parent_path() / "ktx").string();
+				return toolName;
+			return (std::filesystem::path(exe).parent_path() / toolName).string();
 		}
 
 		std::string QueryKtxVersion(const std::string& ktx)
@@ -449,8 +478,202 @@ namespace fury
 			return true;
 		}
 
+		std::string ResolveCookAsset(const std::string &path)
+		{
+			const std::string resolved = Scene::ResolveAsset(path);
+			std::error_code ec;
+			if (std::filesystem::exists(resolved, ec))
+				return resolved;
+			if (path.compare(0, 9, "Resource/") == 0)
+				return (std::filesystem::path(FileUtil::GetExecutablePath()).parent_path() / path).string();
+			if (path.compare(0, 7, "Engine/") == 0)
+				return (std::filesystem::path(FileUtil::GetExecutablePath()).parent_path()
+					/ "Resource" / path.substr(7)).string();
+			return resolved;
+		}
+
+		std::string CookAssetKey(const std::string &resolved)
+		{
+			std::string key = FileUtil::ToCanonicalAssetKey(resolved);
+			if (!key.empty()) return key;
+			const std::string root = FileUtil::NormalizePath(
+				std::filesystem::path(FileUtil::GetExecutablePath()).parent_path().string()) + "/";
+			const std::string normalized = FileUtil::NormalizePath(resolved);
+			return normalized.compare(0, root.size(), root) == 0 ? normalized.substr(root.size()) : resolved;
+		}
+
+		bool ParseShaderTargets(const std::string &option, std::vector<ShaderTarget> &targets, std::string &error)
+		{
+			std::vector<std::string> names;
+			if (option.empty())
+			{
+				names = { "opengl", "vulkan" };
+#if PLATFORM_MACOS
+				names.push_back("metal");
+#endif
+			}
+			else
+			{
+				std::stringstream stream(option);
+				std::string name;
+				while (std::getline(stream, name, ','))
+					names.push_back(name);
+			}
+			for (const auto &name : names)
+			{
+				ShaderTarget target;
+				if (!ParseShaderTarget(name, target))
+				{
+					error = "unknown --rhi backend '" + name + "' (expected opengl,vulkan,metal)";
+					return false;
+				}
+				if (std::find(targets.begin(), targets.end(), target) == targets.end())
+					targets.push_back(target);
+			}
+			if (targets.empty())
+			{
+				error = "--rhi requires at least one backend";
+				return false;
+			}
+			return true;
+		}
+
+		bool CollectShaderWork(const std::shared_ptr<Scene> &scene, std::vector<ShaderWork> &work,
+			std::vector<std::string> &pipelineSources, std::string &error)
+		{
+			std::vector<std::string> pipelines{ "Resource/Pipeline/DefferedLightingLambert.json" };
+			const std::string scenePipeline = scene->GetRenderSettings()->GetPipelinePath();
+			if (!scenePipeline.empty() && scenePipeline != pipelines.front())
+				pipelines.push_back(scenePipeline);
+			std::unordered_set<std::string> seen;
+#if WITH_DBG_OVERLAY
+			constexpr bool debugOverlay = true;
+#else
+			constexpr bool debugOverlay = false;
+#endif
+			auto addShader = [&](const std::string &path, const std::vector<std::string> &defines,
+				const std::string &label) -> bool {
+				const std::string resolved = ResolveCookAsset(path);
+				std::string signature = resolved;
+				for (const auto &define : defines)
+					signature += "|" + define;
+				if (!seen.insert(signature).second)
+					return true;
+				std::string source;
+				if (!LoadShaderSource(resolved, source, error))
+					return false;
+				ShaderWork item;
+				item.input = BuildShaderCompileInput(label, source, defines, false, debugOverlay);
+				item.shader = path;
+				item.resolvedPath = resolved;
+				for (size_t i = 0; i < defines.size(); ++i)
+					item.permutation += (i == 0 ? "" : ",") + defines[i];
+				work.push_back(std::move(item));
+				return true;
+			};
+			auto loadJson = [](const std::string &path, rapidjson::Document &doc) -> bool {
+				std::string text;
+				if (!FileUtil::LoadString(path, text))
+					return false;
+				doc.Parse(text.c_str());
+				return !doc.HasParseError() && doc.IsObject();
+			};
+			for (const auto &pipeline : pipelines)
+			{
+				const std::string resolved = ResolveCookAsset(pipeline);
+				rapidjson::Document doc;
+				if (!loadJson(resolved, doc))
+				{
+					error = "cannot read pipeline " + resolved;
+					return false;
+				}
+				pipelineSources.push_back(resolved);
+				if (!doc.HasMember("shaders") || !doc["shaders"].IsArray())
+					continue;
+				for (const auto &entry : doc["shaders"].GetArray())
+				{
+					if (!entry.IsObject() || !entry.HasMember("path") || !entry["path"].IsString())
+						continue;
+					std::vector<std::string> defines;
+					if (entry.HasMember("defines") && entry["defines"].IsArray())
+					{
+						for (const auto &define : entry["defines"].GetArray())
+							if (define.IsString()) defines.push_back(define.GetString());
+					}
+					const std::string label = entry.HasMember("name") && entry["name"].IsString()
+						? entry["name"].GetString() : entry["path"].GetString();
+					if (!addShader(entry["path"].GetString(), defines, label))
+						return false;
+				}
+			}
+
+			const std::pair<const char *, std::vector<std::string>> dynamicShaders[] = {
+				{ "Resource/Shader/Terrain/DrawTerrain.glsl", {} },
+				{ "Resource/Shader/Lambert/Particle.glsl", {} },
+				{ "Resource/Shader/Lambert/Particle.glsl", { "SHADOW" } },
+				{ "Resource/Shader/Atmosphere/TransmittanceLut.glsl", {} },
+				{ "Resource/Shader/Atmosphere/MultiScatterLut.glsl", {} },
+				{ "Resource/Shader/Atmosphere/SkyViewLut.glsl", {} },
+				{ "Resource/Shader/Atmosphere/CameraVolume.glsl", {} },
+				{ "Resource/Shader/Atmosphere/VolumetricClouds.glsl", {} },
+				{ "Resource/Shader/Atmosphere/CloudNoiseGen.glsl", {} }
+			};
+			for (const auto &item : dynamicShaders)
+				if (!addShader(item.first, item.second, item.first))
+					return false;
+
+			const std::string postDir = ResolveCookAsset("Resource/PostProcess");
+			std::error_code ec;
+			for (const auto &entry : std::filesystem::directory_iterator(postDir, ec))
+			{
+				if (!entry.is_regular_file() || entry.path().extension() != ".json")
+					continue;
+				rapidjson::Document doc;
+				if (!loadJson(entry.path().string(), doc) || !doc.HasMember("shader") || !doc["shader"].IsString())
+					continue;
+				if (!addShader(doc["shader"].GetString(), {}, entry.path().stem().string()))
+					return false;
+			}
+			return true;
+		}
+
+		void CollectShaderSources(const std::vector<ShaderWork> &work,
+			const std::vector<std::string> &pipelineSources, std::vector<PassthroughEntry> &passthrough)
+		{
+			std::unordered_set<std::string> seen;
+			for (const auto &entry : passthrough)
+				seen.insert(entry.key);
+			auto add = [&](const std::filesystem::path &path, const char *reason) {
+				const std::string resolved = FileUtil::NormalizePath(path.string());
+				std::string key = CookAssetKey(resolved);
+				if (seen.insert(key).second)
+					passthrough.push_back({ key, resolved, reason, "" });
+			};
+			for (const auto &path : pipelineSources)
+				add(path, "pipeline");
+			for (const auto &item : work)
+			{
+				std::string key = item.shader.compare(0, 9, "Resource/") == 0 ? item.shader
+					: FileUtil::ToCanonicalAssetKey(Scene::ResolveAsset(item.shader));
+				if (key.empty()) key = CookAssetKey(item.resolvedPath);
+				if (seen.insert(key).second)
+					passthrough.push_back({ key, item.resolvedPath, "shader-source", "" });
+			}
+			for (const char *dir : { "Resource/Shader", "Resource/Pipeline", "Resource/PostProcess" })
+			{
+				std::error_code ec;
+				for (const auto &entry : std::filesystem::recursive_directory_iterator(ResolveCookAsset(dir), ec))
+				{
+					if (!entry.is_regular_file()) continue;
+					const std::string ext = entry.path().extension().string();
+					if (ext == ".glsl" || ext == ".json") add(entry.path(), "shader-source");
+				}
+			}
+		}
+
 		bool WriteManifest(const std::string& path, const std::string& scenePath, const std::string& target,
 			const std::string& toolVersion, const std::vector<TextureEntry>& textures,
+			const std::vector<ShaderManifestEntry>& shaders,
 			const std::vector<PassthroughEntry>& passthrough, const std::vector<std::string>& unresolved)
 		{
 			rapidjson::StringBuffer sb;
@@ -483,6 +706,25 @@ namespace fury
 				writer.Uint(entry.mips);
 				writer.Key("srgb");
 				writer.Bool(entry.srgb);
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("shaders");
+			writer.StartArray();
+			for (const ShaderManifestEntry& entry : shaders)
+			{
+				writer.StartObject();
+				writer.Key("key");
+				writer.String(entry.key.c_str());
+				writer.Key("ddc");
+				writer.String(entry.ddcRel.c_str());
+				writer.Key("shader");
+				writer.String(entry.shader.c_str());
+				writer.Key("permutation");
+				writer.String(entry.permutation.c_str());
+				writer.Key("backend");
+				writer.String(entry.backend.c_str());
 				writer.EndObject();
 			}
 			writer.EndArray();
@@ -548,6 +790,33 @@ namespace fury
 				return true;
 			});
 		}
+	}
+
+	CookResult ValidateSceneShaders(const std::shared_ptr<Scene>& scene, const std::string& rhi)
+	{
+		CookResult result;
+		std::vector<ShaderTarget> targets;
+		if (!ParseShaderTargets(rhi, targets, result.error))
+			return result;
+		std::vector<ShaderWork> work;
+		std::vector<std::string> pipelineSources;
+		if (!CollectShaderWork(scene, work, pipelineSources, result.error))
+			return result;
+		result.shadersTotal = static_cast<int>(work.size() * targets.size());
+		std::string targetNames;
+		for (ShaderTarget target : targets)
+			targetNames += (targetNames.empty() ? "" : ",") + std::string(ShaderTargetName(target));
+		for (const auto &item : work)
+		{
+			ShaderModuleCompile compiled;
+			if (!CompileGlslToMSL(item.input, compiled))
+			{
+				result.error = item.shader + " permutation [" + item.permutation + "] " + targetNames + ": " + compiled.error;
+				return result;
+			}
+			result.shadersCooked += static_cast<int>(targets.size());
+		}
+		return result;
 	}
 
 	CookResult CookSceneAssets(const std::shared_ptr<Scene>& scene, const std::string& scenePath, const CookOptions& opts)
@@ -624,6 +893,18 @@ namespace fury
 						}
 					}
 				}
+				if (auto sky = node->GetComponent<SkyAtmosphere>())
+				{
+					auto addSkyTexture = [&](const std::string &path, bool srgb) {
+						if (!path.empty() && seen.insert(path).second)
+						{
+							texturePaths.push_back(path);
+							srgbHints[path] = srgb;
+						}
+					};
+					addSkyTexture(sky->GetMoonTexturePath(), true);
+					addSkyTexture(sky->GetCloudNoisePath(), false);
+				}
 				for (unsigned int c = 0; c < node->GetChildCount(); ++c)
 					walk(node->GetChildAt(c));
 			};
@@ -633,6 +914,7 @@ namespace fury
 		result.texturesTotal = (int)texturePaths.size();
 
 		std::vector<TextureEntry> textures;
+		std::vector<ShaderManifestEntry> shaders;
 		std::vector<PassthroughEntry> passthrough;
 		std::unordered_set<std::string> unresolvedSet;
 
@@ -641,7 +923,7 @@ namespace fury
 			const std::string& path = texturePaths[i];
 			const std::shared_ptr<Texture> texture = em->Get<Texture>(path);
 
-			const std::string resolved = Scene::ResolveAsset(path);
+			const std::string resolved = ResolveCookAsset(path);
 			if (!FileUtil::FileExist(resolved))
 			{
 				unresolvedSet.insert(path);
@@ -650,7 +932,7 @@ namespace fury
 				continue;
 			}
 
-			std::string key = FileUtil::ToCanonicalAssetKey(resolved);
+			std::string key = CookAssetKey(resolved);
 			if (key.empty())
 				key = path;
 
@@ -687,7 +969,7 @@ namespace fury
 				result.error = "cannot hash source texture " + resolved;
 				return result;
 			}
-			const std::string ddcKey = DdcStore::MakeKey("TEXTURE", settings, sourceSha1);
+			const std::string ddcKey = DdcStore::MakeKey("TEX_", settings, sourceSha1);
 
 			TextureEntry entry;
 			entry.key = key;
@@ -814,6 +1096,56 @@ namespace fury
 			}
 		}
 
+		std::vector<ShaderTarget> shaderTargets;
+		if (!ParseShaderTargets(opts.rhi, shaderTargets, result.error))
+			return result;
+		std::vector<ShaderWork> shaderWork;
+		std::vector<std::string> pipelineSources;
+		if (!CollectShaderWork(scene, shaderWork, pipelineSources, result.error))
+			return result;
+		CollectShaderSources(shaderWork, pipelineSources, passthrough);
+		result.shadersTotal = static_cast<int>(shaderWork.size() * shaderTargets.size());
+		g_ShaderCompilerInvocations = 0;
+		for (auto &item : shaderWork)
+		{
+			ShaderModuleCompile compiled;
+			bool hasCompiled = false;
+			for (ShaderTarget target : shaderTargets)
+			{
+				const std::string key = MakeShaderDdcKey(item.input, target);
+				std::vector<ShaderArtifact> artifacts;
+				if (LoadShaderArtifacts(ddc, key, target, artifacts))
+				{
+					++result.shadersDdcHits;
+				}
+				else
+				{
+					if (!hasCompiled)
+					{
+						++g_ShaderCompilerInvocations;
+						if (!CompileGlslToMSL(item.input, compiled))
+						{
+							result.error = compiled.error;
+							return result;
+						}
+						hasCompiled = true;
+					}
+					artifacts = MakeShaderArtifacts(item.input, compiled, target);
+					if (!StoreShaderArtifacts(ddc, artifacts, result.error))
+						return result;
+					++result.shadersCooked;
+				}
+				for (const auto &artifact : artifacts)
+				{
+					const std::string pakKey = ShaderArtifactPakKey(artifact, ddc);
+					shaders.push_back({ pakKey, pakKey.substr(4), item.shader,
+						item.permutation, ShaderTargetName(target) });
+				}
+			}
+		}
+
+		std::sort(shaders.begin(), shaders.end(),
+			[](const ShaderManifestEntry& a, const ShaderManifestEntry& b) { return a.key < b.key; });
 		std::sort(textures.begin(), textures.end(),
 			[](const TextureEntry& a, const TextureEntry& b) { return a.key < b.key; });
 		std::sort(passthrough.begin(), passthrough.end(),
@@ -824,15 +1156,16 @@ namespace fury
 		std::string manifestPath = opts.manifestOut;
 		if (manifestPath.empty())
 			manifestPath = StemOf(scenePath) + ".cookmanifest.json";
-		if (!WriteManifest(manifestPath, scenePath, target, ktxVersion, textures, passthrough, result.unresolved))
+		if (!WriteManifest(manifestPath, scenePath, target, ktxVersion, textures, shaders, passthrough, result.unresolved))
 		{
 			result.error = "cannot write cook manifest to " + manifestPath;
 			return result;
 		}
 		result.manifestPath = manifestPath;
 
-		std::cout << "[cook] done: " << result.texturesCooked << " cooked, " << result.texturesDdcHits
-			<< " ddc-hits, " << result.unresolved.size() << " unresolved, "
+		std::cout << "[cook] done: " << result.texturesCooked << " textures cooked, " << result.texturesDdcHits
+			<< " ddc-hits; " << result.shadersCooked << " shader targets cooked, " << result.shadersDdcHits
+			<< " ddc-hits; " << result.unresolved.size() << " unresolved, "
 			<< passthrough.size() << " passthrough -> " << manifestPath << "\n";
 
 		return result;

@@ -2,13 +2,15 @@
 
 #include "Fury/Editor/EditorPicking.hpp"
 #include "Fury/Editor/Editor.h"
+#include "Fury/Editor/EditorRenderJobs.h"
 
 #include "Fury/Camera.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/FramePacket.h"
 #include "Fury/Joint.h"
-#include "Fury/GLLoader.h"
 #include "Fury/InputUtil.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Log.h"
 #include "Fury/Matrix4.h"
 #include "Fury/Mesh.h"
@@ -65,7 +67,7 @@ namespace fury
 				std::atomic<std::uint64_t>  g_PickResultSeq{ 0 };
 				std::uint64_t               g_ConsumedSeq = 0;
 
-				GLuint                 g_PickFBO   = 0;
+				RHIRenderTargetSetRef g_PickSet;
 				std::shared_ptr<Texture> g_PickColor; // R32UI
 				std::shared_ptr<Texture> g_PickDepth; // DEPTH24
 				int                    g_PickW = 0;
@@ -133,20 +135,16 @@ namespace fury
 				}
 
 				// Lazily allocate or resize the offscreen R32UI / DEPTH24
-				// FBO. The Texture::CreateEmpty path takes care of the GL
+				// target set. The Texture::CreateEmpty path takes care of the
 				// internalformat mapping (R32UI -> GL_R32UI etc.).
-				bool EnsureFBO(int w, int h)
+				bool EnsureTargetSet(int w, int h)
 				{
 					if (w <= 0 || h <= 0) return false;
 
-					if (g_PickFBO != 0 && w == g_PickW && h == g_PickH)
+					if (g_PickSet != nullptr && w == g_PickW && h == g_PickH)
 						return true;
 
-					if (g_PickFBO != 0)
-					{
-						glDeleteFramebuffers(1, &g_PickFBO);
-						g_PickFBO = 0;
-					}
+					g_PickSet = nullptr;
 					g_PickColor.reset();
 					g_PickDepth.reset();
 
@@ -158,28 +156,23 @@ namespace fury
 					g_PickDepth->SetFilterMode(FilterMode::NEAREST);
 					g_PickDepth->CreateEmpty(w, h, 0, TextureFormat::DEPTH24, TextureType::TEXTURE_2D, false);
 
-					glGenFramebuffers(1, &g_PickFBO);
-					glBindFramebuffer(GL_FRAMEBUFFER, g_PickFBO);
-					glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-						GL_TEXTURE_2D, g_PickColor->GetID(), 0);
-					glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-						GL_TEXTURE_2D, g_PickDepth->GetID(), 0);
-					GLenum drawBufs[1] = { GL_COLOR_ATTACHMENT0 };
-					glDrawBuffers(1, drawBufs);
-
-					GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-					if (status != GL_FRAMEBUFFER_COMPLETE)
+					RHIRenderTargetSetDesc desc;
+					RHIRenderTargetAttachment colorAt;
+					colorAt.Texture = g_PickColor->GetRHITexture();
+					desc.Colors.push_back(colorAt);
+					RHIRenderTargetAttachment depthAt;
+					depthAt.Texture = g_PickDepth->GetRHITexture();
+					desc.Depth = depthAt;
+					desc.HasDepth = true;
+					g_PickSet = GRHIDevice->CreateRenderTargetSet(desc);
+					if (g_PickSet == nullptr)
 					{
-						FURYE << "EditorPicking FBO incomplete, status=0x" << std::hex << status;
-						glBindFramebuffer(GL_FRAMEBUFFER, 0);
-						glDeleteFramebuffers(1, &g_PickFBO);
-						g_PickFBO = 0;
+						FURYE << "EditorPicking target set incomplete";
 						g_PickColor.reset();
 						g_PickDepth.reset();
 						return false;
 					}
 
-					glBindFramebuffer(GL_FRAMEBUFFER, 0);
 					g_PickW = w;
 					g_PickH = h;
 					return true;
@@ -219,32 +212,23 @@ namespace fury
 				void ExecuteIdPass(const IdPassRequest &req)
 				{
 					EnsureShaders();
-					if (!EnsureFBO(req.w, req.h))
+					if (!EnsureTargetSet(req.w, req.h))
 					{
 						g_PickResultId.store(0);
 						++g_PickResultSeq;
 						return;
 					}
 
-					// Snapshot existing GL state so we don't disturb the
-					// frame in flight more than necessary.
-					GLint prev_fbo = 0;
-					glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-					GLint prev_viewport[4] = { 0, 0, 0, 0 };
-					glGetIntegerv(GL_VIEWPORT, prev_viewport);
+					auto *cmd = GRHIDevice->GetCommandList();
 
-					glBindFramebuffer(GL_FRAMEBUFFER, g_PickFBO);
-					glViewport(0, 0, g_PickW, g_PickH);
+					// The previous target + viewport return via PopRenderTarget
+					// so we don't disturb the frame in flight more than necessary.
+					cmd->PushRenderTarget();
+					cmd->BeginRenderTargets(g_PickSet, ClearMode::DEPTH, Color(0, 0, 0, 0));
+					// 0 is the "no hit" sentinel.
+					cmd->ClearColorUInt(0);
 
-					// 0 is the "no hit" sentinel. R32UI uses glClearBufferuiv.
-					const GLuint clear_id[4] = { 0, 0, 0, 0 };
-					glClearBufferuiv(GL_COLOR, 0, clear_id);
-					glClear(GL_DEPTH_BUFFER_BIT);
-
-					glEnable(GL_DEPTH_TEST);
-					glDepthFunc(GL_LESS);
-					glDisable(GL_BLEND);
-					glDisable(GL_CULL_FACE);
+					cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 
 					for (const auto &unit : req.units)
 					{
@@ -274,29 +258,23 @@ namespace fury
 							{
 								auto sub = mesh->GetSubMeshAt(s);
 								shader->BindSubMesh(mesh, s);
-								glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sub->Indices.Data.size()),
-									GL_UNSIGNED_INT, 0);
+								cmd->DrawIndexed(static_cast<unsigned int>(sub->Indices.Data.size()));
 							}
 						}
 						else
 						{
-							glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()),
-								GL_UNSIGNED_INT, 0);
+							cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 						}
 
 						shader->UnBind();
 					}
 
-					// Readback in the same job: the FBO holds this frame's
+					// Readback in the same job: the target holds this frame's
 					// id pass right here.
-					GLuint id = 0;
-					glBindFramebuffer(GL_READ_FRAMEBUFFER, g_PickFBO);
-					glReadBuffer(GL_COLOR_ATTACHMENT0);
-					glReadPixels(req.readX, req.readY, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &id);
+					unsigned int id = 0;
+					GRHIDevice->ReadbackPixelUInt(g_PickColor->GetRHITexture(), req.readX, req.readY, id);
 
-					glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
-					glViewport(prev_viewport[0], prev_viewport[1],
-						prev_viewport[2], prev_viewport[3]);
+					cmd->PopRenderTarget();
 
 					g_PickResultId.store(id);
 					++g_PickResultSeq;
@@ -460,6 +438,7 @@ namespace fury
 		{
 			Picking::TickPostRender();
 			DrawSelectionOverlay();
+			FlushOverlayJobs();
 		}
 	}
 }

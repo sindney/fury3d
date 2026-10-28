@@ -39,6 +39,11 @@ namespace fury
 		// (resolve via RenderThread: CLI > env > this > ini > default ON).
 		int render_thread = -1;
 
+		// RHI backend from the Lua options table ("" = unset). Resolution
+		// order in RHI::ResolveBackend: CLI > FURY_RHI env > this > editor
+		// ini > default opengl.
+		std::string rhi;
+
 		// Screenshot capture (debug). When `screenshot_path` is non-empty,
 		// the engine reads the back-buffer after frame `screenshot_frame`,
 		// writes a PNG to disk, and stops the main loop. `exit_code_out`
@@ -52,6 +57,12 @@ namespace fury
 		int series_count = 0;
 		int series_interval = 0;
 		int *exit_code_out = nullptr;
+
+		// GPU frame dump (debug). When `gpu_dump_dir` is non-empty, the engine
+		// writes render-target readbacks + a render-graph JSON for frame
+		// `gpu_dump_frame` after that frame's Present, then stops the loop.
+		std::string gpu_dump_dir;
+		int gpu_dump_frame = 2;
 	};
 
 	class FURY_API Engine
@@ -61,6 +72,14 @@ namespace fury
 		static bool Initialize(sf::Window &window, int numThreads,
 			LogLevel level = LogLevel::EROR, const char* logfile = nullptr,
 			bool console = true, const LogFormatter &formatter = Formatter::Simple, bool append = false);
+
+		// Creates the RHI device (resolution chain in RHI::ResolveBackend),
+		// runs the backend probe with OpenGL fallback, and builds the
+		// device-dependent fallback textures. Engine::Run calls this before
+		// OnInit; headless capture paths (render-mesh / gui shot) call it
+		// directly with the CLI source forced to opengl. No-op once a device
+		// exists. luaRhi: EngineOptions::rhi ("" = unset).
+		static bool InitGraphics(sf::Window &window, const std::string &luaRhi);
 
 		static void HandleEvent(sf::Event &event, sf::Window &window);
 

@@ -1,6 +1,5 @@
 #include "Fury/Camera.h"
 #include "Fury/Log.h"
-#include "Fury/GLLoader.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Joint.h"
@@ -9,11 +8,16 @@
 #include "Fury/Mesh.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
+#include "Fury/ShaderCache.h"
 
 #include "Fury/FramePacket.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
+
+#include "Fury/RHI/RHICommandList.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/OpenGL/GLInputAssembler.h"
 
 #include <algorithm>
 #include <sstream>
@@ -90,6 +94,19 @@ namespace fury
 			}
 			return true;
 		}
+
+		RHICommandList *Cmd()
+		{
+			return GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
+		}
+
+		RHIShaderBlob MakeSourceBlob(const std::string &source)
+		{
+			RHIShaderBlob blob;
+			blob.Data.assign(source.begin(), source.end());
+			blob.IsSource = true;
+			return blob;
+		}
 	}
 
 	Shader::Ptr Shader::Create(const std::string &name, ShaderType type, unsigned int textureFlags)
@@ -124,7 +141,7 @@ namespace fury
 		m_Type = ShaderType::OTHER;
 		if (LoadMemberValue(wrapper, "type", str))
 			m_Type = EnumUtil::ShaderTypeFromString(str);
-		
+
 		// read shader texture flags
 
 		std::vector<ShaderTexture> textures;
@@ -210,11 +227,6 @@ namespace fury
 			EndObject(wrapper);
 	}
 
-	unsigned int Shader::GetProgram() const
-	{
-		return m_Program;
-	}
-
 	bool Shader::GetDirty() const
 	{
 		return m_Dirty;
@@ -252,12 +264,12 @@ namespace fury
 			// Deferred compile: report success optimistically; failure
 			// surfaces as a missing program on first bind (same as a
 			// compile error today) plus the error log from the GL thread.
-			DispatchGL(this, [this, shaderPath, useGeomShader]() {
+			DispatchRHI(this, [this, shaderPath, useGeomShader]() {
 				LoadAndCompile(shaderPath, useGeomShader);
 			});
 			return true;
 		}
-		FURY_GL_THREAD_GUARD();
+		FURY_RHI_THREAD_GUARD();
 		m_UseGeomShader = useGeomShader;
 
 		std::string dataStr;
@@ -291,179 +303,39 @@ namespace fury
 
 		m_UseGeomShader = gsData.size() > 0;
 
-		std::stringstream defineStream;
-		// Mirror the C++ build flag as a GLSL preprocessor define so
-		// editor-only shader code (#if WITH_EDITOR) is compiled in
-		// only for editor builds. Headless builds skip the branches,
-		// which keeps the runtime shader the same as the production
-		// one -- no dead uniform lookups, no driver divergence.
 #if WITH_EDITOR
-		defineStream << "#define WITH_EDITOR\n";
+		constexpr bool withEditor = true;
+#else
+		constexpr bool withEditor = false;
 #endif
-		// Visual debug overlays (LOD tier tint, ...) survive in headless
-		// builds; stripped only in FURY_BUILD_SHIPPING flavor builds.
 #if WITH_DBG_OVERLAY
-		defineStream << "#define WITH_DBG_OVERLAY\n";
+		constexpr bool withDebugOverlay = true;
+#else
+		constexpr bool withDebugOverlay = false;
 #endif
-		for (auto define : m_Defines)
-			defineStream << "#define " << define << "\n";
+		const std::string vsSource = BuildShaderStageSource(vsData, "VERTEX_SHADER", m_Defines,
+			withEditor, withDebugOverlay);
+		const std::string fsSource = BuildShaderStageSource(fsData, "FRAGMENT_SHADER", m_Defines,
+			withEditor, withDebugOverlay);
+		const std::string gsSource = m_UseGeomShader
+			? BuildShaderStageSource(gsData, "GEOMETRY_SHADER", m_Defines, withEditor, withDebugOverlay)
+			: std::string{};
 
-		std::string defines = defineStream.str();
-		defineStream.clear();
-
-		std::string vsVersion, vsMain;
-		GetVersionInfo(vsData, vsVersion, vsMain);
-		// SSBO `layout(std430, binding = N) buffer` syntax requires GLSL 4.30.
-		// Shader files are written as #version 330; the divisor-VBO fallback
-		// path needs the file's own version to keep working on a 3.3 context.
-		if (std::find(m_Defines.begin(), m_Defines.end(), std::string("INSTANCE_SSBO")) != m_Defines.end())
-			vsVersion = "#version 430 core\n";
-		vsVersion += "\n#define VERTEX_SHADER\n";
-
-		char logbuffer[1024];
-		int logbufferLen;
-
-		// compile vertex shader
-		unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-		if (vertexShader != 0)
+		if (GRHIDevice)
 		{
-			const char *sources[3] = { vsVersion.c_str(), defines.c_str(), vsMain.c_str() };
-			const int counts[3] = { (int)vsVersion.size(), (int)defines.size(), (int)vsMain.size() };
-			glShaderSource(vertexShader, 3, sources, counts);
-			glCompileShader(vertexShader);
-
-			GLint status;
-			glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &status);
-			if (status != GL_TRUE)
-			{
-				glGetShaderInfoLog(vertexShader, sizeof(logbuffer), &logbufferLen, logbuffer);
-				FURYE << m_Name << "'s vertex shader compile failed!";
-				FURYE << std::string(logbuffer, logbufferLen);
-
-				vertexShader = 0;
-				return false;
-			}
-		}
-		else
-		{
-			FURYE << "Failed to create vertex shader context!";
-			return false;
+			m_Module = GRHIDevice->CreateShaderModule(m_Name,
+				MakeSourceBlob(vsSource), MakeSourceBlob(fsSource), MakeSourceBlob(gsSource));
 		}
 
-		std::string fsVersion, fsMain;
-		GetVersionInfo(fsData, fsVersion, fsMain);
-		if (std::find(m_Defines.begin(), m_Defines.end(), std::string("INSTANCE_SSBO")) != m_Defines.end())
-			fsVersion = "#version 430 core\n";
-		fsVersion += "\n#define FRAGMENT_SHADER\n";
-
-		// compile fragment shader
-		unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-		if (fragmentShader != 0)
-		{
-			const char *sources[3] = { fsVersion.c_str(), defines.c_str(), fsMain.c_str() };
-			const int counts[3] = { (int)fsVersion.size(), (int)defines.size(), (int)fsMain.size() };
-			glShaderSource(fragmentShader, 3, sources, counts);
-			glCompileShader(fragmentShader);
-
-			GLint status;
-			glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &status);
-			if (status != GL_TRUE)
-			{
-				glGetShaderInfoLog(fragmentShader, sizeof(logbuffer), &logbufferLen, logbuffer);
-				FURYE << m_Name << "'s fragment compile failed!";
-				FURYE << std::string(logbuffer, logbufferLen);
-
-				glDeleteShader(vertexShader);
-				vertexShader = fragmentShader = 0;
-				return false;
-			}
-		}
-		else
-		{
-			FURYE << "Failed to create fragment shader context!";
-			return false;
-		}
-
-		// compile geometry shader
-		unsigned int geometryShader = 0;
-		if (m_UseGeomShader)
-		{
-			std::string gsVersion, gsMain;
-			GetVersionInfo(gsData, gsVersion, gsMain);
-			gsVersion += "\n#define GEOMETRY_SHADER\n";
-
-			geometryShader = glCreateShader(GL_GEOMETRY_SHADER);
-			const char *sources[3] = { gsVersion.c_str(), defines.c_str(), gsMain.c_str() };
-			const int counts[3] = { (int)gsVersion.size(), (int)defines.size(), (int)gsMain.size() };
-			glShaderSource(geometryShader, 3, sources, counts);
-			glCompileShader(geometryShader);
-
-			GLint status;
-			glGetShaderiv(geometryShader, GL_COMPILE_STATUS, &status);
-			if (status != GL_TRUE)
-			{
-				glGetShaderInfoLog(geometryShader, sizeof(logbuffer), &logbufferLen, logbuffer);
-				FURYE << m_Name << "'s geometry compile failed!";
-				FURYE << std::string(logbuffer, logbufferLen);
-
-				glDeleteShader(vertexShader);
-				glDeleteShader(fragmentShader);
-				vertexShader = fragmentShader = geometryShader = 0;
-				return false;
-			}
-		}
-
-		// link to program
-		m_Program = glCreateProgram();
-		if (m_Program != 0)
-		{
-			glAttachShader(m_Program, vertexShader);
-			glAttachShader(m_Program, fragmentShader);
-			if (m_UseGeomShader)
-				glAttachShader(m_Program, geometryShader);
-
-			glLinkProgram(m_Program);
-
-			glDetachShader(m_Program, vertexShader);
-			glDetachShader(m_Program, fragmentShader);
-			glDeleteShader(vertexShader);
-			glDeleteShader(fragmentShader);
-
-			if (m_UseGeomShader)
-			{
-				glDetachShader(m_Program, geometryShader);
-				glDeleteShader(geometryShader);
-			}
-
-			GLint status;
-			glGetProgramiv(m_Program, GL_LINK_STATUS, &status);
-			if (status != GL_TRUE)
-			{
-				glGetProgramInfoLog(m_Program, sizeof(logbuffer), &logbufferLen, logbuffer);
-				FURYE << m_Name << " link failed!";
-				FURYE << std::string(logbuffer, logbufferLen);
-				
-				glDeleteProgram(m_Program);
-				m_Program = fragmentShader = vertexShader = geometryShader = 0;
-				return false;
-			}
-		}
-		else
-		{
-			FURYE << "Failed to create shader program context!";
-			return false;
-		}
-		
-		m_Dirty = false;
-		FURYD << m_Name << " compile & link success!";
-		return true;
+		m_Dirty = m_Module == nullptr || !m_Module->IsValid();
+		return !m_Dirty;
 	}
 
 	bool Shader::LoadAndCompileCompute(const std::string &shaderPath)
 	{
 		if (!RenderThread::Get().MayUseGL())
 		{
-			DispatchGL(this, [this, shaderPath]() {
+			DispatchRHI(this, [this, shaderPath]() {
 				LoadAndCompileCompute(shaderPath);
 			});
 			return true;
@@ -512,59 +384,12 @@ namespace fury
 			version = "#version 430 core\n"; // compute needs 4.3; default 330 won't do
 
 		std::string src = version + "\n#define COMPUTE_SHADER\n" + defineStream.str() + mainStr;
-		const char* srcPtr = src.c_str();
 
-		char logbuffer[1024];
-		int logbufferLen;
+		if (GRHIDevice)
+			m_Module = GRHIDevice->CreateComputeModule(m_Name, MakeSourceBlob(src));
 
-		unsigned int computeShader = glCreateShader(GL_COMPUTE_SHADER);
-		if (computeShader == 0)
-		{
-			FURYE << m_Name << " glCreateShader(GL_COMPUTE_SHADER) failed (compute unsupported?)";
-			return false;
-		}
-
-		glShaderSource(computeShader, 1, &srcPtr, nullptr);
-		glCompileShader(computeShader);
-
-		GLint status;
-		glGetShaderiv(computeShader, GL_COMPILE_STATUS, &status);
-		if (status != GL_TRUE)
-		{
-			glGetShaderInfoLog(computeShader, sizeof(logbuffer), &logbufferLen, logbuffer);
-			FURYE << m_Name << "'s compute compile failed!";
-			FURYE << std::string(logbuffer, logbufferLen);
-			glDeleteShader(computeShader);
-			return false;
-		}
-
-		m_Program = glCreateProgram();
-		if (m_Program == 0)
-		{
-			FURYE << "Failed to create shader program context!";
-			glDeleteShader(computeShader);
-			return false;
-		}
-
-		glAttachShader(m_Program, computeShader);
-		glLinkProgram(m_Program);
-		glDetachShader(m_Program, computeShader);
-		glDeleteShader(computeShader);
-
-		glGetProgramiv(m_Program, GL_LINK_STATUS, &status);
-		if (status != GL_TRUE)
-		{
-			glGetProgramInfoLog(m_Program, sizeof(logbuffer), &logbufferLen, logbuffer);
-			FURYE << m_Name << " link failed!";
-			FURYE << std::string(logbuffer, logbufferLen);
-			glDeleteProgram(m_Program);
-			m_Program = 0;
-			return false;
-		}
-
-		m_Dirty = false;
-		FURYD << m_Name << " compute compile & link success!";
-		return true;
+		m_Dirty = m_Module == nullptr || !m_Module->IsValid();
+		return !m_Dirty;
 	}
 
 	void Shader::DispatchCompute(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)
@@ -574,33 +399,28 @@ namespace fury
 			FURYW << "DispatchCompute on dirty shader " << m_Name;
 			return;
 		}
-		if (glDispatchCompute == nullptr)
-		{
-			FURYW << "DispatchCompute: compute entry points missing";
-			return;
-		}
 
-		glUseProgram(m_Program);
-		glDispatchCompute(groupsX, groupsY, groupsZ);
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
+		cmd->BindShaderModule(m_Module);
+		cmd->Dispatch(groupsX, groupsY, groupsZ);
 	}
 
 	void Shader::ComputeBarrier()
 	{
-		if (glMemoryBarrier == nullptr)
-			return;
-		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
-			| GL_TEXTURE_FETCH_BARRIER_BIT
-			| GL_SHADER_STORAGE_BARRIER_BIT
-			| GL_TEXTURE_UPDATE_BARRIER_BIT);
+		if (GRHIDevice)
+			GRHIDevice->GetCommandList()->Barrier();
 	}
 
 	void Shader::DeleteProgram()
 	{
-		if (m_Program != 0)
+		if (m_Module != nullptr)
 		{
-			unsigned int program = m_Program;
-			RenderThread::Get().EnqueueJob([program]() { glDeleteProgram(program); });
-			m_Program = 0;
+			RHIShaderModuleRef module = std::move(m_Module);
+			m_Module.reset();
+			RenderThread::Get().EnqueueJob([module]() mutable { module.reset(); });
 		}
 
 		m_Dirty = true;
@@ -614,8 +434,9 @@ namespace fury
 			return;
 		}
 
-		glUseProgram(m_Program);
-		m_TextureID = GL_TEXTURE0;
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->BindShaderModule(m_Module);
 	}
 
 	void Shader::BindCamera(const std::shared_ptr<SceneNode> &camNode)
@@ -678,14 +499,9 @@ namespace fury
 
 	void Shader::BindTexture(const std::shared_ptr<Texture> &texture)
 	{
-		glActiveTexture(m_TextureID);
-		glBindTexture(texture->GetTypeUint(), texture->GetID());
-	}
-
-	void Shader::BindTexture(size_t textureId, TextureType type)
-	{
-		glActiveTexture(m_TextureID);
-		glBindTexture(EnumUtil::TextureTypeToUnit(type), static_cast<GLuint>(textureId));
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->BindTextureUnit(texture ? texture->GetRHITexture() : nullptr);
 	}
 
 	void Shader::BindTexture(const std::string &name, const std::shared_ptr<Texture> &texture)
@@ -698,30 +514,9 @@ namespace fury
 			return;
 		}
 
-		int id = GetUniformLocation(name);
-
-		if (id != -1)
-		{
-			glActiveTexture(m_TextureID);
-			glBindTexture(texture->GetTypeUint(), texture->GetID());
-			glUniform1i(id, m_TextureID - GL_TEXTURE0);
-
-			m_TextureID++;
-		}
-	}
-
-	void Shader::BindTexture(const std::string &name, size_t textureId, TextureType type)
-	{
-		int id = GetUniformLocation(name);
-
-		if (id != -1)
-		{
-			glActiveTexture(m_TextureID);
-			glBindTexture(EnumUtil::TextureTypeToUnit(type), static_cast<GLuint>(textureId));
-			glUniform1i(id, static_cast<GLint>(m_TextureID - GL_TEXTURE0));
-
-			m_TextureID++;
-		}
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetTexture(name, texture->GetRHITexture());
 	}
 
 	void Shader::BindMaterial(const std::shared_ptr<Material> &material)
@@ -738,7 +533,7 @@ namespace fury
 		{
 			UniformBase::Ptr &ptr = it->second;
 			if (ptr != nullptr)
-				ptr->Bind(m_Program, it->first.c_str());
+				ptr->Bind(it->first);
 		}
 	}
 
@@ -749,194 +544,101 @@ namespace fury
 
 	void Shader::BindMeshData(const std::shared_ptr<Mesh> &mesh, const Matrix4 *palette, int paletteCount)
 	{
-		int posFlag = glGetAttribLocation(m_Program, mesh->Positions.Name.c_str());
-		int normalFlag = glGetAttribLocation(m_Program, mesh->Normals.Name.c_str());
-		int tangentFlag = glGetAttribLocation(m_Program, mesh->Tangents.Name.c_str());
-		int uvFlag = glGetAttribLocation(m_Program, mesh->UVs.Name.c_str());
-		int colorFlag = glGetAttribLocation(m_Program, mesh->Colors.Name.c_str());
-
-		glBindVertexArray(mesh->m_VAO);
-
-		// A channel whose Data is empty is "clean" (nothing to upload) but
-		// has buffer ID 0. Binding buffer 0 + glVertexAttribPointer(..., 0)
-		// sources the attribute from CLIENT address 0 -- core GL raises
-		// GL_INVALID_OPERATION (macOS: draw silently skipped), while the
-		// Windows NVIDIA driver dereferences the null client pointer inside
-		// glDrawElements (nvoglv64 worker-thread AV). Guard on GetID() and
-		// fall back to a disabled (constant) attribute for empty channels.
-		if (posFlag != -1)
+		auto module = m_Module;
+		if (module == nullptr)
 		{
-			if (!mesh->Positions.GetDirty() && mesh->Positions.GetID() != 0)
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, mesh->Positions.GetID());
-				glVertexAttribPointer(posFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(posFlag);
-			}
-			else if (mesh->Positions.Data.empty())
-			{
-				glDisableVertexAttribArray(posFlag);
-			}
-			else
-			{
-				FURYW << "Mesh " + mesh->GetName() + " Position data dirty!";
-			}
-		}
-		if (normalFlag != -1)
-		{
-			if (!mesh->Normals.GetDirty() && mesh->Normals.GetID() != 0)
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, mesh->Normals.GetID());
-				glVertexAttribPointer(normalFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(normalFlag);
-			}
-			else if (mesh->Normals.Data.empty())
-			{
-				glDisableVertexAttribArray(normalFlag);
-			}
-			else
-			{
-				FURYW << "Mesh " + mesh->GetName() + " Normal data dirty!";
-			}
-		}
-		if (tangentFlag != -1)
-		{
-			if (!mesh->Tangents.GetDirty() && mesh->Tangents.GetID() != 0)
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, mesh->Tangents.GetID());
-				glVertexAttribPointer(tangentFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(tangentFlag);
-			}
-			else if (mesh->Tangents.Data.empty())
-			{
-				glDisableVertexAttribArray(tangentFlag);
-			}
-			else
-			{
-				FURYW << "Mesh" + mesh->GetName() + " Tangent data dirty!";
-			}
-		}
-		if (uvFlag != -1)
-		{
-			if (!mesh->UVs.GetDirty() && mesh->UVs.GetID() != 0)
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, mesh->UVs.GetID());
-				glVertexAttribPointer(uvFlag, 2, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(uvFlag);
-			}
-			else if (mesh->UVs.Data.empty())
-			{
-				glDisableVertexAttribArray(uvFlag);
-			}
-			else
-			{
-				FURYW << "Mesh " + mesh->GetName() + " UV data dirty!";
-			}
-		}
-		if (colorFlag != -1)
-		{
-			if (!mesh->Colors.GetDirty() && mesh->Colors.GetID() != 0)
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, mesh->Colors.GetID());
-				glVertexAttribPointer(colorFlag, 4, GL_FLOAT, GL_FALSE, 0, 0);
-				glEnableVertexAttribArray(colorFlag);
-			}
-			else if (mesh->Colors.Data.empty())
-			{
-				glDisableVertexAttribArray(colorFlag);
-			}
-			else
-			{
-				FURYW << "Mesh " + mesh->GetName() + " Color data dirty!";
-			}
+			fprintf(stderr, "BindMeshData '%s': module null (dirty=%d)\n", m_Name.c_str(), (int)m_Dirty);
+			return;
 		}
 
+		RHIMeshGeometryDesc desc;
+		std::string meshName = mesh->GetName();
+		desc.MeshName = meshName.c_str();
+
+		int channel = 0;
+		auto addChannel = [&desc, &channel](const std::string &name, int attrib,
+			const RHIBufferRef &buffer, bool dirty, bool empty, int components, bool integer)
+		{
+			auto &ch = desc.Channels[channel++];
+			ch.Name = name.c_str();
+			ch.Attrib = attrib;
+			ch.Buffer = buffer;
+			ch.Dirty = dirty;
+			ch.Empty = empty;
+			ch.Components = components;
+			ch.Integer = integer;
+		};
+
+		addChannel(mesh->Positions.Name, module->ResolveAttribLocation(mesh->Positions.Name),
+			mesh->Positions.GetRHIBuffer(), mesh->Positions.GetDirty(),
+			mesh->Positions.Data.empty(), 3, false);
+		addChannel(mesh->Normals.Name, module->ResolveAttribLocation(mesh->Normals.Name),
+			mesh->Normals.GetRHIBuffer(), mesh->Normals.GetDirty(),
+			mesh->Normals.Data.empty(), 3, false);
+		addChannel(mesh->Tangents.Name, module->ResolveAttribLocation(mesh->Tangents.Name),
+			mesh->Tangents.GetRHIBuffer(), mesh->Tangents.GetDirty(),
+			mesh->Tangents.Data.empty(), 3, false);
+		addChannel(mesh->UVs.Name, module->ResolveAttribLocation(mesh->UVs.Name),
+			mesh->UVs.GetRHIBuffer(), mesh->UVs.GetDirty(),
+			mesh->UVs.Data.empty(), 2, false);
+		addChannel(mesh->Colors.Name, module->ResolveAttribLocation(mesh->Colors.Name),
+			mesh->Colors.GetRHIBuffer(), mesh->Colors.GetDirty(),
+			mesh->Colors.Data.empty(), 4, false);
+
+		int idAttrib = -1;
+		int weightAttrib = -1;
 		if (mesh->IsSkinnedMesh())
 		{
-			int idFlag = glGetAttribLocation(m_Program, mesh->IDs.Name.c_str());
-			int weightFlag = glGetAttribLocation(m_Program, mesh->Weights.Name.c_str());
+			idAttrib = module->ResolveAttribLocation(mesh->IDs.Name);
+			weightAttrib = module->ResolveAttribLocation(mesh->Weights.Name);
 
-			if (idFlag != -1)
+			addChannel(mesh->IDs.Name, idAttrib,
+				mesh->IDs.GetRHIBuffer(), mesh->IDs.GetDirty(),
+				mesh->IDs.Data.empty(), 4, true);
+			addChannel(mesh->Weights.Name, weightAttrib,
+				mesh->Weights.GetRHIBuffer(), mesh->Weights.GetDirty(),
+				mesh->Weights.Data.empty(), 3, false);
+		}
+
+		desc.ChannelCount = channel;
+
+		GRHIDevice->GetCommandList()->SetMeshGeometry(desc);
+
+		if (mesh->IsSkinnedMesh() && idAttrib != -1 && weightAttrib != -1)
+		{
+			int jointCount = (int)mesh->GetJointCount();
+			if (jointCount > 35)
 			{
-				if (!mesh->IDs.GetDirty() && mesh->IDs.GetID() != 0)
-				{
-					glBindBuffer(GL_ARRAY_BUFFER, mesh->IDs.GetID());
-					glVertexAttribIPointer(idFlag, 4, GL_UNSIGNED_INT, 0, 0);
-					glEnableVertexAttribArray(idFlag);
-				}
-				else if (mesh->IDs.Data.empty())
-				{
-					glDisableVertexAttribArray(idFlag);
-				}
-				else
-				{
-					FURYW << "Mesh " + mesh->GetName() + " ID data dirty!";
-				}
+				FURYW << "Max joint count 35!";
+				jointCount = 35;
+			}
+
+			if (palette != nullptr && paletteCount > 0)
+			{
+				// Render-thread path: copied palette from the packet.
+				BindMatrices("bone_matrices",
+					std::min(jointCount, paletteCount), (const float*)palette);
 			}
 			else
 			{
-				FURYW << "Can't find " << mesh->IDs.Name << " in " << m_Name;
-			}
+				std::vector<float> raw(jointCount * 16);
 
-			if (weightFlag != -1)
-			{
-				if (!mesh->Weights.GetDirty() && mesh->Weights.GetID() != 0)
+				for (int i = 0; i < jointCount; i++)
 				{
-					glBindBuffer(GL_ARRAY_BUFFER, mesh->Weights.GetID());
-					glVertexAttribPointer(weightFlag, 3, GL_FLOAT, GL_FALSE, 0, 0);
-					glEnableVertexAttribArray(weightFlag);
-				}
-				else if (mesh->Weights.Data.empty())
-				{
-					glDisableVertexAttribArray(weightFlag);
-				}
-				else
-				{
-					FURYW << "Mesh " + mesh->GetName() + " Weight data dirty!";
-				}
-			}
-			else
-			{
-				FURYW << "Can't find " << mesh->Weights.Name << " in " << m_Name;
-			}
-
-			if (idFlag != -1 && weightFlag != -1)
-			{
-				int jointCount = (int)mesh->GetJointCount();
-				if (jointCount > 35)
-				{
-					FURYW << "Max joint count 35!";
-					jointCount = 35;
-				}
-
-				if (palette != nullptr && paletteCount > 0)
-				{
-					// Render-thread path: copied palette from the packet.
-					BindMatrices("bone_matrices",
-						std::min(jointCount, paletteCount), (const float*)palette);
-				}
-				else
-				{
-					std::vector<float> raw(jointCount * 16);
-
-					for (int i = 0; i < jointCount; i++)
-					{
 					auto joint = mesh->GetJointAt(i);
 					// Picking can run mid-reimport when a joint slot is null -- use identity.
 					Matrix4 matrix = joint ? joint->GetFinalMatrix() : Matrix4();
-						int index = i * 16;
+					int index = i * 16;
 
-						for (int j = 0; j < 16; j++)
-						{
-							raw[index + j] = matrix.Raw[j];
-						}
+					for (int j = 0; j < 16; j++)
+					{
+						raw[index + j] = matrix.Raw[j];
 					}
-
-					BindMatrices("bone_matrices", jointCount, &raw[0]);
 				}
+
+				BindMatrices("bone_matrices", jointCount, &raw[0]);
 			}
 		}
-		
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
 	void Shader::BindMesh(const std::shared_ptr<Mesh> &mesh, const Matrix4 *palette, int paletteCount)
@@ -951,7 +653,9 @@ namespace fury
 
 		BindMeshData(mesh, palette, paletteCount);
 
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->Indices.GetID());
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetIndexBuffer(mesh->Indices.GetRHIBuffer());
 	}
 
 	void Shader::BindMesh(const std::shared_ptr<Mesh> &mesh)
@@ -970,7 +674,9 @@ namespace fury
 
 		BindMeshData(mesh);
 
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->Indices.GetID());
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetIndexBuffer(mesh->Indices.GetRHIBuffer());
 	}
 
 	void Shader::BindSubMesh(const std::shared_ptr<Mesh> &mesh, unsigned int index)
@@ -994,7 +700,9 @@ namespace fury
 			(parent_indices_relevant && mesh->Indices.GetDirty()))
 			return;
 
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, subMesh->Indices.GetID());
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetIndexBuffer(subMesh->Indices.GetRHIBuffer());
 	}
 
 	void Shader::BindMatrix(const std::string &name, const Matrix4 &matrix)
@@ -1004,16 +712,16 @@ namespace fury
 
 	void Shader::BindMatrix(const std::string &name, const float *raw)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniformMatrix4fv(id, 1, false, raw);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformMatrix(name, raw);
 	}
 
 	void Shader::BindMatrices(const std::string &name, int count, const float *raw)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniformMatrix4fv(id, count, false, raw);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformMatrices(name, count, raw);
 	}
 
 	void Shader::BindMatrices(const std::string &name, const int count, const Matrix4 *matrices)
@@ -1026,236 +734,186 @@ namespace fury
 				raw[i * 16 + j] = matrix.Raw[j];
 		}
 
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniformMatrix4fv(id, count, false, &raw[0]);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformMatrices(name, count, &raw[0]);
 	}
 
 	void Shader::BindFloat(const std::string &name, float v0)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform1f(id, v0);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloat(name, v0);
 	}
 
 	void Shader::BindFloat(const std::string &name, float v0, float v1)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform2f(id, v0, v1);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloat(name, v0, v1);
 	}
 
 	void Shader::BindFloat(const std::string &name, float v0, float v1, float v2)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform3f(id, v0, v1, v2);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloat(name, v0, v1, v2);
 	}
 
 	void Shader::BindFloat(const std::string &name, float v0, float v1, float v2, float v3)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform4f(id, v0, v1, v2, v3);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloat(name, v0, v1, v2, v3);
 	}
 
 	void Shader::BindFloat(const std::string &name, int size, int count, const float *value)
 	{
-		int id = GetUniformLocation(name);
-		if (id == -1) return;
-
-		switch (size)
-		{
-		case 1:
-			glUniform1fv(id, count, value);
-			break;
-		case 2:
-			glUniform2fv(id, count, value);
-			break;
-		case 3:
-			glUniform3fv(id, count, value);
-			break;
-		case 4:
-			glUniform4fv(id, count, value);
-			break;
-		default:
-			FURYW << "Incorrect unfirom size!";
-			break;
-		}
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloatArray(name, size, count, value);
 	}
 
 	void Shader::BindInt(const std::string &name, int v0)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform1i(id, v0);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformInt(name, v0);
 	}
 
 	void Shader::BindInt(const std::string &name, int v0, int v1)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform2i(id, v0, v1);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformInt(name, v0, v1);
 	}
 
 	void Shader::BindInt(const std::string &name, int v0, int v1, int v2)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform3i(id, v0, v1, v2);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformInt(name, v0, v1, v2);
 	}
 
 	void Shader::BindInt(const std::string &name, int v0, int v1, int v2, int v3)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform4i(id, v0, v1, v2, v3);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformInt(name, v0, v1, v2, v3);
 	}
 
 	void Shader::BindInt(const std::string &name, int size, int count, const int *value)
 	{
-		int id = GetUniformLocation(name);
-		if (id == -1) return;
-
-		switch (size)
-		{
-		case 1:
-			glUniform1iv(id, count, value);
-			break;
-		case 2:
-			glUniform2iv(id, count, value);
-			break;
-		case 3:
-			glUniform3iv(id, count, value);
-			break;
-		case 4:
-			glUniform4iv(id, count, value);
-			break;
-		default:
-			FURYW << "Incorrect unfirom size!";
-			break;
-		}
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformIntArray(name, size, count, value);
 	}
 
 	void Shader::BindUInt(const std::string &name, unsigned int v0)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform1ui(id, v0);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformUInt(name, v0);
 	}
 
-	void Shader::BindUInt(const std::string &name, unsigned int v0, unsigned int v1)
+	void Shader::BindUInt(const std::string &name, unsigned int, unsigned int)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform2ui(id, v0, v1);
+		FURYW << "BindUInt multi-value variant is not supported by the RHI: " << name;
 	}
 
-	void Shader::BindUInt(const std::string &name, unsigned int v0, unsigned int v1, unsigned int v2)
+	void Shader::BindUInt(const std::string &name, unsigned int, unsigned int, unsigned int)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform3ui(id, v0, v1, v2);
+		FURYW << "BindUInt multi-value variant is not supported by the RHI: " << name;
 	}
 
-	void Shader::BindUInt(const std::string &name, unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3)
+	void Shader::BindUInt(const std::string &name, unsigned int, unsigned int, unsigned int, unsigned int)
 	{
-		int id = GetUniformLocation(name);
-		if (id != -1)
-			glUniform4ui(id, v0, v1, v2, v3);
+		FURYW << "BindUInt multi-value variant is not supported by the RHI: " << name;
 	}
 
-	void Shader::BindUInt(const std::string &name, int size, int count, const unsigned int *value)
+	void Shader::BindUInt(const std::string &name, int, int, const unsigned int *)
 	{
-		int id = GetUniformLocation(name);
-		if (id == -1) return;
-
-		switch (size)
-		{
-		case 1:
-			glUniform1uiv(id, count, value);
-			break;
-		case 2:
-			glUniform2uiv(id, count, value);
-			break;
-		case 3:
-			glUniform3uiv(id, count, value);
-			break;
-		case 4:
-			glUniform4uiv(id, count, value);
-			break;
-		default:
-			FURYW << "Incorrect unfirom size!";
-			break;
-		}
+		FURYW << "BindUInt array variant is not supported by the RHI: " << name;
 	}
 
 	void Shader::UnBind()
 	{
-		m_TextureID = GL_TEXTURE0;
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->BindShaderModule(nullptr);
 
-		glUseProgram(0);
-
-		glBindVertexArray(0);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+		GLUnbindGeometry();
 	}
 
 	void Shader::BindFloatLocation(int location, float x)
 	{
-		if (location != -1) glUniform1f(location, x);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloatAt(location, x);
 	}
 
 	void Shader::BindFloatLocation(int location, float x, float y)
 	{
-		if (location != -1) glUniform2f(location, x, y);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloatAt(location, x, y);
 	}
 
 	void Shader::BindFloatLocation(int location, float x, float y, float z)
 	{
-		if (location != -1) glUniform3f(location, x, y, z);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloatAt(location, x, y, z);
 	}
 
 	void Shader::BindFloatLocation(int location, float x, float y, float z, float w)
 	{
-		if (location != -1) glUniform4f(location, x, y, z, w);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformFloatAt(location, x, y, z, w);
 	}
 
 	void Shader::BindIntLocation(int location, int x)
 	{
-		if (location != -1) glUniform1i(location, x);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformIntAt(location, x);
 	}
 
 	void Shader::BindMatrixLocation(int location, const float *matrix)
 	{
-		if (location != -1) glUniformMatrix4fv(location, 1, GL_FALSE, matrix);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformMatrixAt(location, matrix);
 	}
 
 	void Shader::BindMatricesLocation(int location, int count, const float *matrices)
 	{
-		if (location != -1) glUniformMatrix4fv(location, count, GL_FALSE, matrices);
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetUniformMatricesAt(location, count, matrices);
 	}
 
 	int Shader::BindTextureAt(int unitOffset, int location, const std::shared_ptr<Texture> &texture)
 	{
-		if (location == -1 || texture == nullptr)
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
 			return unitOffset;
-		glActiveTexture(GL_TEXTURE0 + unitOffset);
-		glBindTexture(texture->GetTypeUint(), texture->GetID());
-		glUniform1i(location, unitOffset);
-		return unitOffset + 1;
+
+		cmd->SetTextureUnitCursor(unitOffset);
+		return cmd->SetTextureAt(location, texture ? texture->GetRHITexture() : nullptr);
 	}
 
 	void Shader::SetTextureUnitCursor(int unitOffset)
 	{
-		m_TextureID = GL_TEXTURE0 + unitOffset;
+		auto *cmd = Cmd();
+		if (cmd)
+			cmd->SetTextureUnitCursor(unitOffset);
 	}
 
 	int Shader::GetUniformLocation(const std::string &name) const
 	{
-		if (m_Dirty)
-			return -1;
-
-		return glGetUniformLocation(m_Program, name.c_str());
+		return (m_Dirty || !m_Module) ? -1 : m_Module->ResolveUniform(name);
 	}
 
 	void Shader::GetVersionInfo(const std::string &source, std::string &versionStr, std::string &mainStr)

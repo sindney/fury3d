@@ -16,7 +16,7 @@ Works on Windows and macOS. Designed for study — the editor, importers, and sh
 
 ### Highlights
 
-* **OpenGL** (3.3+ core profile) with explicit per-draw state (Vulkan-PSO-shaped) so chain + debug draws never leak `GL_BLEND` into unrelated passes.
+* **RHI layer** - an `RHI::Device / CommandList` abstraction with two working backends: **OpenGL 3.3+ core profile** and **Metal** (macOS; GLSL cross-compiled to MSL through Slang + SPIRV-Cross, cached in the shader DDC). **Vulkan** is compiled in but the device is a stub - cook can emit Vulkan shader artifacts, the runtime cannot run them yet. Explicit per-draw state (PSO-shaped) so chain + debug draws never leak `GL_BLEND` into unrelated passes. Backend selected per launch via `--rhi=` / `FURY_RHI` / `Engine.run{ rhi }` / editor ini (see `docs/CLI.md`).
 * **C++17** smart pointers, **`sol2 + Lua 5.4`** scripting bridge.
 * **JSON-configurable pipelines** — every pass, every shader variant, every uniform lives in a `.json` next to the runtime.
 * **Editor (ImGui + ImGuizmo)** — Scene Inspector, Content Browser, Node Properties, viewport gizmo, native file dialogs, configurable dock layout, persisted across launches.
@@ -72,7 +72,7 @@ Tested compilers:
 * GCC 9+ / Clang 10+ on Linux
 * MSVC 16+ (Visual Studio 2019+) on Windows
 
-Should work with any GPU that supports OpenGL 3.3+.
+Should work with any GPU that supports OpenGL 3.3+. The Metal backend (macOS) needs a Metal-capable Mac and builds against the vendored header-only `metal-cpp`. The Vulkan backend compiles but device creation is not implemented; a `--rhi=vulkan` launch falls back to OpenGL.
 
 Vendored dependencies (git submodules under `engine/ThirdParty/`):
 
@@ -82,7 +82,8 @@ Vendored dependencies (git submodules under `engine/ThirdParty/`):
 * tinygltf v2.9.7 — glTF 2.0 loader.
 * meshoptimizer — mesh optimisation / simplification / LOD chain.
 * nativefiledialog-extended (nfd) — platform-native file dialogs (editor-only).
-* LZ4, STB image, ImGui, ImGuizmo, ImReflect — bundled in-tree.
+* STB image, ImGui, ImGuizmo, ImReflect - bundled in-tree.
+* metal-cpp, SPIRV-Cross, Slang - Metal RHI bindings and the GLSL -> MSL / SPIR-V cross-compile chain (shader DDC + pak artifacts).
 
 No FBX SDK requirement.
 
@@ -130,6 +131,8 @@ cmake --build build-engine -j
 | `EXPORT_DLL` (Windows) | `ON` | Defines `FURY_API_EXPORT` so the shared lib exports symbols. Ignored for static builds. |
 | `FURY_WITH_TRACY` | `ON` for Debug / RelWithDebInfo / multi-config, `OFF` for Release / MinSizeRel | Instruments the engine with the Tracy profiler (vendored at `engine/ThirdParty/tracy`). Also builds `tracy-profiler` + `tracy-capture` into `examples/`. See [docs/TRACY.md](docs/TRACY.md). |
 | `FURY_WITH_TRACY_GPU` | `ON` when Tracy is on | Adds OpenGL timer-query GPU zones. Unreliable on Apple/TBDR drivers — turn off per machine if so. |
+| `FURY_RHI_VULKAN` | `ON` | Compiles the Vulkan RHI backend. It is a stub: device creation logs "not implemented yet" and the launch falls back to `opengl`. |
+| `FURY_RHI_METAL` | `ON` (Apple only, forced `OFF` elsewhere) | Compiles the Metal RHI backend (macOS). |
 
 ### Adding a vendored dependency
 
@@ -143,8 +146,9 @@ cd examples && ./furye Editor.lua
 
 Editor.lua picks the startup scene by argv:
 
-* No argv → `Projects/tank/scene.bin` (the bundled tank scene).
-* `./furye Editor.lua outdoor.fbx` → loads `outdoor.fbx` (or its `Projects/`, `Resource/Scene/` prefixed variants) via the glTF importer.
+* No argv -> starts with an empty scene; open one via File -> Open... or pass a path.
+* `./furye Editor.lua Projects/ocean/ocean_island.bin` -> loads that scene at startup (the literal path, or its `Projects/`, `Resource/Scene/` prefixed variants).
+* `./furye Editor.lua --gpu-profiler /tmp/dump` -> opens the GPU Capture Profiler on a `--gpu-dump /tmp/dump` capture at startup.
 
 If you only built `fury`, the launch is the same (`./fury Editor.lua`) but the ImGui editor windows are absent — drop the `.lua` to run your own script.
 
@@ -172,6 +176,7 @@ If you only built `fury`, the launch is the same (`./fury Editor.lua`) but the I
 | **Content Browser** | In-scene tiles (Mesh, Material, Texture, AnimationClip), type filter, fuzzy search, F2 / right-click rename, double-click opens the asset editor. |
 | **Settings**        | RenderSettings (HDR toggle, CSM, postprocess chain per-effect enabled + Edit dialog for uniform overrides), Camera controls, import flags (auto-scale, normal gen, mesh weld). |
 | **Profiler**        | FPS sparkline, draw-call / triangle counts, cascaded-light shadow map viewer, GBuffer texture previews. |
+| **GPU Capture Profiler** | Views a `--gpu-dump <dir>` capture: every render-target texture of one frame with min/max/mean stats, PNG previews, and the pass/texture render graph. Open via `Window` menu or `--gpu-profiler <dir>`. |
 | **Console**         | `FURY_INFO`/`WARN`/`ERROR` log buffer + ad-hoc Lua eval (errors caught inline). |
 
 ## CLI
@@ -194,8 +199,12 @@ Cook + package a scene into a deployable pak (textures -> BCn KTX2 via the vendo
 ```sh
 ./furye-cli cook Projects/ocean/ocean_island.bin           # textures -> DDC + cook manifest
 ./furye-cli package Projects/ocean/ocean_island.bin        # -> ocean_island.pak (boot scene + assets)
+./furye-cli package Projects/ocean/ocean_island.bin \
+  --rhi opengl,metal                                       # also cross-compile + pack shader artifacts for those targets
 ./fury ocean_island.pak                                    # mount + play, or fury exec ocean_island.pak script.lua
 ```
+
+`cook` also cross-compiles every shader the pipeline can hit (pipeline JSONs, runtime-generated terrain/particle/atmosphere shaders, every postprocess effect's shader) for the `--rhi` targets (default: host backends) into the same DDC (`FURY_DDC` env or `<exe dir>/DDC`; `TEX_` texture keys, `SHADER_` shader keys). The pak stores the per-backend blobs + reflection sidecars under `DDC/` keys, so a Metal launch loads its MSL straight from the pak (Vulkan artifacts cook too, but the Vulkan runtime device is not implemented). `tests/pak_pipeline.sh` verifies the whole pipeline, including an independent pak unpack/repack/corruption round trip.
 
 Run `./fury help <subcommand>` for full flags; see `docs/CLI.md` for the reference.
 

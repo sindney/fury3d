@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <SFML/Window/Event.hpp>
 
@@ -13,6 +14,7 @@ namespace Rml { class Context; class ElementDocument; }
 
 namespace fury
 {
+	class Texture;
 	// Game UI (RmlUi) integration: one "main" context, documents loaded
 	// through the engine VFS, input forwarded from Engine::HandleEvent,
 	// draw data snapshotted into the frame packet (the Gui.cpp pattern).
@@ -65,6 +67,10 @@ namespace fury
 		// them to GL inside the frame executor.
 		std::shared_ptr<void> FURY_API BuildDrawSnapshot();
 		void FURY_API RenderSnapshot(const std::shared_ptr<void> &frame);
+
+		// Appends live UI textures (font atlases, document images) for the
+		// GPU dump; call only while the game thread is parked (dump time).
+		void FURY_API CollectUITextures(std::vector<std::shared_ptr<Texture>> &out);
 	}
 }
 

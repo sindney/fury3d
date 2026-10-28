@@ -1,14 +1,14 @@
 #include "Fury/ArrayBuffers.h"
 #include "Fury/Log.h"
-#include "Fury/GLLoader.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIDevice.h"
 
 namespace fury
 {
 	template<class DataType>
-	ArrayBuffer<DataType>::ArrayBuffer(const std::string &name, unsigned int bufferTarget, unsigned int bufferUsage)
-		: m_TypeIndex(typeid(ArrayBuffer<DataType>)), m_ID(0), m_SizeOld(0),
-		m_BufferTarget(bufferTarget), m_BufferUsage(bufferUsage), Name(name)
+	ArrayBuffer<DataType>::ArrayBuffer(const std::string &name, RHIBufferType bufferType, RHIBufferUsage bufferUsage)
+		: m_TypeIndex(typeid(ArrayBuffer<DataType>)), m_SizeOld(0),
+		m_BufferType(bufferType), m_BufferUsage(bufferUsage), Name(name)
 	{
 
 	}
@@ -30,7 +30,6 @@ namespace fury
 	{
 		size_t sizeNew = Data.size();
 		bool sizeChanged = false;
-		bool isNewBuffer = false;
 
 		if (sizeNew != m_SizeOld)
 		{
@@ -45,22 +44,23 @@ namespace fury
 
 		if (m_Dirty && sizeNew > 0)
 		{
+			if (GRHIDevice == nullptr)
+				return;
+
 			m_Dirty = false;
 
-			if (m_ID == 0)
-			{
-				glGenBuffers(1, &m_ID);
-				isNewBuffer = true;
-			}
+			RHIBufferDesc desc;
+			desc.Name = Name;
+			desc.Type = m_BufferType;
+			desc.Usage = m_BufferUsage;
+			desc.Size = sizeNew * sizeof(DataType);
+			desc.Stride = sizeof(DataType);
+			desc.Index32 = sizeof(DataType) == 4;
 
-			glBindBuffer(m_BufferTarget, m_ID);
-
-			if (sizeChanged || isNewBuffer)
-				glBufferData(m_BufferTarget, sizeNew * sizeof(DataType), Data.data(), m_BufferUsage);
+			if (m_RHIBuffer == nullptr || sizeChanged)
+				m_RHIBuffer = GRHIDevice->CreateBuffer(desc, Data.data());
 			else
-				glBufferSubData(m_BufferTarget, 0, sizeNew * sizeof(DataType), Data.data());
-
-			glBindBuffer(m_BufferTarget, 0);
+				GRHIDevice->UpdateBuffer(m_RHIBuffer, Data.data(), desc.Size, 0);
 		}
 	}
 
@@ -69,26 +69,27 @@ namespace fury
 	{
 		m_Dirty = true;
 
-		if (m_ID != 0)
+		if (m_RHIBuffer != nullptr)
 		{
-			// GL handles die on the GL thread (direct-exec there).
-			unsigned int id = m_ID;
-			RenderThread::Get().EnqueueJob([id]() { glDeleteBuffers(1, &id); });
+			// GPU handles die on the render thread (direct-exec there).
+			RHIBufferRef buffer = m_RHIBuffer;
+			RenderThread::Get().EnqueueJob([buffer]() mutable { buffer.reset(); });
 		}
-		m_ID = 0;
+		m_RHIBuffer = nullptr;
 	}
 
 	template<class DataType>
-	unsigned int ArrayBuffer<DataType>::GetID() const
+	RHIBufferRef ArrayBuffer<DataType>::GetRHIBuffer() const
 	{
-		return m_ID;
+		return m_RHIBuffer;
 	}
 
 	template<class DataType>
-	void ArrayBuffer<DataType>::SetBufferUsage(unsigned int usage)
+	void ArrayBuffer<DataType>::SetBufferUsage(RHIBufferUsage usage)
 	{
 		if (m_BufferUsage != usage)
 		{
+			m_BufferUsage = usage;
 			DeleteBuffer();
 			UpdateBuffer();
 		}

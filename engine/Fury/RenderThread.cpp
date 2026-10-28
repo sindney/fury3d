@@ -11,6 +11,7 @@
 #include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/ProfilerGpu.h"
+#include "Fury/RHI/RHIDevice.h"
 
 namespace fury
 {
@@ -97,6 +98,16 @@ namespace fury
 		m_StartDone = false;
 		m_StartOk = false;
 		m_Thread = std::thread([this]() { ThreadMain(m_Window); });
+
+		// Lua os.exit / C exit() runs static dtors on the main thread while
+		// the render thread may still be mid-frame; join it before any
+		// static teardown touches what a frame references.
+		static bool s_AtExitRegistered = false;
+		if (!s_AtExitRegistered)
+		{
+			s_AtExitRegistered = true;
+			std::atexit([]() { RenderThread::Get().Stop(); });
+		}
 
 		std::unique_lock<std::mutex> lock(m_Mutex);
 		m_Cv.wait(lock, [this]() { return m_StartDone; });
@@ -366,22 +377,20 @@ namespace fury
 		unsigned int *h = &out.h;
 		EnqueueJob([this, pixels, w, h, &done]()
 		{
-			if (m_Window == nullptr)
+			if (GRHIDevice == nullptr)
 			{
 				done.set_value(false);
 				return;
 			}
-			const sf::Vector2u sz = m_Window->getSize();
-			*w = sz.x;
-			*h = sz.y;
-			if (sz.x == 0 || sz.y == 0)
+			RHIPixelData data;
+			if (!GRHIDevice->ReadbackBackbuffer(data))
 			{
 				done.set_value(false);
 				return;
 			}
-			pixels->resize(static_cast<size_t>(sz.x) * sz.y * 4);
-			glReadPixels(0, 0, static_cast<GLsizei>(sz.x), static_cast<GLsizei>(sz.y),
-				GL_RGBA, GL_UNSIGNED_BYTE, pixels->data());
+			*w = static_cast<unsigned int>(data.Width);
+			*h = static_cast<unsigned int>(data.Height);
+			pixels->swap(data.Pixels);
 			done.set_value(true);
 		});
 		return wait.get();

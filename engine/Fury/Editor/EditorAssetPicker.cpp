@@ -196,6 +196,9 @@ void RenderLinkedTextureRow(const char* label, const char* pickerId,
 							std::function<void(std::shared_ptr<Texture>)> onPick) {
 	ImGui::PushID(pickerId);
 	ImVec2 thumb_min = ImGui::GetCursorScreenPos();
+	// the picker nulls the component's texture; CreateFromImage's GL
+	// upload is queued to the render thread, so the new texture's ID is
+	// 0 until that runs -- show the fallback box instead of a black quad
 	if (current && current->GetID() != 0) {
 		ImGui::Image((ImTextureID)(intptr_t)current->GetID(),
 					 ImVec2(48, 48), ImVec2(0, 1), ImVec2(1, 0));
@@ -244,6 +247,17 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 
 	ImGui::SetNextWindowSize(ImVec2(600, 340), ImGuiCond_FirstUseEver);
 	if (ImGui::BeginPopupModal(popup_id, nullptr)) {
+		// Clamp the popup size: users can drag the corner smaller than the
+		// tree + entries panes can render meaningfully, so refuse to go below
+		// (min_w, min_h). Calling SetWindowSize from inside Begin is the
+		// ImGui-blessed way to enforce a minimum while staying resizable.
+		const ImVec2 min_size(380.0f, 240.0f);
+		const ImVec2 cur = ImGui::GetWindowSize();
+		if (cur.x < min_size.x || cur.y < min_size.y)
+			ImGui::SetWindowSize(ImVec2(std::max(cur.x, min_size.x),
+										std::max(cur.y, min_size.y)),
+								 ImGuiCond_Always);
+
 		ImGui::TextUnformatted(title);
 		ImGui::Separator();
 
@@ -262,9 +276,17 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 		CollectByType(type, entries);
 
 		// Two-pane layout: folder tree left, folder-scoped entries right.
+		// Both panes stretch with the dialog; OK/Cancel below stay at a
+		// fixed frame height so the dialog auto-fits without an extra
+		// scrollbar wrapping the center.
+		const float footer_reserve = ImGui::GetFrameHeightWithSpacing()
+								   + ImGui::GetStyle().ItemSpacing.y * 2.0f
+								   + ImGui::GetTextLineHeightWithSpacing();
+		const float pane_h = std::max(140.0f, ImGui::GetContentRegionAvail().y - footer_reserve);
+
 		std::string& folder = SelectedFolderFor(popup_id);
 		ImGui::BeginChild(("##picktree_" + std::string(popup_id)).c_str(),
-						  ImVec2(180, 240), true);
+						  ImVec2(180, pane_h), true);
 		RenderAssetFolderTree(folder, g_PickerTreeExpanded);
 		ImGui::EndChild();
 		ImGui::SameLine();
@@ -277,8 +299,9 @@ void RenderAssetPickerModal(const char* popup_id, const char* title,
 										 }),
 						  entries.end());
 
+		// Width 0 = fill the rest of the row.
 		ImGui::BeginChild(("##picker_" + std::string(popup_id)).c_str(),
-						  ImVec2(360, 240), true);
+						  ImVec2(0, pane_h), true);
 		for (int i = 0; i < (int)entries.size(); ++i) {
 			ImGui::PushID(i);
 

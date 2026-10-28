@@ -227,6 +227,10 @@ namespace fury
 		bool FURY_API GetPersistedWindowSize(int &width, int &height,
 			int &posX, int &posY);
 
+		// Manual imgui.ini scan for the persisted RHI backend (the ImGui
+		// settings handler parses too late for device creation).
+		bool FURY_API GetPersistedRhiBackend(std::string &out);
+
 		void FURY_API SetWindowForPersistence(sf::Window *window);
 
 #else
@@ -272,6 +276,7 @@ namespace fury
 		inline void SetFrameSelectionHandler(std::function<void(SceneNode*)>) {}
 		inline void FrameSelection(SceneNode*) {}
 		inline bool GetPersistedWindowSize(int &, int &, int &, int &) { return false; }
+		inline bool GetPersistedRhiBackend(std::string &) { return false; }
 		inline void SetWindowForPersistence(sf::Window *) {}
 #endif
 	}

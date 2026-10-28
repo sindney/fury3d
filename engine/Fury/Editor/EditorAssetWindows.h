@@ -1,6 +1,7 @@
 #ifndef _FURY_EDITOR_ASSET_WINDOWS_H_
 #define _FURY_EDITOR_ASSET_WINDOWS_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -25,7 +26,7 @@ namespace fury
 		void FURY_API RenderAllOpenAssetEditors();
 
 		// Lookup or allocate a 128x128 thumbnail texture for `mesh`.
-		unsigned int FURY_API GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh);
+		uintptr_t FURY_API GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh);
 
 		// Evict thumbnail entries whose BufferId is not in `liveIds`.
 		void FURY_API EvictStaleMeshThumbnails(const std::unordered_set<size_t>& liveIds);

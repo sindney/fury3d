@@ -370,6 +370,10 @@ void CharacterController::PhysicsTick(float fixedDt)
 		if (input->GetKeyDown(sf::Keyboard::Key::D) || input->GetKeyDown(sf::Keyboard::Key::Right)) move = move + rgt;
 		jump = input->GetKeyDown(sf::Keyboard::Key::Space);
 	}
+	// Gamepad left-stick contribution. The stick magnitude scales the speed, so a
+	// half-deflection stick walks at half speed; the stick and the keys cannot add
+	// up past the walk/run speed.
+	move = move + fwd * m_MoveInputFwd + rgt * m_MoveInputRight;
 
 	const float moveLen = move.Length();
 	float speed = input->GetKeyDown(sf::Keyboard::Key::LShift) ? m_RunSpeed : m_WalkSpeed;
@@ -401,7 +405,10 @@ void CharacterController::PhysicsTick(float fixedDt)
 	JPH::Vec3 newVelocity(0.0f, vy, 0.0f);
 	if (moveLen > 0.0f)
 	{
-		const float inv = speed / moveLen;
+		// Keyboard input is unit-length per axis, so it always reaches the full
+		// speed; a stick-only move is shorter and scales the speed down.
+		const float magnitude = std::min(moveLen, 1.0f);
+		const float inv = (magnitude * speed) / moveLen;
 		newVelocity.SetX(move.x * inv);
 		newVelocity.SetZ(move.z * inv);
 	}

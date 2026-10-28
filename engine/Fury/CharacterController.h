@@ -79,6 +79,15 @@ namespace fury
 		bool GetFirstPerson() const { return m_FirstPerson; }
 		void SetFirstPerson(bool value) { m_FirstPerson = value; }
 
+		// Camera-relative planar input added to the keyboard move each fixed
+		// tick. Components are in [-1, 1]; (1, 0) moves forward at the
+		// active walk/run speed. Gamepad left-stick drives this from Lua.
+		void SetMoveInput(float forward, float right)
+		{
+			m_MoveInputFwd = forward;
+			m_MoveInputRight = right;
+		}
+
 		float GetMouseSensitivity() const { return m_MouseSensitivity; }
 		void SetMouseSensitivity(float value) { m_MouseSensitivity = value; }
 
@@ -159,6 +168,11 @@ namespace fury
 		bool m_FirstPerson = false;
 
 		float m_MouseSensitivity = 1.0f;
+
+		// Gamepad left-stick contribution; components in [-1, 1].
+		float m_MoveInputFwd = 0.0f;
+
+		float m_MoveInputRight = 0.0f;
 
 		int m_LastMouseX = 0;
 

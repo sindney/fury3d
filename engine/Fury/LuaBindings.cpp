@@ -18,6 +18,7 @@
 #include "Fury/Editor/EditorTerrainWindow.h"
 #include "Fury/Editor/EditorConfirmDialog.h"
 #include "Fury/Editor/EditorParticleWindow.h"
+#include "Fury/Editor/EditorGpuProfilerWindow.h"
 #include "Fury/Engine.h"
 #include "Fury/Entity.h"
 #include "Fury/EntityManager.h"
@@ -33,6 +34,7 @@
 #include "Fury/Gui.h"
 #include "Fury/Heightmap.h"
 #include "Fury/InputUtil.h"
+#include "Fury/JoyInputUtil.h"
 #include "Fury/Joint.h"
 #include "Fury/BodySetup.h"
 #include "Fury/CharacterController.h"
@@ -60,6 +62,7 @@
 #include "Fury/Quaternion.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
@@ -201,6 +204,65 @@ namespace fury
 				{ "WARN", LogLevel::WARN },
 				{ "INFO", LogLevel::INFO },
 				{ "DBUG", LogLevel::DBUG }});
+
+			// --- Log -----------------------------------------------------------
+			// Level + name helpers so scripts (and the editor dropdown) can read
+			// the current level and change it without poking at the engine core.
+			lua.new_usertype<Log<0>>("Log",
+				sol::no_constructor,
+				"SetLevel", &Log<0>::SetLevel,
+				"GetLevel", []() { return Log<0>::Instance()->GetLevel(); },
+				"Name",     []() {
+					switch (Log<0>::Instance()->GetLevel())
+					{
+					case LogLevel::EROR: return std::string("EROR");
+					case LogLevel::WARN: return std::string("WARN");
+					case LogLevel::INFO: return std::string("INFO");
+					case LogLevel::DBUG: return std::string("DBUG");
+					}
+					return std::string("?");
+				},
+				// Level, message. Routing follows FURY_LOG level gating:
+				// DBUG below default, INFO above. Silently no-ops when
+				// the level is below the current threshold so callers
+				// don't have to gate themselves.
+				"Print", [](int level, const std::string &msg) {
+					if (auto log = Log<0>::Instance()) {
+						Record r(static_cast<LogLevel>(level),
+							FURY_FUNC_NAME, "", 0);
+						r << msg;
+						*log += r;
+					}
+				});
+			lua["LogInstance"] = []() { return Log<0>::Instance(); };
+			lua["LogDBUG"] = [](const std::string &msg) {
+				if (auto log = Log<0>::Instance()) {
+					Record r(LogLevel::DBUG, FURY_FUNC_NAME, "", 0);
+					r << msg;
+					*log += r;
+				}
+			};
+			lua["LogINFO"] = [](const std::string &msg) {
+				if (auto log = Log<0>::Instance()) {
+					Record r(LogLevel::INFO, FURY_FUNC_NAME, "", 0);
+					r << msg;
+					*log += r;
+				}
+			};
+			lua["LogWARN"] = [](const std::string &msg) {
+				if (auto log = Log<0>::Instance()) {
+					Record r(LogLevel::WARN, FURY_FUNC_NAME, "", 0);
+					r << msg;
+					*log += r;
+				}
+			};
+			lua["LogEROR"] = [](const std::string &msg) {
+				if (auto log = Log<0>::Instance()) {
+					Record r(LogLevel::EROR, FURY_FUNC_NAME, "", 0);
+					r << msg;
+					*log += r;
+				}
+			};
 
 			// --- SceneManager (base) ------------------------------------------
 			lua.new_usertype<SceneManager>("SceneManager",
@@ -1116,6 +1178,7 @@ namespace fury
 				"SetFirstPerson", &CharacterController::SetFirstPerson,
 				"GetMouseSensitivity", &CharacterController::GetMouseSensitivity,
 				"SetMouseSensitivity", &CharacterController::SetMouseSensitivity,
+				"SetMoveInput", &CharacterController::SetMoveInput,
 				"Teleport", &CharacterController::Teleport,
 				"SetSwimming", &CharacterController::SetSwimming,
 				"GetSwimming", &CharacterController::GetSwimming,
@@ -1794,6 +1857,9 @@ namespace fury
 			// so the same script runs unchanged in both build modes.
 			sol::table editor_tbl = lua.create_named_table("Editor");
 #if WITH_EDITOR
+			editor_tbl["OpenGpuProfiler"] = [](const std::string &dir) {
+				Editor::OpenGpuProfilerWindow(dir);
+			};
 			editor_tbl["SetSceneIO"] = [](sol::table tbl) {
 				Editor::SceneIO io;
 				if (auto v = tbl["on_new"]; v.valid() && v.get_type() == sol::type::function)
@@ -2274,6 +2340,10 @@ namespace fury
 						const auto d = self.ConsumeMouseDelta();
 						return std::make_tuple(d.first, d.second);
 					},
+				"AddMouseDelta",
+					[](InputUtil &self, int dx, int dy) {
+						self.AddMouseDelta(dx, dy);
+					},
 				"GetWindowSize",
 					[](InputUtil &self) {
 						int w = 0, h = 0;
@@ -2281,6 +2351,45 @@ namespace fury
 						return std::make_tuple(w, h);
 					});
 			lua["InputUtil"]["Instance"] = []() { return InputUtil::Instance(); };
+
+			// Joystick polling lives in JoyInputUtil. id is the SFML
+			// joystick index (0..7); state is refreshed each frame by
+			// Engine::Update.
+			lua.new_usertype<JoyInputUtil>("JoyInputUtil",
+				sol::no_constructor,
+				"PollState", &JoyInputUtil::PollState,
+				"IsConnected", &JoyInputUtil::IsConnected,
+				"GetButtonCount", &JoyInputUtil::GetButtonCount,
+				"IsButtonDown",
+					[](JoyInputUtil &self, unsigned int id, unsigned int button) {
+						return self.IsButtonDown(id, button);
+					},
+				"WasButtonPressed",
+					[](JoyInputUtil &self, unsigned int id, unsigned int button) {
+						return self.WasButtonPressed(id, button);
+					},
+				"GetAxis",
+					[](JoyInputUtil &self, unsigned int id, int axis) {
+						return self.GetAxis(id, static_cast<unsigned int>(axis));
+					});
+			lua["JoyInputUtil"] = lua.create_named_table("JoyInputUtil");
+			lua["JoyInputUtil"]["Instance"] = []() { return JoyInputUtil::Instance(); };
+			lua["JoyInputUtil"]["MaxJoysticks"] = static_cast<int>(JoyInputUtil::MaxJoysticks);
+			lua["JoyInputUtil"]["MaxButtons"] = static_cast<int>(JoyInputUtil::MaxButtons);
+			lua["JoyInputUtil"]["MaxAxes"] = static_cast<int>(JoyInputUtil::MaxAxes);
+
+			// XInput-style button names. Non-XInput pads may need a remap.
+			sol::table gp_tbl = lua.create_named_table("GamepadButton");
+			gp_tbl["A"]     = static_cast<int>(JoyInputUtil::Button::A);
+			gp_tbl["B"]     = static_cast<int>(JoyInputUtil::Button::B);
+			gp_tbl["X"]     = static_cast<int>(JoyInputUtil::Button::X);
+			gp_tbl["Y"]     = static_cast<int>(JoyInputUtil::Button::Y);
+			gp_tbl["LB"]    = static_cast<int>(JoyInputUtil::Button::LB);
+			gp_tbl["RB"]    = static_cast<int>(JoyInputUtil::Button::RB);
+			gp_tbl["BACK"]  = static_cast<int>(JoyInputUtil::Button::BACK);
+			gp_tbl["START"] = static_cast<int>(JoyInputUtil::Button::START);
+			gp_tbl["L3"]    = static_cast<int>(JoyInputUtil::Button::L3);
+			gp_tbl["R3"]    = static_cast<int>(JoyInputUtil::Button::R3);
 
 			// --- Key / MouseButton enum tables --------------------------------
 			sol::table key_tbl = lua.create_named_table("Key");
@@ -2341,6 +2450,18 @@ namespace fury
 			mb_tbl["Right"]  = static_cast<int>(sf::Mouse::Button::Right);
 			mb_tbl["Middle"] = static_cast<int>(sf::Mouse::Button::Middle);
 
+			// --- JoystickAxis enum table -------------------------------------
+			// Used with JoyInputUtil.GetAxis(id, JoystickAxis.X).
+			sol::table ja_tbl = lua.create_named_table("JoystickAxis");
+			ja_tbl["X"]    = static_cast<int>(sf::Joystick::Axis::X);
+			ja_tbl["Y"]    = static_cast<int>(sf::Joystick::Axis::Y);
+			ja_tbl["Z"]    = static_cast<int>(sf::Joystick::Axis::Z);
+			ja_tbl["R"]    = static_cast<int>(sf::Joystick::Axis::R);
+			ja_tbl["U"]    = static_cast<int>(sf::Joystick::Axis::U);
+			ja_tbl["V"]    = static_cast<int>(sf::Joystick::Axis::V);
+			ja_tbl["PovX"] = static_cast<int>(sf::Joystick::Axis::PovX);
+			ja_tbl["PovY"] = static_cast<int>(sf::Joystick::Axis::PovY);
+
 			// --- Engine.run ---------------------------------------------------
 			// The launcher injects the active sf::Window into lua["__window"];
 			// we read it back and dispatch to Engine::Run.
@@ -2354,6 +2475,20 @@ namespace fury
 			// headless sway screenshots.
 			engine_tbl["GetTime"] = &Engine::GetTime;
 			engine_tbl["SetTime"] = &Engine::SetTime;
+			// Active RHI backend name (after any fallback), and the platform's
+			// supported list -- for game-side options menus (startup-only
+			// switching; a change applies at next launch).
+			engine_tbl["GetRhiBackend"] = []() -> std::string {
+				return GRHIDevice != nullptr ? RHI::BackendToString(GRHIDevice->GetBackend()) : "none";
+			};
+			engine_tbl["GetSupportedRhiBackends"] = [](sol::this_state s) {
+				sol::state_view l(s);
+				sol::table t = l.create_table();
+				int i = 1;
+				for (const auto &name : RHI::GetSupportedBackendNames())
+					t[i++] = name;
+				return t;
+			};
 			engine_tbl["run"] = [lua](sol::table cb_table, sol::optional<sol::table> opt_table) {
 				sf::Window* window = lua["__window"].get<sf::Window*>();
 				if (!window)
@@ -2394,6 +2529,11 @@ namespace fury
 					sol::object rt = o["render_thread"];
 					if (rt.valid() && rt.get_type() == sol::type::boolean)
 						opts.render_thread = rt.as<bool>() ? 1 : 0;
+					// rhi = "vulkan" requests a backend; resolution order
+					// lives in RHI::ResolveBackend.
+					sol::object rhi = o["rhi"];
+					if (rhi.valid() && rhi.get_type() == sol::type::string)
+						opts.rhi = rhi.as<std::string>();
 				}
 
 				// Layer launcher-supplied options over the script's. Launcher
@@ -2415,10 +2555,22 @@ namespace fury
 					opts.exit_code_out = &s_launcher_options->exit_code;
 				}
 
+				if (s_launcher_options && !s_launcher_options->gpu_dump_dir.empty())
+				{
+					opts.gpu_dump_dir = s_launcher_options->gpu_dump_dir;
+					opts.gpu_dump_frame = s_launcher_options->gpu_dump_frame;
+					opts.exit_code_out = &s_launcher_options->exit_code;
+				}
+
 				// CLI --render-thread=0|1 wins over env and lua (resolution
 				// order in RenderThread::ResolveEnabled).
 				if (s_launcher_options && s_launcher_options->render_thread != -1)
 					RenderThread::SetCommandLineOverride(s_launcher_options->render_thread);
+
+				// CLI --rhi=<backend> wins over env, lua and ini (resolution
+				// order in RHI::ResolveBackend).
+				if (s_launcher_options && !s_launcher_options->rhi.empty())
+					RHI::SetCommandLineBackend(s_launcher_options->rhi);
 
 				Engine::Run(*window, cb, opts);
 

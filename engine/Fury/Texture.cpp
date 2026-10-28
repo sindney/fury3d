@@ -3,11 +3,9 @@
 #include <cassert>
 #include <cctype>
 #include <sstream>
-#include <unordered_set>
 
 #include "Fury/BufferManager.h"
 #include "Fury/Log.h"
-#include "Fury/GLLoader.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/AssetBackend.h"
 #include "Fury/FileUtil.h"
@@ -16,6 +14,8 @@
 #include "Fury/Texture.h"
 #include "Fury/RenderThread.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/OpenGL/GLEnumMap.h"
 
 // stb_image.h is a single-header library: every inline definition is parsed in
 // the surrounding translation unit, so /external:W0 + /external:I don't reach
@@ -46,7 +46,7 @@ namespace fury
 
 	Texture::Ptr Texture::GetTemporary(int width, int height, int depth, TextureFormat format, TextureType type)
 	{
-		FURY_GL_THREAD_GUARD();
+		FURY_RHI_THREAD_GUARD();
 		auto key = GetKeyFromParams(width, height, depth, format, type);
 		auto it = m_TexturePool.find(key);
 		if (it != m_TexturePool.end())
@@ -67,7 +67,7 @@ namespace fury
 
 	void Texture::ReleaseTemporary(const std::shared_ptr<Texture> &ptr)
 	{
-		FURY_GL_THREAD_GUARD();
+		FURY_RHI_THREAD_GUARD();
 		auto key = Texture::GetKeyFromPtr(ptr);
 		auto it = m_TexturePool.find(key);
 		if (it == m_TexturePool.end())
@@ -106,7 +106,6 @@ namespace fury
 		: Entity(name), m_BorderColor(0, 0, 0, 0)
 	{
 		m_TypeIndex = typeid(Texture);
-		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
 	}
 
 	Texture::~Texture()
@@ -287,18 +286,13 @@ namespace fury
 			return;
 		}
 
-		unsigned int internalFormat, imageFormat;
 		switch (channels)
 		{
 		case 3:
 			m_Format = srgb ? TextureFormat::SRGB8 : TextureFormat::RGB8;
-			internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
-			imageFormat = GL_RGB;
 			break;
 		case 4:
 			m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
-			internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
-			imageFormat = GL_RGBA;
 			break;
 		default:
 			m_Format = TextureFormat::UNKNOW;
@@ -309,97 +303,44 @@ namespace fury
 		m_Depth = 0;
 		m_Mipmap = mipMap;
 
-		// CLI / no-GL-context path: the serialization shape (path,
-		// width/height, format) is set, the GPU upload is skipped.
-		if (_ptrc_glGenTextures == nullptr)
+		// Headless path: the serialization shape (path, width/height,
+		// format) is set, the GPU upload is skipped.
+		if (GRHIDevice == nullptr)
 		{
 			m_Dirty = true;
 			return;
 		}
 
-		// GL upload on the GL thread (immediate there, queued from foreign
-		// threads; skipped if this texture dies first). Filter/wrap/border
-		// values are captured at call time.
-		const unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-		const unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
-		const Color borderColor = m_BorderColor;
-		const unsigned int texTarget = m_TypeUint;
-		const bool genMips = m_Mipmap;
-		const int w = m_Width;
-		const int h = m_Height;
-		DispatchGL(this, [this, pixels = std::move(pixels), internalFormat, imageFormat,
-			filterMode, wrapMode, borderColor, texTarget, genMips, w, h]() mutable
+		// Upload on the render thread (immediate there, queued from foreign
+		// threads; skipped if this texture dies first).
+		DispatchRHI(this, [this, pixels = std::move(pixels)]() mutable
 		{
-			FURY_GL_THREAD_GUARD();
+			FURY_RHI_THREAD_GUARD();
 
-			glGenTextures(1, &m_ID);
-			glBindTexture(texTarget, m_ID);
+			RHITextureDesc desc;
+			desc.Name = m_Name;
+			desc.Type = m_Type;
+			desc.Format = m_Format;
+			desc.Width = m_Width;
+			desc.Height = m_Height;
+			desc.MipLevels = m_Mipmap ? FURY_MIPMAP_LEVEL : 1;
+			desc.Sampler.Filter = m_FilterMode;
+			desc.Sampler.Wrap = m_WrapMode;
+			desc.Sampler.BorderColor = m_BorderColor;
 
-			glTexStorage2D(texTarget, genMips ? FURY_MIPMAP_LEVEL : 1, internalFormat, w, h);
-			glTexSubImage2D(texTarget, 0, 0, 0, w, h, imageFormat, GL_UNSIGNED_BYTE, pixels.data());
+			m_RHITexture = GRHIDevice->CreateTexture(desc);
+			if (m_RHITexture == nullptr)
+				return;
 
-			glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, filterMode);
-			glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, filterMode);
-			glTexParameteri(texTarget, GL_TEXTURE_WRAP_S, wrapMode);
-			glTexParameteri(texTarget, GL_TEXTURE_WRAP_T, wrapMode);
-			glTexParameteri(texTarget, GL_TEXTURE_WRAP_R, wrapMode);
-
-			float color[] = { borderColor.r, borderColor.g, borderColor.b, borderColor.a };
-			glTexParameterfv(texTarget, GL_TEXTURE_BORDER_COLOR, color);
-
-			if (genMips)
-				glGenerateMipmap(texTarget);
-
-			glBindTexture(texTarget, 0);
+			GRHIDevice->UpdateTexture(m_RHITexture, pixels.data(), pixels.size());
+			if (m_Mipmap)
+				GRHIDevice->GenerateMipmaps(m_RHITexture);
 
 			m_Dirty = false;
 			IncreaseMemory();
 
-			FURYD << m_Name << " [" << w << " x " << h << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
+			FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
 		});
-	}
-
-	namespace
-	{
-		// Extension scan cached per process; called on the GL thread only.
-		bool GLHasExtension(const char* name)
-		{
-			static std::unordered_set<std::string> s_Exts;
-			static bool s_Scanned = false;
-			if (!s_Scanned)
-			{
-				GLint count = 0;
-				glGetIntegerv(GL_NUM_EXTENSIONS, &count);
-				for (GLint i = 0; i < count; i++)
-				{
-					const GLubyte* ext = glGetStringi(GL_EXTENSIONS, i);
-					if (ext) s_Exts.insert((const char*)ext);
-				}
-				s_Scanned = true;
-			}
-			return s_Exts.count(name) > 0;
-		}
-
-		bool CompressedFormatSupported(TextureFormat format)
-		{
-			switch (format)
-			{
-			case TextureFormat::BC1_UNORM:
-			case TextureFormat::BC1_SRGB:
-			case TextureFormat::BC3_UNORM:
-			case TextureFormat::BC3_SRGB:
-				return GLHasExtension("GL_EXT_texture_compression_s3tc");
-			case TextureFormat::BC5_UNORM:
-				// RGTC is core since GL 3.0; every context we run on has it.
-				return true;
-			case TextureFormat::BC6H_UF:
-			case TextureFormat::BC7_UNORM:
-			case TextureFormat::BC7_SRGB:
-				return GLHasExtension("GL_ARB_texture_compression_bptc");
-			default:
-				return false;
-			}
-		}
 	}
 
 	void Texture::CreateFromKtx2(const std::string &nameForLog, std::vector<unsigned char> bytes, bool mipMap)
@@ -423,58 +364,39 @@ namespace fury
 		m_Depth = 0;
 		m_Mipmap = mipMap && img.m_Levels.size() > 1;
 
-		// CLI / no-GL-context path: serialization shape set, upload skipped.
-		if (_ptrc_glGenTextures == nullptr)
+		// Headless path: serialization shape set, upload skipped.
+		if (GRHIDevice == nullptr)
 		{
 			m_Dirty = true;
 			return;
 		}
 
-		const unsigned int internalFormat = EnumUtil::TextureFormatToUint(m_Format).second;
-		const unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-		const unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
-		const Color borderColor = m_BorderColor;
-		const unsigned int texTarget = m_TypeUint;
 		const int levelCount = (int)img.m_Levels.size();
+		// Only the base level when mips are off: a multi-level storage
+		// with a non-mipmap min filter is incomplete in core GL.
+		const int storedLevels = m_Mipmap ? levelCount : 1;
 
-		DispatchGL(this, [this, bytes = std::move(bytes), levels = std::move(img.m_Levels),
-			internalFormat, filterMode, wrapMode, borderColor, texTarget, levelCount]() mutable
+		DispatchRHI(this, [this, bytes = std::move(bytes), levels = std::move(img.m_Levels), storedLevels, levelCount]() mutable
 		{
-			FURY_GL_THREAD_GUARD();
+			FURY_RHI_THREAD_GUARD();
 
-			if (!CompressedFormatSupported(m_Format))
-			{
-				FURYE << m_Name << ": compressed format "
-					<< EnumUtil::TextureFormatToString(m_Format)
-					<< " not supported by this GL context (cook target mismatch?)";
+			RHITextureDesc desc;
+			desc.Name = m_Name;
+			desc.Type = m_Type;
+			desc.Format = m_Format;
+			desc.Width = m_Width;
+			desc.Height = m_Height;
+			desc.MipLevels = storedLevels;
+			desc.Sampler.Filter = m_FilterMode;
+			desc.Sampler.Wrap = m_WrapMode;
+			desc.Sampler.BorderColor = m_BorderColor;
+
+			m_RHITexture = GRHIDevice->CreateTexture(desc);
+			if (m_RHITexture == nullptr)
 				return;
-			}
 
-			glGenTextures(1, &m_ID);
-			glBindTexture(texTarget, m_ID);
-
-			// Only the base level when mips are off: a multi-level storage
-			// with a non-mipmap min filter is incomplete in core GL.
-			const int storedLevels = m_Mipmap ? levelCount : 1;
-			glTexStorage2D(texTarget, storedLevels, internalFormat, m_Width, m_Height);
 			for (int i = 0; i < storedLevels; i++)
-			{
-				const int lw = std::max(1, m_Width >> i);
-				const int lh = std::max(1, m_Height >> i);
-				glCompressedTexSubImage2D(texTarget, i, 0, 0, lw, lh, internalFormat,
-					(GLsizei)levels[i].length, bytes.data() + levels[i].offset);
-			}
-
-			glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, filterMode);
-			glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, filterMode);
-			glTexParameteri(texTarget, GL_TEXTURE_WRAP_S, wrapMode);
-			glTexParameteri(texTarget, GL_TEXTURE_WRAP_T, wrapMode);
-			glTexParameteri(texTarget, GL_TEXTURE_WRAP_R, wrapMode);
-
-			float color[] = { borderColor.r, borderColor.g, borderColor.b, borderColor.a };
-			glTexParameterfv(texTarget, GL_TEXTURE_BORDER_COLOR, color);
-
-			glBindTexture(texTarget, 0);
+				GRHIDevice->UpdateTexture(m_RHITexture, bytes.data() + levels[i].offset, levels[i].length, i);
 
 			m_Dirty = false;
 			IncreaseMemory();
@@ -489,7 +411,7 @@ namespace fury
 		if (!RenderThread::Get().MayUseGL())
 		{
 			std::vector<unsigned char> copy(bytes, bytes + len);
-			DispatchGL(this, [this, copy = std::move(copy), srgb, mipMap]() mutable {
+			DispatchRHI(this, [this, copy = std::move(copy), srgb, mipMap]() mutable {
 				CreateFromMemory(copy.data(), copy.size(), srgb, mipMap);
 			});
 			return;
@@ -500,11 +422,9 @@ namespace fury
 			return;
 		}
 
-		// CLI / no-GL-context path: store bytes for later save extraction
-		// and set the serialization shape, but skip the GPU upload. Detect
-		// via the engine's GL function-pointer loader -- when LoadGLFunctions
-		// hasn't run, the function pointer is null.
-		if (_ptrc_glGenTextures == nullptr)
+		// Headless path: store bytes for later save extraction and set the
+		// serialization shape, but skip the GPU upload.
+		if (GRHIDevice == nullptr)
 		{
 			DeleteBuffer();
 			// Quick image header probe to set width/height. stbi can read
@@ -544,19 +464,13 @@ namespace fury
 
 		DeleteBuffer();
 
-		unsigned int internalFormat = 0;
-		unsigned int imageFormat = 0;
 		switch (channels)
 		{
 		case 3:
 			m_Format = srgb ? TextureFormat::SRGB8 : TextureFormat::RGB8;
-			internalFormat = srgb ? GL_SRGB8 : GL_RGB8;
-			imageFormat = GL_RGB;
 			break;
 		case 4:
 			m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;
-			internalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
-			imageFormat = GL_RGBA;
 			break;
 		default:
 			m_Format = TextureFormat::UNKNOW;
@@ -572,31 +486,28 @@ namespace fury
 		m_FilePath = "";
 		m_Dirty = false;
 
-		glGenTextures(1, &m_ID);
-		glBindTexture(m_TypeUint, m_ID);
+		RHITextureDesc desc;
+		desc.Name = m_Name;
+		desc.Type = m_Type;
+		desc.Format = m_Format;
+		desc.Width = m_Width;
+		desc.Height = m_Height;
+		desc.MipLevels = m_Mipmap ? FURY_MIPMAP_LEVEL : 1;
+		desc.Sampler.Filter = m_FilterMode;
+		desc.Sampler.Wrap = m_WrapMode;
+		desc.Sampler.BorderColor = m_BorderColor;
 
-		glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, m_Width, m_Height);
-		glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, imageFormat, GL_UNSIGNED_BYTE, pixels);
-
-		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
-		unsigned int magMode = (m_FilterMode == FilterMode::NEAREST
-			|| m_FilterMode == FilterMode::NEAREST_MIPMAP_NEAREST)
-			? GL_NEAREST : GL_LINEAR;
-
-		glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, magMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
-
-		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-		glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
-
-		if (m_Mipmap)
-			glGenerateMipmap(m_TypeUint);
-
-		glBindTexture(m_TypeUint, 0);
+		m_RHITexture = GRHIDevice->CreateTexture(desc);
+		if (m_RHITexture != nullptr)
+		{
+			GRHIDevice->UpdateTexture(m_RHITexture, pixels, (size_t)m_Width * m_Height * channels);
+			if (m_Mipmap)
+				GRHIDevice->GenerateMipmaps(m_RHITexture);
+		}
+		else
+		{
+			m_Dirty = true;
+		}
 
 		stbi_image_free(pixels);
 
@@ -615,14 +526,14 @@ namespace fury
 	{
 		if (!RenderThread::Get().MayUseGL())
 		{
-			DispatchGL(this, [this, width, height, depth, format, type, mipMap]() {
+			DispatchRHI(this, [this, width, height, depth, format, type, mipMap]() {
 				CreateEmpty(width, height, depth, format, type, mipMap);
 			});
 			return;
 		}
 
-		// CLI / no-GL-context path: serialization shape only, no GPU upload.
-		if (_ptrc_glGenTextures == nullptr)
+		// Headless path: serialization shape only, no GPU upload.
+		if (GRHIDevice == nullptr)
 		{
 			m_Mipmap = mipMap;
 			m_Format = format;
@@ -631,7 +542,6 @@ namespace fury
 			m_Height = height;
 			m_Depth = depth;
 			m_Type = type;
-			m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
 			return;
 		}
 
@@ -648,41 +558,29 @@ namespace fury
 		m_Depth = depth;
 
 		m_Type = type;
-		m_TypeUint = EnumUtil::TextureTypeToUnit(m_Type);
 
-		unsigned int internalFormat = EnumUtil::TextureFormatToUint(format).second;
+		RHITextureDesc desc;
+		desc.Name = m_Name;
+		desc.Type = m_Type;
+		desc.Format = m_Format;
+		desc.Width = width;
+		desc.Height = height;
+		desc.Depth = depth;
+		desc.MipLevels = m_Mipmap ? FURY_MIPMAP_LEVEL : 1;
+		desc.RenderTarget = true;
+		desc.Sampler.Filter = m_FilterMode;
+		desc.Sampler.Wrap = m_WrapMode;
+		desc.Sampler.BorderColor = m_BorderColor;
 
-		glGenTextures(1, &m_ID);
-		glBindTexture(m_TypeUint, m_ID);
-
-		if (m_Type == TextureType::TEXTURE_2D_ARRAY || m_Type == TextureType::TEXTURE_3D)
+		m_RHITexture = GRHIDevice->CreateTexture(desc);
+		if (m_RHITexture == nullptr)
 		{
-			glTexStorage3D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height, depth);
+			m_Dirty = true;
+			return;
 		}
-		else
-		{
-			glTexStorage2D(m_TypeUint, m_Mipmap ? FURY_MIPMAP_LEVEL : 1, internalFormat, width, height);
-		}
-
-		unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-		unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
-		unsigned int magMode = (m_FilterMode == FilterMode::NEAREST
-			|| m_FilterMode == FilterMode::NEAREST_MIPMAP_NEAREST)
-			? GL_NEAREST : GL_LINEAR;
-
-		glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, magMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
-		glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
-
-		float color[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-		glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, color);
 
 		if (m_Mipmap)
-			glGenerateMipmap(m_TypeUint);
-
-		glBindTexture(m_TypeUint, 0);
+			GRHIDevice->GenerateMipmaps(m_RHITexture);
 
 		FURYD << m_Name << " [" << m_Width << " x " << m_Height << " x " << EnumUtil::TextureTypeToString(m_Type) << "]";
 
@@ -691,65 +589,50 @@ namespace fury
 
 	void Texture::SetPixels(const void* pixels)
 	{
-		if (m_ID == 0)
+		if (m_RHITexture == nullptr)
 		{
 			FURYW << "Texture buffer not created yet!";
 			return;
 		}
 
-		glBindTexture(m_TypeUint, m_ID);
-		glTexSubImage2D(m_TypeUint, 0, 0, 0, m_Width, m_Height, EnumUtil::TextureFormatToUint(m_Format, false).second, GL_UNSIGNED_BYTE, pixels);
+		const size_t size = static_cast<size_t>(m_Width) * m_Height * std::max(m_Depth, 1)
+			* EnumUtil::TextureBitPerPixel(m_Format) / 8;
+		GRHIDevice->UpdateTexture(m_RHITexture, pixels, size);
 
 		if (m_Mipmap)
-			glGenerateMipmap(m_TypeUint);
-
-		glBindTexture(m_TypeUint, 0);
+			GRHIDevice->GenerateMipmaps(m_RHITexture);
 	}
 
 	void Texture::SetPixels3D(const void* pixels)
 	{
-		if (m_ID == 0 || m_Type != TextureType::TEXTURE_3D)
+		if (m_RHITexture == nullptr || m_Type != TextureType::TEXTURE_3D)
 		{
 			FURYW << "SetPixels3D needs a created TEXTURE_3D!";
 			return;
 		}
 
-		glBindTexture(m_TypeUint, m_ID);
-		glTexSubImage3D(m_TypeUint, 0, 0, 0, 0, m_Width, m_Height, m_Depth, EnumUtil::TextureFormatToUint(m_Format, false).second, GL_UNSIGNED_BYTE, pixels);
-
-		if (m_Mipmap)
-			glGenerateMipmap(m_TypeUint);
-
-		glBindTexture(m_TypeUint, 0);
+		SetPixels(pixels);
 	}
 
 	bool Texture::GetPixels(std::vector<unsigned char> &outPixels) const
 	{
-		if (m_ID == 0 || (m_Type != TextureType::TEXTURE_3D && m_Type != TextureType::TEXTURE_2D))
+		if (m_RHITexture == nullptr || (m_Type != TextureType::TEXTURE_3D && m_Type != TextureType::TEXTURE_2D))
 			return false;
 
-		int channels = 4;
-		switch (EnumUtil::TextureFormatToUint(m_Format, false).second)
-		{
-		case GL_RED: channels = 1; break;
-		case GL_RG: channels = 2; break;
-		case GL_RGB: channels = 3; break;
-		default: break;
-		}
+		RHIPixelData data;
+		if (!GRHIDevice->Readback(m_RHITexture, data))
+			return false;
 
-		outPixels.resize(static_cast<size_t>(m_Width) * m_Height * std::max(m_Depth, 1) * channels);
-		glBindTexture(m_TypeUint, m_ID);
-		glGetTexImage(m_TypeUint, 0, EnumUtil::TextureFormatToUint(m_Format, false).second, GL_UNSIGNED_BYTE, outPixels.data());
-		glBindTexture(m_TypeUint, 0);
+		outPixels = std::move(data.Pixels);
 		return true;
 	}
 
 	void Texture::UpdateBuffer()
 	{
 		// CreateFromImage decodes on this (calling) thread and dispatches
-		// only its GL upload; CreateEmpty dispatches itself. No
-		// self-re-dispatch: path resolution must stay on the caller.
-		if (m_ID > 0 || !m_Dirty)
+		// only its upload; CreateEmpty dispatches itself. No self-re-dispatch:
+		// path resolution must stay on the caller.
+		if (m_RHITexture != nullptr || !m_Dirty)
 			return;
 
 		m_Dirty = false;
@@ -764,15 +647,15 @@ namespace fury
 	{
 		m_Dirty = true;
 
-		if (m_ID != 0)
+		if (m_RHITexture != nullptr)
 		{
 			DecreaseMemory();
-			// GL handles die on the GL thread (direct-exec there, queued
+			// GPU handles die on the render thread (direct-exec there, queued
 			// from foreign threads). Captured by value: this object may
 			// already be gone when a queued delete runs.
-			unsigned int id = m_ID;
-			RenderThread::Get().EnqueueJob([id]() { glDeleteTextures(1, &id); });
-			m_ID = 0;
+			RHITextureRef texture = m_RHITexture;
+			RenderThread::Get().EnqueueJob([texture]() mutable { texture.reset(); });
+			m_RHITexture = nullptr;
 			m_Width = m_Height = 0;
 			m_Format = TextureFormat::UNKNOW;
 			m_FilePath = "";
@@ -833,7 +716,7 @@ namespace fury
 
 	unsigned int Texture::GetTypeUint() const
 	{
-		return m_TypeUint;
+		return GLEnumMap::TextureTypeToGL(m_Type);
 	}
 
 	FilterMode Texture::GetFilterMode() const
@@ -846,20 +729,13 @@ namespace fury
 		if (m_FilterMode != mode)
 		{
 			m_FilterMode = mode;
-			if (m_ID != 0)
+			if (m_RHITexture != nullptr)
 			{
-				glBindTexture(m_TypeUint, m_ID);
-
-				unsigned int filterMode = EnumUtil::FilterModeToUint(m_FilterMode);
-				glTexParameteri(m_TypeUint, GL_TEXTURE_MIN_FILTER, filterMode);
-				// mag has no mip filtering in GL; a mipmap mode here would
-				// make the texture incomplete (and black)
-				unsigned int magMode = (m_FilterMode == FilterMode::NEAREST
-					|| m_FilterMode == FilterMode::NEAREST_MIPMAP_NEAREST)
-					? GL_NEAREST : GL_LINEAR;
-				glTexParameteri(m_TypeUint, GL_TEXTURE_MAG_FILTER, magMode);
-
-				glBindTexture(m_TypeUint, 0);
+				RHISamplerDesc sampler;
+				sampler.Filter = m_FilterMode;
+				sampler.Wrap = m_WrapMode;
+				sampler.BorderColor = m_BorderColor;
+				GRHIDevice->UpdateSampler(m_RHITexture, sampler);
 			}
 		}
 	}
@@ -874,16 +750,13 @@ namespace fury
 		if (m_WrapMode != mode)
 		{
 			m_WrapMode = mode;
-			if (m_ID != 0)
+			if (m_RHITexture != nullptr)
 			{
-				glBindTexture(m_TypeUint, m_ID);
-
-				unsigned int wrapMode = EnumUtil::WrapModeToUint(m_WrapMode);
-				glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_S, wrapMode);
-				glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_T, wrapMode);
-				glTexParameteri(m_TypeUint, GL_TEXTURE_WRAP_R, wrapMode);
-
-				glBindTexture(m_TypeUint, 0);
+				RHISamplerDesc sampler;
+				sampler.Filter = m_FilterMode;
+				sampler.Wrap = m_WrapMode;
+				sampler.BorderColor = m_BorderColor;
+				GRHIDevice->UpdateSampler(m_RHITexture, sampler);
 			}
 		}
 	}
@@ -898,27 +771,24 @@ namespace fury
 		if (m_BorderColor != color)
 		{
 			m_BorderColor = color;
-			if (m_ID != 0)
+			if (m_RHITexture != nullptr)
 			{
-				glBindTexture(m_TypeUint, m_ID);
-
-				float border[] = { m_BorderColor.r, m_BorderColor.g, m_BorderColor.b, m_BorderColor.a };
-				glTexParameterfv(m_TypeUint, GL_TEXTURE_BORDER_COLOR, border);
-
-				glBindTexture(m_TypeUint, 0);
+				RHISamplerDesc sampler;
+				sampler.Filter = m_FilterMode;
+				sampler.Wrap = m_WrapMode;
+				sampler.BorderColor = m_BorderColor;
+				GRHIDevice->UpdateSampler(m_RHITexture, sampler);
 			}
 		}
 	}
 
 	void Texture::GenerateMipMap()
 	{
-		if (m_ID == 0)
+		if (m_RHITexture == nullptr)
 			return;
 
 		m_Mipmap = true;
-
-		glBindTexture(m_TypeUint, m_ID);
-		glGenerateMipmap(m_TypeUint);
+		GRHIDevice->GenerateMipmaps(m_RHITexture);
 	}
 
 	bool Texture::GetMipmap() const
@@ -941,9 +811,14 @@ namespace fury
 		return m_Depth;
 	}
 
-	unsigned int Texture::GetID() const
+	uintptr_t Texture::GetID() const
 	{
-		return m_ID;
+		return GRHIDevice != nullptr ? GRHIDevice->GetUiTextureId(m_RHITexture) : 0;
+	}
+
+	RHITextureRef Texture::GetRHITexture() const
+	{
+		return m_RHITexture;
 	}
 
 	std::string Texture::GetFilePath() const

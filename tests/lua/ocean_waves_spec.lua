@@ -1,7 +1,7 @@
 -- tests/lua/ocean_waves_spec.lua - headless spec test for the OceanWaves
 -- asset + WaveSampler (change: add-fft-ocean, tasks 3.1-3.4).
 --
--- Loads the mini fixture (tests/lua/fixtures/ocean_mini, 32^2 x 8 frames)
+-- Loads the mini fixture (tests/lua/_fixtures/ocean_mini, 32^2 x 8 frames)
 -- and asserts the wave-data spec scenarios: loop/tile continuity,
 -- determinism across loads, choppy-corrected divergence, and CPU-vs-baked
 -- payload agreement at exact texel centers.
@@ -20,7 +20,7 @@ local scene = Scene.Create("ocean_waves_spec", "", OcTree.Create())
 Scene.SetActive(scene)
 
 local waves = OceanWaves.Create("mini")
-waves:SetFilePath("../tests/lua/fixtures/ocean_mini/ocean.json")
+waves:SetFilePath("../tests/lua/_fixtures/ocean_mini/ocean.json")
 if not waves:LoadWaves() then fail("fixture did not load") end
 if not waves:IsValid() then fail("fixture invalid after load") end
 
@@ -54,7 +54,7 @@ end
 
 -- determinism: a second load of the same file samples identically
 local waves2 = OceanWaves.Create("mini2")
-waves2:SetFilePath("../tests/lua/fixtures/ocean_mini/ocean.json")
+waves2:SetFilePath("../tests/lua/_fixtures/ocean_mini/ocean.json")
 if not waves2:LoadWaves() then fail("second load failed") end
 for _, t in ipairs({0.0, 0.4, 2.3}) do
     local a = WaveSampler.Height(waves, 33.0, -71.0, t)
@@ -63,8 +63,8 @@ for _, t in ipairs({0.0, 0.4, 2.3}) do
 end
 
 -- shared cache: Resolve returns one instance per path
-local r1 = OceanWaves.Resolve("../tests/lua/fixtures/ocean_mini/ocean.json")
-local r2 = OceanWaves.Resolve("../tests/lua/fixtures/ocean_mini/ocean.json")
+local r1 = OceanWaves.Resolve("../tests/lua/_fixtures/ocean_mini/ocean.json")
+local r2 = OceanWaves.Resolve("../tests/lua/_fixtures/ocean_mini/ocean.json")
 if not r1 or not r2 then fail("Resolve returned nil") end
 if r1 ~= r2 then fail("Resolve did not share the cached instance") end
 
@@ -107,7 +107,7 @@ end
 
 -- flat fallback: an invalid asset samples as zero, no crash
 local bad = OceanWaves.Create("bad")
-bad:SetFilePath("../tests/lua/fixtures/ocean_mini/nope.json")
+bad:SetFilePath("../tests/lua/_fixtures/ocean_mini/nope.json")
 if bad:LoadWaves() then fail("missing file should fail to load") end
 if WaveSampler.Height(bad, 1.0, 2.0, 3.0) ~= 0.0 then fail("invalid asset not flat") end
 

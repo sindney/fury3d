@@ -19,7 +19,7 @@ new binding), read `engine/Fury/LuaBindings.cpp` directly.
 
 The `fury` executable is a Lua launcher. It:
 
-1. Opens an `sf::Window` at 1920×1080 with depth-24 / stencil-8 / GL 3.3 context settings (matching the previous C++ demo).
+1. Opens an `sf::Window` at 1920×1080 with depth-24 / stencil-8 / GL 3.3 context settings (matching the previous C++ demo). On the Metal backend the window carries no GL context; the RHI device attaches its own `CAMetalLayer`-backed surface.
 2. Calls `fury::Engine::Initialize(...)` to bring up the engine subsystems.
 3. Opens a `sol::state` and calls `fury::LuaBindings::Register(lua)` to wire engine types into the script's global namespace.
 4. Injects the active SFML window into Lua as `__window` (a private global the bindings read; don't shadow it in your scripts).
@@ -53,8 +53,14 @@ The second argument (the options table) is also optional. Calling `Engine.run({.
 - `gui_scale` (number, default `0.0` — sentinel meaning "use system DPI"): multiplier passed to `ImGuiStyle::ScaleAllSizes`. Controls widget sizes, padding, borders. The default of `0.0` is a sentinel that makes the editor Just Work on HiDPI displays — on a 200%-scaled monitor the UI is scaled by 2.0× without the user having to opt in. Pass an explicit value (e.g., `1.0`) to bypass the system DPI and get a fixed size.
 - `gui_font_scale` (number, default `0.0` — sentinel meaning "follow `gui_scale`"): assigned to `ImGuiStyle::FontScaleMain` (the ImGui 1.92 replacement for the deprecated `ImGuiIO::FontGlobalScale`). Controls the bitmap font density. The default follows `gui_scale` so the font scales with the system DPI alongside the widget layout. Pass an explicit value (e.g., `1.0`) to override.
 - `dpi_aware_override` (boolean, default `false`): when `true`, the system DPI is multiplied with `gui_scale` (so `gui_scale = 1.0` becomes `2.0` on a 200% display). When `false`, an explicit `gui_scale` wins over the system DPI. See the `platform-window-dpi` spec for details.
+- `rhi` (string, optional): render backend for this launch — `"opengl"`, `"vulkan"`, or `"metal"`. The backend resolves at device creation (inside `Engine.run`, before `on_init`), first source winning: `--rhi=` CLI arg > `FURY_RHI` env > this option > editor ini > default `opengl`. Unknown or unsupported values warn and resolve to `opengl`; a backend that fails initialization falls back to `opengl`. There is no runtime switching.
 
 Unknown keys in the options table are silently ignored, so you can leave a `vsync = true` (or similar) entry in your script and it won't error — it just won't do anything yet.
+
+Two related query functions exist for game-side options menus:
+
+- `Engine.GetRhiBackend()` → string: the backend actually in use (after any fallback), e.g. `"opengl"`.
+- `Engine.GetSupportedRhiBackends()` → array of strings: the current platform's support matrix (Windows: `opengl, vulkan`; macOS: `opengl, vulkan, metal`; Linux: `opengl, vulkan`). This reflects compilation + platform gating, not working runtimes: only `opengl` and `metal` create a real device today. `vulkan` is a stub whose device creation logs "not implemented yet" and fails over to `opengl`.
 
 Ordering guarantees per frame:
 1. `RenderUtil:BeginFrame()` (engine-internal).
@@ -91,15 +97,24 @@ arg[1..N] = argv[2..argc-1] (each entry a string)
 This matches the convention of the standalone `lua` interpreter, so scripts authored elsewhere drop in. `Editor.lua` honors `arg[1]` as an optional startup-scene path:
 
 ```sh
-./fury Editor.lua                 # loads Resource/Scene/scene.bin (the default)
-./fury Editor.lua outdoor.fbx     # loads Resource/Scene/outdoor.fbx as the startup scene
+./fury Editor.lua                 # starts with an empty scene
+./fury Editor.lua Projects/ocean/ocean_island.bin  # loads that scene as the startup scene
 ./fury Editor.lua /path/to/x.glb  # absolute paths work too
-./fury Editor.lua nope.fbx        # logs a warning, falls back to scene.bin
+./fury Editor.lua nope.fbx        # logs a warning, leaves the scene empty
 ```
 
-The resolution rule Editor.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Resource/Scene/`. If both miss, surface a status message and fall back to `scene.bin` so the editor is still interactive.
+The resolution rule Editor.lua uses: try the literal first (so absolute and CWD-relative paths work), then prepend `Projects/`, then `Resource/Scene/`. If all three miss, surface a status message and leave the scene empty.
 
-The launcher also recognizes two **runtime flags** — `--screenshot <path>` and `--screenshot-frame <N>` — anywhere in `argv` after the script path. They drive a debug PNG capture and are stripped from `arg` before the script sees it; scripts run identically with or without them. See `docs/CLI.md` (§ "Screenshot mode") for the full reference.
+The launcher also recognizes several **runtime flags** anywhere in `argv`
+after the script path: `--screenshot <path>` / `--screenshot-frame <N>` /
+`--screenshot-series <path,N,interval>` drive debug PNG capture, `--gpu-dump
+<dir>` / `--gpu-dump-frame <N>` write a full GPU frame dump, and `--rhi=<name>`
+selects the render backend (see `docs/CLI.md`). All are stripped from `arg`
+before the script sees it; scripts run identically with or without them. The
+editor script additionally consumes `--gpu-profiler <dir>` (open the GPU
+Capture Profiler on a `--gpu-dump` capture) and `--gpu-profiler=<dir>`. See
+`docs/CLI.md` (sections "Screenshot mode" and "GPU capture profiler") for the
+full reference.
 
 ## Hello, world
 

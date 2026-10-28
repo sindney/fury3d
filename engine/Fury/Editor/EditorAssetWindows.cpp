@@ -4,7 +4,8 @@
 #include "Fury/EntityManager.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/FileUtil.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Joint.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
@@ -222,32 +223,28 @@ void RenderThumbnailJob(const std::shared_ptr<Mesh>& mesh, const std::string& ke
 	if (!mesh) return;
 
 	auto &surface = AcquireSurface(key, 128, 128);
-	if (surface.fbo == 0) return;
+	if (surface.targetSet == nullptr) return;
 
-	glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
-	glViewport(0, 0, 128, 128);
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glEnable(GL_DEPTH_TEST);
+	auto *cmd = GRHIDevice->GetCommandList();
+	cmd->BeginRenderTargets(surface.targetSet, ClearMode::COLOR_DEPTH, Color(0, 0, 0, 1));
+	cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 
 	RenderMeshLambert(mesh, 128, 128, palette.empty() ? nullptr : &palette);
 
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glDisable(GL_DEPTH_TEST);
+	cmd->EndRenderTargets();
+	cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, true, CullMode::NONE);
 
 	if (!cacheHit)
 	{
-		std::vector<unsigned char> pixels(128 * 128 * 4);
-		glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
-		glReadPixels(0, 0, 128, 128, GL_RGBA, GL_UNSIGNED_BYTE,
-					 pixels.data());
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		RHIPixelData shot;
+		if (!GRHIDevice->Readback(surface.color->GetRHITexture(), shot))
+			return;
 		// Flip rows: GL origin is bottom-left, PNG is top-left.
-		std::vector<unsigned char> flipped(pixels.size());
+		std::vector<unsigned char> flipped(shot.Pixels.size());
 		const size_t row_bytes = 128 * 4;
 		for (int y = 0; y < 128; ++y) {
 			std::memcpy(&flipped[y * row_bytes],
-						&pixels[(127 - y) * row_bytes],
+						&shot.Pixels[(127 - y) * row_bytes],
 						row_bytes);
 		}
 		const std::string path = GetCachePath(contentHash);
@@ -274,7 +271,7 @@ void SubmitThumbnailJob(const std::shared_ptr<Mesh>& mesh, size_t bufferId,
 		}
 	}
 	const std::string key = "MeshThumb:" + std::to_string(bufferId);
-	RenderThread::Get().EnqueueJob([mesh, key, cacheHit, contentHash, palette = std::move(palette)]() mutable {
+	Editor::QueueOverlayJob([mesh, key, cacheHit, contentHash, palette = std::move(palette)]() mutable {
 		RenderThumbnailJob(mesh, key, cacheHit, contentHash, palette);
 	});
 }
@@ -758,17 +755,15 @@ struct MeshPreviewRequest
 void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 {
 	auto &surface = AcquireSurface(req.key, req.w, req.h);
-	if (surface.fbo == 0 || !req.mesh)
+	if (surface.targetSet == nullptr || !req.mesh)
 		return;
 
 	if (req.mesh->GetDirty())
 		req.mesh->UpdateBuffer();
 
-	glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
-	glViewport(0, 0, req.w, req.h);
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glEnable(GL_DEPTH_TEST);
+	auto *cmd = GRHIDevice->GetCommandList();
+	cmd->BeginRenderTargets(surface.targetSet, ClearMode::COLOR_DEPTH, Color(0, 0, 0, 1));
+	cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 
 	auto shader = GetSimpleLambertShader();
 	shader->Bind();
@@ -781,18 +776,14 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 	auto submeshCount = req.mesh->GetSubMeshCount();
 	if (submeshCount == 0) {
 		shader->BindMesh(req.mesh);
-		glDrawElements(GL_TRIANGLES,
-					   static_cast<GLsizei>(req.mesh->Indices.Data.size()),
-					   GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(req.mesh->Indices.Data.size()));
 	} else {
 		shader->BindMesh(req.mesh);
 		for (unsigned int i = 0; i < submeshCount; ++i) {
 			auto sm = req.mesh->GetSubMeshAt(i);
 			if (!sm) continue;
 			shader->BindSubMesh(req.mesh, i);
-			glDrawElements(GL_TRIANGLES,
-						   static_cast<GLsizei>(sm->Indices.Data.size()),
-						   GL_UNSIGNED_INT, 0);
+			cmd->DrawIndexed(static_cast<unsigned int>(sm->Indices.Data.size()));
 		}
 	}
 
@@ -825,9 +816,9 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 			static_cast<int>((2.0f * grid_extent) / grid_step) + 1;
 		const int grid_vertex_count = grid_lines_per_axis * 4;
 		static std::vector<float> grid_vbo_data;
-		static GLuint grid_vbo = 0, grid_vao = 0;
+		static RHIBufferRef grid_vbo;
 		static float cached_extent = -1.0f;
-		if (grid_vbo == 0 || cached_extent != grid_extent) {
+		if (grid_vbo == nullptr || cached_extent != grid_extent) {
 			grid_vbo_data.clear();
 			grid_vbo_data.reserve(grid_vertex_count * 3);
 			for (float x = -grid_extent; x <= grid_extent + 1e-4f; x += grid_step) {
@@ -838,18 +829,16 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 				grid_vbo_data.push_back(-grid_extent); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(z);
 				grid_vbo_data.push_back( grid_extent); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(z);
 			}
-			if (grid_vbo == 0) {
-				glGenBuffers(1, &grid_vbo);
-				glGenVertexArrays(1, &grid_vao);
-				glBindVertexArray(grid_vao);
-				glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
-				glEnableVertexAttribArray(0);
-				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-				glBindVertexArray(0);
+			if (grid_vbo == nullptr) {
+				RHIBufferDesc desc;
+				desc.Name = "MeshPreviewGrid";
+				desc.Type = RHIBufferType::VERTEX;
+				desc.Usage = RHIBufferUsage::DYNAMIC;
+				desc.Size = 0;
+				grid_vbo = GRHIDevice->CreateBuffer(desc);
 			}
-			glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
-			glBufferData(GL_ARRAY_BUFFER, grid_vbo_data.size() * sizeof(float),
-						 grid_vbo_data.data(), GL_DYNAMIC_DRAW);
+			GRHIDevice->UpdateBuffer(grid_vbo, grid_vbo_data.data(),
+				grid_vbo_data.size() * sizeof(float));
 			cached_extent = grid_extent;
 		}
 		// AABB wireframe (8 corners, 12 edges), rebuilt per frame.
@@ -869,23 +858,16 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 			mx.x, mn.y, mx.z,  mx.x, mx.y, mx.z,
 			mn.x, mn.y, mx.z,  mn.x, mx.y, mx.z,
 		};
-		static GLuint aabb_vbo = 0, aabb_vao = 0;
-		if (aabb_vbo == 0) {
-			glGenBuffers(1, &aabb_vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(aabbVerts),
-						 aabbVerts, GL_DYNAMIC_DRAW);
-			glGenVertexArrays(1, &aabb_vao);
-			glBindVertexArray(aabb_vao);
-			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-			glBindVertexArray(0);
-		} else {
-			glBindBuffer(GL_ARRAY_BUFFER, aabb_vbo);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(aabbVerts),
-						 aabbVerts, GL_DYNAMIC_DRAW);
+		static RHIBufferRef aabb_vbo;
+		if (aabb_vbo == nullptr) {
+			RHIBufferDesc desc;
+			desc.Name = "MeshPreviewAABB";
+			desc.Type = RHIBufferType::VERTEX;
+			desc.Usage = RHIBufferUsage::DYNAMIC;
+			desc.Size = 0;
+			aabb_vbo = GRHIDevice->CreateBuffer(desc);
 		}
+		GRHIDevice->UpdateBuffer(aabb_vbo, aabbVerts, sizeof(aabbVerts));
 
 		line_shader->Bind();
 		line_shader->BindMatrix("_ViewMatrix", req.view);
@@ -898,23 +880,44 @@ void RenderMeshPreviewJob(const MeshPreviewRequest &req)
 		gridOffMat.Raw[13] = mn.y;
 		gridOffMat.Raw[14] = req.aabbCenter.z;
 		line_shader->BindMatrix("_OffsetMat", gridOffMat);
-		glBindVertexArray(grid_vao);
-		glLineWidth(1.0f);
-		glDrawArrays(GL_LINES, 0, grid_vertex_count);
-		glBindVertexArray(0);
+		{
+			RHIMeshGeometryDesc desc;
+			desc.MeshName = "MeshPreviewGrid";
+			auto &ch = desc.Channels[0];
+			ch.Name = "vertex_position";
+			ch.Attrib = line_shader->GetRHIModule()->ResolveAttribLocation("vertex_position");
+			ch.Buffer = grid_vbo;
+			ch.Empty = false;
+			ch.Components = 3;
+			desc.ChannelCount = 1;
+			cmd->SetMeshGeometry(desc);
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::LINES);
+			cmd->Draw(grid_vertex_count);
+		}
 
 		// AABB wireframe (offset = identity; vertices already in world space).
 		Matrix4 aabbOffMat;
 		aabbOffMat.Identity();
 		line_shader->BindMatrix("_OffsetMat", aabbOffMat);
-		glBindVertexArray(aabb_vao);
-		glLineWidth(1.5f);
-		glDrawArrays(GL_LINES, 0, 24);
-		glBindVertexArray(0);
+		{
+			RHIMeshGeometryDesc desc;
+			desc.MeshName = "MeshPreviewAABB";
+			auto &ch = desc.Channels[0];
+			ch.Name = "vertex_position";
+			ch.Attrib = line_shader->GetRHIModule()->ResolveAttribLocation("vertex_position");
+			ch.Buffer = aabb_vbo;
+			ch.Empty = false;
+			ch.Components = 3;
+			desc.ChannelCount = 1;
+			cmd->SetMeshGeometry(desc);
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::LINES);
+			cmd->Draw(24);
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+		}
 	}
 
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glDisable(GL_DEPTH_TEST);
+	cmd->EndRenderTargets();
+	cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, true, CullMode::NONE);
 
 	PublishSurface(req.key, surface.color);
 }
@@ -1000,7 +1003,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	Matrix4 view;
 	view.LookAt(eye, os.target, Vector4(0, 1, 0, 0));
 
-	// Submit the render as a GL-thread job; the published texture is
+	// Submit the render to the frame executor; the published texture is
 	// sampled below (lands the same frame when single-threaded).
 	MeshPreviewRequest req;
 	req.mesh = render_mesh;
@@ -1013,7 +1016,7 @@ void RenderMeshPreview(const std::shared_ptr<Mesh>& mesh,
 	req.key = "MeshPreview:" + popup_id;
 	req.w = w;
 	req.h = h;
-	RenderThread::Get().EnqueueJob([req]() { RenderMeshPreviewJob(req); });
+	Editor::QueueOverlayJob([req]() { RenderMeshPreviewJob(req); });
 
 	ImGui::BeginChild("preview", size, false,
 					  ImGuiWindowFlags_NoScrollbar);
@@ -1159,10 +1162,10 @@ void OpenMaterialEditor(const std::shared_ptr<Material>& mat) {
 	g_OpenMaterialEditors.insert(popup);
 }
 
-// Lookup or allocate a 128x128 thumbnail for `mesh`; returns the color RT's GL
-// texture ID (0 until populated). Enqueues an async content hash on dirty
+// Lookup or allocate a 128x128 thumbnail for `mesh`; returns the color RT's
+// texture id (0 until populated). Enqueues an async content hash on dirty
 // transitions and warms from the disk cache on a hit.
-unsigned int GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
+uintptr_t GetMeshThumbnail(const std::shared_ptr<Mesh>& mesh) {
 	if (!mesh) return 0;
 	const size_t bufferId = mesh->GetBufferId();
 	auto& entry = g_MeshThumbnails[bufferId];

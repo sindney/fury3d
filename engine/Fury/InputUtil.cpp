@@ -3,6 +3,10 @@
 #include <SFML/Window/Window.hpp>
 #include <SFML/Window/Mouse.hpp>
 
+#if PLATFORM_WINDOWS
+#include <windows.h>
+#endif
+
 #if PLATFORM_MACOS
 namespace fury
 {
@@ -36,9 +40,23 @@ namespace fury
 		return m_MousePosition;
 	}
 
+	// Bind a window and push the stored (grabbed, visible) state to it so a
+	// late-bound window picks up whatever the user toggled before binding.
 	void InputUtil::BindWindow(sf::Window *window)
 	{
 		m_Window = window;
+		if (m_Window != nullptr)
+		{
+			m_Window->setMouseCursorGrabbed(m_CursorGrabbed);
+			m_Window->setMouseCursorVisible(m_CursorVisible);
+		}
+#if PLATFORM_WINDOWS
+		// ShowCursor is refcounted; drive it to a known state matching
+		// m_CursorVisible so prior toggles never leave the counter stuck.
+		int count = ShowCursor(m_CursorVisible ? TRUE : FALSE);
+		if (m_CursorVisible) { while (count < 0) count = ShowCursor(TRUE); }
+		else                 { while (count >= 0) count = ShowCursor(FALSE); }
+#endif
 	}
 
 	void InputUtil::SetCursorGrabbed(bool grabbed)
@@ -71,6 +89,14 @@ namespace fury
 		m_CursorVisible = visible;
 #if PLATFORM_MACOS
 		SyncCursorOS();
+#elif PLATFORM_WINDOWS
+		if (m_Window != nullptr)
+			m_Window->setMouseCursorVisible(visible);
+		// Balance Win32's refcounted ShowCursor regardless of SFML's call so
+		// toggles always land at the requested visibility state.
+		int count = ShowCursor(visible ? TRUE : FALSE);
+		if (visible) { while (count < 0) count = ShowCursor(TRUE); }
+		else         { while (count >= 0) count = ShowCursor(FALSE); }
 #else
 		if (m_Window != nullptr)
 			m_Window->setMouseCursorVisible(visible);
@@ -82,6 +108,12 @@ namespace fury
 		const auto out = m_MouseDeltaAccum;
 		m_MouseDeltaAccum = {0, 0};
 		return out;
+	}
+
+	void InputUtil::AddMouseDelta(int dx, int dy)
+	{
+		m_MouseDeltaAccum.first  += dx;
+		m_MouseDeltaAccum.second += dy;
 	}
 
 	bool InputUtil::GetWindowFocused()
@@ -124,3 +156,4 @@ namespace fury
 		m_MousePosition = std::make_pair(0, 0);
 	}
 }
+

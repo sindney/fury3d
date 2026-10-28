@@ -1,12 +1,22 @@
 #include <type_traits>
 
 #include "Fury/Log.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Uniform.h"
 #include "Fury/Serializable.h"
 
+#include "Fury/RHI/RHICommandList.h"
+#include "Fury/RHI/RHIDevice.h"
+
 namespace fury
 {
+	namespace
+	{
+		RHICommandList *Cmd()
+		{
+			return GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
+		}
+	}
+
 	const std::unordered_map<std::type_index, std::string> UniformBase::m_UniformTypeMap =
 	{
 		{ typeid(Uniform1f), "Uniform1f" },
@@ -49,18 +59,17 @@ namespace fury
 	}
 
 	template<typename Datatype, unsigned int Size>
-	Uniform<Datatype, Size>::Uniform() 
+	Uniform<Datatype, Size>::Uniform()
 	{
 		m_TypeIndex = typeid(Datatype);
 		m_Size = Size;
 	}
 
 	template<typename Datatype, unsigned int Size>
-	void Uniform<Datatype, Size>::Bind(unsigned int program, const std::string &name)
+	void Uniform<Datatype, Size>::Bind(const std::string &name)
 	{
-		unsigned int id = glGetUniformLocation(program, name.c_str());
-
-		if (id == -1)
+		RHICommandList *cmd = Cmd();
+		if (cmd == nullptr)
 			return;
 
 		if (std::is_floating_point<Datatype>::value)
@@ -68,19 +77,19 @@ namespace fury
 			switch (Size)
 			{
 			case 1:
-				glUniform1f(id, (float)m_Data[0]);
+				cmd->SetUniformFloat(name, (float)m_Data[0]);
 				break;
 			case 2:
-				glUniform2f(id, (float)m_Data[0], (float)m_Data[1]);
+				cmd->SetUniformFloat(name, (float)m_Data[0], (float)m_Data[1]);
 				break;
 			case 3:
-				glUniform3f(id, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2]);
+				cmd->SetUniformFloat(name, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2]);
 				break;
 			case 4:
-				glUniform4f(id, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2], (float)m_Data[3]);
+				cmd->SetUniformFloat(name, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2], (float)m_Data[3]);
 				break;
 			case 16:
-				glUniformMatrix4fv(id, 1, false, (float*)&m_Data[0]);
+				cmd->SetUniformMatrix(name, (const float*)&m_Data[0]);
 				break;
 			default:
 				FURYW << "Invalide data size!";
@@ -94,16 +103,16 @@ namespace fury
 				switch (Size)
 				{
 				case 1:
-					glUniform1ui(id, (int)m_Data[0]);
+					cmd->SetUniformInt(name, (int)m_Data[0]);
 					break;
 				case 2:
-					glUniform2ui(id, (int)m_Data[0], (int)m_Data[1]);
+					cmd->SetUniformInt(name, (int)m_Data[0], (int)m_Data[1]);
 					break;
 				case 3:
-					glUniform3ui(id, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2]);
+					cmd->SetUniformInt(name, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2]);
 					break;
 				case 4:
-					glUniform4ui(id, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2], (int)m_Data[3]);
+					cmd->SetUniformInt(name, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2], (int)m_Data[3]);
 					break;
 				default:
 					FURYW << "Invalide data size!";
@@ -112,19 +121,20 @@ namespace fury
 			}
 			else
 			{
+				// No multi-value uint RHI entry; int uploads match for in-range values.
 				switch (Size)
 				{
 				case 1:
-					glUniform1i(id, (unsigned int)m_Data[0]);
+					cmd->SetUniformUInt(name, (unsigned int)m_Data[0]);
 					break;
 				case 2:
-					glUniform2i(id, (unsigned int)m_Data[0], (unsigned int)m_Data[1]);
+					cmd->SetUniformInt(name, (int)m_Data[0], (int)m_Data[1]);
 					break;
 				case 3:
-					glUniform3i(id, (unsigned int)m_Data[0], (unsigned int)m_Data[1], (unsigned int)m_Data[2]);
+					cmd->SetUniformInt(name, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2]);
 					break;
 				case 4:
-					glUniform4i(id, (unsigned int)m_Data[0], (unsigned int)m_Data[1], (unsigned int)m_Data[2], (unsigned int)m_Data[3]);
+					cmd->SetUniformInt(name, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2], (int)m_Data[3]);
 					break;
 				default:
 					FURYW << "Invalide data size!";
@@ -135,9 +145,13 @@ namespace fury
 	}
 
 	template<typename Datatype, unsigned int Size>
-	void Uniform<Datatype, Size>::BindLocation(int location)
+	void Uniform<Datatype, Size>::BindAt(RHIUniformHandle handle)
 	{
-		if (location == -1)
+		if (handle == -1)
+			return;
+
+		RHICommandList *cmd = Cmd();
+		if (cmd == nullptr)
 			return;
 
 		if (std::is_floating_point<Datatype>::value)
@@ -145,16 +159,16 @@ namespace fury
 			switch (Size)
 			{
 			case 1:
-				glUniform1f(location, (float)m_Data[0]);
+				cmd->SetUniformFloatAt(handle, (float)m_Data[0]);
 				break;
 			case 2:
-				glUniform2f(location, (float)m_Data[0], (float)m_Data[1]);
+				cmd->SetUniformFloatAt(handle, (float)m_Data[0], (float)m_Data[1]);
 				break;
 			case 3:
-				glUniform3f(location, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2]);
+				cmd->SetUniformFloatAt(handle, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2]);
 				break;
 			case 4:
-				glUniform4f(location, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2], (float)m_Data[3]);
+				cmd->SetUniformFloatAt(handle, (float)m_Data[0], (float)m_Data[1], (float)m_Data[2], (float)m_Data[3]);
 				break;
 			default:
 				break;
@@ -165,16 +179,13 @@ namespace fury
 			switch (Size)
 			{
 			case 1:
-				glUniform1i(location, (int)m_Data[0]);
+				cmd->SetUniformIntAt(handle, (int)m_Data[0]);
 				break;
 			case 2:
-				glUniform2i(location, (int)m_Data[0], (int)m_Data[1]);
-				break;
 			case 3:
-				glUniform3i(location, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2]);
-				break;
 			case 4:
-				glUniform4i(location, (int)m_Data[0], (int)m_Data[1], (int)m_Data[2], (int)m_Data[3]);
+				// RHI has no multi-value integer At entry.
+				FURYW << "Integer vector BindAt is not supported by the RHI!";
 				break;
 			default:
 				break;

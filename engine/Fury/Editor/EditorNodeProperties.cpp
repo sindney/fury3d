@@ -1229,10 +1229,6 @@ void RenderSkyAtmosphereBody(SceneNode* node, SkyAtmosphere* sky) {
 			sky->SetSunLightName(n ? n->GetName() : std::string());
 			Editor::MarkSceneDirty();
 		});
-	if (ImGui::Button("Auto-Detect")) {
-		if (sky->AutoSelectSunLight())
-			Editor::MarkSceneDirty();
-	}
 
 	// detail settings (clouds/moon/atmosphere coefficients) live in the
 	// separate sky editor window

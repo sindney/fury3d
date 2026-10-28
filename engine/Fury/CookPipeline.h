@@ -30,12 +30,16 @@ namespace fury
 		// "" -> <scenePath-without-ext>.cook.json when that file exists.
 		std::string overridesPath = "";
 
+		// Comma-separated opengl,vulkan,metal list; "" -> host platform backends.
+		std::string rhi = "";
+
 		bool verbose = false;
 	};
 
 	struct FURY_API CookResult
 	{
 		int texturesTotal = 0, texturesCooked = 0, texturesDdcHits = 0;
+		int shadersTotal = 0, shadersCooked = 0, shadersDdcHits = 0;
 
 		// Referenced paths missing on disk; the caller exits non-zero.
 		std::vector<std::string> unresolved;
@@ -49,6 +53,9 @@ namespace fury
 	// ktx CLI invocations performed by the last CookSceneAssets call
 	// (3 per cooked texture); stays 0 on a full DDC hit. Test hook.
 	extern FURY_API int g_CookKtxInvocations;
+
+	// Compiles the scene/default pipeline shader matrix without writing assets.
+	FURY_API CookResult ValidateSceneShaders(const std::shared_ptr<Scene>& scene, const std::string& rhi);
 
 	// Enumerates the scene's referenced assets, block-compresses its
 	// textures through the vendored ktx CLI into the DDC, and writes a

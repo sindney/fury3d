@@ -50,10 +50,10 @@ report() { # name status detail
 # ---------------------------------------------------------------- case 1: image A/B
 if want_case image_ab; then
 env FURY_CLOUD_FREEZE=1 FURY_VEG_PREZ=1 FURY_CAM="$CAM_PALM" \
-    ./fury ../tests/lua/cloud_visual_check.lua \
+    ./fury ../tests/lua/scenes/cloud_visual_check.lua \
     --screenshot "$OUT/prez_on.png" --screenshot-frame 60 > "$OUT/prez_on.log" 2>&1
 env FURY_CLOUD_FREEZE=1 FURY_VEG_PREZ=0 FURY_CAM="$CAM_PALM" \
-    ./fury ../tests/lua/cloud_visual_check.lua \
+    ./fury ../tests/lua/scenes/cloud_visual_check.lua \
     --screenshot "$OUT/prez_off.png" --screenshot-frame 60 > "$OUT/prez_off.log" 2>&1
 if [ -s "$OUT/prez_on.png" ] && [ -s "$OUT/prez_off.png" ]; then
     read DM DMAX DFRAC <<< $($IMGPROBE diff "$OUT/prez_on.png" "$OUT/prez_off.png")
@@ -75,7 +75,7 @@ if want_case self_skip; then
 SCENE="Projects/outdoor/outdoor_terrain.bin"
 if [ -f "$SCENE" ]; then
     env FURY_CLOUD_FREEZE=1 FURY_VEG_PREZ=1 FURY_SCENE="$SCENE" FURY_EXIT_FRAME=25 \
-        ./fury ../tests/lua/cloud_visual_check.lua > "$OUT/self_skip.log" 2>&1
+        ./fury ../tests/lua/scenes/cloud_visual_check.lua > "$OUT/self_skip.log" 2>&1
     rc=$?
     if [ $rc -eq 0 ] && grep -q "cloud_visual_check OK" "$OUT/self_skip.log"; then
         report "prez_self_skip" "PASS" "$SCENE ran clean with FURY_VEG_PREZ=1 (exit 0)"
@@ -90,9 +90,9 @@ fi
 # ---------------------------------------------------------------- case 3: timing (os.clock CPU proxy - see header note)
 if want_case timing; then
 env FURY_CLOUD_FREEZE=1 FURY_VEG_PREZ=1 FURY_CAM="$CAM_PALM" FURY_EXIT_FRAME=610 \
-    ./fury ../tests/lua/cloud_visual_check.lua > "$OUT/timing_on.log" 2>&1
+    ./fury ../tests/lua/scenes/cloud_visual_check.lua > "$OUT/timing_on.log" 2>&1
 env FURY_CLOUD_FREEZE=1 FURY_VEG_PREZ=0 FURY_CAM="$CAM_PALM" FURY_EXIT_FRAME=610 \
-    ./fury ../tests/lua/cloud_visual_check.lua > "$OUT/timing_off.log" 2>&1
+    ./fury ../tests/lua/scenes/cloud_visual_check.lua > "$OUT/timing_off.log" 2>&1
 MS_ON=$(sed -n 's/.*PERF avg_frame_ms=\([0-9.]*\).*/\1/p' "$OUT/timing_on.log")
 MS_OFF=$(sed -n 's/.*PERF avg_frame_ms=\([0-9.]*\).*/\1/p' "$OUT/timing_off.log")
 if [ -n "$MS_ON" ] && [ -n "$MS_OFF" ]; then

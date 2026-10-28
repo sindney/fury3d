@@ -4,6 +4,8 @@
 #include <cstring>
 #include <vector>
 
+#include <atomic>
+
 #include <RmlUi/Core.h>
 #include <RmlUi/Debugger.h>
 
@@ -243,6 +245,11 @@ namespace fury
 				s_FileInterface.reset();
 				return false;
 			}
+			// Registered after s_Renderer, so it runs before ~s_Renderer and clears
+			// the render-manager map that ~RenderInterface asserts is empty.
+			static std::atomic<bool> s_AtexitRegistered{false};
+			if (!s_AtexitRegistered.exchange(true))
+				std::atexit(GameUI::Shutdown);
 			s_RmlInitialized = true;
 
 			// Lua plugin initialisation lives in LuaBindings::Register (it has
@@ -459,6 +466,14 @@ namespace fury
 		{
 			if (s_Renderer == nullptr || frame == nullptr) return;
 			s_Renderer->Replay(std::static_pointer_cast<GameUIFrameData>(frame));
+		}
+
+		void CollectUITextures(std::vector<std::shared_ptr<Texture>> &out)
+		{
+			if (s_Renderer == nullptr) return;
+			for (const auto &tex : s_Renderer->GetTextures())
+				if (tex != nullptr)
+					out.push_back(tex);
 		}
 	}
 }

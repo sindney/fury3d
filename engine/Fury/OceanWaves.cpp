@@ -9,12 +9,10 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/AssetBackend.h"
 #include "Fury/EntityUtil.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/Log.h"
 #include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
-// NOTE: must come after GLLoader.h (windows.h) -- FileUtil.h #undefs the
-// WinAPI LoadString macro that would otherwise rewrite FileUtil::LoadString.
 #include "Fury/FileUtil.h"
 
 namespace fury
@@ -41,25 +39,23 @@ namespace fury
 			int n, int frames,
 			const std::vector<float> &disp, const std::vector<unsigned char> &nrm)
 		{
+			// One full-slice upload per loop frame (array layer).
 			dispTex->SetWrapMode(WrapMode::REPEAT);
-			glBindTexture(GL_TEXTURE_2D_ARRAY, dispTex->GetID());
 			for (int f = 0; f < frames; f++)
 			{
-				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, f, n, n, 1,
-					GL_RGBA, GL_FLOAT, disp.data() + (size_t)f * n * n * 4);
+				// float32 source into a float16 texture: the backend converts.
+				GRHIDevice->UpdateTextureFloat32(dispTex->GetRHITexture(),
+					disp.data() + (size_t)f * n * n * 4, (size_t)n * n * 4, 0, f);
 			}
-			glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
-			glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+			GRHIDevice->GenerateMipmaps(dispTex->GetRHITexture());
 
 			nrmTex->SetWrapMode(WrapMode::REPEAT);
-			glBindTexture(GL_TEXTURE_2D_ARRAY, nrmTex->GetID());
 			for (int f = 0; f < frames; f++)
 			{
-				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, f, n, n, 1,
-					GL_RGBA, GL_UNSIGNED_BYTE, nrm.data() + (size_t)f * n * n * 4);
+				GRHIDevice->UpdateTexture(nrmTex->GetRHITexture(),
+					nrm.data() + (size_t)f * n * n * 4, (size_t)n * n * 4, 0, f);
 			}
-			glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
-			glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+			GRHIDevice->GenerateMipmaps(nrmTex->GetRHITexture());
 		}
 
 		bool ReadFileBytes(const std::string &path, std::vector<unsigned char> &out)
@@ -216,8 +212,8 @@ namespace fury
 			for (size_t i = 0; i < count; i++)
 				band.Disp[i] = HalfToFloat(halfs[i]);
 
-			// headless CLI: no GL function pointers loaded, skip the GL path
-			if (gl::HasGLContext())
+			// headless CLI: no device, skip the texture path
+			if (GRHIDevice != nullptr)
 			{
 				band.DispTexture = Texture::Create("ocean_disp");
 				band.DispTexture->CreateEmpty(n, n, m_Frames, TextureFormat::RGBA16F,

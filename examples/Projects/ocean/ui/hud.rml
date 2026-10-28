@@ -3,7 +3,7 @@
 	<title>Island - HUD</title>
 	<link rel="stylesheet" type="text/css" href="ui.rcss" />
 	<style>
-		body { background: none; }
+		body { background: transparent; }
 		/* HUD must never capture: it floats over the game view */
 		#crosshair, #fps { pointer-events: none; }
 	</style>

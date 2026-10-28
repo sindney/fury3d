@@ -4,12 +4,16 @@
 > written as input to a refactor that will:
 >
 > - Add pytest-driven unit tests for core modules (math first).
-> - **Keep SFML** for windowing / input / OS glue, but swap its GL context for
->   an **ANGLE** EGL surface so the upstream API stays GLES while the native
->   backend is Vulkan / Metal / D3D11.
-> - Treat **ANGLE GLES 3.x as the RHI abstraction itself** — no extra
->   `RHI::Device / Buffer / Texture` interface layer for now. The renderer
->   keeps calling GLES; ANGLE handles native translation.
+> - **Keep SFML** for windowing / input / OS glue.
+> - **RHI (direction updated 2026-10):** the ANGLE EGL plan recorded in the
+>   original notes (§13.1, §15) was held, then superseded. What shipped is an
+>   in-tree `RHI::Device / CommandList / Resources` layer
+>   (`engine/Fury/RHI/`, §9.x) with two working backends - OpenGL 3.3+ and
+>   Metal (macOS, via vendored metal-cpp) - and a Vulkan stub whose device
+>   creation logs "not implemented yet" and falls back to OpenGL at launch.
+>   Shaders stay GLSL; Metal/Vulkan artifacts come from a Slang + SPIRV-Cross
+>   cross-compile chain cached in the shader DDC and packed into paks. The
+>   ANGLE material below is kept as historical reference only.
 > - Drop FBX SDK and adopt **glTF 2.0** as the canonical asset format,
 >   loading via the vendored **tinygltf** (the in-tree `GLTFDom` will be
 >   retired in favour of it).
@@ -44,8 +48,8 @@ The four hard couplings affected by the refactor:
 
 | Coupling                  | Where it lives                                          | Plan                                                       |
 |---------------------------|---------------------------------------------------------|------------------------------------------------------------|
-| **SFML** windowing/input  | `Engine`, `Gui`, `InputUtil`                            | **Keep.** Replace its GL context with ANGLE's EGL surface. |
-| **Raw GL 3.3**            | `GLLoader`, `Shader`, `Texture`, `Pass`, `ArrayBuffers`, `EnumUtil`, `RenderUtil`, `BufferManager` | **Keep call sites.** Rebind to **ANGLE GLES 3.x**; ANGLE *is* the abstraction. Retire `GLLoader` (replaced by ANGLE's GLES headers). |
+| **SFML** windowing/input  | `Engine`, `Gui`, `InputUtil`                            | **Keep.** Windowing/input only; the render surface belongs to the RHI device (GL context, or a `CAMetalLayer` bridge on Metal). |
+| **Raw GL 3.3**            | `GLLoader`, `Shader`, `Texture`, `Pass`, `ArrayBuffers`, `EnumUtil`, `RenderUtil`, `BufferManager` | **Landed as the RHI layer (§9.x).** Renderer call sites moved behind `RHI::Device / CommandList / Resources` with OpenGL + Metal backends; Vulkan backend is a stub. The ANGLE variant of this plan is historical (§13.1). |
 | **FBX SDK**               | `FbxParser` (gated by `_FURY_FBXPARSER_IMP_`)           | **Drop.** Replace with a tinygltf-based importer.          |
 | **rapidjson via `void*`** | `Serializable`                                          | Outstanding — flagged but not yet decided.                 |
 
@@ -845,6 +849,38 @@ Things that need attention when we retarget to ANGLE GLES 3.x:
   content view for a `CAMetalLayer`-backed view when ANGLE's Metal
   backend is selected — the one platform-specific bit of work.
 
+### 9.x Shader cross-compile (GLSL -> SPIR-V / MSL)
+
+Engine shaders stay GLSL. GL compiles the source as-is (runtime path
+unchanged); Metal and Vulkan go through a compile pipeline in
+`engine/Fury/ShaderCompiler.{h,cpp}` (the same code behind
+`furye-cli shaderc <file.glsl> -I <dir>`):
+
+```
+GLSL TU -> in-process libslang -> SPIR-V -> SPIRV-Cross -> MSL + reflection sidecar
+```
+
+The sidecar carries the loose-uniform globals block (Slang's
+`globalParams`) member offsets + size and the vertex stage-input
+name -> attribute-location map; the backends bind from it at runtime.
+
+Known limitation (Slang v2026.19, worked around permanently): the GLSL
+front-end cannot lower `mat4 * vec4` to Metal in one step -- the
+operator's `require(...)` in Slang's own glsl module omits `metal`, so
+GLSL -> MSL fails on any matrix transform. The SPIR-V detour above is
+the permanent answer (it feeds Vulkan's SPIR-V too). Two layout quirks
+the downstream backend code must respect:
+
+- Slang packs loose uniforms into a **row-major** globals UBO and its
+  `-matrix-layout-column-major` flag does not reach the synthesized
+  struct; ShaderCompiler rewrites the SPIR-V `OpDecorate`/`OpMemberDecorate`
+  RowMajor -> ColumnMajor so SPIRV-Cross emits the column-major multiply
+  idiom (`M * v`) against the engine's GL column-major uploads.
+- SPIRV-Cross reassigns MSL buffer argument indices when more than one
+  buffer exists (an SSBO pushes the globals block to `[[buffer(1)]]`),
+  so the SPIR-V binding is not the MSL argument index; the backend
+  resolves the block's index per stage from PSO reflection.
+
 ---
 
 ## 10. Cross-cutting infrastructure
@@ -1003,6 +1039,12 @@ Not refactor decisions — just so the next document can refer to them:
 ## 13. Sibling repos — quick orientation
 
 ### 13.1 `furyengine/angle` — Google ANGLE (the RHI)
+
+> **Historical (superseded 2026-10).** The ANGLE-based plan in this
+> section and in §15 was held and never executed; the RHI that shipped
+> is the in-tree layer described in §9.x (OpenGL + Metal backends,
+> Vulkan stub). Kept below as the record of why the ANGLE route was
+> rejected.
 
 GN-built C++ project that exposes a standard **GLES 2.0 – 3.2 + EGL 1.5** API
 (`include/GLES2/`, `include/GLES3/`, `include/EGL/`) and translates calls
@@ -1307,6 +1349,23 @@ What's landed so far:
   viewport. See `docs/LUA.md` for the full pattern. The camera node
   lives outside the scene's root tree so `Scene:Clear` doesn't drop it.
 
+- **RHI layer + Metal backend + shader cross-compile (2026-10).** An
+  in-tree `RHI::Device / CommandList / Resources` abstraction
+  (`engine/Fury/RHI/`) replaced the ANGLE plan: the OpenGL 3.3+ backend
+  and a Metal backend (macOS, vendored header-only `metal-cpp`, native
+  `CAMetalLayer` surface) both run the full engine including the editor
+  UI; a Vulkan backend compiles but device creation is a stub that
+  falls back to OpenGL. Backend selection per launch: `--rhi=` CLI arg >
+  `FURY_RHI` env > `Engine.run{ rhi }` option > editor ini > `opengl`
+  (see `docs/CLI.md`). Shaders stay GLSL; Metal consumes MSL plus a
+  versioned reflection sidecar produced by the Slang + SPIRV-Cross
+  chain (`engine/Fury/ShaderCompiler.{h,cpp}`), cached in the shader
+  DDC under `SHADER_` keys (textures use `TEX_`; shared root from
+  `FURY_DDC` / `--ddc`), and packaged into paks under `DDC/` keys so a
+  Metal launch loads them from the pak (verified by
+  `tests/pak_pipeline.sh`; Vulkan artifacts also cook but have no
+  runtime). Commit `86c086d`.
+
 **Decision: keep `scene.json` / `scene.bin` as the runtime form (2026-06-22).**
 The architecture question "should we drop the custom Serializable format now
 that we have glTF?" was investigated and resolved in favour of keeping it.
@@ -1336,6 +1395,9 @@ GLES3 backend swap, geometry-shader gating) is large enough that one
 PR is not the right shape. When we resume, plan to decompose into ~4
 sequential changes (build wiring → window surface + Metal view →
 GLES-incompatible call sites + ImGui swap → geom-shader fallback).
+Superseded 2026-10 by the in-tree RHI layer (see the top-of-doc
+direction note and the landed entry above); kept as the record of the
+decision.
 
 What we have **not** decided yet (open questions for the next discussion):
 
@@ -1462,6 +1524,17 @@ RenderQuery.{h,cpp}        opaque/transparent/shadow/light render bucket
 RenderUtil.{h,cpp}         debug draw + blit + helper utilities
 EnumUtil.{h,cpp}           engine enum → GL constant tables
 GLLoader.{h,cpp}           generated GL function-pointer loader
+
+RHI/RHIBackend.{h,cpp}     backend enum, per-launch selection chain, probe/fallback
+RHI/RHIDevice.h            device interface (command list, resources, types)
+RHI/OpenGL/                GL backend: device, command list, resources, shader modules
+RHI/Metal/                 Metal backend (metal-cpp) + MetalWindowBridge.mm
+RHI/Vulkan/RHIVulkanDevice.cpp  stub: device creation "not implemented yet"
+ShaderCompiler.{h,cpp}     GLSL -> SPIR-V -> MSL + reflection sidecar (Slang + SPIRV-Cross)
+ShaderCache.{h,cpp}        SHADER_ DDC keys, artifact pack keys, Metal load-or-compile
+CookPipeline.{h,cpp}       cook: TEX_ texture keys, shader targets, manifest
+DdcStore.{h,cpp}           content-addressed derived-data cache (FURY_DDC root)
+AssetBackend.{h,cpp}       pak-first asset reads with loose-file fallback
 
 FbxParser.{h,cpp}          FBX SDK importer (gated by _FURY_FBXPARSER_IMP_)
 GLTFDom.{h,cpp}            partial glTF 2.0 JSON DOM (no scene-graph build)

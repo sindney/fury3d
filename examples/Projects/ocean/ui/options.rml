@@ -33,15 +33,19 @@
 					<div class="seg" id="vsync" onclick="Opt_Toggle('vsync')">OFF</div>
 				</div>
 			</div>
-			<div class="opt-row">
-				<div class="opt-label">FIELD OF VIEW</div>
-				<div class="opt-controls">
-					<input type="range" id="fov" min="60" max="110" step="1" value="75" onchange="Opt_Fov(event.parameters.value)" />
-					<div class="opt-value" id="fov-value">75</div>
-				</div>
-			</div>
 
 			<div class="opt-section">GRAPHICS</div>
+			<div class="opt-row">
+				<div class="opt-label">RENDER BACKEND</div>
+				<div class="opt-controls" id="rhi-controls">
+				</div>
+			</div>
+			<div class="opt-row">
+				<div class="opt-label"></div>
+				<div class="opt-controls">
+					<div class="opt-note" id="rhi-note"></div>
+				</div>
+			</div>
 			<div class="opt-row">
 				<div class="opt-label">POST-PROCESSING</div>
 				<div class="opt-controls">
@@ -67,23 +71,12 @@
 				</div>
 			</div>
 			<div class="opt-row">
-				<div class="opt-label">SHADOWS (CSM)</div>
-				<div class="opt-controls">
-					<div class="seg" id="csm" onclick="Opt_Toggle('csm')">ON</div>
-				</div>
-			</div>
-			<div class="opt-row">
 				<div class="opt-label">SHADOW QUALITY</div>
 				<div class="opt-controls">
-					<div class="seg" id="csmres-1024" onclick="Opt_CsmRes(1024)">1024</div>
-					<div class="seg" id="csmres-2048" onclick="Opt_CsmRes(2048)">2048</div>
-					<div class="seg" id="csmres-4096" onclick="Opt_CsmRes(4096)">4096</div>
-				</div>
-			</div>
-			<div class="opt-row">
-				<div class="opt-label">OCEAN SSR</div>
-				<div class="opt-controls">
-					<div class="seg" id="ocean-ssr" onclick="Opt_Toggle('ocean_ssr')">ON</div>
+					<div class="seg" id="shadow-0" onclick="Opt_ShadowQuality(0)">OFF</div>
+					<div class="seg" id="shadow-1" onclick="Opt_ShadowQuality(1)">LOW</div>
+					<div class="seg" id="shadow-2" onclick="Opt_ShadowQuality(2)">MED</div>
+					<div class="seg" id="shadow-3" onclick="Opt_ShadowQuality(3)">HIGH</div>
 				</div>
 			</div>
 			<div class="opt-row">

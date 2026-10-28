@@ -28,3 +28,21 @@
 [submodule "engine/ThirdParty/RmlUi"]
 	path = engine/ThirdParty/RmlUi
 	url = https://github.com/mikke89/RmlUi.git
+[submodule "engine/ThirdParty/metal-cpp"]
+	path = engine/ThirdParty/metal-cpp
+	url = https://github.com/apple/metal-cpp
+[submodule "engine/ThirdParty/SPIRV-Cross"]
+	path = engine/ThirdParty/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross
+[submodule "engine/ThirdParty/imgui-node-editor"]
+	path = engine/ThirdParty/imgui-node-editor
+	url = https://github.com/thedmd/imgui-node-editor.git
+[submodule "engine/ThirdParty/volk"]
+	path = engine/ThirdParty/volk
+	url = https://github.com/zeux/volk
+[submodule "engine/ThirdParty/VulkanMemoryAllocator"]
+	path = engine/ThirdParty/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+[submodule "engine/ThirdParty/Vulkan-Headers"]
+	path = engine/ThirdParty/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers

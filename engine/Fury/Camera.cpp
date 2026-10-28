@@ -196,6 +196,8 @@ namespace fury
 
 	Matrix4 Camera::GetProjectionMatrix() const
 	{
+		if (Matrix4::GetDepthZeroToOne())
+			return m_ProjectionMatrix.DepthZeroToOneRemap();
 		return m_ProjectionMatrix;
 	}
 
@@ -206,6 +208,8 @@ namespace fury
 			pm.PerspectiveOffCenter(m_ProjectionParams[0], m_ProjectionParams[1], m_ProjectionParams[2], m_ProjectionParams[3], near, far);
 		else
 			pm.OrthoOffCenter(m_ProjectionParams[0], m_ProjectionParams[1], m_ProjectionParams[2], m_ProjectionParams[3], near, far);
+		if (Matrix4::GetDepthZeroToOne())
+			return pm.DepthZeroToOneRemap();
 		return pm;
 	}
 

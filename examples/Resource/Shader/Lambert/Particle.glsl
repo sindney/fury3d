@@ -85,7 +85,7 @@ uniform mat4 shadow_matrix;
 // u_shadow_type 3 (CSM): 4 cascade view->shadow UV matrices + quarter-far split.
 uniform mat4 shadow_matrix_csm[4];
 uniform vec4 shadow_far;
-uniform float u_shadow_floor = 0.25;
+uniform float u_shadow_floor;
 uniform float u_receive_shadows = 0.0;
 #endif
 

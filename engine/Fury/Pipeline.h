@@ -245,6 +245,12 @@ namespace fury
 		// AFTER Pipeline::Execute and before the next Execute.
 		std::shared_ptr<Texture> GetLastShadowTexture(const SceneNode &lightNode) const;
 
+		// Enumerate every Pass / Texture entity registered with the pipeline
+		// (GPU-dump render graph; read-only consumers).
+		void ForEachPass(const std::function<bool(const std::shared_ptr<Pass> &)> &func);
+
+		void ForEachTexture(const std::function<bool(const std::shared_ptr<Texture> &)> &func) const;
+
 		// Game thread: refresh the per-light shadow cache from a render
 		// result (render-threaded mode produces these on the GL thread).
 		void UpdateShadowTextureCache(

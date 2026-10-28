@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <future>
 #include <optional>
 #include <vector>
 
@@ -15,8 +16,11 @@
 #include "Fury/Camera.h"
 #include "Fury/GLLoader.h"
 #include "Fury/GameUI.h"
+#include "Fury/GpuDump.h"
 #include "Fury/Gui.h"
 #include "Fury/InputUtil.h"
+#include "Fury/JoyInputUtil.h"
+#include "Fury/InstancedMeshStreamer.h"
 #include "Fury/Log.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/PhysicsWorld.h"
@@ -24,6 +28,7 @@
 #include "Fury/ProfilerGpu.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/ThreadUtil.h"
@@ -130,14 +135,14 @@ namespace fury
 		bool ReadBackBuffer(std::vector<unsigned char> &out, unsigned int &w,
 			unsigned int &h, sf::Window &window)
 		{
-			const sf::Vector2u sz = window.getSize();
-			w = sz.x;
-			h = sz.y;
-			if (w == 0 || h == 0)
+			if (GRHIDevice == nullptr)
 				return false;
-			out.resize(static_cast<std::size_t>(w) * h * 4);
-			glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
-				GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+			RHIPixelData data;
+			if (!GRHIDevice->ReadbackBackbuffer(data))
+				return false;
+			w = (unsigned int)data.Width;
+			h = (unsigned int)data.Height;
+			out = std::move(data.Pixels);
 			return true;
 		}
 
@@ -219,6 +224,7 @@ namespace fury
 		MeshUtil::m_UnitCone = MeshUtil::CreateCylinder("cone_mesh", 0.0f, 1.0f, 1.0f, 4, 10);
 
 		InputUtil::Initialize(window.getSize().x, window.getSize().y);
+		JoyInputUtil::Initialize();
 
 		Editor::SetWindowForPersistence(&window);
 
@@ -246,24 +252,11 @@ namespace fury
 		// in Run(), Flush barriers scene loads.
 		AssetLoader::Get().Initialize(1);
 
-		// Build the dummy fallback textures eagerly (GL is current on this
-		// thread; afterwards the GetDummyTexture* getters are GL-free and
-		// callable from any thread -- e.g. Terrain::Load mid-run).
-		(void)GetDummyCubeTexture();
-		(void)GetDummyTexture2D();
-		(void)GetDummyTexture2DArray();
-		(void)GetDummyTexture3D();
-
 		PhysicsWorld::Initialize();
 		PhysicsWorld::Instance()->Subscribe();
 
 		if (flag == 1)
-		{
-			// GL context is current here (window.setActive in main.cpp);
-			// no-op when Tracy or GPU zones are compiled out.
-			FURY_GPU_CONTEXT();
 			return true;
-		}
 
 		if (flag < 1)
 		{
@@ -275,6 +268,70 @@ namespace fury
 		}
 
 		return false;
+	}
+
+	bool Engine::InitGraphics(sf::Window &window, const std::string &luaRhi)
+	{
+		if (GRHIDevice != nullptr)
+			return true;
+
+		// GL context is current on this thread (window.setActive in main.cpp);
+		// the render thread takes it over later.
+
+		// Lowest selection source: the editor's imgui.ini. ImGui's settings
+		// handler parses it too late for device creation, so scan manually.
+		std::string iniRhi;
+		if (Editor::GetPersistedRhiBackend(iniRhi))
+			RHI::SetIniBackend(iniRhi);
+
+		const RHIBackend backend = RHI::ResolveBackend(luaRhi);
+
+		RHIWindowInfo rhiWindow;
+		rhiWindow.Window = &window;
+
+		const auto createAndProbe = [&](RHIBackend b) {
+			return RHI::CreateDevice(b, rhiWindow) != nullptr
+				&& RHI::ProbeActiveDevice(static_cast<int>(window.getSize().x),
+					static_cast<int>(window.getSize().y));
+		};
+
+		if (!createAndProbe(backend))
+		{
+			RHI::DestroyDevice();
+			if (backend == RHIBackend::OPENGL)
+			{
+				FURYE << "RHI backend 'opengl' failed to initialize.";
+				return false;
+			}
+			FURYE << "RHI backend '" << RHI::BackendToString(backend)
+				<< "' failed to initialize; falling back to 'opengl'";
+			if (!createAndProbe(RHIBackend::OPENGL))
+			{
+				RHI::DestroyDevice();
+				FURYE << "RHI fallback to 'opengl' failed to initialize.";
+				return false;
+			}
+		}
+
+		// Build the dummy fallback textures eagerly (GL is current on this
+		// thread; afterwards the GetDummyTexture* getters are GL-free and
+		// callable from any thread -- e.g. Terrain::Load mid-run).
+		(void)GetDummyCubeTexture();
+		(void)GetDummyTexture2D();
+		(void)GetDummyTexture2DArray();
+		(void)GetDummyTexture3D();
+
+		// Projection depth convention follows the active device ([0,1] on
+		// Metal/D3D-style backends).
+		Matrix4::SetDepthZeroToOne(GRHIDevice->GetCapabilities().NdcDepthZeroToOne);
+
+		// Tracy's GPU context is GL-specific; no-op when Tracy or GPU zones
+		// are compiled out.
+		if (GRHIDevice->GetBackend() == RHIBackend::OPENGL)
+		{
+			FURY_GPU_CONTEXT();
+		}
+		return true;
 	}
 
 	void Engine::HandleEvent(sf::Event &event, sf::Window &window)
@@ -516,6 +573,7 @@ namespace fury
 		Pipeline::Active.reset();
 		MeshUtil::Reset();
 		RenderUtil::Instance().reset();
+		InstancedMeshStreamer::Get().DeleteBuffers();
 
 		// After Scene::Active: component detach destroys Jolt bodies,
 		// which needs the physics world still alive.
@@ -528,6 +586,8 @@ namespace fury
 		Editor::Shutdown();
 		Gui::Shutdown();
 		Editor::SetWindowForPersistence(nullptr);
+
+		RHI::DestroyDevice();
 
 		// GameUI shutdown lives in the launcher (main.cpp / Cli.cpp) so
 		// RmlUi listener dtors run while the lua_State is still alive.
@@ -594,7 +654,16 @@ namespace fury
 
 	void Engine::Run(sf::Window &window, const EngineCallbacks &cb, const EngineOptions &opts)
 	{
+		// Device creation lives here (not in Initialize) so the script's
+		// Engine.run { rhi = ... } option can win the resolution chain.
+		if (!InitGraphics(window, opts.rhi))
+		{
+			FURYE << "Engine::Run: graphics initialization failed.";
+			return;
+		}
+
 		if (cb.OnInit) cb.OnInit();
+
 
 		// Compute the effective gui_scale from the system DPI. The caller
 		// can opt into system-DPI scaling by passing gui_scale = 0.0f
@@ -624,10 +693,12 @@ namespace fury
 
 #ifdef _FURY_GUI_IMP_
 		Gui::Initialize(&window, effectiveScale, effectiveFontScale);
+
 		Editor::Initialize();
 #endif
 		// Game UI (RmlUi) is active in every binary, editor or player.
 		GameUI::Initialize(&window, effectiveScale);
+
 		s_RunWindow = &window;
 		InputUtil::Instance()->BindWindow(&window);
 
@@ -639,6 +710,8 @@ namespace fury
 		FrameExecutor frameExecutor = [&window](FramePacket &packet)
 		{
 			RenderUtil::Instance()->BeginFrame();
+			if (GRHIDevice != nullptr)
+				GRHIDevice->BeginFrame();
 			if (packet.pipeline)
 				packet.pipeline->ExecutePacket(packet);
 			for (auto &job : packet.overlayJobs)
@@ -646,7 +719,15 @@ namespace fury
 			GameUI::RenderSnapshot(packet.uiFrame);
 			Gui::RenderSnapshot(packet.guiFrame);
 			RenderUtil::Instance()->EndFrame();
-			window.display();
+			if (GRHIDevice != nullptr)
+			{
+				GRHIDevice->EndFrame();
+				GRHIDevice->Present();
+			}
+			else
+			{
+				window.display();
+			}
 			FURY_GPU_COLLECT();
 			FURY_FRAME;
 		};
@@ -762,6 +843,7 @@ namespace fury
 		}
 		{
 			FURY_ZONE_NAMED("Engine::Update");
+			JoyInputUtil::Instance()->PollState();
 			Update(dt);
 			GameUI::Update(dt);
 		}
@@ -866,6 +948,41 @@ namespace fury
 				{
 					FURYE << "screenshot capture failed for path '"
 						<< opts.screenshot_path << "'";
+					if (opts.exit_code_out) *opts.exit_code_out = 1;
+				}
+				running = false;
+			}
+
+			// --gpu-dump: render-target readbacks + render-graph JSON for one
+			// frame; on the render thread when threaded (device calls are
+			// render-thread bound), blocking like the screenshot round-trip.
+			if (!opts.gpu_dump_dir.empty() && frame_index == opts.gpu_dump_frame)
+			{
+				bool ok = false;
+				if (renderThread)
+				{
+					std::promise<bool> done;
+					std::future<bool> wait = done.get_future();
+					FramePacket *dumpPacket = packet;
+					renderThreadInst.EnqueueJob([&opts, dumpPacket, &done]()
+					{
+						done.set_value(GpuDump::Write(opts.gpu_dump_dir, *dumpPacket));
+					});
+					ok = wait.get();
+				}
+				else
+				{
+					ok = GpuDump::Write(opts.gpu_dump_dir, *packet);
+				}
+				if (ok)
+				{
+					FURYI << "gpu dump written to " << opts.gpu_dump_dir
+						<< " at frame " << frame_index;
+					if (opts.exit_code_out) *opts.exit_code_out = 0;
+				}
+				else
+				{
+					FURYE << "gpu dump failed for '" << opts.gpu_dump_dir << "'";
 					if (opts.exit_code_out) *opts.exit_code_out = 1;
 				}
 				running = false;

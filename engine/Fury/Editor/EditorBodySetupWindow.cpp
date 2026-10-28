@@ -12,7 +12,8 @@
 #include "Fury/BoxBounds.h"
 #include "Fury/Color.h"
 #include "Fury/EntityManager.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Log.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -67,34 +68,44 @@ namespace fury
 				return g_LineShader;
 			}
 
-			// Scratch VAO/VBO for box / sphere wireframes (rebuilt per draw).
-			GLuint g_LineVao = 0, g_LineVbo = 0;
+			// Scratch VBO for box / sphere wireframes (rebuilt per draw).
+			RHIBufferRef g_LineVbo;
 
 			void DrawLineSegments(const std::vector<float> &verts, const Color &color)
 			{
 				if (verts.empty()) return;
 
-				if (g_LineVao == 0)
+				if (g_LineVbo == nullptr)
 				{
-					glGenVertexArrays(1, &g_LineVao);
-					glGenBuffers(1, &g_LineVbo);
-					glBindVertexArray(g_LineVao);
-					glBindBuffer(GL_ARRAY_BUFFER, g_LineVbo);
-					glEnableVertexAttribArray(0);
-					glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-					glBindVertexArray(0);
+					RHIBufferDesc desc;
+					desc.Name = "BodySetupLines";
+					desc.Type = RHIBufferType::VERTEX;
+					desc.Usage = RHIBufferUsage::DYNAMIC;
+					desc.Size = 0;
+					g_LineVbo = GRHIDevice->CreateBuffer(desc);
 				}
-
-				glBindBuffer(GL_ARRAY_BUFFER, g_LineVbo);
-				glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_DYNAMIC_DRAW);
+				GRHIDevice->UpdateBuffer(g_LineVbo, verts.data(), verts.size() * sizeof(float));
 
 				auto shader = EnsureLineShader();
 				shader->BindFloat("_Color", color.r, color.g, color.b, color.a);
-				glBindVertexArray(g_LineVao);
-				glLineWidth(1.5f);
-				glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(verts.size() / 3));
-				glBindVertexArray(0);
+
+				RHIMeshGeometryDesc desc;
+				desc.MeshName = "BodySetupLines";
+				auto &ch = desc.Channels[0];
+				ch.Name = "vertex_position";
+				ch.Attrib = shader->GetRHIModule()->ResolveAttribLocation("vertex_position");
+				ch.Buffer = g_LineVbo;
+				ch.Empty = false;
+				ch.Components = 3;
+				desc.ChannelCount = 1;
+				auto *cmd = GRHIDevice->GetCommandList();
+				cmd->SetMeshGeometry(desc);
+
+				cmd->SetPrimitiveMode(RHIPrimitiveMode::LINES);
+				cmd->Draw(static_cast<unsigned int>(verts.size() / 3));
+				cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
 			}
+
 
 			void PushBoxLines(std::vector<float> &out, const Vector4 &half)
 			{
@@ -188,18 +199,16 @@ namespace fury
 				const auto halfExtents = body ? body->GetHalfExtents() : Vector4(0.0f, 0.0f, 0.0f);
 				const float shapeRadius = body ? body->GetRadius() : 0.0f;
 				const float gridY = mn.y;
-				RenderThread::Get().EnqueueJob(
+				Editor::QueueOverlayJob(
 					[key, w, h, renderMesh, collisionMesh, body, shapeType, halfExtents,
 						shapeRadius, view, proj, center, gridY, radius]() {
 					auto &surface = AcquireSurface(key, w, h);
-					if (surface.fbo == 0)
+					if (surface.targetSet == nullptr)
 						return;
 
-					glBindFramebuffer(GL_FRAMEBUFFER, surface.fbo);
-					glViewport(0, 0, w, h);
-					glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-					glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-					glEnable(GL_DEPTH_TEST);
+					auto *cmd = GRHIDevice->GetCommandList();
+					cmd->BeginRenderTargets(surface.targetSet, ClearMode::COLOR_DEPTH, Color(0, 0, 0, 1));
+					cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 
 					// Solid render mesh (bind pose for skinned - fine for
 					// collision authoring).
@@ -220,8 +229,7 @@ namespace fury
 						shader->BindMesh(renderMesh);
 						if (subCount == 0)
 						{
-							glDrawElements(GL_TRIANGLES,
-								static_cast<GLsizei>(renderMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+							cmd->DrawIndexed(static_cast<unsigned int>(renderMesh->Indices.Data.size()));
 						}
 						else
 						{
@@ -230,8 +238,7 @@ namespace fury
 								auto sm = renderMesh->GetSubMeshAt(i);
 								if (!sm) continue;
 								shader->BindSubMesh(renderMesh, i);
-								glDrawElements(GL_TRIANGLES,
-									static_cast<GLsizei>(sm->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+								cmd->DrawIndexed(static_cast<unsigned int>(sm->Indices.Data.size()));
 							}
 						}
 					}
@@ -254,13 +261,12 @@ namespace fury
 								if (collisionMesh->GetDirty())
 									collisionMesh->UpdateBuffer();
 								lineShader->BindFloat("_Color", kShapeColor.r, kShapeColor.g, kShapeColor.b, kShapeColor.a);
-								glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+								cmd->SetFillMode(RHIFillMode::WIREFRAME);
 								lineShader->BindMesh(collisionMesh);
 								const unsigned int subCount = collisionMesh->GetSubMeshCount();
 								if (subCount == 0)
 								{
-									glDrawElements(GL_TRIANGLES,
-										static_cast<GLsizei>(collisionMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+									cmd->DrawIndexed(static_cast<unsigned int>(collisionMesh->Indices.Data.size()));
 								}
 								else
 								{
@@ -269,11 +275,10 @@ namespace fury
 										auto sm = collisionMesh->GetSubMeshAt(i);
 										if (!sm) continue;
 										lineShader->BindSubMesh(collisionMesh, i);
-										glDrawElements(GL_TRIANGLES,
-											static_cast<GLsizei>(sm->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+										cmd->DrawIndexed(static_cast<unsigned int>(sm->Indices.Data.size()));
 									}
 								}
-								glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+								cmd->SetFillMode(RHIFillMode::SOLID);
 							}
 						}
 						else
@@ -289,8 +294,8 @@ namespace fury
 
 					DrawGroundGrid(view, proj, center, gridY, radius);
 
-					glBindFramebuffer(GL_FRAMEBUFFER, 0);
-					glDisable(GL_DEPTH_TEST);
+					cmd->EndRenderTargets();
+					cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, true, CullMode::NONE);
 
 					PublishSurface(key, surface.color);
 				});

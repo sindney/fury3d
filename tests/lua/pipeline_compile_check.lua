@@ -57,6 +57,9 @@ local function on_update(dt)
     if frame == 6 then
         print("pipeline_compile_check OK")
     end
+    if frame == tonumber(os.getenv("FURY_EXIT_FRAME") or "10") then
+        os.exit(0)
+    end
 end
 
 Engine.run({ on_init = on_init, on_update = on_update })

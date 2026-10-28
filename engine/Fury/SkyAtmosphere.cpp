@@ -15,7 +15,8 @@
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
 #include "Fury/FramePacket.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
@@ -504,22 +505,6 @@ namespace fury
 		}
 	}
 
-	bool SkyAtmosphere::AutoSelectSunLight()
-	{
-		// clear the name so ResolveSunLight takes the first-directional
-		// fallback, then pin whatever it finds
-		std::string prev = m_SunLightName;
-		m_SunLightName.clear();
-		auto node = ResolveSunLight();
-		if (!node)
-		{
-			m_SunLightName = prev;
-			return false;
-		}
-		m_SunLightName = node->GetName();
-		return true;
-	}
-
 	std::shared_ptr<SceneNode> SkyAtmosphere::ResolveSunLight() const
 	{
 		if (Scene::Active == nullptr)
@@ -580,10 +565,24 @@ namespace fury
 
 	bool SkyAtmosphere::EnsureResources()
 	{
+		// lazy texture reload runs every call so a picker re-select can
+		// recover on the next frame (the m_ResourcesCreated guard below
+		// would otherwise make the reload branch dead after frame 1)
+		if (!m_MoonTexturePath.empty() && m_MoonTexture == nullptr)
+			m_MoonTexture = LoadSkyTexture(m_MoonTexturePath, true);
+		if (!m_CloudNoisePath.empty() && m_CloudNoise == nullptr)
+		{
+			m_CloudNoise = LoadSkyTexture(m_CloudNoisePath, false);
+			// far-field clouds minify hard; without mip filtering they alias
+			// into confetti
+			if (m_CloudNoise)
+				m_CloudNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
+		}
+
 		if (m_ResourcesCreated)
 			return true;
-		if (_ptrc_glGenTextures == nullptr)
-			return false;   // headless (fury exec): no GL
+		if (GRHIDevice == nullptr)
+			return false;   // headless (fury exec): no device
 
 		// Members are published under the mutex: the game thread copies
 		// them into frame packets while this runs on the GL thread.
@@ -634,17 +633,6 @@ namespace fury
 		m_CloudShader = loadShader("VolumetricClouds.glsl");
 		m_NoiseGenShader = loadShader("CloudNoiseGen.glsl");
 
-		if (!m_MoonTexturePath.empty() && m_MoonTexture == nullptr)
-			m_MoonTexture = LoadSkyTexture(m_MoonTexturePath, true);
-		if (!m_CloudNoisePath.empty() && m_CloudNoise == nullptr)
-		{
-			m_CloudNoise = LoadSkyTexture(m_CloudNoisePath, false);
-			// far-field clouds minify hard; without mip filtering they alias
-			// into confetti
-			if (m_CloudNoise)
-				m_CloudNoise->SetFilterMode(FilterMode::LINEAR_MIPMAP_LINEAR);
-		}
-
 		m_ResourcesCreated = true;
 		return true;
 	}
@@ -656,7 +644,7 @@ namespace fury
 		auto mesh = MeshUtil::GetUnitQuad();
 		pass->Bind();
 		shader->BindMesh(mesh);
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		GRHIDevice->GetCommandList()->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		pass->UnBind();
 	}
 
@@ -702,7 +690,7 @@ namespace fury
 		{
 			m_CameraVolumePass->SetArrayTextureLayer(slice);
 			m_CameraVolumeShader->BindFloat("u_slice_id", static_cast<float>(slice));
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			GRHIDevice->GetCommandList()->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
 		m_CameraVolumeShader->UnBind();
 		m_CameraVolumePass->UnBind();
@@ -712,7 +700,7 @@ namespace fury
 	{
 		if (m_CloudBaseNoise != nullptr && m_CloudDetailNoise != nullptr && m_WeatherMap != nullptr)
 			return true;
-		if (_ptrc_glGetTexImage == nullptr)
+		if (GRHIDevice == nullptr)
 			return false;
 
 		std::lock_guard<std::mutex> resourceLock(s_SkyResourceMutex);
@@ -772,7 +760,7 @@ namespace fury
 			{
 				pass->SetArrayTextureLayer(slice);
 				m_NoiseGenShader->BindFloat("u_slice_id", (float)slice);
-				glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+				GRHIDevice->GetCommandList()->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 			}
 			pass->UnBind();
 		};

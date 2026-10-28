@@ -21,9 +21,10 @@
 #include "Fury/Engine.h"
 #include "Fury/Log.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/FramePacket.h"
 #include "Fury/Frustum.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Gui.h"
 #include "Fury/Joint.h"
 #include "Fury/InputUtil.h"
@@ -70,6 +71,19 @@ namespace
 
 	// FURY_VEG_PREZ=0/1 overrides the vegetation_prez render setting (A/B).
 	const char *kVegPreZEnv = std::getenv("FURY_VEG_PREZ");
+
+	// Billboard shading-normal up bias: the fallback for materials that
+	// carry no u_billboard_up_bias (assets baked before the uniform
+	// existed). Matches the GLSL default in GBuffer.glsl -- GL keeps that
+	// initializer, Metal's uniform block starts at zero, so a material
+	// without the uniform would otherwise read 0 (camera-facing normal,
+	// black billboards under a low sun).
+	constexpr float kBillboardUpBias = 0.28f;
+
+	RHICommandList *Cmd()
+	{
+		return GRHIDevice != nullptr ? GRHIDevice->GetCommandList() : nullptr;
+	}
 
 	// Fetches the depth variants for the veg pre-z pre-phase: the
 	// prez_depth_* entries (DrawDepthLeagcy + LINEAR_DEPTH -- the shadow
@@ -473,6 +487,7 @@ namespace
 			frustum.Setup(out.outterAngle, 1.0f, 1.0f, out.effectiveRadius);
 			frustum.Transform(lightMatrix.Inverse());
 			out.singleProj.PerspectiveFov(out.outterAngle, 1.0f, 1.0f, out.effectiveRadius);
+			out.singleProj = Matrix4::DepthConvention(out.singleProj);
 
 			fury::SceneManager::SceneNodes casterNodes;
 			sceneManager->GetVisibleRenderables(frustum, casterNodes);
@@ -492,8 +507,14 @@ namespace
 
 		// pre
 		SortPassByIndex();
-		// Pass list snapshot for the render thread (avoids racing m_SortedPasses).
-		packet.sortedPasses = m_SortedPasses;
+		// Deep pass snapshot: a mid-frame pipeline reload swaps the
+		// manager's entries; the packet renders the passes it gathered.
+		packet.sortedPasses.reserve(m_SortedPasses.size());
+		for (const auto &passName : m_SortedPasses)
+		{
+			if (auto pass = m_EntityManager->Get<Pass>(passName))
+				packet.sortedPasses.push_back(pass);
+		}
 
 		// Seed HDR / CSM / chain from the scene's renderSettings (pure CPU
 		// state on the pipeline; the packet snapshots the results below).
@@ -750,6 +771,13 @@ namespace
 
 		// draw passes
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+		// The tracked primitive mode survives DrawDebug's line draws from
+		// the previous frame; every draw below is triangles.
+		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+
 		unsigned int passCount = static_cast<int>(packet.sortedPasses.size());
 
 		// The chain replaces the LAST quad pass (the screen write)
@@ -761,8 +789,8 @@ namespace
 
 		for (unsigned int i = 0; i < passCount; i++)
 		{
-			auto passName = packet.sortedPasses[i];
-			auto pass = m_EntityManager->Get<Pass>(passName);
+			auto &pass = packet.sortedPasses[i];
+			const auto &passName = pass->GetName();
 
 			FURY_ZONE_DYNAMIC(passName.c_str());
 			FURY_GPU_ZONE_DYNAMIC(passName.c_str());
@@ -784,7 +812,7 @@ namespace
 			// the chain encodes itself)
 			bool isFinalLegacyPass = !chainReplacesFinal && (i == passCount - 1);
 			if (isFinalLegacyPass)
-				glEnable(GL_FRAMEBUFFER_SRGB);
+				cmd->SetSRGBWriteEnabled(true);
 
 			if (drawMode == DrawMode::OPAQUE)
 			{
@@ -809,13 +837,12 @@ namespace
 				if (vegPreZ)
 				{
 					FURY_ZONE_NAMED("VegPreZ");
-					glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-					glDepthFunc(GL_LESS);
-					glDepthMask(GL_TRUE);
+					cmd->SetColorWriteEnabled(false);
+					cmd->SetDepthState(CompareMode::LESS, true, true);
 					for (const auto &unit : packet.opaqueUnits)
 						DrawUnit(pass, unit, packet, -1, &preZShaders);
 					DrawInstancedUnits(pass, packet, PreZFilter::Flagged, &preZShaders);
-					glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+					cmd->SetColorWriteEnabled(true);
 				}
 
 				// Main phase: non-flagged units keep LESS + depth write
@@ -832,8 +859,7 @@ namespace
 				// EQUAL reuse: shade the front-most foliage layer only.
 				if (vegPreZ)
 				{
-					glDepthFunc(GL_EQUAL);
-					glDepthMask(GL_FALSE);
+					cmd->SetDepthState(CompareMode::EQUAL, true, false);
 					for (const auto &unit : packet.opaqueUnits)
 					{
 						if (unit.billboard || !unit.material || !unit.material->GetPreZ())
@@ -841,8 +867,7 @@ namespace
 						DrawUnit(pass, unit, packet);
 					}
 					DrawInstancedUnits(pass, packet, PreZFilter::Flagged, nullptr);
-					glDepthFunc(GL_LESS);
-					glDepthMask(GL_TRUE);
+					cmd->SetDepthState(CompareMode::LESS, true, true);
 				}
 			}
 			else if (drawMode == DrawMode::TRANSPARENT)
@@ -1030,31 +1055,25 @@ namespace
 #endif
 					};
 
-					GLint prevSrc, prevDst;
-					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
-					glGetIntegerv(GL_BLEND_DST_RGB, &prevDst);
 					for (const auto &pp : packet.particles)
 					{
-						// Mirror the renderer's blend mode onto GL
+						// Mirror the renderer's blend mode onto the draw
 						// state. Particle renderers don't bind the
 						// pipeline's Pass blend -- each emitter has
 						// its own ALPHA/ADDITIVE choice.
-						if (pp.blendMode == ParticleBlend::ADDITIVE)
-							glBlendFunc(GL_ONE, GL_ONE);
-						else
-							glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+						cmd->SetBlendMode(pp.blendMode == ParticleBlend::ADDITIVE
+							? BlendMode::ADD : BlendMode::ALPHA);
 						// Depth-tested, NOT depth-written (the
 						// transparent pass convention).
-						glEnable(GL_DEPTH_TEST);
-						glDepthMask(GL_FALSE);
+						cmd->SetDepthState(pass->GetCompareMode(), true, false);
 						// Per-renderer shadow selection -- pick the
 						// dominant casting light for THIS emitter.
 						ParticleShadowInfo shadowInfo;
 						pickShadowSourceFor(pp.worldPos, shadowInfo);
 						ParticleRenderer::DrawPacket(pp, packet.camera, &shadowInfo);
-						glDepthMask(GL_TRUE);
+						cmd->SetDepthState(pass->GetCompareMode(), true, true);
 					}
-					glBlendFunc(prevSrc, prevDst);
+					cmd->SetBlendMode(pass->GetBlendMode());
 				}
 
 				// One additive (ONE, ONE) draw per light so
@@ -1062,16 +1081,13 @@ namespace
 				if (!packet.lights.empty())
 				{
 					// Additive over the pass's declared alpha blend: restore exactly when the loop exits so the deviation doesn't leak.
-					GLint prevSrc, prevDst;
-					glGetIntegerv(GL_BLEND_SRC_RGB, &prevSrc);
-					glGetIntegerv(GL_BLEND_DST_RGB, &prevDst);
-					glBlendFunc(GL_ONE, GL_ONE);
+					cmd->SetBlendMode(BlendMode::ADD);
 					for (int li = 0; li < (int)packet.lights.size(); ++li)
 					{
 						for (const auto &unit : packet.transparentUnits)
 							DrawUnit(pass, unit, packet, li);
 					}
-					glBlendFunc(prevSrc, prevDst);
+					cmd->SetBlendMode(pass->GetBlendMode());
 				}
 			}
 			else if (drawMode == DrawMode::QUAD)
@@ -1126,7 +1142,7 @@ namespace
 			pass->UnBind();
 
 			if (isFinalLegacyPass)
-				glDisable(GL_FRAMEBUFFER_SRGB);
+				cmd->SetSRGBWriteEnabled(false);
 
 			if (m_CurrentShader != nullptr)
 				m_CurrentShader->UnBind();
@@ -1158,23 +1174,17 @@ namespace
 			// debug overlays composite over the scene inside the viewport
 			// image. Restore framebuffer 0 afterward so the caller (and
 			// the GUI pass) draw to the default framebuffer.
-			GLint prev_fbo = 0;
-			GLint prev_vp[4] = { 0, 0, 0, 0 };
-			if (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated())
+			const bool debugToRT = packet.renderTarget != nullptr && packet.renderTarget->IsAllocated();
+			if (debugToRT)
 			{
-				glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-				glGetIntegerv(GL_VIEWPORT, prev_vp);
-				glBindFramebuffer(GL_FRAMEBUFFER, packet.renderTarget->GetFBO());
-				glViewport(0, 0, packet.renderTarget->GetWidth(), packet.renderTarget->GetHeight());
+				cmd->PushRenderTarget();
+				cmd->BeginRenderTargets(packet.renderTarget->GetTargetSet(), ClearMode::NONE, Color(0, 0, 0, 0));
 			}
 
 			DrawDebug(packet);
 
-			if (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated())
-			{
-				glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
-				glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
-			}
+			if (debugToRT)
+				cmd->PopRenderTarget();
 		}
 
 		// Buffer debug view (viewport toolbar "View SSAO/SSR"): runs
@@ -1234,7 +1244,7 @@ namespace
 			for (const auto &tb : cmd.textureBinds)
 				cursor = shader->BindTextureAt(cursor, tb.location, tb.texture);
 			for (const auto &ub : cmd.uniformBinds)
-				ub.uniform->BindLocation(ub.location);
+				ub.uniform->BindAt(ub.location);
 			shader->BindFloatLocation(cmd.alphaCutoffLoc, cmd.alphaCutoff);
 		}
 		shader->SetTextureUnitCursor(cursor);
@@ -1323,6 +1333,9 @@ namespace
 				cmd.textureBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
 			for (const auto &kv : material->GetUniforms())
 				cmd.uniformBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
+			if (billboard && !material->GetUniform("u_billboard_up_bias"))
+				cmd.uniformBinds.push_back({ shader->GetUniformLocation("u_billboard_up_bias"),
+					Uniform1f::Create({ kBillboardUpBias }) });
 			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 			{
 				auto ptr = pass->GetTextureAt(i, true);
@@ -1365,8 +1378,12 @@ namespace
 		if (meshChanged)
 			cmd.shader->BindMesh(mesh);
 
+		auto *rhi = Cmd();
+		if (rhi == nullptr)
+			return;
+
 		if (cmd.cullOff)
-			glDisable(GL_CULL_FACE);
+			rhi->SetCullMode(CullMode::NONE);
 
 		if (mesh->GetSubMeshCount() > 0)
 		{
@@ -1374,13 +1391,13 @@ namespace
 			if (subMesh == nullptr)
 				return;
 			cmd.shader->BindSubMesh(mesh, drawSubMesh);
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			rhi->DrawIndexed(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 
 			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 		}
 		else
 		{
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			rhi->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 
 			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
@@ -1388,10 +1405,7 @@ namespace
 		if (cmd.cullOff)
 		{
 			if (pass->GetCullMode() != CullMode::NONE)
-			{
-				glEnable(GL_CULL_FACE);
-				glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
-			}
+				rhi->SetCullMode(pass->GetCullMode());
 		}
 
 		RenderUtil::Instance()->IncreaseMeshCount();
@@ -1404,6 +1418,10 @@ namespace
 		auto material = unit.material;
 		auto mesh = unit.mesh;
 		if (!mesh || !material)
+			return;
+
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
 			return;
 
 		// Depth-only pre-phase entry: flagged non-billboard units only,
@@ -1603,7 +1621,7 @@ namespace
 		// mode still governs the next unit.
 		const bool cullOff = material->GetTwoSided() || billboard;
 		if (cullOff)
-			glDisable(GL_CULL_FACE);
+			cmd->SetCullMode(CullMode::NONE);
 
 		if (mesh->GetSubMeshCount() > 0)
 		{
@@ -1611,13 +1629,13 @@ namespace
 			if (subMesh == nullptr)
 				return;
 			shader->BindSubMesh(mesh, drawSubMesh);
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(subMesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			cmd->DrawIndexed(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 
 			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(subMesh->Indices.Data.size()));
 		}
 		else
 		{
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 
 			RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 		}
@@ -1625,10 +1643,7 @@ namespace
 		if (cullOff)
 		{
 			if (pass->GetCullMode() != CullMode::NONE)
-			{
-				glEnable(GL_CULL_FACE);
-				glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
-			}
+				cmd->SetCullMode(pass->GetCullMode());
 		}
 
 		if (skinned)
@@ -1653,6 +1668,10 @@ namespace
 		if (shader == nullptr)
 			return;
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
 		shader->Bind();
 		shader->BindCameraData(packet.camera);
 		// Same material bindings as the gbuffer draw: the depth discard
@@ -1673,16 +1692,13 @@ namespace
 
 		const bool cullOff = material->GetTwoSided();
 		if (cullOff)
-			glDisable(GL_CULL_FACE);
+			cmd->SetCullMode(CullMode::NONE);
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<GLsizei>(mesh->Indices.Data.size()));
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
+		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 
 		if (cullOff && pass->GetCullMode() != CullMode::NONE)
-		{
-			glEnable(GL_CULL_FACE);
-			glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
-		}
+			cmd->SetCullMode(pass->GetCullMode());
 
 		if (skinned)
 			RenderUtil::Instance()->IncreaseSkinnedMeshCount();
@@ -1695,6 +1711,10 @@ namespace
 		PreZFilter filter, const PreZDepthShaders *preZShaders)
 	{
 		if (packet.instanced.empty())
+			return;
+
+		auto *rhi = Cmd();
+		if (rhi == nullptr)
 			return;
 
 		const bool useSSBO = InstancedMeshStreamer::Get().UseSSBO();
@@ -1757,6 +1777,8 @@ namespace
 						shader->Bind();
 						shader->BindCameraData(packet.camera);
 						shader->BindMaterial(material);
+						if (batch.Billboard && !material->GetUniform("u_billboard_up_bias"))
+							shader->BindFloat("u_billboard_up_bias", kBillboardUpBias);
 						shader->BindFloat("u_alpha_cutoff",
 							material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
 						const bool windActive = preZShaders != nullptr ? wind :
@@ -1769,13 +1791,10 @@ namespace
 						}
 						const bool cullOff2 = material->GetTwoSided() || batch.Billboard;
 						if (cullOff2)
-							glDisable(GL_CULL_FACE);
+							rhi->SetCullMode(CullMode::NONE);
 						streamer.DrawInstanced(shader, tierMesh, subCount > 0 ? (int)sm : -1, batch.WorldMatrices);
 						if (cullOff2 && pass->GetCullMode() != CullMode::NONE)
-						{
-							glEnable(GL_CULL_FACE);
-							glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
-						}
+							rhi->SetCullMode(pass->GetCullMode());
 						continue;
 					}
 
@@ -1866,6 +1885,9 @@ namespace
 							cmd.textureBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
 						for (const auto &kv : material->GetUniforms())
 							cmd.uniformBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
+						if (batch.Billboard && !material->GetUniform("u_billboard_up_bias"))
+							cmd.uniformBinds.push_back({ shader->GetUniformLocation("u_billboard_up_bias"),
+								Uniform1f::Create({ kBillboardUpBias }) });
 						for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 						{
 							auto ptr = pass->GetTextureAt(i, true);
@@ -1902,15 +1924,12 @@ namespace
 #endif
 
 					if (cmd.cullOff)
-						glDisable(GL_CULL_FACE);
+						rhi->SetCullMode(CullMode::NONE);
 
 					streamer.DrawInstanced(cmd.shader, tierMesh, subCount > 0 ? (int)sm : -1, batch.WorldMatrices);
 
 					if (cmd.cullOff && pass->GetCullMode() != CullMode::NONE)
-					{
-						glEnable(GL_CULL_FACE);
-						glCullFace(EnumUtil::CullModeToUint(pass->GetCullMode()).second);
-					}
+						rhi->SetCullMode(pass->GetCullMode());
 				}
 			}
 		}
@@ -1942,18 +1961,22 @@ namespace
 		// ready to draw light volumn
 		pass->Bind(false);
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
 		// change depthTest && face culling state.
 		{
 			float camNear = (packet.camera.frustum.GetCurrentCorners()[0] - packet.camera.worldPos).Length();
 			if (SphereBounds(pl.worldPos, pl.effectiveRadius + camNear).IsInsideFast(packet.camera.worldPos))
 			{
-				glDisable(GL_DEPTH_TEST);
-				glCullFace(GL_FRONT);
+				cmd->SetDepthState(pass->GetCompareMode(), false, pass->GetDepthWrite());
+				cmd->SetCullMode(CullMode::FRONT);
 			}
 			else
 			{
-				glEnable(GL_DEPTH_TEST);
-				glCullFace(GL_BACK);
+				cmd->SetDepthState(pass->GetCompareMode(), true, pass->GetDepthWrite());
+				cmd->SetCullMode(CullMode::BACK);
 			}
 
 			worldMatrix.AppendScale(Vector4(pl.radius, 0.0f));
@@ -1979,7 +2002,8 @@ namespace
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
+
 
 		shader->UnBind();
 
@@ -2032,9 +2056,13 @@ namespace
 		// ready to draw light volumn
 		pass->Bind(false);
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
 		// change depthTest && face culling state.
-		glEnable(GL_DEPTH_TEST);
-		glCullFace(GL_BACK);
+		cmd->SetDepthState(pass->GetCompareMode(), true, pass->GetDepthWrite());
+		cmd->SetCullMode(CullMode::BACK);
 
 		shader->Bind();
 
@@ -2068,7 +2096,8 @@ namespace
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
+
 
 		shader->UnBind();
 
@@ -2129,6 +2158,10 @@ namespace
 		// ready to draw light volumn
 		pass->Bind(false);
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
 		// change depthTest && face culling state.
 		{
 			auto coneCenter = pl.worldPos;
@@ -2144,13 +2177,13 @@ namespace
 
 			if (MathUtil::PointInCone(coneCenter, coneDir, height, theta, packet.camera.worldPos))
 			{
-				glDisable(GL_DEPTH_TEST);
-				glCullFace(GL_FRONT);
+				cmd->SetDepthState(pass->GetCompareMode(), false, pass->GetDepthWrite());
+				cmd->SetCullMode(CullMode::FRONT);
 			}
 			else
 			{
-				glEnable(GL_DEPTH_TEST);
-				glCullFace(GL_BACK);
+				cmd->SetDepthState(pass->GetCompareMode(), true, pass->GetDepthWrite());
+				cmd->SetCullMode(CullMode::BACK);
 			}
 		}
 
@@ -2174,7 +2207,8 @@ namespace
 			shader->BindTexture(ptr->GetName(), ptr);
 		}
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
+
 
 		shader->UnBind();
 
@@ -2205,6 +2239,10 @@ namespace
 			FURYW << "Failed to draw full screen quad, shader not found!";
 			return;
 		}
+
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
 
 		shader->Bind();
 
@@ -2258,7 +2296,7 @@ namespace
 				? packet.sky.owner->GetCloudTarget() : GetDummyTexture2D());
 		}
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 
 		shader->UnBind();
 
@@ -2295,6 +2333,10 @@ namespace
 		pass->Bind(false);   // never clear: hdr_composite holds the scene
 		shader->Bind();
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
 		auto mesh = MeshUtil::GetUnitQuad();
 		shader->BindMesh(mesh);
 		shader->BindCameraData(packet.camera);
@@ -2324,7 +2366,7 @@ namespace
 		shader->BindInt("u_moon_enabled", packet.sky.params.moonEnabled && packet.sky.owner->GetMoonTexture() ? 1 : 0);
 		shader->BindInt("u_clouds_enabled", packet.sky.params.cloudsEnabled ? 1 : 0);
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 
 		shader->UnBind();
 
@@ -2343,10 +2385,14 @@ namespace
 		if (shader == nullptr)
 			return;
 
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
 		// Pre-pass depth copy: shore foam samples the opaque scene depth,
 		// which is also this pass's depth attachment (sampling the bound
 		// attachment would be a feedback loop). Depth copies go through
-		// glBlitFramebuffer (RenderUtil::Blit is a color draw).
+		// a blit (RenderUtil::Blit is a color draw).
 		Texture::Ptr depthCopy;
 		auto depthSrc = GetTextureByName("gbuffer_depth");
 		if (depthSrc)
@@ -2354,18 +2400,9 @@ namespace
 			depthCopy = Texture::GetTemporary(depthSrc->GetWidth(), depthSrc->GetHeight(),
 				1, depthSrc->GetFormat(), TextureType::TEXTURE_2D);
 
-			static unsigned int s_DepthCopyFbos[2] = { 0, 0 };
-			if (s_DepthCopyFbos[0] == 0)
-				glGenFramebuffers(2, s_DepthCopyFbos);
 			int w = depthSrc->GetWidth();
 			int h = depthSrc->GetHeight();
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, s_DepthCopyFbos[0]);
-			glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthSrc->GetID(), 0);
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_DepthCopyFbos[1]);
-			glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthCopy->GetID(), 0);
-			glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+			cmd->Blit(depthSrc->GetRHITexture(), depthCopy->GetRHITexture(), w, h, w, h);
 		}
 
 		pass->Bind(false); // never clear: hdr_composite holds the lit scene
@@ -2374,14 +2411,9 @@ namespace
 
 		// per-buffer blend: color0 (hdr_composite) alpha-blends; color1
 		// (gbuffer_normal) must stay replace or normals get smeared.
-		// glEnablei/glDisablei are GL 3.0 core; per-buffer blend FUNC
-		// (glBlendFunci) is 4.0-only, so the func stays global and
-		// buffer 1 simply keeps blending disabled.
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glEnablei(GL_BLEND, 0);
-		glDisablei(GL_BLEND, 1);
-		glEnable(GL_DEPTH_TEST);
-		glDepthMask(GL_TRUE);
+		cmd->SetBlendMode(BlendMode::ALPHA);
+		cmd->SetBlendEnabled(1, false);
+		cmd->SetDepthState(pass->GetCompareMode(), true, true);
 
 		// note: the GetDummyTexture* helpers are free functions in
 		// namespace fury (RenderUtil.cpp), not RenderUtil members
@@ -2556,7 +2588,7 @@ namespace
 			// line lists; restored right after this ocean's draws)
 			bool wireframe = po.debugView == 3;
 			if (wireframe)
-				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+				cmd->SetFillMode(RHIFillMode::WIREFRAME);
 
 			if (po.finite)
 			{
@@ -2568,7 +2600,7 @@ namespace
 				shader->BindFloat("u_debug_color", 0.2f, 0.9f, 0.9f);
 				mesh->UpdateBuffer();
 				shader->BindMesh(mesh);
-				glDrawElements(GL_TRIANGLES, (GLsizei)mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+				cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
 				RenderUtil::Instance()->IncreaseDrawCall();
 			}
 			else
@@ -2589,19 +2621,19 @@ namespace
 					shader->BindFloat("u_debug_color", pc[0], pc[1], pc[2]);
 					piece.mesh->UpdateBuffer();
 					shader->BindMesh(piece.mesh);
-					glDrawElements(GL_TRIANGLES, (GLsizei)piece.mesh->Indices.Data.size(), GL_UNSIGNED_INT, 0);
+					cmd->DrawIndexed(static_cast<unsigned int>(piece.mesh->Indices.Data.size()));
 					RenderUtil::Instance()->IncreaseDrawCall();
 					++pieceIndex;
 				}
 			}
 
 			if (wireframe)
-				glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+				cmd->SetFillMode(RHIFillMode::SOLID);
 		}
 
 		// restore: blend/depth state leaves with the pass
-		glDisablei(GL_BLEND, 0);
-		glDepthMask(GL_TRUE);
+		cmd->SetBlendEnabled(0, false);
+		cmd->SetDepthState(pass->GetCompareMode(), true, true);
 		shader->UnBind();
 
 		if (depthCopy)
@@ -2666,27 +2698,25 @@ namespace
 		chainPass->SetClearMode(ClearMode::COLOR);
 		chainPass->SetClearColor(Color(0, 0, 0, 1));
 
-		// Final-write target: editor offscreen RT or default FB. We
-		// bind one of these manually as the FBO color attachment
-		// for the last effect.
-		GLint prev_fbo = 0;
-		GLint prev_vp[4] = {0, 0, 0, 0};
-		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-		glGetIntegerv(GL_VIEWPORT, prev_vp);
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
+		// Final-write target: editor offscreen RT or default FB. The
+		// current target + viewport are restored after the chain.
+		cmd->PushRenderTarget();
 
 		auto bindScreenFBO = [&]()
 		{
 			if (toRT)
 			{
-				glBindFramebuffer(GL_FRAMEBUFFER, packet.renderTarget->GetFBO());
-				glViewport(0, 0, packet.renderTarget->GetWidth(), packet.renderTarget->GetHeight());
+				cmd->BeginRenderTargets(packet.renderTarget->GetTargetSet(), ClearMode::NONE, Color(0, 0, 0, 1));
 			}
 			else
 			{
 				// Final blit: track the live window, not the source's 1280x720.
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glViewport(0, 0, packet.windowW > 0 ? packet.windowW : W,
-					packet.windowH > 0 ? packet.windowH : H);
+				cmd->BeginBackbuffer(packet.windowW > 0 ? packet.windowW : W,
+					packet.windowH > 0 ? packet.windowH : H, ClearMode::NONE, Color(0, 0, 0, 1));
 			}
 		};
 
@@ -2793,20 +2823,19 @@ namespace
 			// overexposure" bug. Multi-effect chains only looked clean
 			// because the intermediate chainPass->Bind(REPLACE) reset
 			// the blend state before the final draw.
-			glDisable(GL_BLEND);
-			glDisable(GL_DEPTH_TEST);
-			glDepthMask(GL_FALSE);
-			glDisable(GL_CULL_FACE);
+			cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, false, CullMode::NONE);
 
 			// u_rt_size: pixels (FXAA + CRT need it for fwidth /
 			// scanline frequency).
 			shader->BindFloat("u_rt_size", (float)writeW, (float)writeH);
 
-			// Only the final chain effect sRGB-encodes; intermediates stay linear.
-			shader->BindInt("u_gamma_correct", isLast ? 1 : 0);
+			// The final effect encodes only when the target does not.
+			shader->BindInt("u_gamma_correct",
+				isLast && (toRT || !GRHIDevice->GetCapabilities().BackbufferSRGB) ? 1 : 0);
 
 			for (const auto &kv : resolvedInputs)
 				shader->BindTexture(kv.first, kv.second);
+
 
 			// Apply the effect's declared default uniforms, then this
 			// entry's per-instance overrides (only names the effect
@@ -2815,7 +2844,7 @@ namespace
 			{
 				auto &u = kv.second;
 				if (!u) continue;
-				u->Bind(shader->GetProgram(), kv.first);
+				u->Bind(kv.first);
 			}
 			if (i < packet.chainOverrides.size())
 			{
@@ -2824,11 +2853,11 @@ namespace
 					if (!kv.second) continue;
 					if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
 						continue;
-					kv.second->Bind(shader->GetProgram(), kv.first);
+					kv.second->Bind(kv.first);
 				}
 			}
 
-			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+			cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
 
 			shader->UnBind();
 
@@ -2853,11 +2882,8 @@ namespace
 		// Render state goes back to the engine's boring defaults
 		// (depth on, blend off) -- DrawDebug and ImGui set their own
 		// state on top of this.
-		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
-		glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
-		glDepthMask(GL_TRUE);
-		glEnable(GL_DEPTH_TEST);
-		glDisable(GL_BLEND);
+		cmd->PopRenderTarget();
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 	}
 
 	void PrelightPipeline::DrawEffectDebugView(const std::string &effectName, FramePacket &packet)
@@ -2939,10 +2965,15 @@ namespace
 
 		// Render into the debug texture. Same state rules as the
 		// chain: fullscreen replace, never inherit pass state.
-		GLint prev_fbo = 0;
-		GLint prev_vp[4] = { 0, 0, 0, 0 };
-		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-		glGetIntegerv(GL_VIEWPORT, prev_vp);
+		auto *cmd = Cmd();
+		if (cmd == nullptr)
+		{
+			SetDebugViewTexture(nullptr);
+			return;
+		}
+		// DrawDebug's line draws leave the tracked primitive mode behind.
+		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+		cmd->PushRenderTarget();
 
 		auto debugPass = Pass::Create("DebugViewFBO");
 		debugPass->SetBlendMode(BlendMode::REPLACE);
@@ -2959,10 +2990,7 @@ namespace
 		// encode here so the view matches the viewport's brightness.
 		shader->BindInt("u_gamma_correct", 1);
 
-		glDisable(GL_BLEND);
-		glDisable(GL_DEPTH_TEST);
-		glDepthMask(GL_FALSE);
-		glDisable(GL_CULL_FACE);
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, false, CullMode::NONE);
 
 		for (const auto &kv : resolvedInputs)
 			shader->BindTexture(kv.first, kv.second);
@@ -2975,7 +3003,7 @@ namespace
 		{
 			auto &u = kv.second;
 			if (!u) continue;
-			u->Bind(shader->GetProgram(), kv.first);
+			u->Bind(kv.first);
 		}
 		for (size_t ci = 0; ci < packet.chain.size() && ci < packet.chainOverrides.size(); ++ci)
 		{
@@ -2986,21 +3014,18 @@ namespace
 				if (!kv.second) continue;
 				if (effect->GetUniforms().find(kv.first) == effect->GetUniforms().end())
 					continue;
-				kv.second->Bind(shader->GetProgram(), kv.first);
+				kv.second->Bind(kv.first);
 			}
 			break;
 		}
 
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(quad->Indices.Data.size()), GL_UNSIGNED_INT, 0);
+		cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
 
 		shader->UnBind();
 		debugPass->UnBind();
 
-		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
-		glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
-		glDepthMask(GL_TRUE);
-		glEnable(GL_DEPTH_TEST);
-		glDisable(GL_BLEND);
+		cmd->PopRenderTarget();
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(quad->Indices.Data.size()));

@@ -2,6 +2,7 @@
 #define _FURY_RENDER_UTIL_H_
 
 #include <atomic>
+#include <functional>
 #include <vector>
 
 #include <SFML/Window/Keyboard.hpp>
@@ -15,6 +16,9 @@
 #include "Fury/EnumUtil.h"
 #include "Fury/Pass.h"
 #include "Fury/Matrix4.h"
+#include "Fury/RHI/RHICommandList.h"
+#include "Fury/RHI/RHIResources.h"
+#include "Fury/RHI/RHITypes.h"
 
 namespace fury
 {
@@ -40,15 +44,13 @@ namespace fury
 
 	private:
 
-		std::shared_ptr<Shader> m_DebugShader;
-
-		std::shared_ptr<Shader> m_BlitShader;
-
 		std::shared_ptr<Pass> m_BlitPass;
 
-		unsigned int m_LineVAO = 0;
 
-		unsigned int m_LineVBO = 0;
+
+
+
+		RHIBufferRef m_LineBuffer;
 
 		// Counters are bumped on the GL thread and read by the editor UI
 		// on the game thread (render-threaded mode).
@@ -96,9 +98,20 @@ namespace fury
 			ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL, 
 			BlendMode blendMode = BlendMode::REPLACE);
 
-		void Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest, 
-			const std::shared_ptr<Shader> &shader, ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL, 
+		void Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest,
+			const std::shared_ptr<Shader> &shader, ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL,
 			BlendMode blendMode = BlendMode::REPLACE);
+
+		// RHI-native shader blit; bindExtras sets loose uniforms between
+		// the module bind and the draw.
+		void Blit(const std::shared_ptr<Texture> &src, const std::shared_ptr<Texture> &dest,
+			const RHIShaderModuleRef &module, const std::function<void(RHICommandList*)> &bindExtras = {},
+			ClearMode clearMode = ClearMode::COLOR_DEPTH_STENCIL,
+			BlendMode blendMode = BlendMode::REPLACE);
+
+		// Wraps inline GLSL in a source blob, adding a default #version
+		// header when the source has none.
+		static RHIShaderBlob MakeSourceBlob(const std::string &source);
 
 		void BeginDrawLines(const std::shared_ptr<SceneNode> &camera);
 

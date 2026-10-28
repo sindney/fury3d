@@ -36,6 +36,19 @@ namespace fury
 			// --render-thread=0|1 CLI override. -1 = unset (falls through to
 			// FURY_RENDER_THREAD env, then the script's option, then ini).
 			int render_thread = -1;
+			// --log-level=EROR|WARN|INFO|DBUG CLI override. -1 = unset
+			// (uses build-config default: WARN for Release/MinSizeRel,
+			// DBUG for Debug/RelWithDebInfo).
+			int log_level = -1;
+			// --rhi=<backend> CLI override. Empty = unset (falls through to
+			// FURY_RHI env, then the script's option, then editor ini).
+			std::string rhi;
+			// --gpu-dump <dir> [--gpu-dump-frame N]: render-target readbacks +
+			// render-graph JSON for one frame, written after that frame's
+			// Present; the loop then stops (same shape as --screenshot).
+			std::string gpu_dump_dir;
+			int gpu_dump_frame = 2;
+
 			// Sentinel `-1` means the engine never wrote a result. Engine::Run
 			// writes 0 (capture success) or 1 (capture failure) once a capture
 			// is requested via screenshot_path.

@@ -143,8 +143,8 @@ cd examples && ./furye Editor.lua
 
 `Editor.lua` 按 argv 决定启动场景：
 
-* 不传参数 → `Projects/tank/scene.bin`（内置的坦克场景）。
-* `./furye Editor.lua outdoor.fbx` → 通过 glTF 导入器加载 `outdoor.fbx`（先尝试字面路径，再尝试 `Projects/`、`Resource/Scene/` 前缀）。
+* 不传参数 -> 打开空场景；用 File -> Open... 打开场景，或在命令行传入路径。
+* `./furye Editor.lua Projects/ocean/ocean_island.bin` -> 启动时加载该场景（先尝试字面路径，再尝试 `Projects/`、`Resource/Scene/` 前缀）。
 
 只构建了 `fury` 的话，启动方式相同（`./fury Editor.lua`），只是不再有 ImGui 编辑器窗口——不传 `.lua` 即可运行自己的脚本。
 

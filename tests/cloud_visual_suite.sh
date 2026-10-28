@@ -46,7 +46,7 @@ report() { # name status detail
 run_shot() { # name cam env...
     local name=$1; local cam=$2; shift 2
     env "$@" FURY_CLOUD_FREEZE=1 FURY_CAM="$cam" \
-        ./fury ../tests/lua/cloud_visual_check.lua \
+        ./fury ../tests/lua/scenes/cloud_visual_check.lua \
         --screenshot "$OUT/$name.png" --screenshot-frame 40 \
         > "$OUT/$name.log" 2>&1
     if [ ! -s "$OUT/$name.png" ]; then
@@ -144,7 +144,7 @@ fi
 if want_case determinism; then
 run_shet_det() {
     env FURY_CLOUD_FREEZE=1 FURY_CAM="$CAM_HI" FURY_CLOUD_COVERAGE=0.5 \
-        ./fury ../tests/lua/cloud_visual_check.lua \
+        ./fury ../tests/lua/scenes/cloud_visual_check.lua \
         --screenshot "$1" --screenshot-frame 40 > "$1.log" 2>&1
 }
 run_shet_det "$OUT/det_a.png"

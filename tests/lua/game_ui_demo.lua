@@ -139,7 +139,7 @@ if vsync_seg.inner_rml ~= seg_want then
     fail("vsync segment=" .. tostring(vsync_seg.inner_rml) .. ", want " .. seg_want)
 end
 Opt_FpsCap(90)
-Opt_Fov(80)
+Opt_ShadowQuality(3)
 
 Menu_CloseOptions() -- saves cfg, back to the main menu
 expect_vis(DOC_MENU, "visible")
@@ -147,12 +147,12 @@ expect_vis(DOC_MENU, "visible")
 if cfg_value("vsync") ~= tostring(not vsync_before) then
     fail("cfg vsync=" .. tostring(cfg_value("vsync")) .. ", want " .. tostring(not vsync_before))
 end
--- numbers may round-trip through the slider widget as floats ("80.0")
+-- numbers may round-trip through the slider widget as floats ("90.0")
 if tonumber(cfg_value("fps_cap")) ~= 90 then
     fail("cfg fps_cap=" .. tostring(cfg_value("fps_cap")) .. ", want 90")
 end
-if tonumber(cfg_value("fov")) ~= 80 then
-    fail("cfg fov=" .. tostring(cfg_value("fov")) .. ", want 80")
+if tonumber(cfg_value("shadow_quality")) ~= 3 then
+    fail("cfg shadow_quality=" .. tostring(cfg_value("shadow_quality")) .. ", want 3")
 end
 
 -- Exit to Desktop saves again (Window.Close is a no-op headless)

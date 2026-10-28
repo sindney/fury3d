@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "Fury/Matrix4.h"
+#include "Fury/RHI/RHITypes.h"
 
 namespace fury
 {
@@ -13,12 +14,12 @@ namespace fury
 	class Shader;
 
 	// Streams per-instance world matrices to the GPU and issues instanced
-	// draws. Two paths selected by runtime GL capability:
+	// draws. Two paths selected by runtime backend capability:
 	//
 	//   * SSBO (GL 4.3+, preferred): matrices in a shader storage buffer
 	//     read by gl_InstanceID (INSTANCE_SSBO define).
 	//   * Divisor VBO (GL 3.3/4.1 fallback): matrices as four vec4
-	//     attributes (instance_row0..3) with glVertexAttribDivisor(1).
+	//     attributes (instance_row0..3) with a per-instance divisor.
 	//
 	// The divisor attributes are set on the mesh's VAO around the draw
 	// and torn down right after, so the shared VAO is never left with
@@ -32,7 +33,7 @@ namespace fury
 
 		static InstancedMeshStreamer &Get();
 
-		// True when the context supports shader storage buffers (GL 4.3+).
+		// True when the backend supports shader storage buffers.
 		bool SSBOAvailable() const;
 
 		// True when draws use the SSBO path (capability && env override).
@@ -46,15 +47,17 @@ namespace fury
 			const std::shared_ptr<Mesh> &mesh, int subMesh,
 			const std::vector<Matrix4> &matrices);
 
-		// Delete GL buffers. Called from Engine::Shutdown while the
-		// context is still alive.
+		// Release the stream buffers. Called from Engine::Shutdown while
+		// the device is still alive.
 		void DeleteBuffers();
 
 	private:
 
-		unsigned int m_InstanceVbo = 0;
+		void EnsureStreamBuffer(RHIBufferRef &buffer, RHIBufferType type, const char *name);
 
-		unsigned int m_InstanceSsbo = 0;
+		RHIBufferRef m_InstanceVbo;
+
+		RHIBufferRef m_InstanceSsbo;
 
 		// -1 = not yet probed
 		mutable int m_SsboAvailable = -1;

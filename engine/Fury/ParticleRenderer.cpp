@@ -3,7 +3,8 @@
 #include <cmath>
 
 #include "Fury/EntityManager.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
@@ -32,9 +33,9 @@ namespace fury
 		for (int i = 0; i < 2; ++i)
 		{
 			m_DynamicMeshes[i] = Mesh::Create("ParticleDynamicMesh:" + m_Name);
-			m_DynamicMeshes[i]->Positions.SetBufferUsage(GL_DYNAMIC_DRAW);
-			m_DynamicMeshes[i]->UVs.SetBufferUsage(GL_DYNAMIC_DRAW);
-			m_DynamicMeshes[i]->Indices.SetBufferUsage(GL_DYNAMIC_DRAW);
+			m_DynamicMeshes[i]->Positions.SetBufferUsage(RHIBufferUsage::DYNAMIC);
+			m_DynamicMeshes[i]->UVs.SetBufferUsage(RHIBufferUsage::DYNAMIC);
+			m_DynamicMeshes[i]->Indices.SetBufferUsage(RHIBufferUsage::DYNAMIC);
 		}
 	}
 
@@ -361,6 +362,7 @@ namespace fury
 					shadow->shadowFar.z, shadow->shadowFar.w);
 			}
 			shader->BindFloat("u_receive_shadows", receive);
+			shader->BindFloat("u_shadow_floor", 0.25f);
 		}
 	}
 
@@ -406,9 +408,8 @@ namespace fury
 		// makes the shader floor to u_shadow_floor.
 		BindParticleShadows(shader, shadow);
 
-		glDrawElements(GL_TRIANGLES,
-			static_cast<GLsizei>(m_DynamicMeshes[0]->Indices.Data.size()),
-			GL_UNSIGNED_INT, 0);
+		GRHIDevice->GetCommandList()->DrawIndexed(
+			static_cast<unsigned int>(m_DynamicMeshes[0]->Indices.Data.size()));
 
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(m_DynamicMeshes[0]->Indices.Data.size()));
@@ -531,9 +532,8 @@ namespace fury
 		shader->BindFloat("u_Tint", pk.tint.r, pk.tint.g, pk.tint.b, pk.tint.a);
 		BindParticleShadows(shader, shadow);
 
-		glDrawElements(GL_TRIANGLES,
-			static_cast<GLsizei>(pk.mesh->Indices.Data.size()),
-			GL_UNSIGNED_INT, 0);
+		GRHIDevice->GetCommandList()->DrawIndexed(
+			static_cast<unsigned int>(pk.mesh->Indices.Data.size()));
 
 		RenderUtil::Instance()->IncreaseDrawCall();
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(pk.mesh->Indices.Data.size()));

@@ -11,6 +11,7 @@ local scene = nil
 local pl = nil
 
 local state = "menu"           -- menu | game | pause
+local options_open = false     -- options overlay shown on top of menu/pause
 local options_from = "main"    -- main | pause
 
 local menu_cam_node = nil
@@ -44,10 +45,12 @@ local S = {
 	res_w = 1280, res_h = 720,
 	fps_cap = 144, vsync = false,
 	postfx = true, ssao = true, ssr = true, fxaa = true,
-	csm = true, csm_res = 2048,
-	fov = 75, sens = 1.0,
-	hdr = true, ocean_ssr = true,
+	-- shadow quality: 0 = off, 1 = low (1024), 2 = med (2048), 3 = high (4096)
+	shadow_quality = 2,
+	sens = 1.0,
+	hdr = true,
 	hide_cursor = true,
+	rhi = "",   -- "" = platform default; applies at next launch
 }
 
 local CFG_PATH = "Projects/ocean/game_settings.cfg"
@@ -120,18 +123,15 @@ local function settings_apply(key)
 			effect_set(rs, key:upper(), S[key] and S.postfx)
 			rs_apply()
 		end
-	elseif key == "csm" then
-		if rs then rs:SetCascadedShadowMap(S.csm); rs_apply() end
-	elseif key == "csm_res" then
-		if rs then rs:SetCsmMapSize(S.csm_res); rs_apply() end
+	elseif key == "shadow_quality" then
+		if rs then
+			local q = S.shadow_quality
+			rs:SetCascadedShadowMap(q > 0)
+			if q > 0 then rs:SetCsmMapSize(({ 0, 1024, 2048, 4096 })[q]) end
+			rs_apply()
+		end
 	elseif key == "hdr" then
 		if rs then rs:SetHDR(S.hdr); rs_apply() end
-	elseif key == "ocean_ssr" then
-		local node = scene:GetRootNode():FindChildRecursively("Ocean")
-		local ocean = node and node:GetOceanComponent()
-		if ocean then ocean:SetSsrEnabled(S.ocean_ssr) end
-	elseif key == "fov" then
-		if player_camera then player_camera:SetFov(math.rad(S.fov)) end
 	elseif key == "sens" then
 		if controller then controller:SetMouseSensitivity(S.sens) end
 	elseif key == "hide_cursor" then
@@ -143,11 +143,8 @@ local function settings_apply_all()
 	settings_apply("fps_cap")
 	settings_apply("vsync")
 	settings_apply("postfx")
-	settings_apply("csm")
-	settings_apply("csm_res")
+	settings_apply("shadow_quality")
 	settings_apply("hdr")
-	settings_apply("ocean_ssr")
-	settings_apply("fov")
 	settings_apply("sens")
 end
 
@@ -164,6 +161,12 @@ local function set_seg(doc, id, active, text)
 	if text then el.inner_rml = text end
 end
 
+-- The RENDER BACKEND segments are generated from the platform's supported
+-- backends, so their element ids are only known after the options document
+-- has been synced. options_sync fills RHI_ROW_IDS; the focus grid
+-- expands the "@rhi" marker into it.
+local RHI_ROW_IDS = {}
+
 local function options_sync()
 	local doc = ui_doc(DOC_OPTIONS)
 	if not doc then return end
@@ -176,23 +179,38 @@ local function options_sync()
 		set_seg(doc, "fps-" .. n, S.fps_cap == n)
 	end
 	-- toggles
-	for _, key in ipairs({ "vsync", "postfx", "ssao", "ssr", "fxaa", "csm", "hdr", "hide_cursor" }) do
+	for _, key in ipairs({ "vsync", "postfx", "ssao", "ssr", "fxaa", "hdr", "hide_cursor" }) do
 		set_seg(doc, key, S[key], S[key] and "ON" or "OFF")
 	end
-	set_seg(doc, "ocean-ssr", S.ocean_ssr, S.ocean_ssr and "ON" or "OFF")
-	-- csm res
-	for _, n in ipairs({ 1024, 2048, 4096 }) do
-		set_seg(doc, "csmres-" .. n, S.csm_res == n)
+	-- shadow quality
+	for _, n in ipairs({ 0, 1, 2, 3 }) do
+		set_seg(doc, "shadow-" .. n, S.shadow_quality == n, ({ "OFF", "LOW", "MED", "HIGH" })[n + 1])
 	end
 	-- sliders
-	local fov_el = doc:GetElementById("fov")
-	if fov_el then fov_el:SetAttribute("value", tostring(S.fov)) end
-	local fov_val = doc:GetElementById("fov-value")
-	if fov_val then fov_val.inner_rml = tostring(math.floor(S.fov + 0.5)) end
 	local sens_el = doc:GetElementById("sens")
 	if sens_el then sens_el:SetAttribute("value", tostring(S.sens)) end
 	local sens_val = doc:GetElementById("sens-value")
 	if sens_val then sens_val.inner_rml = string.format("%.1f", S.sens) end
+	-- render backend: platform-supported list, generated (varies by OS)
+	local rhi_ctl = doc:GetElementById("rhi-controls")
+	if rhi_ctl then
+		local names = Engine.GetSupportedRhiBackends()
+		local html = {}
+		RHI_ROW_IDS = {}
+		for _, n in ipairs(names) do
+			html[#html + 1] = '<div class="seg" id="rhi-' .. n ..
+				'" onclick="Opt_Rhi(\'' .. n .. '\')">' .. n:upper() .. '</div>'
+			RHI_ROW_IDS[#RHI_ROW_IDS + 1] = "rhi-" .. n
+		end
+		rhi_ctl.inner_rml = table.concat(html)
+		for _, n in ipairs(names) do
+			set_seg(doc, "rhi-" .. n, S.rhi == n or (S.rhi == "" and n == "opengl"))
+		end
+		local note = doc:GetElementById("rhi-note")
+		if note then
+			note.inner_rml = "applies at next launch (active: " .. Engine.GetRhiBackend() .. ")"
+		end
+	end
 end
 
 -- ---------------------------------------------------------------- states
@@ -258,6 +276,7 @@ end
 
 function Menu_OpenOptions(from)
 	options_from = from or "main"
+	options_open = true
 	options_sync()
 	if options_from == "pause" then
 		show_only(false, false, true, false)
@@ -268,6 +287,7 @@ end
 
 function Menu_CloseOptions()
 	settings_save()
+	options_open = false
 	if options_from == "pause" then
 		show_only(false, true, false, false)
 	else
@@ -294,22 +314,22 @@ function Opt_Toggle(key)
 	options_sync()
 end
 
-function Opt_CsmRes(n)
-	S.csm_res = n
-	settings_apply("csm_res")
+function Opt_ShadowQuality(n)
+	S.shadow_quality = n
+	settings_apply("shadow_quality")
+	options_sync()
+end
+
+-- Backend switching is startup-only; the choice persists and feeds the
+-- Engine.run rhi option on the next launch.
+function Opt_Rhi(name)
+	S.rhi = name
+	settings_save()
 	options_sync()
 end
 
 -- The change event fires BEFORE the widget writes the value attribute,
 -- so handlers take the event parameter, not GetAttribute.
-function Opt_Fov(v)
-	v = tonumber(v)
-	if v then
-		S.fov = v
-		settings_apply("fov")
-	end
-	options_sync()
-end
 
 function Opt_Sens(v)
 	v = tonumber(v)
@@ -445,7 +465,7 @@ local function on_init()
 	player_cam_node = SceneNode.Create("PlayerCamera")
 	player_cam_node:AddComponent(Transform.Create())
 	player_camera = Camera.Create()
-	player_camera:PerspectiveFov(math.rad(S.fov), 16.0 / 9.0, 1.0, 500000.0)
+	player_camera:PerspectiveFov(math.rad(75.0), 16.0 / 9.0, 1.0, 500000.0)
 	player_cam_node:AddComponent(player_camera)
 	scene:GetRootNode():AddChild(player_cam_node)
 	controller:SetCameraNodeName("PlayerCamera")
@@ -485,14 +505,455 @@ end
 local fps_accum, fps_frames = 0.0, 0
 local esc_was = false
 
+-- ------------------------------------------------------------ joystick ui
+
+-- GamepadButton names are XInput-compatible; future work: per-controller
+-- remap via HID capabilities query so non-XInput pads (e.g. Switch Pro,
+-- DualShock) read the same buttons.
+
+-- Console-style focus navigation. D-pad / left-stick feeds RmlUi's
+-- spatial nav via ProcessKeyDown(arrow), and A dispatches a click on
+-- whichever element currently holds focus. RmlUi handles the focus
+-- highlight (see .btn:focus / .seg:focus in ui.rcss).
+
+-- Gamepad input mode flags. Mode flips between "mouse" and "gamepad"
+-- based on whichever device produced the most recent activity; the OS
+-- cursor visibility follows. Verbose per-event diagnostics go through
+-- the FURY log system (LogDBUG); set the engine log level to DBUG to
+-- see them.
+local function glog(msg)
+	LogDBUG("[islandgame/joy] " .. msg)
+end
+
+-- ISLANDGAME_NO_GAMEPAD=1 disables the entire gamepad UI path so the
+-- menu can be exercised with the mouse only.
+local no_gamepad = (os.getenv("ISLANDGAME_NO_GAMEPAD") or "") ~= ""
+if no_gamepad then
+	LogINFO("[islandgame] gamepad UI disabled (ISLANDGAME_NO_GAMEPAD)")
+end
+
+local function gp_first_id()
+	local inst = JoyInputUtil.Instance()
+	if inst == nil then return -1 end
+	for i = 0, JoyInputUtil.MaxJoysticks - 1 do
+		if inst:IsConnected(i) then return i end
+	end
+	return -1
+end
+
+local function gp_axis(id, axis)
+	return JoyInputUtil.Instance():GetAxis(id, axis)
+end
+
+-- Stick + dpad to a [-1, 1] direction with a deadzone. Deadzone is
+-- applied as a flat threshold on the SFML [-100, 100] range so resting
+-- sticks read as zero, then the active range is remapped to [-1, 1].
+local DEADZONE = 20.0
+local function stick_dir(value)
+	local v = value
+	if v >  DEADZONE then v = (v - DEADZONE) / (100.0 - DEADZONE)
+	elseif v < -DEADZONE then v = (v + DEADZONE) / (100.0 - DEADZONE)
+	else v = 0.0 end
+	if v >  1.0 then v =  1.0 end
+	if v < -1.0 then v = -1.0 end
+	return v
+end
+
+-- B (and Back / Select) close the current UI: options overlay, pause
+-- screen, or no-op on the main menu.
+local function ui_back_pressed(id)
+	local inst = JoyInputUtil.Instance()
+	return inst:WasButtonPressed(id, GamepadButton.B) or inst:WasButtonPressed(id, GamepadButton.BACK)
+end
+
+local function ui_click_pressed(id)
+	return JoyInputUtil.Instance():WasButtonPressed(id, GamepadButton.A)
+end
+
+local function gp_start_pressed(id)
+	return JoyInputUtil.Instance():WasButtonPressed(id, GamepadButton.START)
+end
+
+local function ui_active_doc()
+	if options_open then return DOC_OPTIONS end
+	if state == "menu" then return DOC_MENU end
+	if state == "pause" then return DOC_PAUSE end
+	return nil
+end
+
+-- RmlUi 6.3 has no built-in spatial-nav handler -- arrow keys
+-- dispatch a generic keydown event that does nothing on its own, and
+-- nav-up / nav-down CSS properties don't move focus either. The nav
+-- chain is declared explicitly here as a 2-D grid per document: each
+-- row is the left-to-right order of focusable elements on that row;
+-- vertical nav jumps rows and snaps to whichever column has the
+-- closest offset_left to the current element (so a stick RIGHT from
+-- the start of row N lands at the start of row N+1, not in the
+-- middle). Single-column chains are 1-wide rows.
+
+-- RmlUi's range input has no arrow-key handling, so a stick or d-pad steps
+-- the value directly and dispatches the change event the RML listens for.
+local function slider_step(el, dir)
+	local cur = tonumber(el:GetAttribute("value")) or 0
+	local lo = tonumber(el:GetAttribute("min")) or 0
+	local hi = tonumber(el:GetAttribute("max")) or 100
+	local step = tonumber(el:GetAttribute("step")) or 1
+	local v = cur + dir * step
+	if v < lo then v = lo end
+	if v > hi then v = hi end
+	el:SetAttribute("value", tostring(v))
+	el:DispatchEvent("change", { value = tostring(v) })
+end
+
+local FOCUS_GRIDS = {
+	[DOC_MENU] = {
+		{ "start" },
+		{ "options" },
+		{ "exit" },
+	},
+	[DOC_PAUSE] = {
+		{ "continue" },
+		{ "options" },
+		{ "to-main" },
+		{ "to-desktop" },
+	},
+	[DOC_OPTIONS] = {
+		{ "res-1280", "res-1920", "res-2560", "res-3840" },
+		{ "fps-60",   "fps-90",   "fps-144",  "fps-0" },
+		{ "vsync" },
+		{ "@rhi" },
+		{ "postfx" },
+		{ "ssao" },
+		{ "ssr" },
+		{ "fxaa" },
+		{ "shadow-0", "shadow-1", "shadow-2", "shadow-3" },
+		{ "hdr" },
+		{ "sens" },
+		{ "hide_cursor" },
+		{ "back" },
+	},
+}
+
+local function resolve_grid(doc_path)
+	local grid = FOCUS_GRIDS[doc_path]
+	if not grid then return nil end
+	local rows = {}
+	for _, row in ipairs(grid) do
+		if row[1] == "@rhi" then
+			rows[#rows + 1] = RHI_ROW_IDS
+		else
+			rows[#rows + 1] = row
+		end
+	end
+	return rows
+end
+
+local function grid_locate(grid, id)
+	for r, row in ipairs(grid) do
+		for c, eid in ipairs(row) do
+			if eid == id then return r, c end
+		end
+	end
+	return nil, nil
+end
+
+local function grid_neighbor(doc, grid, current, dir_x, dir_y)
+	if current == nil then return nil end
+	local cr, cc = grid_locate(grid, current.id)
+	if cr == nil then return nil end
+
+	if dir_y ~= 0 then
+		local target_row = cr + dir_y
+		if target_row < 1 or target_row > #grid then return nil end
+		local cur_left = current.offset_left or 0
+		local best, best_diff = nil, math.huge
+		for _, eid in ipairs(grid[target_row]) do
+			local el = doc:GetElementById(eid)
+			if el then
+				local diff = math.abs((el.offset_left or 0) - cur_left)
+				if diff < best_diff then
+					best = el
+					best_diff = diff
+				end
+			end
+		end
+		if best then glog(string.format(
+			"grid row %d -> %d -> %s", cr, target_row, best.id)) end
+		return best
+	end
+
+	if dir_x ~= 0 then
+		local row = grid[cr]
+		local target_col = cc + dir_x
+		if target_col < 1 or target_col > #row then return nil end
+		local el = doc:GetElementById(row[target_col])
+		if el then glog(string.format(
+			"grid col %d -> %d -> %s", cc, target_col, el.id)) end
+		return el
+	end
+
+	return nil
+end
+
+-- Input mode flips between "mouse" and "gamepad" based on whichever
+-- device produced the most recent activity. The OS cursor visibility
+-- follows: hidden under gamepad (so the on-screen focus highlight is
+-- the only indicator), visible under mouse.
+local input_mode = "mouse"
+local last_mouse_x = -1
+local last_mouse_y = -1
+
+local function set_mode(new_mode)
+	if new_mode == input_mode then return end
+	input_mode = new_mode
+	local input = InputUtil.Instance()
+	if input == nil then return end
+	input:SetCursorVisible(new_mode == "mouse")
+	LogINFO("[islandgame/joy] mode -> " .. new_mode)
+end
+
+local function poll_mouse_motion()
+	local input = InputUtil.Instance()
+	if input == nil then return end
+	local mx, my = input:GetMousePosition()
+	if mx ~= last_mouse_x or my ~= last_mouse_y then
+		last_mouse_x, last_mouse_y = mx, my
+		set_mode("mouse")
+	end
+end
+
+-- Track the currently-active UI doc so we can seed focus on the first
+-- frame it becomes visible (otherwise RmlUi starts with no focus and
+-- the first dpad press does nothing).
+local gpu_focused_doc = nil
+
+-- Edge-detected nav state. The stick / dpad must return to neutral
+-- before the next press fires (one press = one nav step).
+local last_nav_x, last_nav_y = 0, 0
+
+-- Slider step accumulator: throttles the analog-stick continuous
+-- path so a held stick walks the value smoothly instead of one tick
+-- per frame.
+local slider_step_accum = 0.0
+
+-- D-pad Y inversion: SFML reports dpad-up as a positive PovY reading
+-- on the tester's controller, so the d-pad Y is flipped by default.
+-- The analog left stick (Axis.Y) follows standard SFML convention
+-- (stick-up is negative), which the movement path negates.
+-- ISLANDGAME_REVERSE_Y=0 disables the d-pad inversion.
+local reverse_y = (os.getenv("ISLANDGAME_REVERSE_Y") ~= "0")
+
+local function gamepad_ui_update(dt)
+	if no_gamepad then return end
+
+	poll_mouse_motion()
+
+	local id = gp_first_id()
+	if id < 0 then return end
+
+	-- Start pauses / unpauses regardless of focus state.
+	if gp_start_pressed(id) then
+		set_mode("gamepad")
+		glog("Start -> toggle pause (state=" .. state .. ")")
+		if state == "game" then to_pause()
+		elseif state == "pause" then to_game() end
+	end
+
+	local doc_path = ui_active_doc()
+	if doc_path == nil then
+		gpu_focused_doc = nil
+		return
+	end
+
+	local ctx = rmlui.contexts["main"]
+	if ctx == nil then return end
+	local doc = ctx.documents[doc_path]
+	if doc == nil then return end
+
+	-- Seed focus the first frame a doc becomes active so the first dpad
+	-- press has somewhere to navigate from. The grid's first cell is
+	-- always a sensible anchor (top-left of the menu).
+	if gpu_focused_doc ~= doc_path then
+		local grid = resolve_grid(doc_path)
+		if grid and grid[1] and grid[1][1] then
+			local el = doc:GetElementById(grid[1][1])
+			if el then el:Focus() end
+			LogINFO("[islandgame/joy] focus seeded on " .. grid[1][1])
+		end
+		gpu_focused_doc = doc_path
+	end
+
+	local x_raw  = gp_axis(id, JoystickAxis.X)
+	local y_raw  = gp_axis(id, JoystickAxis.Y)
+	local px_raw = gp_axis(id, JoystickAxis.PovX)
+	local py_raw = gp_axis(id, JoystickAxis.PovY)
+
+	-- Discrete nav input: true for one frame whenever a new direction
+	-- is engaged. Re-triggers only after the stick/dpad returns to
+	-- center, so a held stick walks one element at a time.
+	local stick_x = 0
+	local stick_y = 0
+	if      x_raw >  DEADZONE then stick_x =  1
+	elseif  x_raw < -DEADZONE then stick_x = -1 end
+	if      y_raw >  DEADZONE then stick_y =  1
+	elseif      y_raw < -DEADZONE then stick_y = -1 end
+	-- Keyboard arrows drive the same nav (one press = one move).
+	local input = InputUtil.Instance()
+	local key_x, key_y = 0, 0
+	if input then
+		if input:GetKeyDown(Key.Left)  then key_x = -1 end
+		if input:GetKeyDown(Key.Right) then key_x =  1 end
+		if input:GetKeyDown(Key.Up)    then key_y = -1 end
+		if input:GetKeyDown(Key.Down)  then key_y =  1 end
+	end
+	local pov_x, pov_y = 0, 0
+	if      px_raw >  DEADZONE then pov_x =  1
+	elseif  px_raw < -DEADZONE then pov_x = -1 end
+	if      py_raw >  DEADZONE then pov_y =  1
+	elseif  py_raw < -DEADZONE then pov_y = -1 end
+	if reverse_y then pov_y = -pov_y end
+	-- Nav priority: d-pad > keyboard > stick.
+	local nav_x = pov_x ~= 0 and pov_x or (key_x ~= 0 and key_x or stick_x)
+	local nav_y = pov_y ~= 0 and pov_y or (key_y ~= 0 and key_y or stick_y)
+	-- x_raw / y_raw are kept raw for the slider continuous-tracking path.
+	local x_continuous = (x_raw > DEADZONE or x_raw < -DEADZONE)
+		and pov_x == 0 and key_x == 0
+
+	-- Range slider detect + analog-stick continuous path. These run
+	-- on EVERY frame the input is held (not gated by the rising edge),
+	-- so a held left stick walks the value smoothly. D-pad / keyboard
+	-- discrete adjustment happens on the rising edge below.
+	local cur = ctx.focus_element
+	local function find_slider_input(el)
+		if el == nil then return nil end
+		if el:IsClassSet("range") then return el end
+		local inputs = el:GetElementsByTagName("input")
+		for i = 1, #inputs do
+			if inputs[i]:GetAttribute("type") == "range" then
+				return inputs[i]
+			end
+		end
+		return nil
+	end
+	local slider_input = find_slider_input(cur)
+	local is_slider = slider_input ~= nil
+
+	if is_slider and x_continuous then
+		-- The wrapper may not forward keydown to the inner input;
+		-- explicitly focus the input widget before dispatching.
+		if slider_input ~= cur then slider_input:Focus() end
+		local mag = math.max(0.15, math.abs(x_raw) / 100.0)
+		local interval = 0.05 / mag
+		slider_step_accum = slider_step_accum + dt
+		if slider_step_accum >= interval then
+			slider_step_accum = 0.0
+			slider_step(slider_input, (x_raw > DEADZONE) and 1 or -1)
+			glog(string.format("slider stick dir=%s mag=%.2f value=%s",
+				(x_raw > DEADZONE and "+" or "-"), mag,
+				tostring(slider_input:GetAttribute("value"))))
+		end
+	end
+
+	local is_neutral = (nav_x == 0 and nav_y == 0)
+	local last_was_neutral = (last_nav_x == 0 and last_nav_y == 0)
+	if not is_neutral and last_was_neutral then
+		set_mode("gamepad")
+		if is_slider and nav_x ~= 0 then
+			-- D-pad / keyboard: one press = one step. (Analog stick
+			-- path is above, runs every frame the stick is held.)
+			if slider_input ~= cur then slider_input:Focus() end
+			slider_step(slider_input, nav_x > 0 and 1 or -1)
+			glog(string.format("slider adjust dir=(%d,0) value=%s",
+				nav_x, tostring(slider_input:GetAttribute("value"))))
+		elseif is_slider then
+			-- Vertical press on a focused slider: leave it to the next row.
+			local grid = resolve_grid(doc_path)
+			local next_el = grid_neighbor(doc, grid, cur, 0, nav_y)
+			if next_el then next_el:Focus() end
+		else
+			local grid = resolve_grid(doc_path)
+			local next_el = grid_neighbor(doc, grid, cur, nav_x, nav_y)
+			if next_el then next_el:Focus() end
+			glog(string.format("nav dir=(%d,%d) focus=%s",
+				nav_x, nav_y,
+				((ctx.focus_element) and ctx.focus_element.id) or "?"))
+		end
+	end
+	last_nav_x, last_nav_y = nav_x, nav_y
+
+	if ui_click_pressed(id) then
+		set_mode("gamepad")
+		local el = ctx.focus_element
+		if el then
+			glog("A -> activate " .. (el.id or "?"))
+			-- Buttons dispatch their onclick on click; sliders handle
+			-- arrow-key adjustments natively once focused. Using 'click'
+			-- here matches the existing RML onclick handlers.
+			el:DispatchEvent("click", { button = 0 })
+		end
+	end
+
+	if ui_back_pressed(id) then
+		set_mode("gamepad")
+		glog("B/Back (state=" .. state ..
+			" options_open=" .. tostring(options_open) .. ")")
+		if options_open then Menu_CloseOptions()
+		elseif state == "pause" then Menu_Continue()
+		elseif state == "menu" then -- B on main menu: no-op, keep title screen
+		end
+	end
+end
+
 local function on_update(dt)
 	local input = InputUtil.Instance()
 	local esc_now = input:GetKeyDown(Key.Escape)
 	local esc_edge = esc_now and not esc_was
 	esc_was = esc_now
 
+	gamepad_ui_update(dt)
+
 	if state == "game" then
 		if esc_edge then to_pause() end
+
+		-- Gamepad input drives the player whenever a pad is connected;
+		-- input_mode only governs the OS cursor for RmlUi and would
+		-- otherwise leave a fresh pad idle until the user paused.
+		local gp_id = gp_first_id()
+		local pad_present = gp_id >= 0
+
+		-- Right stick drives first-person look. We push the per-frame
+		-- stick delta into the same mouse-delta accumulator the real
+		-- mouse uses, so CharacterController::SyncFromPhysics picks it
+		-- up with no other changes. SFML on most Windows drivers puts
+		-- the right stick at U/V (Z/R are the triggers); the env vars
+		-- override that when a non-standard pad swaps them again.
+		local look_x_axis = tonumber(os.getenv("ISLANDGAME_LOOK_X")) or JoystickAxis.U
+		local look_y_axis = tonumber(os.getenv("ISLANDGAME_LOOK_Y")) or JoystickAxis.V
+		if pad_present then
+			local rs_x = gp_axis(gp_id, look_x_axis) or 0.0
+			local rs_y = gp_axis(gp_id, look_y_axis) or 0.0
+			if math.abs(rs_x) > DEADZONE or math.abs(rs_y) > DEADZONE then
+				local look_speed = 1200.0
+				local dx_px = rs_x / 100.0 * look_speed * dt
+				local dy_px = rs_y / 100.0 * look_speed * dt
+				input:AddMouseDelta(math.floor(dx_px + 0.5),
+				                     math.floor(dy_px + 0.5))
+			end
+		end
+
+		-- Left stick drives planar move; Y is negated so stick-up
+		-- (negative in SFML) moves forward. RB sprints while held.
+		if pad_present and controller then
+			local lx = stick_dir(gp_axis(gp_id, JoystickAxis.X) or 0.0)
+			local ly = stick_dir(gp_axis(gp_id, JoystickAxis.Y) or 0.0)
+			controller:SetMoveInput(-ly, lx)
+			controller:SetRunSpeed(
+				JoyInputUtil.Instance():IsButtonDown(gp_id,
+					GamepadButton.RB) and 1500.0 or 1000.0)
+		elseif controller then
+			controller:SetMoveInput(0.0, 0.0)
+			controller:SetRunSpeed(1000.0)
+		end
 
 		-- swim: deep water (can't stand) and the capsule is below the wave
 		-- surface; the engine servos the feet to the float line each tick
@@ -560,5 +1021,10 @@ if _G.ISLANDGAME_NO_RUN then
 		is_swimming = function() return swimming end,
 	}
 else
-	Engine.run({ on_init = on_init, on_update = on_update })
+	-- Settings load once before Engine.run so a persisted rhi choice feeds
+	-- the backend resolution chain (it resolves at device creation inside
+	-- run); on_init loads them again for the gameplay-facing values.
+	settings_load()
+	Engine.run({ on_init = on_init, on_update = on_update },
+		{ rhi = S.rhi ~= "" and S.rhi or nil })
 end

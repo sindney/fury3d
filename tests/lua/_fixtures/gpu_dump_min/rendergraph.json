@@ -1,0 +1,19 @@
+{
+  "frame": {"index": 2, "backend": "opengl", "size": [1280, 720]},
+  "textures": [
+    {"name": "GBufferA", "w": 1280, "h": 720, "format": "RGBA8", "type": "TEXTURE_2D", "slices": 1, "png": ["textures/GBufferA.png"], "stats": [0.012, 0.94, 0.31]},
+    {"name": "GBufferB", "w": 1280, "h": 720, "format": "RGBA16F", "type": "TEXTURE_2D", "slices": 1, "png": ["textures/GBufferB.png"], "stats": [0.0, 4.2, 0.85]},
+    {"name": "ShadowMap", "w": 2048, "h": 2048, "format": "DEPTH24", "type": "TEXTURE_2D", "slices": 1, "png": ["textures/ShadowMap.png"], "stats": [0.0, 1.0, 0.62]},
+    {"name": "SkyLut", "w": 256, "h": 128, "format": "RGBA16F", "type": "TEXTURE_2D", "slices": 6, "png": ["textures/SkyLut_s0.png", "textures/SkyLut_s1.png", "textures/SkyLut_s2.png", "textures/SkyLut_s3.png", "textures/SkyLut_s4.png", "textures/SkyLut_s5.png"], "stats": [0.05, 3.8, 0.44]}
+  ],
+  "passes": [
+    {"name": "Shadow", "renderIndex": 0, "clearMode": "DEPTH_ONLY", "clearColor": [0, 0, 0, 1], "depthTest": "LESS", "blend": "NONE", "cull": "BACK", "shaders": ["Lambert/Depth"], "outputs": ["ShadowMap"], "inputs": []},
+    {"name": "GBuffer", "renderIndex": 1, "clearMode": "COLOR_DEPTH", "clearColor": [0, 0, 0, 0], "depthTest": "LESS", "blend": "NONE", "cull": "BACK", "shaders": ["Lambert/GBuffer"], "outputs": ["GBufferA", "GBufferB"], "inputs": ["ShadowMap"]},
+    {"name": "Sky", "renderIndex": 2, "clearMode": "DEPTH_ONLY", "clearColor": [0, 0, 0, 1], "depthTest": "LESS_EQUAL", "blend": "NONE", "cull": "NONE", "shaders": ["SkyAtmosphere"], "outputs": ["SkyLut"], "inputs": []},
+    {"name": "Deferred", "renderIndex": 3, "clearMode": "COLOR_DEPTH", "clearColor": [0, 0, 0, 1], "depthTest": "LESS_EQUAL", "blend": "NONE", "cull": "BACK", "shaders": ["Lambert/Deferred"], "outputs": [], "inputs": ["GBufferA", "GBufferB", "ShadowMap", "SkyLut"]}
+  ],
+  "chain": [
+    {"name": "ACES", "shader": "PostFX/ACES", "inputs": ["SceneColor"]},
+    {"name": "FXAA", "shader": "PostFX/FXAA", "inputs": ["SceneColor"]}
+  ]
+}

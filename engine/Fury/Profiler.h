@@ -4,12 +4,12 @@
 // <tracy/...> directly. When the build lacks TRACY_ENABLE (CMake option
 // FURY_WITH_TRACY=OFF, the default), every macro expands to nothing and no
 // Tracy code is compiled. FURY_TRACY_GPU (CMake FURY_WITH_TRACY_GPU) gates
-// the OpenGL GPU zones separately so flaky drivers can opt out.
+// the backend GPU zones separately so drivers can opt out.
 //
 // Runtime control: Tracy's Startup/ShutdownProfiler (manual lifetime) is
 // NOT safe here - zones after shutdown dereference freed state. Instead a
 // process-wide atomic `armed` flag feeds every zone's `active` parameter;
-// a disarmed zone short-circuits before touching Tracy or GL state, even
+// a disarmed zone short-circuits before touching Tracy or GPU state, even
 // when a client is connected (FURY_TRACY=0 / editor Tracy=0|1 / Lua
 // Engine.SetTracyEnabled).
 

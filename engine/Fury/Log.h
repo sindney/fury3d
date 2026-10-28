@@ -11,6 +11,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <cstring>
 #include <mutex>
 #include <chrono>
 
@@ -26,6 +27,19 @@ namespace fury
 		INFO = 2,
 		DBUG = 3
 	};
+
+	// Returns the matching LogLevel, or -1 if v is not a recognized name.
+	// Shared by the launcher's ParseLauncherFlags (main.cpp) and Cli::Run
+	// so both paths use the same string table.
+	inline int ParseLogLevel(const char *v)
+	{
+		if (!v) return -1;
+		if (std::strcmp(v, "EROR") == 0) return static_cast<int>(LogLevel::EROR);
+		if (std::strcmp(v, "WARN") == 0) return static_cast<int>(LogLevel::WARN);
+		if (std::strcmp(v, "INFO") == 0) return static_cast<int>(LogLevel::INFO);
+		if (std::strcmp(v, "DBUG") == 0) return static_cast<int>(LogLevel::DBUG);
+		return -1;
+	}
 
 	// C4251: STL members (std::string, std::stringstream) in an exported class --
 // see the matching note in ThreadUtil.h.

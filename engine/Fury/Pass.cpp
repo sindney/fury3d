@@ -1,12 +1,13 @@
 #include "Fury/Camera.h"
 #include "Fury/Log.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Pass.h"
 #include "Fury/RenderThread.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/RHI/RHICommandList.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Pipeline.h"
 #include "Fury/RenderTarget.h"
@@ -14,6 +15,23 @@
 
 namespace fury
 {
+	namespace
+	{
+		RHICommandList *Cmd()
+		{
+			return GRHIDevice != nullptr ? GRHIDevice->GetCommandList() : nullptr;
+		}
+
+		bool IsDepthFormat(TextureFormat format)
+		{
+			return format == TextureFormat::DEPTH16
+				|| format == TextureFormat::DEPTH24
+				|| format == TextureFormat::DEPTH32F
+				|| format == TextureFormat::DEPTH24_STENCIL8
+				|| format == TextureFormat::DEPTH32F_STENCIL8;
+		}
+	}
+
 	Pass::Ptr Pass::Create(const std::string &name)
 	{
 		return std::make_shared<Pass>(name);
@@ -26,7 +44,7 @@ namespace fury
 
 	Pass::~Pass()
 	{
-		DeleteFrameBuffer();
+		DestroyRenderTarget();
 	}
 
 	bool Pass::Load(const void* wrapper, bool object)
@@ -318,38 +336,64 @@ namespace fury
 
 	void Pass::SetArrayTextureLayer(const std::string &name, int index)
 	{
-		for (auto &pair : m_LayerTextures)
-		{
-			if (pair.second->GetName() == name)
-			{
-				glFramebufferTextureLayer(GL_FRAMEBUFFER, pair.first, pair.second->GetID(), 0, index);
-				break;
-			}
-		}
+		if (m_RTSet == nullptr)
+			return;
+
+		auto texture = GetTexture(name, false);
+		if (texture == nullptr || (texture->GetType() != TextureType::TEXTURE_2D_ARRAY
+			&& texture->GetType() != TextureType::TEXTURE_3D))
+			return;
+
+		unsigned int attachIndex = GetAttachmentIndex(texture);
+		if (attachIndex != 0xFFFFFFFFu)
+			m_RTSet->SetAttachmentLayer(attachIndex, index);
 	}
 
 	void Pass::SetArrayTextureLayer(int index)
 	{
-		for (auto &pair : m_LayerTextures)
-			glFramebufferTextureLayer(GL_FRAMEBUFFER, pair.first, pair.second->GetID(), 0, index);
+		if (m_RTSet == nullptr)
+			return;
+
+		for (auto texture : m_OutputTextures)
+		{
+			if (texture->GetType() != TextureType::TEXTURE_2D_ARRAY
+				&& texture->GetType() != TextureType::TEXTURE_3D)
+				continue;
+
+			unsigned int attachIndex = GetAttachmentIndex(texture);
+			if (attachIndex != 0xFFFFFFFFu)
+				m_RTSet->SetAttachmentLayer(attachIndex, index);
+		}
 	}
 
 	void Pass::SetCubeTextureIndex(const std::string &name, int index)
 	{
-		for (auto &pair : m_CubeTextures)
-		{
-			if (pair.second->GetName() == name)
-			{
-				glFramebufferTexture2D(GL_FRAMEBUFFER, pair.first, GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, pair.second->GetID(), 0);
-				break;
-			}
-		}
+		if (m_RTSet == nullptr)
+			return;
+
+		auto texture = GetTexture(name, false);
+		if (texture == nullptr || texture->GetType() != TextureType::TEXTURE_CUBE_MAP)
+			return;
+
+		unsigned int attachIndex = GetAttachmentIndex(texture);
+		if (attachIndex != 0xFFFFFFFFu)
+			m_RTSet->SetAttachmentCubeFace(attachIndex, index);
 	}
 
 	void Pass::SetCubeTextureIndex(int index)
 	{
-		for (auto &pair : m_CubeTextures)
-			glFramebufferTexture2D(GL_FRAMEBUFFER, pair.first, GL_TEXTURE_CUBE_MAP_POSITIVE_X + index, pair.second->GetID(), 0);
+		if (m_RTSet == nullptr)
+			return;
+
+		for (auto texture : m_OutputTextures)
+		{
+			if (texture->GetType() != TextureType::TEXTURE_CUBE_MAP)
+				continue;
+
+			unsigned int attachIndex = GetAttachmentIndex(texture);
+			if (attachIndex != 0xFFFFFFFFu)
+				m_RTSet->SetAttachmentCubeFace(attachIndex, index);
+		}
 	}
 
 	int Pass::GetViewPortWidth() const
@@ -425,26 +469,6 @@ namespace fury
 		if (!input)
 			m_RenderTargetDirty = true;
 
-		// remove from cube textures
-		for (unsigned int i = 0; i < m_CubeTextures.size(); i++)
-		{
-			if (m_CubeTextures[i].second == ptr)
-			{
-				m_CubeTextures.erase(m_CubeTextures.begin() + i);
-				break;
-			}
-		}
-
-		// remove from layer textures
-		for (unsigned int i = 0; i < m_LayerTextures.size(); i++)
-		{
-			if (m_LayerTextures[i].second == ptr)
-			{
-				m_LayerTextures.erase(m_LayerTextures.begin() + i);
-				break;
-			}
-		}
-
 		return ptr;
 	}
 
@@ -478,48 +502,21 @@ namespace fury
 		return static_cast<unsigned int>(input ? m_InputTextures.size() : m_OutputTextures.size());
 	}
 
-	unsigned int Pass::GetFBO() const
-	{
-		return m_FrameBuffer;
-	}
-
 	void Pass::RemoveAllTextures()
 	{
 		m_InputTextures.clear();
 		m_OutputTextures.clear();
-		m_LayerTextures.clear();
-		m_CubeTextures.clear();
-		UnBindRenderTargets();
+		DestroyRenderTarget();
+		m_RenderTargetDirty = false;
 	}
 
-	void Pass::CreateFrameBuffer()
+	void Pass::RebuildRenderTarget()
 	{
-		if (m_FrameBuffer != 0)
-			DeleteFrameBuffer();
-
-		glGenFramebuffers(1, &m_FrameBuffer);
-		BindRenderTargets();
-	}
-
-	void Pass::BindRenderTargets()
-	{
-		if (m_FrameBuffer == 0)
-			return;
-
-		if (m_OutputTextures.size() == 0)
-		{
-			m_RenderTargetDirty = false;
-			return;
-		}
-
-		if (!m_Binded)
-			glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
+		DestroyRenderTarget();
 
 		m_ViewPortWidth = m_ViewPortHeight = 0;
-		m_ColorAttachmentCount = 0;
 
-		m_LayerTextures.clear();
-		m_CubeTextures.clear();
+		RHIRenderTargetSetDesc desc;
 
 		for (auto texture : m_OutputTextures)
 		{
@@ -538,144 +535,92 @@ namespace fury
 				continue;
 			}
 
-			unsigned int attachId = GL_DEPTH_ATTACHMENT;
-
-			if (format == TextureFormat::DEPTH16 ||
-				format == TextureFormat::DEPTH24 ||
-				format == TextureFormat::DEPTH32F)
-			{
-				attachId = GL_DEPTH_ATTACHMENT;
-			}
-			else if (format == TextureFormat::DEPTH24_STENCIL8 ||
-				format == TextureFormat::DEPTH32F_STENCIL8)
-			{
-				attachId = GL_DEPTH_STENCIL_ATTACHMENT;
-			}
-			else if (format != TextureFormat::UNKNOW)
-			{
-				attachId = GL_COLOR_ATTACHMENT0 + m_ColorAttachmentCount;
-				m_ColorAttachmentCount++;
-			}
-			else
+			if (format == TextureFormat::UNKNOW)
 			{
 				FURYW << "Invalide texture type!";
 				continue;
 			}
 
-			if (type == TextureType::TEXTURE_2D_ARRAY || type == TextureType::TEXTURE_3D)
+			RHIRenderTargetAttachment attach;
+			attach.Texture = texture->GetRHITexture();
+			if (attach.Texture == nullptr)
 			{
-				// 3D slices re-attach through SetArrayTextureLayer too
-				// (glFramebufferTextureLayer takes the z slice for 3D).
-				glFramebufferTextureLayer(GL_FRAMEBUFFER, attachId, texture->GetID(), 0, 0);
-				m_LayerTextures.push_back(std::make_pair(attachId, texture));
+				FURYW << "Texture buffer not created yet!";
+				continue;
 			}
-			if (type == TextureType::TEXTURE_CUBE_MAP)
+
+			if (type == TextureType::TEXTURE_2D_ARRAY || type == TextureType::TEXTURE_3D)
+				attach.Layer = 0;
+			else if (type == TextureType::TEXTURE_CUBE_MAP)
+				attach.CubeFace = 0;
+
+			if (IsDepthFormat(format))
 			{
-				glFramebufferTexture2D(GL_FRAMEBUFFER, attachId, GL_TEXTURE_CUBE_MAP_POSITIVE_X, texture->GetID(), 0);
-				m_CubeTextures.push_back(std::make_pair(attachId, texture));
+				desc.Depth = attach;
+				desc.HasDepth = true;
 			}
 			else
 			{
-				glFramebufferTexture(GL_FRAMEBUFFER, attachId, texture->GetID(), 0);
+				desc.Colors.push_back(attach);
 			}
 		}
 
-		if (m_ColorAttachmentCount > 0)
-		{
-			std::vector<unsigned int> m_ColorAttachs(m_ColorAttachmentCount);
-			for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
-				m_ColorAttachs[i] = GL_COLOR_ATTACHMENT0 + i;
-
-			glDrawBuffers(m_ColorAttachmentCount, &m_ColorAttachs[0]);
-		}
-		else
-		{
-			glDrawBuffers(0, GL_NONE);
-		}
-
-		if (!m_Binded)
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		if (GRHIDevice != nullptr)
+			m_RTSet = GRHIDevice->CreateRenderTargetSet(desc);
 
 		m_RenderTargetDirty = false;
 	}
 
-	void Pass::UnBindRenderTargets()
+	void Pass::DestroyRenderTarget()
 	{
-		if (m_FrameBuffer == 0)
-			return;
-
-		if (!m_Binded)
-			glBindFramebuffer(GL_FRAMEBUFFER, m_FrameBuffer);
-
-		glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
-		glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, 0, 0);
-
-		for (unsigned int i = 0; i < m_ColorAttachmentCount; i++)
-			glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, 0, 0);
-		glDrawBuffers(0, GL_NONE);
-
-		if (!m_Binded)
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		if (m_RTSet != nullptr)
+		{
+			RHIRenderTargetSetRef set = std::move(m_RTSet);
+			RenderThread::Get().EnqueueJob([set]() mutable { set.reset(); });
+		}
 
 		m_ViewPortWidth = m_ViewPortHeight = 0;
 	}
 
-	void Pass::DeleteFrameBuffer()
+	// Colors in attachment order, depth at GetColorCount().
+	unsigned int Pass::GetAttachmentIndex(const std::shared_ptr<Texture> &texture) const
 	{
-		if (m_FrameBuffer != 0)
+		if (m_RTSet == nullptr)
+			return 0xFFFFFFFFu;
+
+		unsigned int colorIndex = 0;
+		for (auto output : m_OutputTextures)
 		{
-			unsigned int fbo = m_FrameBuffer;
-			RenderThread::Get().EnqueueJob([fbo]() { glDeleteFramebuffers(1, &fbo); });
+			if (output->GetDirty() || output->GetFormat() == TextureFormat::UNKNOW
+				|| output->GetRHITexture() == nullptr)
+				continue;
+
+			bool isDepth = IsDepthFormat(output->GetFormat());
+			unsigned int attachIndex = isDepth ? m_RTSet->GetColorCount() : colorIndex;
+			if (!isDepth)
+				colorIndex++;
+
+			if (output == texture)
+				return attachIndex;
 		}
 
-		m_FrameBuffer = 0;
-		m_ColorAttachmentCount = 0;
+		return 0xFFFFFFFFu;
 	}
 
 	void Pass::Clear(ClearMode mode, Color color)
 	{
-		glClearColor(color.r, color.g, color.b, color.a);
-		switch (mode)
-		{
-		case ClearMode::COLOR:
-			glClear(GL_COLOR_BUFFER_BIT);
-			break;
-		case ClearMode::COLOR_DEPTH:
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			break;
-		case ClearMode::COLOR_DEPTH_STENCIL:
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::COLOR_STENCIL:
-			glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::DEPTH:
-			glClear(GL_DEPTH_BUFFER_BIT);
-			break;
-		case ClearMode::STENCIL:
-			glClear(GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::STENCIL_DEPTH:
-			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-			break;
-		case ClearMode::NONE:
-			break;
-		}
+		if (auto *cmd = Cmd())
+			cmd->Clear(mode, color);
 	}
 
 	void Pass::Bind(bool clear)
 	{
-		FURY_GL_THREAD_GUARD();
+		FURY_RHI_THREAD_GUARD();
+
 		if (m_OutputTextures.size() > 0)
 		{
-			if (m_FrameBuffer == 0)
-				CreateFrameBuffer();
-
-			if (m_RenderTargetDirty)
-			{
-				UnBindRenderTargets();
-				BindRenderTargets();
-			}
+			if (m_RTSet == nullptr || m_RenderTargetDirty)
+				RebuildRenderTarget();
 		}
 		else
 		{
@@ -684,80 +629,52 @@ namespace fury
 
 		m_Binded = true;
 
-		// Render-target override: when the active pipeline has an
-		// offscreen RenderTarget set, the final composite pass (the one
-		// with no output textures, which normally renders to the default
-		// framebuffer) renders into the RT instead. This is what lets the
-		// editor's dockable Viewport window capture the 3D scene. Passes
-		// that have their own output textures (GBuffer etc.) are
-		// unaffected -- they keep using their dedicated FBOs.
-		unsigned int bindFBO = m_FrameBuffer;
+		// Render-target override: a pipeline-level offscreen target captures
+		// passes with no output textures (editor viewport); passes with their
+		// own outputs keep their dedicated target set.
+		RHIRenderTargetSetRef targetSet = m_RTSet;
 		if (m_OutputTextures.size() == 0 && Pipeline::Active != nullptr)
 		{
 			if (auto* rt = Pipeline::Active->GetRenderTarget())
 			{
 				if (rt->IsAllocated())
 				{
-					bindFBO = rt->GetFBO();
+					targetSet = rt->GetTargetSet();
 					m_ViewPortWidth = rt->GetWidth();
 					m_ViewPortHeight = rt->GetHeight();
 				}
 			}
 		}
 
-		glBindFramebuffer(GL_FRAMEBUFFER, bindFBO);
-		glViewport(0, 0, m_ViewPortWidth, m_ViewPortHeight);
+		RHICommandList *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
 
-		if (clear)
-			Clear(m_ClearMode, m_ClearColor);
-
-		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(EnumUtil::CompareModeToUint(m_CompareMode));
-		glDepthMask(m_DepthWrite ? GL_TRUE : GL_FALSE);
-
-		if (m_BlendMode != BlendMode::REPLACE)
-		{
-			glEnable(GL_BLEND);
-			glBlendFunc(EnumUtil::BlendModeSrc(m_BlendMode),
-				EnumUtil::BlendModeDest(m_BlendMode));
-			glBlendEquation(EnumUtil::BlendModeOp(m_BlendMode));
-		}
+		if (targetSet != nullptr)
+			cmd->BeginRenderTargets(targetSet, clear ? m_ClearMode : ClearMode::NONE, m_ClearColor);
 		else
-		{
-			glDisable(GL_BLEND);
-		}
+			cmd->BeginBackbuffer(m_ViewPortWidth, m_ViewPortHeight, clear ? m_ClearMode : ClearMode::NONE, m_ClearColor);
 
-		if (m_CullMode != CullMode::NONE)
-		{
-			glEnable(GL_CULL_FACE);
-			glCullFace(EnumUtil::CullModeToUint(m_CullMode).second);
-		}
-		else
-		{
-			glDisable(GL_CULL_FACE);
-		}
+		cmd->SetRasterState(m_BlendMode, m_CompareMode, true, m_DepthWrite, m_CullMode);
 	}
 
 	void Pass::UnBind()
 	{
 		m_Binded = false;
 
-		// Restore engine defaults for everything Bind() declares so
-		// state never leaks into unrelated draws (a leaked
-		// GL_BLEND+ONE/ONE once made the postprocess chain
-		// accumulate into the editor RT every frame). Depth test
-		// stays enabled -- Bind() always enables it and most
-		// free-standing draws assume that.
-		glDepthMask(GL_TRUE);
-		glDepthFunc(GL_LESS);
-		glDisable(GL_BLEND);
-		glDisable(GL_CULL_FACE);
+		RHICommandList *cmd = Cmd();
+		if (cmd == nullptr)
+			return;
+
+		// Restore raster defaults so state never leaks into unrelated draws.
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 
 		for (auto texture : m_OutputTextures)
 		{
 			if (texture->GetMipmap())
 				texture->GenerateMipMap();
 		}
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		cmd->EndRenderTargets();
 	}
 }

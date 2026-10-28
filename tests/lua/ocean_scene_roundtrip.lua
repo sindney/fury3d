@@ -30,7 +30,7 @@ local ocean_node = SceneNode.Create("Ocean")
 local ocean = OceanComponent.Create()
 ocean:SetMode(0) -- Finite (default is Infinite)
 ocean:SetWaveSource(1) -- Baked
-ocean:SetWaveAssetPath("../tests/lua/fixtures/ocean_mini/ocean.json")
+ocean:SetWaveAssetPath("../tests/lua/_fixtures/ocean_mini/ocean.json")
 ocean:SetSeed(42)
 ocean:SetWindSpeed(1234.0)
 ocean:SetWindDirectionDeg(210.0)
@@ -102,7 +102,7 @@ if not o then fail("OceanComponent missing after reload") end
 
 if o:GetMode() ~= 0 then fail("mode lost") end
 if o:GetWaveSource() ~= 1 then fail("waveSource lost") end
-if o:GetWaveAssetPath() ~= "../tests/lua/fixtures/ocean_mini/ocean.json" then fail("waveAsset lost") end
+if o:GetWaveAssetPath() ~= "../tests/lua/_fixtures/ocean_mini/ocean.json" then fail("waveAsset lost") end
 if o:GetSeed() ~= 42 then fail("seed lost") end
 near(o:GetWindSpeed(), 1234.0, 0.01, "windSpeed")
 near(o:GetWindDirectionDeg(), 210.0, 0.01, "windDirectionDeg")

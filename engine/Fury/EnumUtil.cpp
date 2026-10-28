@@ -1,30 +1,6 @@
 #include "Fury/EnumUtil.h"
-#include "Fury/GLLoader.h"
 
 #include <cctype>
-
-// S3TC/BPTC constants glLoadGen did not emit (unused until now).
-#ifndef GL_COMPRESSED_RGB_S3TC_DXT1_EXT
-#define GL_COMPRESSED_RGB_S3TC_DXT1_EXT 0x83F0
-#endif
-#ifndef GL_COMPRESSED_SRGB_S3TC_DXT1_EXT
-#define GL_COMPRESSED_SRGB_S3TC_DXT1_EXT 0x8C4C
-#endif
-#ifndef GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
-#define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT 0x83F3
-#endif
-#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
-#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT 0x8C4F
-#endif
-#ifndef GL_COMPRESSED_RGBA_BPTC_UNORM
-#define GL_COMPRESSED_RGBA_BPTC_UNORM 0x8E8C
-#endif
-#ifndef GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM
-#define GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM 0x8E8D
-#endif
-#ifndef GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT
-#define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT 0x8E8F
-#endif
 
 #undef OPAQUE
 #undef TRANSPARENT
@@ -43,15 +19,15 @@ namespace fury
 		std::make_pair(ClearMode::COLOR_DEPTH_STENCIL, "color_depth_stencil")
 	};
 
-	const std::vector<std::tuple<CompareMode, unsigned int, std::string>> EnumUtil::m_CompareMode =
+	const std::vector<std::pair<CompareMode, std::string>> EnumUtil::m_CompareMode =
 	{
-		std::make_tuple(CompareMode::LESS, GL_LESS, "less"),
-		std::make_tuple(CompareMode::GREATER, GL_GREATER, "greater"),
-		std::make_tuple(CompareMode::EQUAL, GL_EQUAL, "equal"),
-		std::make_tuple(CompareMode::ALWAYS, GL_ALWAYS, "always"),
-		std::make_tuple(CompareMode::LEQUAL, GL_LEQUAL, "lequal"),
-		std::make_tuple(CompareMode::GEQUAL, GL_GEQUAL, "gequal"),
-		std::make_tuple(CompareMode::NOTEQUAL, GL_NOTEQUAL, "notequal")
+		std::make_pair(CompareMode::LESS, "less"),
+		std::make_pair(CompareMode::GREATER, "greater"),
+		std::make_pair(CompareMode::EQUAL, "equal"),
+		std::make_pair(CompareMode::ALWAYS, "always"),
+		std::make_pair(CompareMode::LEQUAL, "lequal"),
+		std::make_pair(CompareMode::GEQUAL, "gequal"),
+		std::make_pair(CompareMode::NOTEQUAL, "notequal")
 	};
 
 	const std::vector<std::pair<BlendMode, std::string>> EnumUtil::m_BlendMode =
@@ -67,93 +43,48 @@ namespace fury
 		std::make_pair(BlendMode::SUBTRACTALPHA, "subtractalpha")
 	};
 
-	const std::vector<unsigned int> EnumUtil::m_BlendModeSrc =
+	const std::vector<std::pair<TextureFormat, std::string>> EnumUtil::m_TextureFormat =
 	{
-		GL_ONE,
-		GL_ONE,
-		GL_DST_COLOR,
-		GL_SRC_ALPHA,
-		GL_SRC_ALPHA,
-		GL_ONE,
-		GL_ONE_MINUS_DST_ALPHA,
-		GL_ONE,
-		GL_SRC_ALPHA
-	};
-
-	const std::vector<unsigned int> EnumUtil::m_BlendModeDest =
-	{
-		GL_ZERO,
-		GL_ONE,
-		GL_ZERO,
-		GL_ONE_MINUS_SRC_ALPHA,
-		GL_ONE,
-		GL_ONE_MINUS_SRC_ALPHA,
-		GL_DST_ALPHA,
-		GL_ONE,
-		GL_ONE
-	};
-
-	const std::vector<unsigned int> EnumUtil::m_BlendModeOp =
-	{
-		GL_FUNC_ADD,
-		GL_FUNC_ADD,
-		GL_FUNC_ADD,
-		GL_FUNC_ADD,
-		GL_FUNC_ADD,
-		GL_FUNC_ADD,
-		GL_FUNC_ADD,
-		GL_FUNC_REVERSE_SUBTRACT,
-		GL_FUNC_REVERSE_SUBTRACT
-	};
-
-	const std::vector<std::tuple<TextureFormat, std::string, unsigned int, unsigned int>> EnumUtil::m_TextureFormat =
-	{
-		std::make_tuple(TextureFormat::UNKNOW, "", 0, 0),
-		std::make_tuple(TextureFormat::R8, "r8", GL_R8, GL_RED),
-		std::make_tuple(TextureFormat::R16, "r16", GL_R16, GL_RED),
-		std::make_tuple(TextureFormat::R16F, "r16f", GL_R16F, GL_RED),
-		std::make_tuple(TextureFormat::R32F, "r32f", GL_R32F, GL_RED),
-		std::make_tuple(TextureFormat::R32UI, "r32ui", GL_R32UI, GL_RED_INTEGER),
-		std::make_tuple(TextureFormat::RG8, "rg8", GL_RG8, GL_RG),
-		std::make_tuple(TextureFormat::RG16, "rg16", GL_RG16, GL_RG),
-		std::make_tuple(TextureFormat::RG16F, "rg16f", GL_RG16F, GL_RG),
-		std::make_tuple(TextureFormat::RG32F, "rg32f", GL_RG32F, GL_RG),
-		std::make_tuple(TextureFormat::RGB8, "rgb8", GL_RGB8, GL_RGB),
-		std::make_tuple(TextureFormat::RGB16, "rgb16", GL_RGB16, GL_RGB),
-		std::make_tuple(TextureFormat::RGB16F, "rgb16f", GL_RGB16F, GL_RGB),
-		std::make_tuple(TextureFormat::RGB32F, "rgb32f", GL_RGB32F, GL_RGB),
-		std::make_tuple(TextureFormat::RGBA8, "rgba8", GL_RGBA8, GL_RGBA),
-		std::make_tuple(TextureFormat::RGBA16, "rgba16", GL_RGBA16, GL_RGBA),
-		std::make_tuple(TextureFormat::RGBA16F, "rgba16f", GL_RGBA16F, GL_RGBA),
-		std::make_tuple(TextureFormat::RGBA32F, "rgba32f", GL_RGBA32F, GL_RGBA),
-		std::make_tuple(TextureFormat::SRGB, "srgb", GL_SRGB, GL_RGB),
-		std::make_tuple(TextureFormat::SRGB8, "srgb8", GL_SRGB8, GL_RGB),
-		// Order MUST match the TextureFormat enum (SRGB_ALPHA before
-		// SRGB8_ALPHA8). A prior swap broke CreateEmpty(SRGB8_ALPHA8) --
-		// it resolved to GL_SRGB_ALPHA (a non-sized format), which
-		// glTexStorage2D rejects, producing incomplete FBOs.
-		std::make_tuple(TextureFormat::SRGB_ALPHA, "srgba", GL_SRGB_ALPHA, GL_RGBA),
-		std::make_tuple(TextureFormat::SRGB8_ALPHA8, "srgba8", GL_SRGB8_ALPHA8, GL_RGBA),
-		std::make_tuple(TextureFormat::DEPTH16, "depth16", GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT),
-		std::make_tuple(TextureFormat::DEPTH24, "depth24", GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT),
-		std::make_tuple(TextureFormat::DEPTH32F, "depth32f", GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT),
-		std::make_tuple(TextureFormat::DEPTH32F_STENCIL8, "depth32f_stencil8", GL_DEPTH32F_STENCIL8, GL_DEPTH_STENCIL),
-		std::make_tuple(TextureFormat::DEPTH24_STENCIL8, "depth24_stencil8", GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL),
-		// Order MUST match the tail of the TextureFormat enum. Fourth
-		// tuple field is unused for compressed formats (no base format).
-		std::make_tuple(TextureFormat::BC1_UNORM, "bc1", GL_COMPRESSED_RGB_S3TC_DXT1_EXT, 0),
-		std::make_tuple(TextureFormat::BC1_SRGB, "bc1_srgb", GL_COMPRESSED_SRGB_S3TC_DXT1_EXT, 0),
-		std::make_tuple(TextureFormat::BC3_UNORM, "bc3", GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, 0),
-		std::make_tuple(TextureFormat::BC3_SRGB, "bc3_srgb", GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT, 0),
-		std::make_tuple(TextureFormat::BC5_UNORM, "bc5", GL_COMPRESSED_RG_RGTC2, 0),
-		std::make_tuple(TextureFormat::BC6H_UF, "bc6h", GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT, 0),
-		std::make_tuple(TextureFormat::BC7_UNORM, "bc7", GL_COMPRESSED_RGBA_BPTC_UNORM, 0),
-		std::make_tuple(TextureFormat::BC7_SRGB, "bc7_srgb", GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM, 0)
+		std::make_pair(TextureFormat::UNKNOW, ""),
+		std::make_pair(TextureFormat::R8, "r8"),
+		std::make_pair(TextureFormat::R16, "r16"),
+		std::make_pair(TextureFormat::R16F, "r16f"),
+		std::make_pair(TextureFormat::R32F, "r32f"),
+		std::make_pair(TextureFormat::R32UI, "r32ui"),
+		std::make_pair(TextureFormat::RG8, "rg8"),
+		std::make_pair(TextureFormat::RG16, "rg16"),
+		std::make_pair(TextureFormat::RG16F, "rg16f"),
+		std::make_pair(TextureFormat::RG32F, "rg32f"),
+		std::make_pair(TextureFormat::RGB8, "rgb8"),
+		std::make_pair(TextureFormat::RGB16, "rgb16"),
+		std::make_pair(TextureFormat::RGB16F, "rgb16f"),
+		std::make_pair(TextureFormat::RGB32F, "rgb32f"),
+		std::make_pair(TextureFormat::RGBA8, "rgba8"),
+		std::make_pair(TextureFormat::RGBA16, "rgba16"),
+		std::make_pair(TextureFormat::RGBA16F, "rgba16f"),
+		std::make_pair(TextureFormat::RGBA32F, "rgba32f"),
+		std::make_pair(TextureFormat::SRGB, "srgb"),
+		std::make_pair(TextureFormat::SRGB8, "srgb8"),
+		std::make_pair(TextureFormat::SRGB_ALPHA, "srgba"),
+		std::make_pair(TextureFormat::SRGB8_ALPHA8, "srgba8"),
+		std::make_pair(TextureFormat::DEPTH16, "depth16"),
+		std::make_pair(TextureFormat::DEPTH24, "depth24"),
+		std::make_pair(TextureFormat::DEPTH32F, "depth32f"),
+		std::make_pair(TextureFormat::DEPTH32F_STENCIL8, "depth32f_stencil8"),
+		std::make_pair(TextureFormat::DEPTH24_STENCIL8, "depth24_stencil8"),
+		std::make_pair(TextureFormat::BC1_UNORM, "bc1"),
+		std::make_pair(TextureFormat::BC1_SRGB, "bc1_srgb"),
+		std::make_pair(TextureFormat::BC3_UNORM, "bc3"),
+		std::make_pair(TextureFormat::BC3_SRGB, "bc3_srgb"),
+		std::make_pair(TextureFormat::BC5_UNORM, "bc5"),
+		std::make_pair(TextureFormat::BC6H_UF, "bc6h"),
+		std::make_pair(TextureFormat::BC7_UNORM, "bc7"),
+		std::make_pair(TextureFormat::BC7_SRGB, "bc7_srgb")
 	};
 
 	const std::vector<std::pair<TextureFormat, unsigned int>> EnumUtil::m_TextureFormatBitPerPixel =
 	{
-		std::make_pair(TextureFormat::UNKNOW, 0), 
+		std::make_pair(TextureFormat::UNKNOW, 0),
 		std::make_pair(TextureFormat::R8, 8),
 		std::make_pair(TextureFormat::R16, 16),
 		std::make_pair(TextureFormat::R16F, 16),
@@ -190,31 +121,31 @@ namespace fury
 		std::make_pair(TextureFormat::BC7_SRGB, 8)
 	};
 
-	const std::vector<std::tuple<TextureType, std::string, unsigned int>> EnumUtil::m_TextureType =
+	const std::vector<std::pair<TextureType, std::string>> EnumUtil::m_TextureType =
 	{
-		std::make_tuple(TextureType::TEXTURE_1D, "1d", GL_TEXTURE_1D),
-		std::make_tuple(TextureType::TEXTURE_2D, "2d", GL_TEXTURE_2D),
-		std::make_tuple(TextureType::TEXTURE_2D_ARRAY, "2d_array", GL_TEXTURE_2D_ARRAY),
-		std::make_tuple(TextureType::TEXTURE_CUBE_MAP, "cube", GL_TEXTURE_CUBE_MAP),
-		std::make_tuple(TextureType::TEXTURE_3D, "3d", GL_TEXTURE_3D)
+		std::make_pair(TextureType::TEXTURE_1D, "1d"),
+		std::make_pair(TextureType::TEXTURE_2D, "2d"),
+		std::make_pair(TextureType::TEXTURE_2D_ARRAY, "2d_array"),
+		std::make_pair(TextureType::TEXTURE_CUBE_MAP, "cube"),
+		std::make_pair(TextureType::TEXTURE_3D, "3d")
 	};
 
-	const std::vector<std::tuple<FilterMode, unsigned int, std::string>> EnumUtil::m_FilterMode =
+	const std::vector<std::pair<FilterMode, std::string>> EnumUtil::m_FilterMode =
 	{
-		std::make_tuple(FilterMode::NEAREST, GL_NEAREST, "nearest"),
-		std::make_tuple(FilterMode::LINEAR, GL_LINEAR, "linear"),
-		std::make_tuple(FilterMode::NEAREST_MIPMAP_NEAREST, GL_NEAREST_MIPMAP_NEAREST, "nearest_mipmap_nearest"),
-		std::make_tuple(FilterMode::NEAREST_MIPMAP_LINEAR, GL_NEAREST_MIPMAP_LINEAR, "nearest_mipmap_linear"),
-		std::make_tuple(FilterMode::LINEAR_MIPMAP_NEAREST, GL_LINEAR_MIPMAP_NEAREST, "linear_mipmap_nearest"),
-		std::make_tuple(FilterMode::LINEAR_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR, "linear_mipmap_linear")
+		std::make_pair(FilterMode::NEAREST, "nearest"),
+		std::make_pair(FilterMode::LINEAR, "linear"),
+		std::make_pair(FilterMode::NEAREST_MIPMAP_NEAREST, "nearest_mipmap_nearest"),
+		std::make_pair(FilterMode::NEAREST_MIPMAP_LINEAR, "nearest_mipmap_linear"),
+		std::make_pair(FilterMode::LINEAR_MIPMAP_NEAREST, "linear_mipmap_nearest"),
+		std::make_pair(FilterMode::LINEAR_MIPMAP_LINEAR, "linear_mipmap_linear")
 	};
 
-	const std::vector<std::tuple<WrapMode, unsigned int, std::string>> EnumUtil::m_WrapMode =
+	const std::vector<std::pair<WrapMode, std::string>> EnumUtil::m_WrapMode =
 	{
-		std::make_tuple(WrapMode::REPEAT, GL_REPEAT, "repeat"),
-		std::make_tuple(WrapMode::MIRRORED_REPEAT, GL_MIRRORED_REPEAT, "mirrored_repeat"),
-		std::make_tuple(WrapMode::CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, "clamp_to_edge"),
-		std::make_tuple(WrapMode::CLAMP_TO_BORDER, GL_CLAMP_TO_BORDER, "clamp_to_border")
+		std::make_pair(WrapMode::REPEAT, "repeat"),
+		std::make_pair(WrapMode::MIRRORED_REPEAT, "mirrored_repeat"),
+		std::make_pair(WrapMode::CLAMP_TO_EDGE, "clamp_to_edge"),
+		std::make_pair(WrapMode::CLAMP_TO_BORDER, "clamp_to_border")
 	};
 
 	const std::vector<std::pair<LightType, std::string>> EnumUtil::m_LightType =
@@ -226,8 +157,8 @@ namespace fury
 
 	const std::vector<std::pair<ShaderType, std::string>> EnumUtil::m_ShaderType =
 	{
-		std::make_pair(ShaderType::OTHER, "other"), 
-		std::make_pair(ShaderType::STATIC_MESH, "static_mesh"), 
+		std::make_pair(ShaderType::OTHER, "other"),
+		std::make_pair(ShaderType::STATIC_MESH, "static_mesh"),
 		std::make_pair(ShaderType::SKINNED_MESH, "skinned_mesh")
 	};
 
@@ -247,13 +178,6 @@ namespace fury
 		std::make_pair(ShaderTexture::BILLBOARD, "billboard"),
 		std::make_pair(ShaderTexture::INSTANCED, "instanced"),
 		std::make_pair(ShaderTexture::INSTANCE_SSBO, "instance_ssbo")
-	};
-
-	const std::vector<unsigned int> EnumUtil::m_LineMode =
-	{
-		GL_LINES,
-		GL_LINE_LOOP,
-		GL_LINE_STRIP
 	};
 
 	const std::vector<std::pair<AnimWrapMode, std::string>> EnumUtil::m_AnimWrapMode =
@@ -294,41 +218,20 @@ namespace fury
 		return ClearMode::COLOR_DEPTH_STENCIL;
 	}
 
-	unsigned int EnumUtil::CompareModeToUint(CompareMode mode)
-	{
-		return std::get<1>(m_CompareMode[(int)mode]);
-	}
-
 	std::string EnumUtil::CompareModeToString(CompareMode mode)
 	{
-		return std::get<2>(m_CompareMode[(int)mode]);
+		return m_CompareMode[(int)mode].second;
 	}
 
 	CompareMode EnumUtil::CompareModeFromString(const std::string &name)
 	{
 		for (const auto &mode : m_CompareMode)
 		{
-			if (std::get<2>(mode) == name)
-				return std::get<0>(mode);
+			if (mode.second == name)
+				return mode.first;
 		}
 		return CompareMode::LESS;
 	}
-
-	unsigned int EnumUtil::BlendModeSrc(BlendMode mode)
-	{
-		return m_BlendModeSrc[(int)mode];
-	}
-
-	unsigned int EnumUtil::BlendModeDest(BlendMode mode)
-	{
-		return m_BlendModeDest[(int)mode];
-	}
-
-	unsigned int EnumUtil::BlendModeOp(BlendMode mode)
-	{
-		return m_BlendModeOp[(int)mode];
-	}
-
 
 	std::string EnumUtil::BlendModeToString(BlendMode mode)
 	{
@@ -343,19 +246,6 @@ namespace fury
 				return mode.first;
 		}
 		return BlendMode::REPLACE;
-	}
-
-	std::pair<bool, unsigned int> EnumUtil::CullModeToUint(CullMode mode)
-	{
-		bool flag = mode != CullMode::NONE;
-		unsigned int data = 0;
-
-		if (mode == CullMode::BACK)
-			data = GL_BACK;
-		else if (mode == CullMode::FRONT)
-			data = GL_FRONT;
-
-		return std::make_pair(flag, data);
 	}
 
 	std::string EnumUtil::CullModeToString(CullMode mode)
@@ -414,13 +304,6 @@ namespace fury
 			return DrawMode::QUAD;
 	}
 
-	std::pair<bool, unsigned int> EnumUtil::TextureFormatToUint(TextureFormat format, bool internalFormat)
-	{
-		auto data = m_TextureFormat[(int)format];
-		return std::make_pair(std::get<0>(data) == TextureFormat::UNKNOW,
-			internalFormat ? std::get<2>(data) : std::get<3>(data));
-	}
-
 	bool EnumUtil::TextureFormatIsCompressed(TextureFormat format)
 	{
 		return (int)format >= (int)TextureFormat::BC1_UNORM;
@@ -445,16 +328,15 @@ namespace fury
 
 	std::string EnumUtil::TextureFormatToString(TextureFormat foramt)
 	{
-		auto data = m_TextureFormat[(int)foramt];
-		return std::get<1>(data);
+		return m_TextureFormat[(int)foramt].second;
 	}
 
 	TextureFormat EnumUtil::TextureFormatFromString(const std::string &name)
 	{
 		for (const auto &format : m_TextureFormat)
 		{
-			if (std::get<1>(format) == name)
-				return std::get<0>(format);
+			if (format.second == name)
+				return format.first;
 		}
 		return TextureFormat::RGBA8;
 	}
@@ -469,84 +351,47 @@ namespace fury
 		return 0;
 	}
 
-	unsigned int EnumUtil::TextureTypeToUnit(TextureType type)
-	{
-		auto data = m_TextureType[(int)type];
-		return std::get<2>(data);
-	}
-
 	std::string EnumUtil::TextureTypeToString(TextureType type)
 	{
-		auto data = m_TextureType[(int)type];
-		return std::get<1>(data);
+		return m_TextureType[(int)type].second;
 	}
 
 	TextureType EnumUtil::TextureTypeFromString(const std::string &name)
 	{
 		for (auto const &type : m_TextureType)
 		{
-			if (std::get<1>(type) == name)
-				return std::get<0>(type);
+			if (type.second == name)
+				return type.first;
 		}
 		return TextureType::TEXTURE_2D;
 	}
 
-	unsigned int EnumUtil::FilterModeToUint(FilterMode mode)
-	{
-		return std::get<1>(m_FilterMode[(int)mode]);
-	}
-
 	std::string EnumUtil::FilterModeToString(FilterMode mode)
 	{
-		return std::get<2>(m_FilterMode[(int)mode]);
+		return m_FilterMode[(int)mode].second;
 	}
 
 	FilterMode EnumUtil::FilterModeFromString(const std::string &name)
 	{
 		for (const auto &mode : m_FilterMode)
 		{
-			if (std::get<2>(mode) == name)
-				return std::get<0>(mode);
+			if (mode.second == name)
+				return mode.first;
 		}
 		return FilterMode::LINEAR;
-	}
-
-	FilterMode EnumUtil::FilterModeFromUint(unsigned int value)
-	{
-		for (const auto &mode : m_FilterMode)
-		{
-			if (std::get<1>(mode) == value)
-				return std::get<0>(mode);
-		}
-		return FilterMode::LINEAR;
-	}
-
-	unsigned int EnumUtil::WrapModeToUint(WrapMode mode)
-	{
-		return std::get<1>(m_WrapMode[(int)mode]);
 	}
 
 	std::string EnumUtil::WrapModeToString(WrapMode mode)
 	{
-		return std::get<2>(m_WrapMode[(int)mode]);
+		return m_WrapMode[(int)mode].second;
 	}
 
 	WrapMode EnumUtil::WrapModeFromString(const std::string &name)
 	{
 		for (const auto &mode : m_WrapMode)
 		{
-			if (std::get<2>(mode) == name)
-				return std::get<0>(mode);
-		}
-		return WrapMode::CLAMP_TO_EDGE;
-	}
-
-	WrapMode EnumUtil::WrapModeFromUint(unsigned int value)
-	{
-		for (const auto &mode : m_WrapMode)
-		{
-			if (std::get<1>(mode) == value)
-				return std::get<0>(mode);
+			if (mode.second == name)
+				return mode.first;
 		}
 		return WrapMode::CLAMP_TO_EDGE;
 	}
@@ -603,18 +448,13 @@ namespace fury
 
 	void EnumUtil::GetShaderTextures(unsigned int flags, std::vector<ShaderTexture> &textures)
 	{
-		std::vector<ShaderTexture> enums = { ShaderTexture::COLOR_ONLY, ShaderTexture::DIFFUSE, 
+		std::vector<ShaderTexture> enums = { ShaderTexture::COLOR_ONLY, ShaderTexture::DIFFUSE,
 			ShaderTexture::NORMAL, ShaderTexture::SPECULAR };
 		for (auto single : enums)
 		{
 			if (flags & (unsigned int)single)
 				textures.push_back(single);
 		}
-	}
-
-	unsigned int EnumUtil::LineModeToUnit(LineMode mode)
-	{
-		return m_LineMode[(unsigned int)mode];
 	}
 
 	std::string EnumUtil::AnimWrapModeToString(AnimWrapMode mode)
@@ -644,7 +484,7 @@ namespace fury
 			if (pair.second == name)
 				return pair.first;
 		}
-		return PlayMode::StopSameLayer;
+		return PlayMode::StopAll;
 	}
 
 	std::string EnumUtil::PostProcessStageToString(PostProcessStage stage)
@@ -673,7 +513,7 @@ namespace fury
 
 	std::string EnumUtil::AlphaModeToString(AlphaMode mode)
 	{
-		return m_AlphaMode[(unsigned int)mode].second;
+		return m_AlphaMode[(int)mode].second;
 	}
 
 	AlphaMode EnumUtil::AlphaModeFromString(const std::string &name)

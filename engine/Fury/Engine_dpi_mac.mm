@@ -4,6 +4,8 @@
 
 #import <AppKit/AppKit.h>
 
+#include <algorithm>
+
 namespace fury
 {
 	float furyGetMacOSBackingScale()
@@ -54,5 +56,65 @@ namespace fury
 #pragma clang diagnostic pop
 		dx = (float)dX;
 		dy = (float)dY;
+	}
+
+	namespace
+	{
+		// Trackpad gesture state. SFML reports only the line-based wheel
+		// delta and drops the magnify gesture, so the precise scroll and the
+		// pinch are captured with a local NSEvent monitor.
+		float s_TrackpadScrollX = 0.0f;
+		float s_TrackpadScrollY = 0.0f;
+		float s_TrackpadMagnify = 0.0f;
+		float s_TrackpadZoomScroll = 0.0f;
+		bool s_TrackpadMonitorInstalled = false;
+	}
+
+	// Installs the trackpad gesture monitor. Safe to call more than once.
+	void furyMacOSInstallTrackpadMonitor()
+	{
+		if (s_TrackpadMonitorInstalled)
+			return;
+		s_TrackpadMonitorInstalled = true;
+
+		[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel
+			handler:^NSEvent *(NSEvent *event) {
+				if ([event hasPreciseScrollingDeltas])
+				{
+					// A command-modified scroll zooms instead of panning.
+					if (([event modifierFlags] & NSEventModifierFlagCommand) != 0)
+						s_TrackpadZoomScroll += (float)[event scrollingDeltaY];
+					else
+					{
+						s_TrackpadScrollX += (float)[event scrollingDeltaX];
+						s_TrackpadScrollY += (float)[event scrollingDeltaY];
+					}
+				}
+				return event;
+			}];
+
+		[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMagnify
+			handler:^NSEvent *(NSEvent *event) {
+				s_TrackpadMagnify += (float)[event magnification];
+				return event;
+			}];
+	}
+
+	// Drains the gestures accumulated since the last call. magnify is in
+	// wheel units: the zoom step a wheel consumer expects.
+	void furyMacOSPollTrackpadGesture(float &scrollX, float &scrollY, float &magnify)
+	{
+		// Clamped, so a gesture that piled up while nothing consumed it does
+		// not turn into a jump.
+		scrollX = std::min(std::max(s_TrackpadScrollX, -400.0f), 400.0f);
+		scrollY = std::min(std::max(s_TrackpadScrollY, -400.0f), 400.0f);
+		// The pinch ratio and the command-modified scroll are scaled into
+		// one wheel delta: a notch of a mouse wheel is 1.0.
+		const float zoom = s_TrackpadMagnify * 10.0f + s_TrackpadZoomScroll * 0.1f;
+		magnify = std::min(std::max(zoom, -2.0f), 2.0f);
+		s_TrackpadScrollX = 0.0f;
+		s_TrackpadScrollY = 0.0f;
+		s_TrackpadMagnify = 0.0f;
+		s_TrackpadZoomScroll = 0.0f;
 	}
 }

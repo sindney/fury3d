@@ -23,7 +23,6 @@
 #include "Fury/EntityUtil.h"
 #include "Fury/Engine.h"
 #include "Fury/FileUtil.h"
-#include "Fury/GLLoader.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
 #include "Fury/MathUtil.h"
@@ -42,6 +41,8 @@
 #include "Fury/RenderTarget.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RHI/RHIBackend.h"
+#include "Fury/RHI/RHIDevice.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/SkyAtmosphere.h"
@@ -107,6 +108,9 @@ bool g_ShowGrid = true;
 bool g_TracyEnabled = true;
 // Persisted render-thread default (next launch's ResolveEnabled input).
 int g_RenderThreadIni = 1;
+// Persisted RHI backend name (next launch's ResolveBackend ini input).
+// Empty = unset (platform default).
+std::string g_RhiIni;
 
 // Content Browser view/sort state. Persisted via the FuryEditor Settings
 // handler in Editor.cpp. Defined at namespace scope (not the anonymous
@@ -323,6 +327,33 @@ void RenderSettingsWindow(bool* open) {
 				}
 				ImGui::TextDisabled("Rendering on a dedicated thread; applies at next launch.%s",
 					RenderThread::ResolveEnabled(-1) ? " (currently ON)" : " (currently OFF)");
+			}
+
+			// RHI backend for the NEXT launch (device creation is
+			// startup-only; no runtime switching). Platform matrix only.
+			{
+				extern std::string g_RhiIni;
+				const auto names = RHI::GetSupportedBackendNames();
+				int current = 0;
+				for (size_t ni = 0; ni < names.size(); ++ni)
+					if (names[ni] == g_RhiIni) { current = (int)ni; break; }
+				if (ImGui::BeginCombo("RHI Backend", names[current].c_str()))
+				{
+					for (size_t ni = 0; ni < names.size(); ++ni)
+					{
+						const bool selected = ((int)ni == current);
+						if (ImGui::Selectable(names[ni].c_str(), selected))
+						{
+							g_RhiIni = names[ni];
+							RHI::SetIniBackend(g_RhiIni);
+						}
+						if (selected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+				ImGui::TextDisabled("Render backend; applies at next launch (active: %s).",
+					GRHIDevice != nullptr ? RHI::BackendToString(GRHIDevice->GetBackend()).c_str() : "none");
 			}
 
 			ImGui::Spacing();
@@ -620,50 +651,12 @@ void RenderProfilerGBufferTab() {
 		return;
 	}
 
-	// Preview blitter: gbuffer alpha is near-zero under PBR (metallic/roughness pack) and depth samples as (d,0,0,1), so each preview is blitted to an opaque rgba8 scratch via a tiny shader before ImGui::Image sees it.
-	static Shader::Ptr s_previewShader;
-	if (!s_previewShader) {
-		static const char* vs =
-			"#version 330\n"
-			"in vec3 vertex_position;\n"
-			"in vec2 vertex_uv;\n"
-			"out vec2 out_uv;\n"
-			"void main() { out_uv = vertex_uv; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
-		static const char* fs =
-			"#version 330\n"
-			"in vec2 out_uv;\n"
-			"out vec4 fragment_output;\n"
-			"uniform sampler2D src;\n"
-			"uniform int u_depth;\n"
-			"void main() {\n"
-			"    vec4 t = texture(src, out_uv);\n"
-			"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
-			"}\n";
-		s_previewShader = Shader::Create("GBufferPreviewShader", ShaderType::OTHER);
-		if (!s_previewShader->Compile(vs, fs, "")) {
-			FURYE << "GBuffer preview shader failed to compile!";
-			s_previewShader = nullptr;
-			return;
-		}
-	}
-
-	// Size previews to match the rendered framebuffer aspect -- using the Profiler window itself produces tall-narrow distortion when docked on the side.
+	// Preview blitter: gbuffer alpha is near-zero under PBR (metallic/roughness
+	// pack) and depth samples as (d,0,0,1), so each preview blits to an opaque
+	// rgba8 surface on the frame executor before ImGui::Image sees it.
 	const float content_w = ImGui::GetContentRegionAvail().x;
 	float img_w = content_w > 0.0f ? content_w : 256.0f;
 	if (img_w > 320.0f) img_w = 320.0f;
-
-	static std::unordered_map<std::string, Texture::Ptr> s_previews;
-	static Pass::Ptr s_previewPass;
-	if (!s_previewPass) {
-		s_previewPass = Pass::Create("GBufferPreviewFBO");
-		s_previewPass->SetBlendMode(BlendMode::REPLACE);
-		s_previewPass->SetClearMode(ClearMode::COLOR);
-	}
-
-	GLint prev_fbo = 0;
-	GLint prev_vp[4] = { 0, 0, 0, 0 };
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-	glGetIntegerv(GL_VIEWPORT, prev_vp);
 
 	auto show = [&](const char* label, const char* tex_name, bool is_depth) {
 		ImGui::Text("%s", label);
@@ -676,35 +669,48 @@ void RenderProfilerGBufferTab() {
 		const float tex_h = (float)t->GetHeight();
 		const float aspect = (tex_w > 0.0f && tex_h > 0.0f)
 								 ? tex_h / tex_w
-								 : 0.5625f; // 16:9 fallback
+								 : 0.5625f;
 
-		// Blit into the opaque scratch texture (320-wide, same aspect).
-		auto &preview = s_previews[tex_name];
 		const int pw = 320;
 		const int ph = (int)(pw * aspect);
-		if (!preview || preview->GetWidth() != pw || preview->GetHeight() != ph) {
-			preview = Texture::Create("gbuffer_preview_" + std::string(tex_name));
-			preview->CreateEmpty(pw, ph, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-		}
-
-		s_previewPass->RemoveAllTextures();
-		s_previewPass->AddTexture(preview, false);
-		s_previewPass->Bind(false);
-		glDisable(GL_BLEND);
-		glDisable(GL_DEPTH_TEST);
-		glDepthMask(GL_FALSE);
-		glDisable(GL_CULL_FACE);
-		s_previewShader->Bind();
-		s_previewShader->BindMesh(MeshUtil::GetUnitQuad());
-		s_previewShader->BindTexture("src", t);
-		s_previewShader->BindInt("u_depth", is_depth ? 1 : 0);
-		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(MeshUtil::GetUnitQuad()->Indices.Data.size()), GL_UNSIGNED_INT, 0);
-		s_previewShader->UnBind();
-		s_previewPass->UnBind();
-
-		ImGui::Image((ImTextureID)(intptr_t)preview->GetID(),
+		const std::string key = std::string("GBufferPreview:") + tex_name;
+		ImGui::PushID(key.c_str());
+		Editor::QueueOverlayJob([key, t, is_depth, pw, ph]() {
+			auto &surface = AcquireSurface(key, pw, ph);
+			if (surface.targetSet == nullptr)
+				return;
+			static RHIShaderModuleRef blitModule;
+			if (!blitModule && GRHIDevice != nullptr)
+			{
+				const char* blit_vs =
+					"#version 330\n"
+					"in vec3 vertex_position;\n"
+					"out vec2 out_uv;\n"
+					"void main() { out_uv = vertex_position.xy * 0.5 + 0.5; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
+				const char* blit_fs =
+					"#version 330\n"
+					"in vec2 out_uv;\n"
+					"out vec4 fragment_output;\n"
+					"uniform sampler2D src;\n"
+					"uniform int u_depth;\n"
+					"void main() {\n"
+					"    vec4 t = texture(src, out_uv);\n"
+					"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
+					"}\n";
+				blitModule = GRHIDevice->CreateShaderModule("GBufferPreviewBlitShader",
+					RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+				if (blitModule == nullptr)
+					FURYE << "GBufferPreviewBlitShader: module creation failed";
+			}
+			const int depthFlag = is_depth ? 1 : 0;
+			RenderUtil::Instance()->Blit(t, surface.color, blitModule,
+				[depthFlag](RHICommandList *cmd) { cmd->SetUniformInt("u_depth", depthFlag); });
+			PublishSurface(key, surface.color);
+		});
+		ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(key),
 					 ImVec2(img_w, img_w * aspect),
 					 ImVec2(0, 1), ImVec2(1, 0));
+		ImGui::PopID();
 	};
 
 	// LDR/HDR auto-switch: the HDR pipeline (DefferedLightingPBR)
@@ -728,12 +734,6 @@ void RenderProfilerGBufferTab() {
 	if (Pipeline::Active->GetDebugViewTexture()) {
 		show("Debug View (SSAO/SSR):", "debug_view", false);
 	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
-	glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
-	glDepthMask(GL_TRUE);
-	glEnable(GL_DEPTH_TEST);
-	glDisable(GL_BLEND);
 }
 
 void RenderProfilerShadowsTab() {
@@ -838,14 +838,13 @@ void RenderProfilerShadowsTab() {
 				for (int i = 0; i < 4; ++i)
 				{
 					const std::string key = baseKey + std::to_string(i);
-					RenderThread::Get().EnqueueJob([key, shadowTex, i]() {
+					Editor::QueueOverlayJob([key, shadowTex, i]() {
 						auto &surface = AcquireSurface(key, 128, 128);
-						if (surface.fbo == 0)
+						if (surface.targetSet == nullptr)
 							return;
-						static std::shared_ptr<Shader> blitShader;
-						if (!blitShader)
+						static RHIShaderModuleRef blitModule;
+						if (!blitModule && GRHIDevice != nullptr)
 						{
-							blitShader = Shader::Create("EditorBlitArrayShader", ShaderType::OTHER);
 							const char* blit_vs =
 								"in vec3 vertex_position;"
 								"out vec2 out_uv;"
@@ -863,11 +862,14 @@ void RenderProfilerShadowsTab() {
 								"{"
 								"	fragment_output = texture(src, vec3(out_uv, index));"
 								"}";
-							blitShader->Compile(blit_vs, blit_fs, "");
+							blitModule = GRHIDevice->CreateShaderModule("EditorBlitArrayShader",
+								RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+							if (blitModule == nullptr)
+								FURYE << "EditorBlitArrayShader: module creation failed";
 						}
-						blitShader->Bind();
-						blitShader->BindFloat("index", (float)i);
-						RenderUtil::Instance()->Blit(shadowTex, surface.color, blitShader);
+						const float slice = (float)i;
+						RenderUtil::Instance()->Blit(shadowTex, surface.color, blitModule,
+							[slice](RHICommandList *cmd) { cmd->SetUniformFloat("index", slice); });
 						PublishSurface(key, surface.color);
 					});
 				}
@@ -921,14 +923,13 @@ void RenderProfilerShadowsTab() {
 			{
 				const std::string key = baseKey + std::to_string(i);
 				const Matrix4 matrix = dirMatrices[i];
-				RenderThread::Get().EnqueueJob([key, shadowTex, matrix]() {
+				Editor::QueueOverlayJob([key, shadowTex, matrix]() {
 					auto &surface = AcquireSurface(key, 128, 128);
-					if (surface.fbo == 0)
+					if (surface.targetSet == nullptr)
 						return;
-					static std::shared_ptr<Shader> blitShader;
-					if (!blitShader)
+					static RHIShaderModuleRef blitModule;
+					if (!blitModule && GRHIDevice != nullptr)
 					{
-						blitShader = Shader::Create("EditorBlitCubeShader", ShaderType::OTHER);
 						const char* blit_vs =
 							"in vec3 vertex_position;"
 							"out vec2 out_uv;"
@@ -947,11 +948,14 @@ void RenderProfilerShadowsTab() {
 							"   vec4 dir = matrix * vec4(out_uv.x, 1.0 - out_uv.y, 1.0, 1.0);"
 							"	fragment_output = texture(src, dir.xyz);"
 							"}";
-						blitShader->Compile(blit_vs, blit_fs, "");
+						blitModule = GRHIDevice->CreateShaderModule("EditorBlitCubeShader",
+							RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+						if (blitModule == nullptr)
+							FURYE << "EditorBlitCubeShader: module creation failed";
 					}
-					blitShader->Bind();
-					blitShader->BindMatrix("matrix", matrix);
-					RenderUtil::Instance()->Blit(shadowTex, surface.color, blitShader);
+					const Matrix4 faceMatrix = matrix;
+					RenderUtil::Instance()->Blit(shadowTex, surface.color, blitModule,
+						[faceMatrix](RHICommandList *cmd) { cmd->SetUniformMatrix("matrix", faceMatrix); });
 					PublishSurface(key, surface.color);
 				});
 			}
@@ -1564,6 +1568,23 @@ void RenderConsoleWindow(bool* open) {
 
 	if (ImGui::Button("Clear")) GlobalLogBuffer().Clear();
 
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Level:");
+	ImGui::SameLine();
+	{
+		// Drive the global Log<0> level so the engine file/console output
+		// matches what the user sees on screen. Survives until the next
+		// launch unless persisted via --log-level.
+		fury::LogLevel current = fury::Log<0>::Instance()->GetLevel();
+		const char *items[] = { "EROR", "WARN", "INFO", "DBUG" };
+		int idx = static_cast<int>(current);
+		if (idx < 0 || idx > 3) idx = 3;
+		ImGui::PushItemWidth(80);
+		if (ImGui::Combo("##LogLevel", &idx, items, 4))
+			fury::Log<0>::Instance()->SetLevel(static_cast<fury::LogLevel>(idx));
+		ImGui::PopItemWidth();
+	}
+
 	const float footer_h = ImGui::GetFrameHeightWithSpacing();
 	ImGui::BeginChild("##log", ImVec2(0, -footer_h), true,
 					  ImGuiWindowFlags_HorizontalScrollbar);
@@ -1716,7 +1737,7 @@ bool TilePassesFilter(const TileEntry& tile) {
 // Lazily load + cache the bake's swell height preview PNG for an
 // OceanWaves tile (editor-only: a GL context always exists here).
 // Lives next to the wave json as <dir>/swell_height_preview.png.
-unsigned int GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
+uintptr_t GetOceanWavesPreviewTex(const std::shared_ptr<OceanWaves>& waves) {
 	static std::unordered_map<std::string, Texture::Ptr> cache;
 	static std::unordered_set<std::string> missing;
 	if (!waves) return 0;
@@ -2079,7 +2100,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		// GL), else a flat placeholder rect (same SIGBUS reason as
 		// ParticleSystem: the fallthrough casts to Mesh).
 		auto waves = std::static_pointer_cast<OceanWaves>(tile.ptr);
-		unsigned int texId = waves ? GetOceanWavesPreviewTex(waves) : 0;
+		uintptr_t texId = waves ? GetOceanWavesPreviewTex(waves) : 0;
 		if (texId) {
 			ImGui::SetCursorScreenPos(thumb_min);
 			ImGui::Image((ImTextureID)(intptr_t)texId,
@@ -2095,7 +2116,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	} else // Mesh
 	{
 			auto mesh = std::static_pointer_cast<Mesh>(tile.ptr);
-			unsigned int texId = GetMeshThumbnail(mesh);
+			uintptr_t texId = GetMeshThumbnail(mesh);
 			if (texId) {
 				ImGui::SetCursorScreenPos(thumb_min);
 				ImGui::Image((ImTextureID)(intptr_t)texId,
@@ -2473,15 +2494,15 @@ void RenderContentBrowserWindow(bool* open) {
 	ImGui::Combo("##cb_type", &g_FilterType, kFilterTypeNames,
 				 IM_ARRAYSIZE(kFilterTypeNames));
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(90.0f);
+	ImGui::SetNextItemWidth(180.0f);
 	ImGui::Combo("##cb_display", &g_DisplayMode, kDisplayModeNames,
 				 IM_ARRAYSIZE(kDisplayModeNames));
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(70.0f);
+	ImGui::SetNextItemWidth(105.0f);
 	ImGui::Combo("##cb_sort_key", &g_CBSortKey, kSortKeyNames,
 				 IM_ARRAYSIZE(kSortKeyNames));
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(70.0f);
+	ImGui::SetNextItemWidth(105.0f);
 	ImGui::Combo("##cb_sort_dir", &g_CBSortDir, kSortDirNames,
 				 IM_ARRAYSIZE(kSortDirNames));
 	ImGui::SameLine();

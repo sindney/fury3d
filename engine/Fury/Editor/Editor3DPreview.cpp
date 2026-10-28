@@ -6,7 +6,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Log.h"
 #include "Fury/Shader.h"
 #include "Fury/Texture.h"
@@ -20,14 +21,12 @@ namespace fury
 		namespace
 		{
 			std::unordered_map<std::string, OrbitState> g_OrbitState;
-			std::unordered_map<std::string, PreviewRT> g_PreviewRTs;
 
 			// Cached grid/AABB shader + VBO/VAOs. The mesh editor
 			// already had these as static locals; lift them out so
 			// multiple editor previews share the same GL objects.
 			std::shared_ptr<Shader> g_LineShader;
-			GLuint g_GridVBO = 0;
-			GLuint g_GridVAO = 0;
+			RHIBufferRef g_GridVBO;
 			float g_GridCachedExtent = -1.0f;
 
 			std::shared_ptr<Shader> GetLineShader()
@@ -62,42 +61,6 @@ namespace fury
 			return it->second;
 		}
 
-		PreviewRT &EnsureRT(const std::string &popup_id, int w, int h, bool *out_resized)
-		{
-			PreviewRT &rt = g_PreviewRTs[popup_id];
-			if (rt.fbo == 0 || rt.width != w || rt.height != h)
-			{
-				if (out_resized) *out_resized = true;
-				if (rt.fbo)
-				{
-					glDeleteFramebuffers(1, &rt.fbo);
-					rt.fbo = 0;
-				}
-				glGenFramebuffers(1, &rt.fbo);
-				rt.colorRT = Texture::GetTemporary(w, h, 1,
-					TextureFormat::RGBA8, TextureType::TEXTURE_2D);
-				rt.depthRT = Texture::GetTemporary(w, h, 1,
-					TextureFormat::DEPTH24, TextureType::TEXTURE_2D);
-				glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
-				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-					GL_TEXTURE_2D, rt.colorRT->GetID(), 0);
-				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-					GL_TEXTURE_2D, rt.depthRT->GetID(), 0);
-				const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-				if (status != GL_FRAMEBUFFER_COMPLETE)
-				{
-					FURYW << "Editor3DPreview: FBO incomplete for popup_id "
-						  << popup_id << " (0x" << std::hex << status << std::dec << ")";
-					glBindFramebuffer(GL_FRAMEBUFFER, 0);
-					rt.fbo = 0;
-					return rt;
-				}
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				rt.width = w;
-				rt.height = h;
-			}
-			return rt;
-		}
 
 		void ReframeOrbit(OrbitState &orbit, const Vector4 &aabb_center,
 			float aabb_radius, float aspect, bool mesh_changed)
@@ -153,7 +116,7 @@ namespace fury
 				static_cast<int>((2.0f * grid_extent) / grid_step) + 1;
 			const int grid_vertex_count = grid_lines_per_axis * 4;
 
-			if (g_GridVBO == 0 || g_GridCachedExtent != grid_extent)
+			if (g_GridVBO == nullptr || g_GridCachedExtent != grid_extent)
 			{
 				std::vector<float> grid_vbo_data;
 				grid_vbo_data.reserve(grid_vertex_count * 3);
@@ -167,20 +130,17 @@ namespace fury
 					grid_vbo_data.push_back(-grid_extent); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(z);
 					grid_vbo_data.push_back( grid_extent); grid_vbo_data.push_back(0.0f); grid_vbo_data.push_back(z);
 				}
-				if (g_GridVBO == 0)
+				if (g_GridVBO == nullptr)
 				{
-					glGenBuffers(1, &g_GridVBO);
-					glGenVertexArrays(1, &g_GridVAO);
-					glBindVertexArray(g_GridVAO);
-					glBindBuffer(GL_ARRAY_BUFFER, g_GridVBO);
-					glEnableVertexAttribArray(0);
-					glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-					glBindVertexArray(0);
+					RHIBufferDesc desc;
+					desc.Name = "EditorGroundGrid";
+					desc.Type = RHIBufferType::VERTEX;
+					desc.Usage = RHIBufferUsage::DYNAMIC;
+					desc.Size = 0;
+					g_GridVBO = GRHIDevice->CreateBuffer(desc);
 				}
-				glBindBuffer(GL_ARRAY_BUFFER, g_GridVBO);
-				glBufferData(GL_ARRAY_BUFFER,
-					grid_vbo_data.size() * sizeof(float),
-					grid_vbo_data.data(), GL_DYNAMIC_DRAW);
+				GRHIDevice->UpdateBuffer(g_GridVBO,
+					grid_vbo_data.data(), grid_vbo_data.size() * sizeof(float));
 				g_GridCachedExtent = grid_extent;
 			}
 
@@ -190,10 +150,20 @@ namespace fury
 			gridOffMat.Raw[13] = aabb_min_y;
 			gridOffMat.Raw[14] = aabb_center.z;
 			shader->BindMatrix("_OffsetMat", gridOffMat);
-			glBindVertexArray(g_GridVAO);
-			glLineWidth(1.0f);
-			glDrawArrays(GL_LINES, 0, grid_vertex_count);
-			glBindVertexArray(0);
+			RHIMeshGeometryDesc desc;
+			desc.MeshName = "EditorGroundGrid";
+			auto &ch = desc.Channels[0];
+			ch.Name = "vertex_position";
+			ch.Attrib = shader->GetRHIModule()->ResolveAttribLocation("vertex_position");
+			ch.Buffer = g_GridVBO;
+			ch.Empty = false;
+			ch.Components = 3;
+			desc.ChannelCount = 1;
+			auto *cmd = GRHIDevice->GetCommandList();
+			cmd->SetMeshGeometry(desc);
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::LINES);
+			cmd->Draw(grid_vertex_count);
+			cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
 			shader->UnBind();
 		}
 

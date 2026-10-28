@@ -29,14 +29,15 @@ namespace fury
 		// <root>/ab/cd/<key>.ktx2
 		std::string PathForKey(const std::string& hexKey, const std::string& ext = ".ktx2") const;
 
-		bool Has(const std::string& hexKey) const;
+		bool Has(const std::string& hexKey, const std::string& ext = ".ktx2") const;
 
 		// Copies srcFile under the key (creating tier dirs). Returns the
 		// stored path, or "" on failure.
-		std::string Store(const std::string& hexKey, const std::string& srcFile);
+		std::string Store(const std::string& hexKey, const std::string& srcFile,
+			const std::string& ext = ".ktx2");
 
 		// Stored path when present, "" otherwise.
-		std::string Lookup(const std::string& hexKey) const;
+		std::string Lookup(const std::string& hexKey, const std::string& ext = ".ktx2") const;
 
 		const std::string& Root() const { return m_Root; }
 

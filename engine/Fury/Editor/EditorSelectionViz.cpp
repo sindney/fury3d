@@ -5,7 +5,8 @@
 #include "Fury/BoxBounds.h"
 #include "Fury/Camera.h"
 #include "Fury/Color.h"
-#include "Fury/GLLoader.h"
+#include "Fury/RHI/RHIDevice.h"
+#include "Fury/RHI/RHICommandList.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
@@ -61,24 +62,21 @@ namespace fury
 	{
 		if (req.variant == 0) return;
 
-		GLint prev_fbo = 0;
-		GLint prev_vp[4] = { 0, 0, 0, 0 };
-		bool bound = false;
-		if (req.rt != nullptr && req.rt->IsAllocated())
+		auto *cmd = GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
+		if (cmd == nullptr) return;
+
+		const bool bound = req.rt != nullptr && req.rt->IsAllocated();
+		if (bound)
 		{
-			glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_fbo);
-			glGetIntegerv(GL_VIEWPORT, prev_vp);
-			glBindFramebuffer(GL_FRAMEBUFFER, req.rt->GetFBO());
-			glViewport(0, 0, req.rt->GetWidth(), req.rt->GetHeight());
-			bound = true;
+			cmd->PushRenderTarget();
+			cmd->BeginRenderTargets(req.rt->GetTargetSet(), ClearMode::NONE, Color(0, 0, 0, 0));
 		}
 
 		// The overlay must composite over the scene regardless of depth,
 		// but the RT's depth buffer still holds the final composite
 		// pass's near depth (~0), which would fail LESS testing for any
 		// world-space wireframe. Disable depth for the overlay draw.
-		GLboolean prev_depth = glIsEnabled(GL_DEPTH_TEST);
-		glDisable(GL_DEPTH_TEST);
+		cmd->SetDepthState(CompareMode::LESS, false, false);
 
 		auto renderUtil = RenderUtil::Instance();
 
@@ -109,11 +107,8 @@ namespace fury
 		}
 
 		if (bound)
-		{
-			glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
-			glViewport(prev_vp[0], prev_vp[1], prev_vp[2], prev_vp[3]);
-		}
-		if (prev_depth) glEnable(GL_DEPTH_TEST);
+			cmd->PopRenderTarget();
+		cmd->SetDepthState(CompareMode::LESS, true, true);
 	}
 
 	// Game thread: build the overlay request for the currently selected

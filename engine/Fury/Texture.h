@@ -10,6 +10,7 @@
 #include "Fury/Color.h"
 #include "Fury/Entity.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/RHI/RHITypes.h"
 #include "Fury/Serializable.h"
 
 namespace fury
@@ -47,8 +48,6 @@ namespace fury
 
 		TextureType m_Type = TextureType::TEXTURE_2D;
 
-		unsigned int m_TypeUint = 0;
-
 		FilterMode m_FilterMode = FilterMode::LINEAR;
 
 		WrapMode m_WrapMode = WrapMode::REPEAT;
@@ -63,7 +62,7 @@ namespace fury
 
 		int m_Depth = 0;
 
-		unsigned int m_ID = 0;
+		RHITextureRef m_RHITexture;
 
 		std::string m_FilePath;
 
@@ -172,7 +171,12 @@ namespace fury
 
 		int GetDepth() const;
 
-		unsigned int GetID() const;
+		// The RHI native handle (0 until the upload lands). A 32-bit GL
+		// name on OpenGL, a 64-bit pointer to the MTLTexture on Metal.
+		uintptr_t GetID() const;
+
+		// The RHI texture backing this Texture (nullptr before upload).
+		RHITextureRef GetRHITexture() const;
 
 		std::string GetFilePath() const;
 
