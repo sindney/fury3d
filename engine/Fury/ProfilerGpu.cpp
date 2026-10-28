@@ -67,8 +67,14 @@ namespace fury
 				return;
 			}
 			if (GRHIDevice == nullptr || GRHIDevice->GetBackend() == RHIBackend::OPENGL)
+			{
+				// Tracy stubs out its OpenGL GPU zones on Apple, and the stub
+				// has no source-location constructor.
+#if !defined(TRACY_OPENGL_DISABLE)
 				m_OpenGL = std::make_unique<tracy::GpuCtxScope>(line, source, sourceSize,
 					function, functionSize, name, nameSize, active);
+#endif
+			}
 		}
 
 		GpuZoneScope::~GpuZoneScope() = default;

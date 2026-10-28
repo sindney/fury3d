@@ -174,7 +174,8 @@ namespace fury
 
 	struct RHIMeshGeometryDesc
 	{
-		static const int MAX_CHANNELS = 8;
+		// constexpr (not const): odr-used by reference in std::min.
+		static constexpr int MAX_CHANNELS = 8;
 
 		RHIMeshChannelDesc Channels[MAX_CHANNELS];
 
