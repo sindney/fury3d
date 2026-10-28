@@ -328,7 +328,9 @@ namespace fury
 		// Tracy's GPU context is GL-specific; no-op when Tracy or GPU zones
 		// are compiled out.
 		if (GRHIDevice->GetBackend() == RHIBackend::OPENGL)
+		{
 			FURY_GPU_CONTEXT();
+		}
 		return true;
 	}
 
@@ -662,6 +664,7 @@ namespace fury
 
 		if (cb.OnInit) cb.OnInit();
 
+
 		// Compute the effective gui_scale from the system DPI. The caller
 		// can opt into system-DPI scaling by passing gui_scale = 0.0f
 		// (sentinel for "use system DPI") or by passing
@@ -690,10 +693,12 @@ namespace fury
 
 #ifdef _FURY_GUI_IMP_
 		Gui::Initialize(&window, effectiveScale, effectiveFontScale);
+
 		Editor::Initialize();
 #endif
 		// Game UI (RmlUi) is active in every binary, editor or player.
 		GameUI::Initialize(&window, effectiveScale);
+
 		s_RunWindow = &window;
 		InputUtil::Instance()->BindWindow(&window);
 

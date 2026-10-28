@@ -72,4 +72,5 @@ end
 print("pak_scene_load: " .. n .. " textures, " .. nodes ..
     " nodes, known '" .. KNOWN .. "' resolved")
 print("pak_scene_load: PASS")
+io.stdout:flush()
 os.exit(0)

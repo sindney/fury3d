@@ -100,6 +100,11 @@ namespace fury
 		// backbuffer pass still open (before Present).
 		virtual void DrawUiOverlay(void *drawData) {}
 
+		virtual uintptr_t GetUiTextureId(const RHITextureRef &texture)
+		{
+			return texture != nullptr ? texture->GetNativeHandle() : 0;
+		}
+
 		// Synchronous (fence/stall) copy to CPU. Editor picking/screenshots only.
 		virtual bool Readback(const RHITextureRef &texture, RHIPixelData &out) = 0;
 

@@ -70,6 +70,9 @@ compile_commands.json
 # CMake into the local tree (see tools/cmake/FetchPinnedArchive.cmake).
 # The platform payload dirs are ignored; this README stays tracked.
 /engine/ThirdParty/slang/*/
+/engine/ThirdParty/MoltenVK/*/
+/examples/libMoltenVK.dylib
+/examples/MoltenVK_icd.json
 
 # Out-of-tree build dirs beyond the ones listed above
 /build-debug/

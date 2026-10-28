@@ -813,7 +813,7 @@ namespace fury
 
 	uintptr_t Texture::GetID() const
 	{
-		return m_RHITexture != nullptr ? m_RHITexture->GetNativeHandle() : 0;
+		return GRHIDevice != nullptr ? GRHIDevice->GetUiTextureId(m_RHITexture) : 0;
 	}
 
 	RHITextureRef Texture::GetRHITexture() const

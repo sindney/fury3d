@@ -109,9 +109,14 @@ option(FURY_SHIPPING "Strip development-only features (defines FURY_BUILD_SHIPPI
 
 # AddressSanitizer for the engine + example targets (dev/debug use).
 option(FURY_WITH_ASAN "Build with AddressSanitizer instrumentation" OFF)
-if(FURY_WITH_ASAN AND NOT MSVC)
-	add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
-	add_link_options(-fsanitize=address)
+if(FURY_WITH_ASAN)
+	if(MSVC)
+		add_compile_options(/fsanitize=address)
+		add_link_options(/INCREMENTAL:NO)
+	else()
+		add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+		add_link_options(-fsanitize=address)
+	endif()
 endif()
 option(FURY_WITH_DBG_OVERLAY "Compile visual debug overlays (LOD tier tint, ...)" ON)
 
@@ -163,6 +168,17 @@ endif()
 if(FURY_WITH_TRACY AND NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/tracy/public/TracyClient.cpp")
 	message(FATAL_ERROR "tracy submodule missing - run: git submodule update --init --recursive (or configure with -DFURY_WITH_TRACY=OFF)")
 endif()
+if(FURY_RHI_VULKAN)
+	foreach(_VULKAN_DEP Vulkan-Headers/include/vulkan/vulkan.h volk/volk.h VulkanMemoryAllocator/include/vk_mem_alloc.h)
+		if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/${_VULKAN_DEP}")
+			message(FATAL_ERROR "Vulkan dependency missing: ${_VULKAN_DEP}; run git submodule update --init --recursive")
+		endif()
+	endforeach()
+	include_directories(SYSTEM
+		${PROJECT_SOURCE_DIR}/ThirdParty/Vulkan-Headers/include
+		${PROJECT_SOURCE_DIR}/ThirdParty/volk
+		${PROJECT_SOURCE_DIR}/ThirdParty/VulkanMemoryAllocator/include)
+endif()
 
 # Kraut-CLI tree toolchain (add-kraut-vegetation). Vendored submodule built
 # via ExternalProject: Kraut's CMake is a standalone superbuild (own Output/
@@ -203,6 +219,19 @@ if(FURY_WITH_SLANG)
 		VERSION "${FURY_SLANG_VERSION}"
 		URL "https://github.com/shader-slang/slang/releases/download/${FURY_SLANG_VERSION}/${FURY_SLANG_ARCHIVE_NAME}"
 		ARCHIVE "${FURY_SLANG_ARCHIVE_TYPE}")
+endif()
+
+set(FURY_MOLTENVK_VERSION "v1.4.2")
+set(FURY_MOLTENVK_DIR "${PROJECT_SOURCE_DIR}/ThirdParty/MoltenVK/${FURY_MOLTENVK_VERSION}")
+if(OS_MACOSX AND FURY_RHI_VULKAN)
+	include("${PROJECT_SOURCE_DIR}/../tools/cmake/FetchPinnedArchive.cmake")
+	fetch_pinned_archive(
+		DEST_DIR "${FURY_MOLTENVK_DIR}"
+		VERSION "${FURY_MOLTENVK_VERSION}"
+		URL "https://github.com/KhronosGroup/MoltenVK/releases/download/${FURY_MOLTENVK_VERSION}/MoltenVK-macos.tar"
+		ARCHIVE "TAR"
+		HASH "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e"
+		SUBPATH "MoltenVK/MoltenVK/dynamic/dylib/macOS")
 endif()
 
 if(FURY_WITH_KRAUT)
@@ -396,7 +425,13 @@ file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/*.cpp)
 # so the ImGui core directory must be in the search path.
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui)
 file(GLOB IMGUI_BACKEND_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/backends/*.cpp)
+list(FILTER IMGUI_BACKEND_SRC EXCLUDE REGEX "imgui_impl_vulkan\\.cpp$")
 list(APPEND IMGUI_SRC ${IMGUI_BACKEND_SRC})
+if(FURY_RHI_VULKAN)
+	set(IMGUI_VULKAN_SRC ${PROJECT_SOURCE_DIR}/ThirdParty/ImGui/backends/imgui_impl_vulkan.cpp)
+	set_source_files_properties(${IMGUI_VULKAN_SRC} PROPERTIES COMPILE_DEFINITIONS "VK_NO_PROTOTYPES")
+	list(APPEND IMGUI_SRC ${IMGUI_VULKAN_SRC})
+endif()
 # Upstream ships the Metal renderer as Objective-C++ (.mm, so the .cpp glob
 # misses it) and it reaches the engine's Metal objects through metal-cpp,
 # which the Metal backend already includes.
@@ -514,6 +549,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessEffect.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessRegistry.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PrelightPipeline.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ProfilerGpu.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Quaternion.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderQuery.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderSettings.cpp
@@ -552,6 +588,25 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalShaderModule.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/RHIMetalDevice.cpp
 	${PROJECT_SOURCE_DIR}/Fury/WaveSampler.cpp)
+
+if(FURY_RHI_VULKAN)
+	set(_FURY_VULKAN_SRC
+		${PROJECT_SOURCE_DIR}/ThirdParty/volk/volk.c
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/VulkanMemory.cpp
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/VulkanEnumMap.cpp
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/VulkanResources.cpp
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/VulkanShaderModule.cpp
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/VulkanCommandList.cpp
+		${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/RHIVulkanDevice.cpp)
+	list(APPEND FURY_CORE_SRC ${_FURY_VULKAN_SRC})
+	set(_FURY_VULKAN_DEFINES VK_NO_PROTOTYPES)
+	if(OS_WINDOWS)
+		list(APPEND _FURY_VULKAN_DEFINES VK_USE_PLATFORM_WIN32_KHR)
+	elseif(OS_MACOSX)
+		list(APPEND _FURY_VULKAN_DEFINES VK_USE_PLATFORM_MACOS_MVK)
+	endif()
+	set_source_files_properties(${_FURY_VULKAN_SRC} PROPERTIES COMPILE_DEFINITIONS "${_FURY_VULKAN_DEFINES}")
+endif()
 
 # The ImGui Metal backend reaches the engine's Metal objects through
 # metal-cpp, so both sides must agree on the binding.
@@ -693,9 +748,9 @@ set(FURY_RUNTIME_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/../examples")
 #   - Slang compiler + modules (see ThirdParty/slang/README.md): the vendored
 #     package layout is staged under <exe dir>/slang/ so libslang and its GLSL
 #     modules resolve at runtime.
-if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}" OR (FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin"))
+if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}" OR (FURY_WITH_SLANG AND EXISTS "${FURY_SLANG_DIR}/bin") OR (OS_MACOSX AND FURY_RHI_VULKAN))
 	add_custom_target(fury_stage_tools
-		COMMENT "Staging ktx + slang next to the engine binaries")
+		COMMENT "Staging ktx, slang, and MoltenVK next to the engine binaries")
 	if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}")
 		add_custom_command(TARGET fury_stage_tools POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -716,6 +771,13 @@ if(EXISTS "${FURY_KTX_TOOL_DIR}/ktx${CMAKE_EXECUTABLE_SUFFIX}" OR (FURY_WITH_SLA
 					"${FURY_RUNTIME_OUTPUT_DIR}"
 				VERBATIM)
 		endif()
+	endif()
+	if(OS_MACOSX AND FURY_RHI_VULKAN)
+		add_custom_command(TARGET fury_stage_tools POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${FURY_MOLTENVK_DIR}"
+				"${FURY_RUNTIME_OUTPUT_DIR}"
+			VERBATIM)
 	endif()
 endif()
 
@@ -763,6 +825,10 @@ function(fury_add_target NAME)
 			set_property(TARGET ${NAME} APPEND PROPERTY BUILD_RPATH "$ORIGIN/slang/lib")
 			set_property(TARGET ${NAME} APPEND PROPERTY INSTALL_RPATH "$ORIGIN/slang/lib")
 		endif()
+	endif()
+	if(OS_MACOSX AND FURY_RHI_VULKAN)
+		set_property(TARGET ${NAME} APPEND PROPERTY BUILD_RPATH "@executable_path")
+		set_property(TARGET ${NAME} APPEND PROPERTY INSTALL_RPATH "@executable_path")
 	endif()
 	# Windows-only V2 DPI awareness manifest (see platform-window-dpi
 	# spec). The manifest linker flag is defined at the top of the

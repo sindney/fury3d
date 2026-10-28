@@ -8,6 +8,10 @@
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/RHI/RHIDevice.h"
 
+#if FURY_RHI_VULKAN
+#include "Fury/RHI/Vulkan/VulkanProbeShader.h"
+#endif
+
 namespace fury
 {
 	// Backend factories, one per backend translation unit.
@@ -180,14 +184,6 @@ namespace fury
 				return false;
 
 			const RHIBackend backend = GRHIDevice->GetBackend();
-			if (backend != RHIBackend::OPENGL && backend != RHIBackend::METAL)
-			{
-				// Each backend session implements its own probe arm; until then
-				// a non-GL device always falls back to OpenGL.
-				FURYE << "RHI probe: not implemented for backend '"
-					<< BackendToString(backend) << "'";
-				return false;
-			}
 
 			RHITextureDesc texDesc;
 			texDesc.Name = "RHIProbe";
@@ -218,12 +214,25 @@ namespace fury
 				"#include <metal_stdlib>\n"
 				"using namespace metal;\n"
 				"fragment float4 fragmentMain() { return float4(0.0, 0.0, 0.0, 1.0); }\n";
-
-			const char *vert = backend == RHIBackend::OPENGL ? kVertGL : kVertMSL;
-			const char *frag = backend == RHIBackend::OPENGL ? kFragGL : kFragMSL;
+			const char *vert = backend == RHIBackend::METAL ? kVertMSL : kVertGL;
+			const char *frag = backend == RHIBackend::METAL ? kFragMSL : kFragGL;
 			RHIShaderBlob vertBlob, fragBlob;
-			vertBlob.Data.assign(vert, vert + std::strlen(vert));
-			fragBlob.Data.assign(frag, frag + std::strlen(frag));
+			if (backend == RHIBackend::VULKAN)
+			{
+#if FURY_RHI_VULKAN
+				vertBlob.Data.assign(reinterpret_cast<const unsigned char *>(VulkanProbeVertex),
+					reinterpret_cast<const unsigned char *>(VulkanProbeVertex) + sizeof(VulkanProbeVertex));
+				fragBlob.Data.assign(reinterpret_cast<const unsigned char *>(VulkanProbeFragment),
+					reinterpret_cast<const unsigned char *>(VulkanProbeFragment) + sizeof(VulkanProbeFragment));
+				vertBlob.IsSource = false;
+				fragBlob.IsSource = false;
+#endif
+			}
+			else
+			{
+				vertBlob.Data.assign(vert, vert + std::strlen(vert));
+				fragBlob.Data.assign(frag, frag + std::strlen(frag));
+			}
 			RHIShaderModuleRef module = GRHIDevice->CreateShaderModule("RHIProbe", vertBlob, fragBlob, RHIShaderBlob{});
 			if (module == nullptr)
 			{
@@ -235,7 +244,17 @@ namespace fury
 			pipeDesc.Name = "RHIProbe";
 			pipeDesc.DepthTest = false;
 			pipeDesc.DepthWrite = false;
-			if (GRHIDevice->CreateGraphicsPipeline(pipeDesc, module) == nullptr)
+			if (backend == RHIBackend::VULKAN)
+			{
+				RHIVertexAttribute attr;
+				attr.Name = "a_position";
+				attr.Format = RHIVertexFormat::FLOAT3;
+				attr.Location = 0;
+				attr.Stride = 12;
+				pipeDesc.VertexAttributes.push_back(attr);
+			}
+			RHIGraphicsPipelineRef pipeline = GRHIDevice->CreateGraphicsPipeline(pipeDesc, module);
+			if (pipeline == nullptr)
 			{
 				FURYE << "RHI probe: pipeline creation failed";
 				return false;
@@ -243,9 +262,32 @@ namespace fury
 
 			GRHIDevice->BeginFrame();
 			GRHIDevice->GetCommandList()->BeginBackbuffer(width, height, ClearMode::COLOR, Color(0, 0, 0, 1));
+			if (backend == RHIBackend::VULKAN)
+			{
+				static const float vertices[] = { -1.0f, -1.0f, 0.0f, 3.0f, -1.0f, 0.0f, -1.0f, 3.0f, 0.0f };
+				RHIBufferDesc bufferDesc;
+				bufferDesc.Name = "RHIProbe vertices";
+				bufferDesc.Type = RHIBufferType::VERTEX;
+				bufferDesc.Size = sizeof(vertices);
+				RHIBufferRef buffer = GRHIDevice->CreateBuffer(bufferDesc, vertices);
+				GRHIDevice->GetCommandList()->SetPipeline(pipeline);
+				GRHIDevice->GetCommandList()->SetVertexBuffer(buffer);
+				GRHIDevice->GetCommandList()->SetTexture("src", tex);
+				GRHIDevice->GetCommandList()->Draw(3);
+			}
 			GRHIDevice->GetCommandList()->EndRenderTargets();
 			GRHIDevice->EndFrame();
 			GRHIDevice->Present();
+			if (backend == RHIBackend::VULKAN)
+			{
+				RHIPixelData readback;
+				if (!GRHIDevice->ReadbackBackbuffer(readback))
+					return false;
+				const size_t center = (static_cast<size_t>(readback.Height / 2) * readback.Width + readback.Width / 2) * 4;
+				FURYI << "RHI probe center RGBA: " << static_cast<int>(readback.Pixels[center]) << ","
+					<< static_cast<int>(readback.Pixels[center + 1]) << "," << static_cast<int>(readback.Pixels[center + 2])
+					<< "," << static_cast<int>(readback.Pixels[center + 3]);
+			}
 			return true;
 		}
 

@@ -259,6 +259,12 @@ namespace fury
 		// true when framebuffer Y points down (Vulkan/Metal) and projections must flip.
 		bool ClipSpaceYDown = false;
 
+		// true when the backbuffer format always sRGB-encodes shader output.
+		bool BackbufferSRGB = false;
+
+		// true when UI passes can use an unorm view of an sRGB backbuffer.
+		bool SupportsUnormBackbufferView = false;
+
 		bool SupportsSSBO = false;
 
 		bool SupportsCompute = false;

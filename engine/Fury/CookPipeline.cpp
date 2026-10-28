@@ -100,6 +100,9 @@ namespace fury
 
 		std::string ShellQuote(const std::string& s)
 		{
+#if PLATFORM_WINDOWS
+			return "\"" + s + "\"";
+#else
 			std::string out = "'";
 			for (char c : s)
 			{
@@ -110,13 +113,18 @@ namespace fury
 			}
 			out += "'";
 			return out;
+#endif
 		}
 
 		// Runs a shell command with output landing in logPath. Returns the
 		// process exit code, -1 when the shell could not run at all.
 		int RunShell(const std::string& cmd, const std::string& logPath)
 		{
+#if PLATFORM_WINDOWS
+			const std::string full = "\"" + cmd + " > " + ShellQuote(logPath) + " 2>&1\"";
+#else
 			const std::string full = cmd + " > " + ShellQuote(logPath) + " 2>&1";
+#endif
 			const int rc = std::system(full.c_str());
 #if PLATFORM_WINDOWS
 			return rc;
@@ -179,9 +187,10 @@ namespace fury
 			}
 
 			const std::string exe = FileUtil::GetExecutablePath();
+			const char *toolName = PLATFORM_WINDOWS ? "ktx.exe" : "ktx";
 			if (exe.empty())
-				return "ktx";
-			return (std::filesystem::path(exe).parent_path() / "ktx").string();
+				return toolName;
+			return (std::filesystem::path(exe).parent_path() / toolName).string();
 		}
 
 		std::string QueryKtxVersion(const std::string& ktx)

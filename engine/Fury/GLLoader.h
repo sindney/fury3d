@@ -47,6 +47,9 @@
 #endif
 #endif /*APIENTRY*/
 
+#undef OPAQUE
+#undef TRANSPARENT
+
 #ifndef CODEGEN_FUNCPTR
 #define CODEGEN_REMOVE_FUNCPTR
 #if defined(_WIN32)

@@ -52,6 +52,40 @@ void main()
 }
 )";
 
+	const char *kUIVertVK = R"(#version 430 core
+layout(std430, binding = 2) readonly buffer UIVertices { uint data[]; };
+uniform vec2 uTranslate;
+uniform vec2 uViewport;
+out vec4 vColor;
+out vec2 vUV;
+void main()
+{
+	uint base = uint(gl_VertexIndex) * 5;
+	vec2 position = vec2(uintBitsToFloat(data[base]), uintBitsToFloat(data[base + 1]));
+	uint packedColor = data[base + 2];
+	vColor = vec4(packedColor & 255u, (packedColor >> 8) & 255u, (packedColor >> 16) & 255u, (packedColor >> 24) & 255u) / 255.0;
+	vUV = vec2(uintBitsToFloat(data[base + 3]), uintBitsToFloat(data[base + 4]));
+	vec2 p = position + uTranslate;
+	vec2 clip = vec2(p.x / uViewport.x * 2.0 - 1.0, 1.0 - p.y / uViewport.y * 2.0);
+	gl_Position = vec4(clip, 0.0, 1.0);
+}
+)";
+
+	const char *kUIFragVK = R"(#version 330 core
+in vec4 vColor;
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform int uUseTexture;
+out vec4 fragColor;
+void main()
+{
+	vec4 t = (uUseTexture != 0) ? texture(uTex, vUV) : vec4(1.0);
+	vec4 c = vColor * t;
+	vec3 linear = mix(c.rgb / 12.92, pow((c.rgb + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c.rgb));
+	fragColor = vec4(linear, c.a);
+}
+)";
+
 	// MSL twin of the GLSL pair above. vertex_id + buffer(0) stream instead
 	// of stage_in attributes (descriptor-free), so uv is scalar floats to
 	// match the Rml::Vertex packing (float2 pos, byte4 color, float2 uv = 20).
@@ -134,10 +168,11 @@ fragment float4 fragmentMain(Varyings frag [[stage_in]],
 		if (fury::GRHIDevice == nullptr)
 			return false;
 
-		s.module = fury::GRHIDevice->CreateShaderModule("GameUI",
-			SourceBlob(fury::GRHIDevice->GetBackend() == fury::RHIBackend::METAL ? kUIVertMSL : kUIVert),
-			SourceBlob(fury::GRHIDevice->GetBackend() == fury::RHIBackend::METAL ? kUIFragMSL : kUIFrag),
-			fury::RHIShaderBlob());
+		const auto backend = fury::GRHIDevice->GetBackend();
+		const char *vert = backend == fury::RHIBackend::METAL ? kUIVertMSL : (backend == fury::RHIBackend::VULKAN ? kUIVertVK : kUIVert);
+		const bool linearUiOutput = backend == fury::RHIBackend::VULKAN && !fury::GRHIDevice->GetCapabilities().SupportsUnormBackbufferView;
+		const char *frag = backend == fury::RHIBackend::METAL ? kUIFragMSL : (linearUiOutput ? kUIFragVK : kUIFrag);
+		s.module = fury::GRHIDevice->CreateShaderModule("GameUI", SourceBlob(vert), SourceBlob(frag), fury::RHIShaderBlob());
 		if (s.module == nullptr || !s.module->IsValid())
 		{
 			FURYW << "GameUI shader module failed";
@@ -147,7 +182,7 @@ fragment float4 fragmentMain(Varyings frag [[stage_in]],
 
 		fury::RHIBufferDesc vboDesc;
 		vboDesc.Name = "GameUI/vbo";
-		vboDesc.Type = fury::RHIBufferType::VERTEX;
+		vboDesc.Type = backend == fury::RHIBackend::VULKAN ? fury::RHIBufferType::STORAGE : fury::RHIBufferType::VERTEX;
 		vboDesc.Usage = fury::RHIBufferUsage::DYNAMIC;
 		vboDesc.Size = 0;
 		s.vbo = fury::GRHIDevice->CreateBuffer(vboDesc);
@@ -218,6 +253,9 @@ namespace fury
 		// have left an arbitrary viewport; UI draws to the full window.
 		// The previous target + viewport return via PopRenderTarget.
 		cmd->PushRenderTarget();
+		if (GRHIDevice->GetBackend() == fury::RHIBackend::VULKAN)
+			cmd->SetSRGBWriteEnabled(false);
+		cmd->BeginBackbuffer(frame->dimensions.x, frame->dimensions.y, ClearMode::NONE, Color(0, 0, 0, 1));
 		cmd->SetViewport(0, 0, frame->dimensions.x, frame->dimensions.y);
 		cmd->SetRasterState(BlendMode::PREMULALPHA, CompareMode::LESS, false, false, CullMode::NONE);
 		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
@@ -245,7 +283,10 @@ namespace fury
 
 		// Stream binds for backends that don't keep geometry in VAO state
 		// (GL no-ops; Metal binds the buffers per draw).
-		cmd->SetVertexBuffer(s.vbo);
+		if (GRHIDevice->GetBackend() == fury::RHIBackend::VULKAN)
+			cmd->SetStorageBuffer(2, s.vbo);
+		else
+			cmd->SetVertexBuffer(s.vbo);
 		cmd->SetIndexBuffer(s.ebo);
 
 		for (const auto &batch : frame->batches)
@@ -302,6 +343,8 @@ namespace fury
 		}
 		cmd->SetScissor(false, 0, 0, 0, 0);
 		cmd->PopRenderTarget();
+		if (GRHIDevice->GetBackend() == fury::RHIBackend::VULKAN)
+			cmd->SetSRGBWriteEnabled(true);
 		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 	}
 

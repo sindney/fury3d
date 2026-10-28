@@ -675,7 +675,7 @@ void RenderProfilerGBufferTab() {
 		const int ph = (int)(pw * aspect);
 		const std::string key = std::string("GBufferPreview:") + tex_name;
 		ImGui::PushID(key.c_str());
-		Editor::QueueOverlayJob([key, t, is_depth, ph]() {
+		Editor::QueueOverlayJob([key, t, is_depth, pw, ph]() {
 			auto &surface = AcquireSurface(key, pw, ph);
 			if (surface.targetSet == nullptr)
 				return;

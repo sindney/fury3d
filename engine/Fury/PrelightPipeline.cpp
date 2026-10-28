@@ -2829,8 +2829,9 @@ namespace
 			// scanline frequency).
 			shader->BindFloat("u_rt_size", (float)writeW, (float)writeH);
 
-			// Only the final chain effect sRGB-encodes; intermediates stay linear.
-			shader->BindInt("u_gamma_correct", isLast ? 1 : 0);
+			// The final effect encodes only when the target does not.
+			shader->BindInt("u_gamma_correct",
+				isLast && (toRT || !GRHIDevice->GetCapabilities().BackbufferSRGB) ? 1 : 0);
 
 			for (const auto &kv : resolvedInputs)
 				shader->BindTexture(kv.first, kv.second);

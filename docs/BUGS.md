@@ -17,6 +17,7 @@ Add entries only after the root cause is proven.
 - **Root cause:** `glClear` on an FBO with a layered (2D_ARRAY/3D/CUBE) attachment clears only the currently attached layer. Sibling layers keep UNDEFINED creation content: one build recycled 1.0-filled memory (lucky, lit), another recycled zeros (map depth 0 = everything shadowed in caster-free regions).
 - **Fix:** when clearing a layered render target, iterate all layers/faces and clear each (GLRenderTargetSet::ClearAllLayers).
 - **RHI port (2026-10-19):** the same bug reappeared after the RHI refactor; the fix now lives in engine/Fury/RHI/OpenGL/ (GLRenderTargetSet::ClearAllLayers + HasLayeredAttachments, hooked into GLCommandList::BeginRenderTargets so layered sets always clear all layers).
+- **Vulkan port (2026-10-27):** bind-time clears now cover every array layer, even when the attachment starts on layer 0. Explicit Clear calls still cover only the selected attachment so the point-cube face loop preserves earlier faces.
 - **Trap:** undefined-content bugs are non-deterministic across processes, so the reference build can look correct while the new build is broken with identical code. Compare raw layer dumps (min/max/zero-count), not preview images.
 
 ## Non-determinism traps that fake rendering bugs
@@ -79,3 +80,58 @@ Add entries only after the root cause is proven.
 - **Root cause:** the Metal path compiles GLSL through Slang -> SPIR-V -> SPIRV-Cross -> MSL, and a GLSL uniform initializer (`uniform float bias = 0.002;`) has no representation in that chain. Slang packs the loose uniforms into a `globalParams` UBO, SPIR-V has no default value for a UBO member, so the emitted MSL declares `float bias0;` with no initializer. On Metal the loose uniforms live in a CPU-side shadow buffer that is zero-initialized (`m_GlobalsShadow[stage].assign(blockSize, 0)`, engine/Fury/RHI/Metal/MetalCommandList.cpp) and only the uniforms the engine binds are ever written, so an unbound uniform reads 0 instead of its GLSL default. The CSM receiver-side depth bias was such a uniform (nothing in the engine ever binds `bias`), so Metal ran the shadow comparison with zero bias: terrain that is its own caster compared equal-depth and lost the comparison, and the far terrain went black. GL is immune - the driver applies the GLSL initializer.
 - **Fix:** `bias` is a shader constant now (examples/Resource/Shader/Lambert/SunLight.glsl) and `u_shadow_floor` is bound from C++ (engine/Fury/ParticleRenderer.cpp). The OpenGL output is bit-identical to before (the uniform default was the value in use).
 - **Trap:** a shader constant and a uniform default are not the same thing once a backend emulates uniforms on the CPU. Anything a shader relies on must be set by the engine, not by the source's initializer - a GLSL initializer is a GL-only feature and dies silently in the cross-compile. 94 uniforms in examples/Resource/Shader carry initializers; the engine and the post-process JSONs set 93 of them by name, the rest are the exposure.
+
+## Vulkan: 3D attachment views must be 2D z-slice views (2026-10-27)
+
+- **Symptom:** PBR island geometry renders black while Lambert, shadows-off, and the non-atmosphere instancing scene work. The sky and clouds survive.
+- **Root cause:** 3D render targets used VK_IMAGE_VIEW_TYPE_3D and ignored the requested z-slice. The AP camera-volume bake did not populate its slices, so PbrCombine's `col * ap.a + ap.rgb` crushed opaque pixels.
+- **Fix:** create 3D images with VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT and use per-slice 2D attachment views, with baseArrayLayer selecting z. Keep the 3D whole-texture view only for sampling. VulkanCommandList rebuilds when that view changes.
+- **Trap:** Vulkan attachment views must not be 3D. The CSM array-view fix does not cover 3D textures, and disabling shadows or post-processing cannot isolate an AP failure while the empty volume is still bound.
+
+## Vulkan: three-channel textures need four-channel storage (2026-10-27)
+
+- **Symptom:** some island materials are black in gbuffer_diffuse while other materials and the simple textured probe are correct.
+- **Root cause:** the direct RGB8/SRGB8 storage path did not preserve those source textures on the Vulkan device. Metal already avoided this portability case by expanding three-channel inputs to four channels.
+- **Fix:** map RGB/RGB16/RGB16F/RGB32F and their sRGB forms to four-channel Vulkan storage, expand uploads with opaque alpha, and use source byte counts for validation but storage byte counts for copies and readbacks.
+- **Trap:** changing only the image format is not enough. Attachment views, pipeline formats, upload sizing, float16/float32 alpha values, and readback strides must all use the same logical-to-storage mapping.
+
+## Vulkan: sRGB swapchain plus chain shader encodes gamma twice (2026-10-27)
+
+- **Symptom:** the island HDR composite matches OpenGL but the final Vulkan frame is much brighter. pipeline_compile_check remains pixel-identical.
+- **Root cause:** RunPostProcessChain sets u_gamma_correct=1 on its last effect, and the Vulkan sRGB swapchain encodes the same output again. The legacy final pass relies on the swapchain instead, so the simple probe cannot catch this.
+- **Fix:** RHICapabilities::BackbufferSRGB records backbuffers that always encode. The chain-final shader encodes only for offscreen targets or when that capability is false.
+- **Trap:** verify both final-output paths. A correct sRGB swapchain and a correct chain shader can still be wrong together.
+
+## Vulkan: ImGui colors need linear output on an sRGB swapchain (2026-10-28)
+
+- **Symptom:** the native Vulkan editor UI has washed-out gray panels while the OpenGL editor has the expected near-black theme.
+- **Root cause:** ImGui supplies display-referred colors. The default Vulkan ImGui fragment shader writes them directly, and the sRGB swapchain encodes them a second time.
+- **Fix:** the Vulkan UI pipeline uses a fragment shader that converts RGB to linear and preserves alpha before the swapchain encode. Editor texture IDs are descriptor sets owned by the Vulkan device.
+- **Trap:** the world-chain gamma fix does not cover independently compiled UI shaders.
+
+## Windows: MSVC shell commands need outer quotes for redirection (2026-10-28)
+
+- **Symptom:** cook fails before KTX runs and cmd.exe reports a filename syntax error for an otherwise valid quoted command.
+- **Root cause:** MSVC std::system invokes cmd.exe /c, whose quote-stripping rule breaks a command that starts with a quoted executable and also contains quoted redirection paths.
+- **Fix:** use native double quotes for arguments and wrap the complete Windows command, including redirection, in the extra outer quote pair.
+- **Trap:** Python subprocess shell execution does not reproduce the MSVC invocation exactly. Test std::system itself when diagnosing this class of failure.
+
+## Vulkan: Tracy timestamps collect before command submission (2026-10-28)
+
+- **Symptom:** Vulkan GPU zones need a lifecycle different from the existing post-present OpenGL collection call.
+- **Fix:** create TracyVkContext on the render thread with a dedicated setup command buffer, record pass scopes on the frame command buffer, and collect in RHIVulkanDevice::EndFrame before Present submits it. OpenGL retains post-present collection; Metal remains CPU-only.
+- **Trap:** TracyVkCollect resets query-pool entries through a command buffer, so calling it after submission records into a command buffer that is no longer being recorded.
+
+## Vulkan: RmlUi needs explicit geometry, backbuffer, and blend conventions (2026-10-28)
+
+- **Symptom:** IslandGame shows only the world on Vulkan; the RmlUi menu is absent. Making the menu visible without the unorm path leaves translucent panels and highlights with the wrong colors.
+- **Root cause:** the shared GLSL path expects interleaved vertex attributes but no Vulkan layout is supplied. Vulkan has also ended the backbuffer pass before RmlUi replay, while GL still has the default framebuffer active. Finally, shader-side sRGB conversion cannot reproduce GL's display-space alpha blending on an sRGB attachment.
+- **Fix:** use gl_VertexIndex with a storage-buffer stream for the packed Rml::Vertex data, explicitly reopen the backbuffer with no clear, and render UI through an unorm view of the mutable swapchain image. World passes retain the sRGB view. This also covers native ImGui.
+- **Trap:** matching source colors is not enough when the destination participates in blending. Use an attachment with the intended blend/color space, and never depend on the previous pass leaving a target active.
+
+## Vulkan: offscreen-only editor frames leave the swapchain at its old size (2026-10-28)
+
+- **Symptom:** after resizing the editor, the whole ImGui frame is clipped or at the wrong scale while the 3D viewport content is otherwise correct.
+- **Root cause:** the editor can render every world pass into offscreen targets, so no world pass asks the Vulkan device to acquire a backbuffer at the new dimensions. ImGui advances to the new window size while the swapchain retains the previous extent. Driver currentExtent can also lag a live resize.
+- **Fix:** DrawUiOverlay acquires the backbuffer using the current ImGui framebuffer dimensions. Swapchain recreation uses the engine-supplied dimensions clamped to the surface limits instead of trusting a stale currentExtent.
+- **Trap:** a UI-only frame still owns backbuffer sizing. Do not rely on a world pass to trigger it, and verify steady state after a resize sequence, not just during it.

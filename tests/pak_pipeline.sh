@@ -23,6 +23,7 @@
 #
 # Requires built binaries at examples/fury and examples/furye-cli (override
 # with FURY_BIN/FURY_CLI_BIN for ASAN) and python3. Cleans up its /tmp dir.
+# PAK_TEST_RHI=opengl,vulkan,metal forces full backend coverage on any host.
 
 set -euo pipefail
 
@@ -31,6 +32,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXAMPLES="$REPO_ROOT/examples"
 FURY="${FURY_BIN:-$EXAMPLES/fury}"
 FURYCLI="${FURY_CLI_BIN:-$EXAMPLES/furye-cli}"
+RHI_ARGS=()
+if [ -n "${PAK_TEST_RHI:-}" ]; then
+    RHI_ARGS=(--rhi "$PAK_TEST_RHI")
+fi
 LUA_TEST="$REPO_ROOT/tests/lua/pak_scene_load.lua"
 
 [ -x "$FURY" ] || { echo "pak_pipeline FAIL: $FURY not found (build first)" >&2; exit 1; }
@@ -43,7 +48,13 @@ DDC="$TMP/ddc"
 LOGS="$TMP/logs"
 mkdir -p "$PROJ" "$DDC" "$LOGS"
 
-cleanup() { rm -rf "$TMP"; }
+cleanup() {
+    if [ "${PAK_TEST_KEEP:-0}" = "1" ]; then
+        echo "pak_pipeline: kept artifacts in $TMP"
+    else
+        rm -rf "$TMP"
+    fi
+}
 trap cleanup EXIT
 
 die() { echo "pak_pipeline FAIL: $1" >&2; exit 1; }
@@ -112,7 +123,7 @@ stage "a" "build synthetic scene (3 textures, 3 cube nodes) and load back"
 # b. cook: exit 0, manifest shape, DDC layout, BCn, mip chain
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" cook scene.json --texture-target legacy --ddc "$DDC" \
-        > "$LOGS/b_cook.log" 2>&1); then
+        "${RHI_ARGS[@]}" > "$LOGS/b_cook.log" 2>&1); then
     cat "$LOGS/b_cook.log" >&2; die "stage b: cook failed"
 fi
 MANIFEST="$PROJ/scene.cookmanifest.json"
@@ -188,7 +199,7 @@ stage "b2" "--rhi=metal restricts cooked shader targets"
 # c. recook: everything served from the DDC
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" cook scene.json --texture-target legacy --ddc "$DDC" \
-        > "$LOGS/c_recook.log" 2>&1); then
+        "${RHI_ARGS[@]}" > "$LOGS/c_recook.log" 2>&1); then
     cat "$LOGS/c_recook.log" >&2; die "stage c: recook failed"
 fi
 grep -q "0 textures cooked, 3 ddc-hits; 0 shader targets cooked" "$LOGS/c_recook.log" \
@@ -200,7 +211,7 @@ stage "c" "recook: all texture and shader artifacts served from DDC"
 # ---------------------------------------------------------------------------
 printf 'X' >> "$PROJ/sky_moon.png" # content hash changes; ktx still ingests it
 if ! (cd "$PROJ" && "$FURYCLI" cook scene.json --texture-target legacy --ddc "$DDC" \
-        > "$LOGS/d_touch.log" 2>&1); then
+        "${RHI_ARGS[@]}" > "$LOGS/d_touch.log" 2>&1); then
     cat "$LOGS/d_touch.log" >&2; die "stage d: recook after touch failed"
 fi
 grep -q "1 textures cooked, 2 ddc-hits; 0 shader targets cooked" "$LOGS/d_touch.log" \
@@ -213,7 +224,7 @@ stage "d" "touch sky_moon.png: exactly 1 recooked, 2 ddc-hits"
 # e. package (lz4 default) + headless exec on the pak
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" package scene.json --texture-target legacy --ddc "$DDC" \
-        > "$LOGS/e_package.log" 2>&1); then
+        "${RHI_ARGS[@]}" > "$LOGS/e_package.log" 2>&1); then
     cat "$LOGS/e_package.log" >&2; die "stage e: package failed"
 fi
 [ -f "$PROJ/scene.pak" ] || die "stage e: scene.pak not written"
@@ -271,7 +282,7 @@ stage "g" "exec boundary: no sibling mount, loose scene loads"
 # h. --compression none: every entry stored uncompressed
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" package scene.json --texture-target legacy --ddc "$DDC" \
-        --compression none --output "$TMP/none.pak") > "$LOGS/h_package.log" 2>&1; then
+        "${RHI_ARGS[@]}" --compression none --output "$TMP/none.pak") > "$LOGS/h_package.log" 2>&1; then
     cat "$LOGS/h_package.log" >&2; die "stage h: package --compression none failed"
 fi
 [ -f "$TMP/none.pak" ] || die "stage h: none.pak not written"

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -14,6 +15,7 @@
 #include "Fury/DdcStore.h"
 #include "Fury/FileUtil.h"
 #include "Fury/HashUtil.h"
+#include "Fury/Log.h"
 
 namespace fury
 {
@@ -360,8 +362,18 @@ namespace fury
 		}
 		else if (target == ShaderTarget::Vulkan)
 		{
-			out.push_back({ key, ".vert.spv", compiled.vertex.spirv });
-			out.push_back({ key, ".frag.spv", compiled.fragment.spirv });
+			// Cooked SPIR-V carries the same stage-separated set contract
+			// as the runtime path (vertex 0, fragment 1).
+			std::vector<unsigned char> vertSpv = compiled.vertex.spirv;
+			std::vector<unsigned char> fragSpv = compiled.fragment.spirv;
+			std::string setError;
+			if (!RewriteVulkanDescriptorSets(vertSpv, 0, "vertex", setError)
+				|| !RewriteVulkanDescriptorSets(fragSpv, 1, "fragment", setError))
+			{
+				FURYW << input.name << ": " << setError;
+			}
+			out.push_back({ key, ".vert.spv", vertSpv });
+			out.push_back({ key, ".frag.spv", fragSpv });
 		}
 		else
 		{
@@ -429,17 +441,80 @@ namespace fury
 		return true;
 	}
 
-	bool CompileOrLoadMetalShader(const ShaderCompileInput &input, ShaderModuleCompile &out,
-		bool *cacheHit, std::string &error)
+	bool RewriteVulkanDescriptorSets(std::vector<unsigned char> &spirv, unsigned int set,
+		const char *stage, std::string &error)
+	{
+		if (spirv.empty())
+			return true;
+		if (spirv.size() < 20 || spirv.size() % 4 != 0)
+		{
+			error = std::string(stage) + ": malformed SPIR-V";
+			return false;
+		}
+		auto *words = reinterpret_cast<uint32_t *>(spirv.data());
+		const size_t wordCount = spirv.size() / 4;
+		if (words[0] != 0x07230203u)
+		{
+			error = std::string(stage) + ": malformed SPIR-V magic";
+			return false;
+		}
+		std::vector<uint32_t> decorated;
+		std::vector<uint32_t> resources;
+		size_t wi = 5;   // header
+		while (wi + 1 < wordCount)
+		{
+			const uint32_t wc = words[wi] >> 16;
+			const uint32_t op = words[wi] & 0xFFFF;
+			if (wc == 0 || wi + wc > wordCount)
+				break;
+			if (op == 71 && wc >= 4 && words[wi + 2] == 34)      // OpDecorate DescriptorSet
+			{
+				words[wi + 3] = set;
+				decorated.push_back(words[wi + 1]);
+			}
+			else if (op == 59 && wc >= 4)                        // OpVariable
+			{
+				const uint32_t storage = words[wi + 3];
+				if (storage == 0 || storage == 2 || storage == 12)   // UniformConstant / Uniform / StorageBuffer
+					resources.push_back(words[wi + 2]);
+			}
+			wi += wc;
+		}
+		for (uint32_t id : resources)
+		{
+			if (std::find(decorated.begin(), decorated.end(), id) == decorated.end())
+			{
+				error = std::string(stage) + ": descriptor resource lacks a DescriptorSet decoration (id "
+					+ std::to_string(id) + ")";
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool CompileOrLoadCrossCompiledShader(const ShaderCompileInput &input, ShaderTarget target,
+		ShaderModuleCompile &out, bool *cacheHit, std::string &error)
 	{
 		DdcStore ddc(DdcStore::ResolveRoot());
-		const std::string key = MakeShaderDdcKey(input, ShaderTarget::Metal);
+		const std::string key = MakeShaderDdcKey(input, target);
 		std::vector<ShaderArtifact> artifacts;
-		if (LoadShaderArtifacts(ddc, key, ShaderTarget::Metal, artifacts))
+		std::string setError;
+		if (LoadShaderArtifacts(ddc, key, target, artifacts))
 		{
-			out.vertex.msl.assign(artifacts[0].bytes.begin(), artifacts[0].bytes.end());
-			out.fragment.msl.assign(artifacts[1].bytes.begin(), artifacts[1].bytes.end());
-			if (DeserializeReflection(artifacts[2].bytes, out))
+			if (target == ShaderTarget::Metal)
+			{
+				out.vertex.msl.assign(artifacts[0].bytes.begin(), artifacts[0].bytes.end());
+				out.fragment.msl.assign(artifacts[1].bytes.begin(), artifacts[1].bytes.end());
+			}
+			else
+			{
+				out.vertex.spirv = artifacts[0].bytes;
+				out.fragment.spirv = artifacts[1].bytes;
+			}
+			if (DeserializeReflection(artifacts[2].bytes, out)
+				&& (target != ShaderTarget::Vulkan
+					|| (RewriteVulkanDescriptorSets(out.vertex.spirv, 0, "vertex", setError)
+						&& RewriteVulkanDescriptorSets(out.fragment.spirv, 1, "fragment", setError))))
 			{
 				out.ok = true;
 				if (cacheHit) *cacheHit = true;
@@ -455,8 +530,29 @@ namespace fury
 			error = out.error;
 			return false;
 		}
-		if (!StoreShaderArtifacts(ddc, MakeShaderArtifacts(input, out, ShaderTarget::Metal), error))
+		if (target == ShaderTarget::Vulkan)
+		{
+			if (!RewriteVulkanDescriptorSets(out.vertex.spirv, 0, "vertex", setError)
+				|| !RewriteVulkanDescriptorSets(out.fragment.spirv, 1, "fragment", setError))
+			{
+				error = setError;
+				return false;
+			}
+		}
+		if (!StoreShaderArtifacts(ddc, MakeShaderArtifacts(input, out, target), error))
 			return false;
 		return true;
+	}
+
+	bool CompileOrLoadMetalShader(const ShaderCompileInput &input, ShaderModuleCompile &out,
+		bool *cacheHit, std::string &error)
+	{
+		return CompileOrLoadCrossCompiledShader(input, ShaderTarget::Metal, out, cacheHit, error);
+	}
+
+	bool CompileOrLoadVulkanShader(const ShaderCompileInput &input, ShaderModuleCompile &out,
+		bool *cacheHit, std::string &error)
+	{
+		return CompileOrLoadCrossCompiledShader(input, ShaderTarget::Vulkan, out, cacheHit, error);
 	}
 }
