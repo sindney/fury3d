@@ -193,6 +193,15 @@ capture's `rendergraph.json` to load its directory. The capture itself is produc
 run (see "Screenshot mode" above): `./fury Editor.lua --gpu-dump /tmp/dump
 [--gpu-dump-frame N]`.
 
+The window has a **Render Graph** tab and a **Textures** tab. The graph lays
+the passes out in columns by dependency depth and the post-process chain
+after them; **Format graph** re-runs that layout and brings the graph back
+into view. Clicking a node shows its state and its input/output textures;
+clicking a link or a texture shows that texture. The preview has a right-click
+menu to switch between the **Raw** values (as dumped) and the **Display**
+values (the sRGB encode of the linear values, so they read the way they do
+in the viewport). The stats line under the format shows both.
+
 ## RHI backend selection
 
 The launcher and pak-boot paths accept a startup render-backend flag:
