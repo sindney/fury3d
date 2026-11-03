@@ -2,37 +2,30 @@
 
 ## Purpose
 
-Covers the contract that a `Scene` saved by the engine can be reloaded into a fresh `Scene` with stable structural counts — including the `Scene::Load` reload path (which must not assert or silently skip the top-level `textures` array), the `FileUtil::SaveByExtension` dispatch helper that selects the save format by extension, and the round-trip count-stability invariant.
-
-## Purpose
-
-Covers the contract that a `Scene` saved by the engine can be reloaded into a fresh `Scene` with stable structural counts — including the `Scene::Load` reload path, the `FileUtil::SaveByExtension` dispatch helper, and the round-trip count-stability invariant under the `asset-path-identity` model (path-keyed `EntityManager`, no same-name duplicates possible).
-
-## MODIFIED Requirements
-
+Covers the contract that a `Scene` saved by the engine can be reloaded into a fresh `Scene` with stable structural counts — including the `Scene::Load` reload path (which must not assert or silently skip the top-level `textures` array), the `FileUtil::SaveByExtension` dispatch helper that selects the save format by extension, and the round-trip count-stability invariant under the `asset-path-identity` model (path-keyed `EntityManager`, no same-name duplicates possible).
+## Requirements
 ### Requirement: `Scene::Load` SHALL read the top-level `"textures"` array without asserting or silently skipping
 
-`Scene::Load` (engine/Fury/Scene.cpp) SHALL walk the top-level `"textures"` array — when present — using the array-walking `LoadArray` overload on the already-resolved member value. It SHALL NOT call any `FindMember`-based overload on the array value itself, because `rapidjson::Value::FindMember` asserts `IsObject()` on non-object values (document.h:1154) and returns `MemberEnd()` silently under `NDEBUG`. A missing top-level `"textures"` array SHALL be treated as the legacy pre-textures-array format and SHALL NOT cause `Scene::Load` to fail (the materials' inline textures and the registration pass still populate the `EntityManager`).
+The loading branch of scene serialization SHALL walk the top-level `"textures"` array, when present, using the array-aware archive interface on the already-resolved member value. It SHALL NOT invoke object-member lookup on the array value itself. A missing top-level `"textures"` array SHALL be treated as the legacy pre-textures-array format and SHALL NOT cause loading to fail; materials' inline textures and the registration pass still populate the `EntityManager`.
 
-This requirement exists because `Scene::Save` always emits a top-level `"textures"` array (deduped by path from the path-keyed `EntityManager`), so every saved scene must be reloadable without an assertion failure (debug builds) and without dropping the textures that live only in that array (release builds).
+The saving branch SHALL continue to emit the top-level `"textures"` array deduplicated by path from the path-keyed `EntityManager`, so every saved scene is reloadable without dropping textures that live only in that array.
 
 #### Scenario: Reload a saved scene in a debug build does not assert
 
-- **WHEN** a a `Scene` is saved via `FileUtil::SaveFile` or `SaveCompressedFile` (which emits a top-level `"textures"` array)
-- **AND** the saved file is reloaded into a fresh `Scene` via `Scene::Load` in a build where `RAPIDJSON_ASSERT` is active (no `NDEBUG`)
-- **THEN** `Scene::Load` returns true
-- **AND** the process does not abort with `Assertion failed: (IsObject()), function FindMember`
+- **WHEN** a `Scene` is saved via `FileUtil::SaveFile` or `SaveCompressedFile` and reloaded into a fresh `Scene` in a build where `RAPIDJSON_ASSERT` is active
+- **THEN** loading returns true
+- **AND** the process does not abort with an `IsObject()` assertion from `FindMember`
 
 #### Scenario: Reload a saved scene in a release build preserves top-level textures
 
-- **WHEN** a a `Scene` containing a texture that is referenced only by the top-level `"textures"` array (not re-emitted inline by any material) is saved and reloaded in a release build (`-DNDEBUG`)
-- **THEN** the reloaded `Scene`'s `EntityManager` contains that texture (`ForEach<Texture>` finds it)
+- **WHEN** a `Scene` containing a texture referenced only by the top-level `"textures"` array is saved and reloaded in a release build
+- **THEN** the reloaded `Scene`'s `EntityManager` contains that texture
 - **AND** the texture count after reload equals the texture count before save
 
 #### Scenario: Legacy scene without a top-level textures array still loads
 
-- **WHEN** a scene file saved before the top-level `"textures"` array existed (e.g. the bundled `Resource/Scene/scene.bin`) is loaded
-- **THEN** `Scene::Load` returns true
+- **WHEN** a scene file saved before the top-level `"textures"` array existed is loaded
+- **THEN** loading returns true
 - **AND** no error is logged about a missing `"textures"` member
 - **AND** textures referenced inline by materials are registered in the `EntityManager` via the existing registration pass
 
@@ -70,28 +63,37 @@ This is the single canonical save-dispatch entry point used by the CLI (`convert
 
 ### Requirement: A `Scene` saved by the engine SHALL round-trip through `Scene::Save` then `Scene::Load` with stable structural counts
 
-For any `Scene` produced by the engine (loaded from `.json`/`.bin`, imported from glTF/FBX, or assembled at runtime), the following round-trip SHALL preserve structural counts: save the scene to a temp file via `SaveByExtension`, load the temp file into a fresh `Scene`, and compare counts. The counts SHALL match exactly for: `nodes`, `meshes_total`, `meshes_static`, `meshes_skinned`, `submeshes`, `vertices`, `triangles`, `materials`, `textures`, `animations`, `joints`. AABB is reported but not compared (float rounding through serialization makes tight equality noisy).
+For any `Scene` produced by the engine, saving through `FileUtil::SaveByExtension` and loading into a fresh `Scene` SHALL preserve structural counts and semantic persistent state through the shared `Serialize` implementations. Structural counts SHALL match exactly for `nodes`, `meshes_total`, `meshes_static`, `meshes_skinned`, `submeshes`, `vertices`, `triangles`, `materials`, `textures`, `animations`, and `joints`. AABB is reported but not compared because float rounding makes tight equality noisy.
 
-Under `asset-path-identity`, the `textures` count after the round-trip equals the **unique path count**, not the pre-dedupe entry count. A legacy scene that contained 6 same-name-different-UUID textures at one path round-trips to 1 texture at that path. The dedupe is enforced by `EntityManager::Add<T>` rejecting same-path; the loaders SHALL NOT carry their own same-name skip guards (those were removed by `asset-path-identity`).
+The semantic fingerprint SHALL cover node names and hierarchy, local transforms, component types and persistent properties, path-keyed resource references, mesh and material assignments, light parameters, particle configuration, skeletal animation and joint bindings, terrain and ocean configuration, and render settings. Floating-point values SHALL use a documented tolerance; identifiers, paths, ordering where semantically significant, and enumerated values SHALL match exactly. Transient GPU objects, runtime playback cursors, and editor-only state SHALL be excluded.
 
-#### Scenario: Round-trip preserves all structural counts
+Under `asset-path-identity`, the texture count after round trip equals the unique path count, not the pre-dedupe entry count. Legacy same-name-different-UUID textures collapse to the canonical path entry, and material references SHALL resolve to that entry.
 
-- **WHEN** a a `Scene` is saved to a temp file and reloaded
-- **THEN** every counted field (`nodes`, `meshes_total`, `meshes_static`, `meshes_skinned`, `submeshes`, `vertices`, `triangles`, `materials`, `textures`, `animations`, `joints`) is equal between the original load and the round-tripped load
+#### Scenario: Round-trip preserves structure and semantics
 
-#### Scenario: Round-trip of the bundled scene.bin succeeds
+- **WHEN** a scene is saved to a temporary file and reloaded
+- **THEN** every structural count matches exactly
+- **AND** every field in the semantic fingerprint matches under its exactness or tolerance rule
 
-- **WHEN** the bundled `Resource/Scene/scene.bin` is loaded, saved to a temp `.bin`, and reloaded
-- **THEN** all structural counts match between the two loads
-- **AND** no assertion fires during either load (debug build)
+#### Scenario: Canonical showcases round-trip in both formats
+
+- **WHEN** the feature-showcase and island scenes are each round-tripped through temporary `.json` and `.bin` files
+- **THEN** all structural and semantic checks pass for both formats
+- **AND** the round-trip runs through the headless CLI without a graphics context
+
+#### Scenario: Round-trip of the bundled legacy scene succeeds
+
+- **WHEN** the bundled `Resource/Scene/scene.bin` is loaded, saved to a temporary `.bin`, and reloaded
+- **THEN** all applicable structural counts and semantic fields match between the two loads
+- **AND** no assertion fires during either load in a debug build
 
 #### Scenario: Legacy same-name duplicates collapse on the first round-trip save
 
-- **WHEN** a legacy scene file containing six Texture entries all named `"TerrainIsland/snow.png"` with distinct UUIDs is loaded
+- **WHEN** a legacy scene contains multiple Texture entries at one path with distinct UUIDs
 - **AND** the scene is saved via `SaveByExtension` and reloaded into a fresh `Scene`
-- **THEN** the reloaded `Scene`'s `EntityManager` holds exactly one Texture at `"TerrainIsland/snow.png"` (path-keyed dedupe)
-- **AND** the saved file contains exactly one Texture entry for `"TerrainIsland/snow.png"`
-- **AND** any `Material::GetTextures()` slot whose original UUID was one of the six legacy UUIDs now points at the canonical entry
+- **THEN** the reloaded `EntityManager` holds exactly one Texture at that path
+- **AND** the saved file contains exactly one Texture entry for that path
+- **AND** affected material texture slots point at the canonical entry
 
 ### Requirement: Scene loads SHALL resolve relative texture paths against the loading scene's working dir
 
@@ -111,68 +113,64 @@ Textures resolve relative paths via `Scene::Path`, which prepends the ACTIVE sce
 
 ### Requirement: Scene files SHALL carry a format version field that gates loading
 
-`Scene::Save` SHALL write a `"version"` integer at the scene root equal to `Scene::kFormatVersion` (currently 3). The field SHALL be present in both the plain-JSON (`.json`) and LZ4-compressed (`.bin`) envelopes, since both serialize the same document.
+Scene serialization in the saving direction SHALL write a `"version"` integer at the scene root equal to `Scene::kFormatVersion`. The field SHALL be present in both plain-JSON and LZ4-compressed envelopes because both contain the same scene document.
 
-`Scene::Load` SHALL read `"version"`, defaulting to 1 when the field is absent (pre-versioning files). A file whose version exceeds `Scene::kFormatVersion` SHALL be rejected with an explicit error message naming the file's version and the supported version — the load SHALL NOT proceed and produce a partially-loaded scene.
+Scene serialization in the loading direction SHALL read `"version"`, defaulting to 1 when the field is absent. A file whose version exceeds `Scene::kFormatVersion` SHALL be rejected with an explicit error naming the file's version and supported version. Loading SHALL NOT proceed and produce a partially loaded scene.
 
 #### Scenario: Legacy file without a version field loads
 
-- **WHEN** a scene file saved before versioning (no `"version"` field) is loaded
+- **WHEN** a scene file saved before versioning is loaded
 - **THEN** it is treated as version 1 and loads normally
 
 #### Scenario: New save carries the version
 
-- **WHEN** a scene is saved to `.json` or `.bin` by this engine
-- **THEN** the file's root contains `"version": 3`
+- **WHEN** a scene is saved to `.json` or `.bin`
+- **THEN** the file's root contains the current `Scene::kFormatVersion` value
 
 #### Scenario: Newer-than-supported file is rejected
 
-- **WHEN** a scene file whose `"version"` is 99 is loaded
-- **THEN** `Scene::Load` fails with an error stating version 99 is newer than supported (3)
-- **AND** no partially-loaded scene is produced
+- **WHEN** a scene file's version exceeds the supported version
+- **THEN** loading fails with an error stating both versions
+- **AND** no partially loaded scene is produced
 
 ### Requirement: Scenes SHALL round-trip the render settings block
 
-A `Scene` saved by the engine SHALL round-trip the `renderSettings` block — referenced pipeline, HDR/LDR mode, CSM enablement, and the ordered postprocess chain — with stable values, in addition to the existing structural-count invariants. Scenes saved before this block existed SHALL still load, defaulting to LDR + pre-existing CSM behavior and an empty postprocess chain. Camera component serialization is unchanged by this requirement.
+A `Scene` saved by the engine SHALL round-trip the `renderSettings` block, including referenced pipeline, HDR/LDR mode, CSM enablement, and the ordered postprocess chain, with stable values in addition to the structural and semantic invariants. Scenes saved before this block existed SHALL still load, defaulting to LDR, pre-existing CSM behavior, and an empty postprocess chain. Camera component serialization remains covered by the semantic component fingerprint.
 
 #### Scenario: Round-trip preserves the postprocess chain
 
-- **WHEN** a a `Scene` with a postprocess chain in `renderSettings` is saved to a temp file and reloaded
-- **THEN** the reloaded scene has the same effects in the same order with the same enabled flags
+- **WHEN** a `Scene` with a postprocess chain in `renderSettings` is saved and reloaded
+- **THEN** the reloaded scene has the same effects in the same order with the same enabled flags and persistent parameters
 
 #### Scenario: Round-trip preserves HDR and CSM settings
 
-- **WHEN** a a `Scene` with HDR and CSM enabled is saved and reloaded
+- **WHEN** a `Scene` with HDR and CSM enabled is saved and reloaded
 - **THEN** the reloaded scene reports HDR and CSM enabled
 
 #### Scenario: Legacy scene without render settings still loads
 
-- **WHEN** a scene saved before this change is loaded
-- **THEN** `Scene::Load` returns true
-- **AND** render settings default to LDR with the pre-existing CSM behavior and an empty postprocess chain
+- **WHEN** a scene saved before render-settings persistence is loaded
+- **THEN** loading returns true
+- **AND** render settings default to LDR with pre-existing CSM behavior and an empty postprocess chain
 
 ### Requirement: SceneNode SHALL support an editor-only flag that serialization skips
 
-`SceneNode` SHALL expose `SetEditorOnly(bool)` / `IsEditorOnly()` (default
-false) with a Lua binding. `SceneNode::Save` SHALL omit editor-only subtrees
-from the `"nodes"` output, so tooling nodes (the editor camera, future
-helpers) never persist to scene files — including the temp scenes written by
-play mode. The flag is runtime/editor state: it is NOT itself loaded from
-scene files (older files simply have all nodes unflagged).
+`SceneNode` SHALL expose `SetEditorOnly(bool)` / `IsEditorOnly()`, default false, with a Lua binding. The saving branch of `SceneNode::Serialize` SHALL omit editor-only subtrees from the `"nodes"` output so tooling nodes never persist to scene files, including temporary scenes written by play mode. The flag is runtime/editor state and SHALL NOT itself load from scene files; older files have all nodes unflagged.
 
 #### Scenario: Editor camera never reaches a saved file
 
-- **WHEN** the editor camera node is flagged editor-only and the scene is saved (normal save or play-mode temp save)
+- **WHEN** the editor camera node is flagged editor-only and the scene is saved normally or through play mode
 - **THEN** the saved document's node tree contains no editor-camera node
 - **AND** reloading that file yields a tree without it
 
 #### Scenario: Unflagged nodes are unaffected
 
 - **WHEN** a scene with no editor-only nodes is saved and reloaded
-- **THEN** the node count and hierarchy round-trip exactly as before this change
+- **THEN** node count, hierarchy, and semantic node state round-trip exactly under the fingerprint rules
 
 #### Scenario: Legacy leaked nodes are cleaned by the editor
 
 - **WHEN** a scene file containing previously leaked `EditorCamera` nodes is loaded into `furye`
-- **THEN** the editor removes the stale nodes on load (its fresh editor camera is flagged editor-only)
+- **THEN** the editor removes the stale nodes on load and flags its fresh editor camera editor-only
 - **AND** the next save produces a file with zero `EditorCamera` nodes
+
