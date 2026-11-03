@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "Fury/AnimationClip.h"
+#include "Fury/Archive.h"
 #include "Fury/AssetLoader.h"
 #include "Fury/FileUtil.h"
 #include "Fury/EntityManager.h"
@@ -26,6 +27,63 @@
 
 namespace fury {
 Scene::Ptr Scene::Active = nullptr;
+
+template<typename T>
+void SerializeSceneAssets(Archive& ar, const char* name, ArchiveFieldPolicy policy,
+	const std::shared_ptr<EntityManager>& manager)
+{
+	if (ar.IsLoading())
+	{
+		if (!ar.EnterArray(name, policy)) return;
+		std::set<std::string> warned;
+		for (size_t i = 0; i < ar.GetArraySize(); ++i)
+		{
+			ar.SetArrayIndex(i);
+			if (!ar.EnterObject()) continue;
+			auto ptr = T::Create("temp");
+			ptr->Serialize(ar);
+			if (!manager->Add(ptr) && !ptr->GetPath().empty() && warned.insert(ptr->GetPath()).second)
+				FURYW << "Scene::Load: duplicate asset path '" << ptr->GetPath()
+					  << "' -- first registered entry wins";
+			ar.LeaveObject();
+		}
+		ar.LeaveArray();
+		return;
+	}
+	if (!ar.EnterArray(name, policy)) return;
+	manager->ForEach<T>([&](const std::shared_ptr<T>& ptr) -> bool
+	{
+		if (ar.EnterObject())
+		{
+			ptr->Serialize(ar);
+			ar.LeaveObject();
+		}
+		return ar.IsValid();
+	});
+	ar.LeaveArray();
+}
+
+void PrefetchSceneTextures(Archive& ar)
+{
+	if (!ar.EnterArray("textures", ArchiveFieldPolicy::Optional)) return;
+	AssetLoader& loader = AssetLoader::Get();
+	if (loader.IsUp())
+	{
+		for (size_t i = 0; i < ar.GetArraySize(); ++i)
+		{
+			ar.SetArrayIndex(i);
+			if (!ar.EnterObject()) continue;
+			std::string path, name;
+			ar << Optional("path", path);
+			ar << Optional("name", name);
+			if (path.empty()) path = name;
+			if (!path.empty()) loader.Prefetch(Scene::ResolveAsset(path));
+			ar.LeaveObject();
+		}
+		loader.Flush();
+	}
+	ar.LeaveArray();
+}
 
 std::string Scene::Path(const std::string& path) {
 	if (Scene::Active != nullptr)
@@ -91,144 +149,48 @@ void Scene::Clear() {
 	m_RenderSettings = std::make_shared<RenderSettings>();
 }
 
-bool Scene::Load(const void* wrapper, bool object) {
-	Clear();
-
-	if (object && !IsObject(wrapper)) {
-		FURYE << "Json node is not an object!";
-		return false;
-	}
-
-	if (!Entity::Load(wrapper, false))
-		return false;
-
-	// Format version gate. Absent = version 1 (pre-versioning files).
-	// A newer file is rejected -- silently loading it would drop or
-	// misread fields the author depends on.
-	int version = 1;
-	LoadMemberValue(wrapper, "version", version);
-	if (version > kFormatVersion) {
-		FURYE << "Scene format version " << version << " is newer than supported ("
-			  << kFormatVersion << "); update the engine to load this scene";
-		return false;
-	}
-
-	// Add rejects same-path duplicates at insertion (first registered
-	// wins); name each rejected path once for diagnosing legacy data.
-	std::set<std::string> dupPathWarned;
-	auto addAsset = [&](const auto& ptr) {
-		if (!m_EntityManager->Add(ptr) && !ptr->GetPath().empty()
-			&& dupPathWarned.insert(ptr->GetPath()).second)
-			FURYW << "Scene::Load: duplicate asset path '" << ptr->GetPath()
-				  << "' -- first registered entry wins";
-	};
-
-	// load textures (top-level array, if present -- new format)
-	if (auto texWrapper = FindMember(wrapper, "textures")) {
-		// Prefetch burst: queue every texture's byte read on the asset
-		// loader, then drain. The per-texture loads below consume warm
-		// bytes through the backend's take-cache; disk read + decompress
-		// happen off the main thread.
-		AssetLoader& loader = AssetLoader::Get();
-		if (loader.IsUp()) {
-			LoadArray(texWrapper, [&](const void* node) -> bool {
-				auto& obj = *static_cast<const rapidjson::Value*>(node);
-				if (!obj.IsObject()) return true;
-				const char* path = nullptr;
-				if (obj.HasMember("path") && obj["path"].IsString())
-					path = obj["path"].GetString();
-				else if (obj.HasMember("name") && obj["name"].IsString())
-					path = obj["name"].GetString();
-				if (path == nullptr || path[0] == '\0') return true;
-				loader.Prefetch(Scene::ResolveAsset(path));
-				return true;
-			});
-			loader.Flush();
+void Scene::Serialize(Archive& ar) {
+	int version = ar.IsLoading() ? 1 : kFormatVersion;
+	ar << Optional("version", version);
+	if (ar.IsLoading()) {
+		if (version > kFormatVersion) {
+			ar.SetError("scene format version " + std::to_string(version) +
+				" is newer than supported " + std::to_string(kFormatVersion));
+			return;
 		}
-
-		LoadArray(texWrapper, [&](const void* node) -> bool {
-			auto texture = Texture::Create("temp");
-			if (!texture->Load(node))
-				return false;
-			addAsset(texture);
-			return true;
-		});
+		ar.SetVersion(version);
+		Clear();
+		m_HasPhysicsSettings = false;
+		m_PhysicsGravity = Vector4(0.0f, -981.0f, 0.0f, 0.0f);
 	}
+	Entity::SerializeFields(ar);
 
-	// load materials
-	if (!LoadArray(wrapper, "materials", [&](const void* node) -> bool {
-			auto material = Material::Create("temp");
-			if (!material->Load(node))
-				return false;
+	if (ar.IsLoading()) PrefetchSceneTextures(ar);
+	SerializeSceneAssets<Texture>(ar, "textures", ArchiveFieldPolicy::Optional, m_EntityManager);
+	SerializeSceneAssets<Material>(ar, "materials", ArchiveFieldPolicy::Required, m_EntityManager);
+	SerializeSceneAssets<Mesh>(ar, "meshes", ArchiveFieldPolicy::Required, m_EntityManager);
+	SerializeSceneAssets<AnimationClip>(ar, "animations", ArchiveFieldPolicy::Optional, m_EntityManager);
+	SerializeSceneAssets<ParticleSystem>(ar, "particleSystems", ArchiveFieldPolicy::Optional, m_EntityManager);
+	SerializeSceneAssets<Heightmap>(ar, "heightmaps", ArchiveFieldPolicy::Optional, m_EntityManager);
+	if (!ar.IsValid()) return;
 
-			addAsset(material);
-			return true;
-		})) {
-		FURYE << "Error serializing materials!";
-		return false;
+	if (ar.EnterObject("nodes")) {
+		m_RootNode->Serialize(ar);
+		ar.LeaveObject();
 	}
+	if (!ar.IsValid()) return;
 
-	// load meshes
-	if (!LoadArray(wrapper, "meshes", [&](const void* node) -> bool {
-			auto mesh = Mesh::Create("temp");
-			if (!mesh->Load(node))
-				return false;
-
-			addAsset(mesh);
-			return true;
-		})) {
-		FURYE << "Error serializing meshes!";
-		return false;
+	if (ar.EnterObject("renderSettings", ArchiveFieldPolicy::Optional)) {
+		m_RenderSettings->Serialize(ar);
+		ar.LeaveObject();
 	}
-
-	// load animation clips (top-level array, if present)
-	if (auto clipsWrapper = FindMember(wrapper, "animations")) {
-		LoadArray(clipsWrapper, [&](const void* node) -> bool {
-			auto clip = AnimationClip::Create("temp");
-			if (!clip->Load(node))
-				return false;
-			addAsset(clip);
-			return true;
-		});
+	if (ar.EnterObject("physics", ar.IsLoading() ? ArchiveFieldPolicy::Optional : ArchiveFieldPolicy::Conditional, m_HasPhysicsSettings)) {
+		if (ar.IsLoading()) m_HasPhysicsSettings = true;
+		ar << Required("gravity", m_PhysicsGravity);
+		ar.LeaveObject();
 	}
+	if (!ar.IsLoading()) return;
 
-	// load particle systems (top-level array, if present) -- assets
-	// referenced by name from ParticleRenderer components. See the
-	// particle-system spec.
-	if (auto psWrapper = FindMember(wrapper, "particleSystems")) {
-		LoadArray(psWrapper, [&](const void* node) -> bool {
-			auto ps = ParticleSystem::Create("temp");
-			if (!ps->Load(node))
-				return false;
-			addAsset(ps);
-			return true;
-		});
-	}
-
-	// load heightmaps (top-level array, if present) -- assets referenced
-	// by name from Terrain components. Optional; absent in old scenes.
-	if (auto hmWrapper = FindMember(wrapper, "heightmaps")) {
-		LoadArray(hmWrapper, [&](const void* node) -> bool {
-			auto hm = Heightmap::Create("temp");
-			if (!hm->Load(node))
-				return false;
-			addAsset(hm);
-			return true;
-		});
-	}
-
-	// load nodes
-	if (auto rootNodeWrapper = FindMember(wrapper, "nodes")) {
-		if (!m_RootNode->Load(rootNodeWrapper))
-			return false;
-	} else {
-		FURYE << "root_node not found!";
-		return false;
-	}
-
-	// Re-link skinned-mesh Joints to SceneNodes after load (Mesh::Load
-	// rebuilds joints without refs). UUID is primary (unambiguous across
-	// instances); name is the fallback for old scenes without the field.
 	std::unordered_map<std::string, std::shared_ptr<SceneNode>> nodesByUUID, nodesByName;
 	std::function<void(const std::shared_ptr<SceneNode>&)> collectNodes =
 		[&](const std::shared_ptr<SceneNode>& n) {
@@ -252,158 +214,26 @@ bool Scene::Load(const void* wrapper, bool object) {
 				if (it != nodesByUUID.end()) node = it->second;
 			}
 			if (!node) {
-				// Fallback for old scenes without persisted UUIDs.
 				auto it = nodesByName.find(joint->GetName());
 				if (it != nodesByName.end()) node = it->second;
 			}
-			if (node)
-				joint->SetSceneNode(node);
+			if (node) joint->SetSceneNode(node);
 		}
 		return true;
 	});
 
-	// Registration pass: register any material-bound textures the array
-	// loaders missed (legacy scenes without a top-level "textures"
-	// array, memory-backed ones). Same-path entries are already
-	// canonical; Add rejects them silently.
 	m_EntityManager->ForEach<Material>([&](const Material::Ptr& mat) -> bool {
-		for (const auto& kv : mat->GetTextures()) {
-			if (kv.second)
-				m_EntityManager->Add(kv.second);
-		}
+		for (const auto& kv : mat->GetTextures())
+			if (kv.second) m_EntityManager->Add(kv.second);
 		return true;
 	});
-
-	// setup scene manager
 	m_SceneManager->AddSceneNodeRecursively(m_RootNode);
 
-	// renderSettings block is optional -- old scenes (pre-this change)
-	// load with the LDR + CSM-on + empty chain defaults that
-	// RenderSettings() constructs by default. When present, parse it
-	// and overwrite.
-	if (auto rsNode = FindMember(wrapper, "renderSettings"))
-	{
-		if (!m_RenderSettings)
-			m_RenderSettings = std::make_shared<RenderSettings>();
-		m_RenderSettings->Load(rsNode, false);
-	}
-
-	// physics block is optional; absent = cm-unit defaults (0,-981,0).
-	if (auto physNode = FindMember(wrapper, "physics"))
-	{
-		m_HasPhysicsSettings = true;
-		LoadMemberValue(physNode, "gravity", m_PhysicsGravity);
-	}
-
-	// Push gravity into the live physics world when there is one (the CLI
-	// exec path skips Engine::Initialize, so no world exists there).
 	if (PhysicsWorld::Exists())
 		PhysicsWorld::Instance()->SetGravity(m_PhysicsGravity);
-
-	return true;
 }
 
-void Scene::Save(void* wrapper, bool object) {
-	if (object)
-		StartObject(wrapper);
 
-	Entity::Save(wrapper, false);
-
-	// Format version marker (kFormatVersion); pre-versioning files
-	// are version 1.
-	SaveKey(wrapper, "version");
-	SaveValue(wrapper, kFormatVersion);
-
-	// save textures (top-level array -- deduped by path)
-	SaveKey(wrapper, "textures");
-	StartArray(wrapper);
-	m_EntityManager->ForEach<Texture>([&](const Texture::Ptr& ptr) -> bool {
-		ptr->Save(wrapper);
-		return true;
-	});
-	EndArray(wrapper);
-
-	// save materials
-	SaveKey(wrapper, "materials");
-	StartArray(wrapper);
-	m_EntityManager->ForEach<Material>([&](const Material::Ptr& ptr) -> bool {
-		ptr->Save(wrapper);
-		return true;
-	});
-	EndArray(wrapper);
-
-	// save meshes -- the top-level array holds only LOD-0 (source)
-	// meshes. The LOD chain lives inline on each source mesh's
-	// `lod_meshes` sub-object and is emitted by Mesh::Save itself.
-	// LOD meshes are never added to the EntityManager, so this loop
-	// never sees them and no dedup is required.
-	SaveKey(wrapper, "meshes");
-	StartArray(wrapper);
-	m_EntityManager->ForEach<Mesh>([&](const Mesh::Ptr& ptr) -> bool {
-		ptr->Save(wrapper);
-		return true;
-	});
-	EndArray(wrapper);
-
-	// save animation clips
-	SaveKey(wrapper, "animations");
-	StartArray(wrapper);
-	m_EntityManager->ForEach<AnimationClip>([&](const std::shared_ptr<AnimationClip>& ptr) -> bool {
-		ptr->Save(wrapper);
-		return true;
-	});
-	EndArray(wrapper);
-
-	// save particle systems (assets referenced by name from
-	// ParticleRenderer components).
-	SaveKey(wrapper, "particleSystems");
-	StartArray(wrapper);
-	m_EntityManager->ForEach<ParticleSystem>([&](const ParticleSystem::Ptr& ptr) -> bool {
-		ptr->Save(wrapper);
-		return true;
-	});
-	EndArray(wrapper);
-
-	// save heightmaps (assets referenced by name from Terrain components).
-	SaveKey(wrapper, "heightmaps");
-	StartArray(wrapper);
-	m_EntityManager->ForEach<Heightmap>([&](const Heightmap::Ptr& ptr) -> bool {
-		ptr->Save(wrapper);
-		return true;
-	});
-	EndArray(wrapper);
-
-	// save nodes
-	SaveKey(wrapper, "nodes");
-	m_RootNode->Save(wrapper);
-
-	// renderSettings block (always emitted by Save so reload is
-	// stable; backwards compatibility is on the Load side).
-	if (m_RenderSettings)
-	{
-		SaveKey(wrapper, "renderSettings");
-		// Pass object=true so RenderSettings::Save wraps its
-		// fields in { ... } -- Scene::Save has just emitted the
-		// "renderSettings" key and the writer expects a value
-		// next.
-		m_RenderSettings->Save(wrapper, true);
-	}
-
-	// physics block is only emitted when the scene actually has physics
-	// settings (loaded with one, or SetPhysicsGravity was called) - old
-	// scenes keep their files unchanged.
-	if (m_HasPhysicsSettings)
-	{
-		SaveKey(wrapper, "physics");
-		StartObject(wrapper);
-		SaveKey(wrapper, "gravity");
-		SaveValue(wrapper, m_PhysicsGravity);
-		EndObject(wrapper);
-	}
-
-	if (object)
-		EndObject(wrapper);
-}
 
 std::shared_ptr<SceneNode> Scene::GetRootNode() const {
 	return m_RootNode;

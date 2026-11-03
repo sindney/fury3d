@@ -170,6 +170,10 @@ bool s_FirstFrame = true;
 bool s_RequestRebuildLayout = false;
 ImGuiID s_DockspaceID = 0;
 
+// Ini file the early manual readers scan. The UI test host redirects it
+// so runs never touch (or get shaped by) the user's imgui.ini.
+std::string s_PersistedIniPath = "imgui.ini";
+
 // Did imgui.ini exist at startup? Determines whether we should
 // run BuildDefaultLayout on the first frame.
 bool s_HadIniOnStartup = false;
@@ -686,39 +690,39 @@ void RenderMenuBar() {
 	const bool has_scene = (Scene::Active != nullptr);
 
 	if (ImGui::BeginMenu("File")) {
-		if (ImGui::MenuItem("New", PlatformShortcut("Cmd+N", "Ctrl+N"))) {
+		if (ImGui::MenuItem("New###file:new", PlatformShortcut("Cmd+N", "Ctrl+N"))) {
 			TriggerNew();
 		}
 
-		if (ImGui::MenuItem("Open...", PlatformShortcut("Cmd+O", "Ctrl+O"))) {
+		if (ImGui::MenuItem("Open...###file:open", PlatformShortcut("Cmd+O", "Ctrl+O"))) {
 			TriggerOpen();
 		}
 
-		if (ImGui::MenuItem("Import...", PlatformShortcut("Cmd+Shift+I", "Ctrl+Shift+I"))) {
+		if (ImGui::MenuItem("Import...###file:import", PlatformShortcut("Cmd+Shift+I", "Ctrl+Shift+I"))) {
 			TriggerImport();
 		}
 
-		if (ImGui::MenuItem("Save", PlatformShortcut("Cmd+S", "Ctrl+S"), false, has_scene)) {
+		if (ImGui::MenuItem("Save###file:save", PlatformShortcut("Cmd+S", "Ctrl+S"), false, has_scene)) {
 			TriggerSave();
 		}
 
-		if (ImGui::MenuItem("Save As...", PlatformShortcut("Cmd+Shift+S", "Ctrl+Shift+S"), false, has_scene)) {
+		if (ImGui::MenuItem("Save As...###file:save_as", PlatformShortcut("Cmd+Shift+S", "Ctrl+Shift+S"), false, has_scene)) {
 			TriggerSaveAs();
 		}
 
-		if (ImGui::MenuItem("Package...", nullptr, false, has_scene && !g_CurrentScenePath.empty())) {
+		if (ImGui::MenuItem("Package...###file:package", nullptr, false, has_scene && !g_CurrentScenePath.empty())) {
 			EditorPackageDialog::Open(g_CurrentScenePath);
 		}
 
 		ImGui::Separator();
 
-		if (ImGui::MenuItem("Settings")) {
+		if (ImGui::MenuItem("Settings###file:settings")) {
 			g_ShowSettings = !g_ShowSettings;
 		}
 
 		ImGui::Separator();
 
-		if (ImGui::MenuItem("Quit", PlatformShortcut("Cmd+Q", "Ctrl+Q"))) {
+		if (ImGui::MenuItem("Quit###file:quit", PlatformShortcut("Cmd+Q", "Ctrl+Q"))) {
 			Gui::CloseWindow();
 		}
 
@@ -871,7 +875,7 @@ void HandleShortcuts() {
 // --------------------------------------------------------------
 void Initialize() {
 	std::error_code ec;
-	s_HadIniOnStartup = std::filesystem::exists("imgui.ini", ec);
+	s_HadIniOnStartup = std::filesystem::exists(s_PersistedIniPath, ec);
 
 	RegisterSettingsHandler();
 
@@ -1045,8 +1049,12 @@ void Shutdown() {
 	NFD_Quit();
 }
 
+void SetPersistedIniPath(const std::string &path) {
+	s_PersistedIniPath = path.empty() ? "imgui.ini" : path;
+}
+
 bool GetPersistedWindowSize(int &width, int &height, int &posX, int &posY) {
-	std::ifstream in("imgui.ini");
+	std::ifstream in(s_PersistedIniPath);
 	if (!in.good()) return false;
 
 	std::string line;
@@ -1072,7 +1080,7 @@ bool GetPersistedWindowSize(int &width, int &height, int &posX, int &posY) {
 }
 
 bool GetPersistedRhiBackend(std::string &out) {
-	std::ifstream in("imgui.ini");
+	std::ifstream in(s_PersistedIniPath);
 	if (!in.good()) return false;
 
 	std::string line;

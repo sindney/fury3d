@@ -23,9 +23,9 @@ namespace fury
 
 		virtual std::type_index GetTypeIndex() const;
 
-		virtual bool Load(const void* wrapper, bool object = true);
+		void Serialize(Archive& ar) override;
 
-		virtual void Save(void* wrapper, bool object = true);
+		void SerializeFields(Archive& ar);
 
 		std::string GetName() const;
 

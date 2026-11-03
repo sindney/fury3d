@@ -1,6 +1,8 @@
 #include <unordered_map>
 #include <functional>
 
+#include "Fury/Archive.h"
+#include "Fury/EntityManager.h"
 #include "Fury/Log.h"
 #include "Fury/GLLoader.h"
 #include "Fury/Material.h"
@@ -11,6 +13,33 @@
 
 namespace fury
 {
+	namespace
+	{
+		// Uniform type name -> fresh instance; unknown names return nullptr.
+		UniformBase::Ptr CreateUniformByType(const std::string &type)
+		{
+			static const std::unordered_map<std::string, std::function<UniformBase::Ptr()>> s_UniformMap =
+			{
+				{ "Uniform1f", []()-> UniformBase::Ptr { return Uniform1f::Create({}); } },
+				{ "Uniform2f", []()-> UniformBase::Ptr { return Uniform2f::Create({}); } },
+				{ "Uniform3f", []()-> UniformBase::Ptr { return Uniform3f::Create({}); } },
+				{ "Uniform4f", []()-> UniformBase::Ptr { return Uniform4f::Create({}); } },
+				{ "UniformMatrix4fv", []()-> UniformBase::Ptr { return UniformMatrix4fv::Create({}); } },
+				{ "Uniform1i", []()-> UniformBase::Ptr { return Uniform1i::Create({}); } },
+				{ "Uniform2i", []()-> UniformBase::Ptr { return Uniform2i::Create({}); } },
+				{ "Uniform3i", []()-> UniformBase::Ptr { return Uniform3i::Create({}); } },
+				{ "Uniform4i", []()-> UniformBase::Ptr { return Uniform4i::Create({}); } },
+				{ "Uniform1ui", []()-> UniformBase::Ptr { return Uniform1ui::Create({}); } },
+				{ "Uniform2ui", []()-> UniformBase::Ptr { return Uniform2ui::Create({}); } },
+				{ "Uniform3ui", []()-> UniformBase::Ptr { return Uniform3ui::Create({}); } },
+				{ "Uniform4ui", []()-> UniformBase::Ptr { return Uniform4ui::Create({}); } }
+			};
+
+			auto it = s_UniformMap.find(type);
+			return it == s_UniformMap.end() ? nullptr : it->second();
+		}
+	}
+
 	const std::string Material::DIFFUSE_TEXTURE = "diffuse_texture";
 
 	const std::string Material::SPECULAR_TEXTURE = "specular_texture";
@@ -80,198 +109,144 @@ namespace fury
 		FURYD << "Material: " << m_Name << " Destoried!";
 	}
 
-	bool Material::Load(const void* wrapper, bool object)
+	void Material::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+
+		std::string alphaMode = EnumUtil::AlphaModeToString(m_AlphaMode);
+		ar << Optional("opaque", m_Opaque, true);
+		ArchiveFieldResult alphaResult = ar.TransferNamed("alpha_mode", alphaMode,
+			ArchiveFieldPolicy::Optional, true);
+		ar << Optional("alpha_cutoff", m_AlphaCutoff, 0.5f);
+		ar << Optional("two_sided", m_TwoSided, false);
+		ar << Optional("wind_enabled", m_WindEnabled, false);
+		ar << Optional("pre_z", m_PreZ, false);
+		ar << Optional("texture_flags", m_TextureFlags);
+
+		if (ar.IsLoading())
 		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		LoadMemberValue(wrapper, "opaque", m_Opaque);
-		LoadMemberValue(wrapper, "texture_flags", m_TextureFlags);
-
-		// alpha mode/cutoff: new files carry them; legacy files only
-		// have "opaque" -- derive (opaque->OPAQUE, !opaque->BLEND).
-		std::string alphaMode;
-		if (LoadMemberValue(wrapper, "alpha_mode", alphaMode))
-			SetAlphaMode(EnumUtil::AlphaModeFromString(alphaMode));
-		else
-			SetAlphaMode(m_Opaque ? AlphaMode::OPAQUE : AlphaMode::BLEND);
-		LoadMemberValue(wrapper, "alpha_cutoff", m_AlphaCutoff);
-		LoadMemberValue(wrapper, "two_sided", m_TwoSided);
-		LoadMemberValue(wrapper, "wind_enabled", m_WindEnabled);
-		LoadMemberValue(wrapper, "pre_z", m_PreZ);
-
-		// load shaders
-		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
-		{
-			auto shader = Shader::Create("temp", ShaderType::OTHER);
-			if (shader->Load(node))
-			{
-				m_Shaders.push_back(shader);
-				return true;
-			}
+			// Files with alpha_mode use it; files without derive the mode
+			// from opaque (opaque -> OPAQUE, !opaque -> BLEND).
+			if (alphaResult == ArchiveFieldResult::Ok)
+				SetAlphaMode(EnumUtil::AlphaModeFromString(alphaMode));
 			else
-			{
-				return false;
-			}
-		}))
-		{
-			return false;
+				SetAlphaMode(m_Opaque ? AlphaMode::OPAQUE : AlphaMode::BLEND);
 		}
 
-		// load textures
-		std::string key;
-		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
+		// shaders: full inline Shader objects, one per pass slot.
+		if (ar.EnterArray("shaders", ArchiveFieldPolicy::Required))
 		{
-			if (!LoadMemberValue(node, "key", key))
+			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Shaders.size();
+			for (std::size_t i = 0; i < count; ++i)
 			{
-				FURYE << "Texture's key not found!";
-				return false;
-			}
-
-			auto texture = Texture::Create("temp");
-			if (texture->Load(node))
-			{
-				// Bind the EM's canonical entry for this path when one is
-				// registered (the top-level array loads first); the fresh
-				// instance still registers so its saved uuid resolves.
-				if (!texture->GetFilePath().empty() && Scene::Active)
+				if (ar.IsLoading())
 				{
-					if (auto em = Scene::Active->GetEntityManager())
+					ar.SetArrayIndex(i);
+					auto shader = Shader::Create("temp", ShaderType::OTHER);
+					if (ar.EnterObject())
 					{
-						em->Add(texture);
-						if (auto canonical = em->Get<Texture>(texture->GetFilePath()))
-							texture = canonical;
+						shader->Serialize(ar);
+						ar.LeaveObject();
 					}
+					m_Shaders.push_back(shader);
 				}
-				SetTexture(key, texture);
-				return true;
+				else
+				{
+					ar.EnterObject();
+					m_Shaders[i]->Serialize(ar);
+					ar.LeaveObject();
+				}
 			}
-			else
-			{
-				return false;
-			}
-		}))
-		{
-			return false;
+			ar.LeaveArray();
 		}
 
-		// load uniforms
-		static const std::unordered_map<std::string, std::function<UniformBase::Ptr()>> s_UniformMap =
+		// textures: {"key", <inline Texture fields>}. Loading binds the
+		// EntityManager's canonical entry for the path when one is
+		// registered (the top-level array loads first); the fresh instance
+		// still registers so its saved uuid resolves.
+		if (ar.EnterArray("textures", ArchiveFieldPolicy::Required))
 		{
-			{ "Uniform1f", []()-> UniformBase::Ptr { return Uniform1f::Create({}); } },
-			{ "Uniform2f", []()-> UniformBase::Ptr { return Uniform2f::Create({}); } },
-			{ "Uniform3f", []()-> UniformBase::Ptr { return Uniform3f::Create({}); } },
-			{ "Uniform4f", []()-> UniformBase::Ptr { return Uniform4f::Create({}); } },
-			{ "UniformMatrix4fv", []()-> UniformBase::Ptr { return UniformMatrix4fv::Create({}); } },
-			{ "Uniform1i", []()-> UniformBase::Ptr { return Uniform1i::Create({}); } },
-			{ "Uniform2i", []()-> UniformBase::Ptr { return Uniform2i::Create({}); } },
-			{ "Uniform3i", []()-> UniformBase::Ptr { return Uniform3i::Create({}); } },
-			{ "Uniform4i", []()-> UniformBase::Ptr { return Uniform4i::Create({}); } },
-			{ "Uniform1ui", []()-> UniformBase::Ptr { return Uniform1ui::Create({}); } },
-			{ "Uniform2ui", []()-> UniformBase::Ptr { return Uniform2ui::Create({}); } },
-			{ "Uniform3ui", []()-> UniformBase::Ptr { return Uniform3ui::Create({}); } },
-			{ "Uniform4ui", []()-> UniformBase::Ptr { return Uniform4ui::Create({}); } }
-		};
-
-		std::string type;
-		if (!LoadArray(wrapper, "uniforms", [&](const void* node) -> bool
-		{
-			if (!LoadMemberValue(node, "key", key))
+			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Textures.size();
+			auto it = m_Textures.begin();
+			for (std::size_t i = 0; i < count; ++i)
 			{
-				FURYE << "Uniform's key not found!";
-				return false;
+				if (ar.IsLoading())
+					ar.SetArrayIndex(i);
+				if (ar.EnterObject())
+				{
+					if (ar.IsLoading())
+					{
+						std::string key;
+						ar << Required("key", key);
+						auto texture = Texture::Create("temp");
+						texture->Serialize(ar);
+						if (!texture->GetFilePath().empty() && Scene::Active)
+						{
+							if (auto em = Scene::Active->GetEntityManager())
+							{
+								em->Add(texture);
+								if (auto canonical = em->Get<Texture>(texture->GetFilePath()))
+									texture = canonical;
+							}
+						}
+						SetTexture(key, texture);
+					}
+					else
+					{
+						std::string key = it->first;
+						ar << Required("key", key);
+						it->second->Serialize(ar);
+						++it;
+					}
+					ar.LeaveObject();
+				}
 			}
-
-			if (!LoadMemberValue(node, "type", type))
-			{
-				FURYE << "Uniform's type not found!";
-				return false;
-			}
-
-			auto it = s_UniformMap.find(type);
-			if (it == s_UniformMap.end())
-			{
-				FURYE << "Uniform's type is incorrect!";
-				return false;
-			}
-
-			auto uniform = it->second();
-			uniform->Load(node);
-			SetUniform(key, uniform);
-			return true;
-		}))
-		{
-			return false;
+			ar.LeaveArray();
 		}
 
-		SetUniform(Material::MATERIAL_ID, Uniform1ui::Create({ GetID() }));
-
-		return true;
-	}
-
-	void Material::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "opaque");
-		SaveValue(wrapper, m_Opaque);
-		SaveKey(wrapper, "alpha_mode");
-		SaveValue(wrapper, EnumUtil::AlphaModeToString(m_AlphaMode));
-		SaveKey(wrapper, "alpha_cutoff");
-		SaveValue(wrapper, m_AlphaCutoff);
-		SaveKey(wrapper, "two_sided");
-		SaveValue(wrapper, m_TwoSided);
-		SaveKey(wrapper, "wind_enabled");
-		SaveValue(wrapper, m_WindEnabled);
-		SaveKey(wrapper, "pre_z");
-		SaveValue(wrapper, m_PreZ);
-		SaveKey(wrapper, "texture_flags");
-		SaveValue(wrapper, m_TextureFlags);
-
-		// save shaders
-		SaveKey(wrapper, "shaders");
-		SaveArray(wrapper, static_cast<unsigned int>(m_Shaders.size()), [&](unsigned int index)
+		// uniforms: {"key", "type", "data"}; type picks the concrete class.
+		if (ar.EnterArray("uniforms", ArchiveFieldPolicy::Required))
 		{
-			m_Shaders[index]->Save(wrapper);
-		});
+			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Uniforms.size();
+			auto it = m_Uniforms.begin();
+			for (std::size_t i = 0; i < count; ++i)
+			{
+				if (ar.IsLoading())
+					ar.SetArrayIndex(i);
+				if (ar.EnterObject())
+				{
+					if (ar.IsLoading())
+					{
+						std::string key;
+						ar << Required("key", key);
+						std::string type;
+						ar << Required("type", type);
+						auto uniform = CreateUniformByType(type);
+						if (uniform)
+						{
+							uniform->Serialize(ar);
+						}
+						else
+						{
+							ar.SetError("unknown uniform type '" + type + "'");
+						}
+						SetUniform(key, uniform);
+					}
+					else
+					{
+						std::string key = it->first;
+						ar << Required("key", key);
+						it->second->Serialize(ar);
+						++it;
+					}
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
+		}
 
-		// save textures
-		SaveKey(wrapper, "textures");
-		SaveArray<TextureMap>(wrapper, m_Textures, [&](TextureMap::const_iterator it)
-		{
-			// we inject param 'key' to texture object
-			StartObject(wrapper);
-			SaveKey(wrapper, "key");
-			SaveValue(wrapper, it->first);
-			it->second->Save(wrapper, false);
-			EndObject(wrapper);
-		});
-
-		// save uniforms
-		SaveKey(wrapper, "uniforms");
-		SaveArray<UniformMap>(wrapper, m_Uniforms, [&](UniformMap::const_iterator it)
-		{
-			StartObject(wrapper);
-
-			SaveKey(wrapper, "key");
-			SaveValue(wrapper, it->first);
-
-			it->second->Save(wrapper, false);
-
-			EndObject(wrapper);
-		});
-
-		if (object)
-			EndObject(wrapper);
+		if (ar.IsLoading())
+			SetUniform(Material::MATERIAL_ID, Uniform1ui::Create({ GetID() }));
 	}
 
 	void Material::UpdateBuffer()

@@ -1,4 +1,5 @@
 #include "Fury/EntityManager.h"
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -27,132 +28,79 @@ namespace fury
 		SetMesh(mesh);
 	};
 
-	bool MeshRender::Load(const void* wrapper, bool object)
+	void MeshRender::Serialize(Archive& ar)
 	{
-		if (Scene::Active == nullptr)
-		{
-			FURYE << "Active Pipeline is null!";
-			return false;
-		}
+		auto manager = ar.GetEntityManager();
+		if (!manager && Scene::Active) manager = Scene::Manager();
 
-		if (object && !IsObject(wrapper))
+		// Bound mesh; only omitted from a save when the reference died.
+		std::string meshName;
+		if (ar.IsSaving())
 		{
-			FURYE << "Json node is not an object!";
-			return false;
+			if (auto mesh = m_Mesh.lock())
+				meshName = mesh->GetName();
 		}
-
-		// check type
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "MeshRender")
+		ar << Conditional("mesh", meshName, !meshName.empty());
+		if (ar.IsLoading())
 		{
-			FURYE << "Invalide type " << str << "!";
-			return false;
-		}
-
-		// load mesh
-		if (LoadMemberValue(wrapper, "mesh", str))
-		{
-			if (auto mesh = Scene::Manager()->Get<Mesh>(str))
+			if (!manager)
 			{
-				SetMesh(mesh);
-				// Seed the per-instance cast_shadows from the asset's
-				// flag when the field is absent from the file.
-				// Pre-existing .json / .bin scenes don't store
-				// cast_shadows on MeshRender; reading the mesh's
-				// flag preserves their behavior. New writes always
-				// include the field.
-				m_CastShadows = mesh->GetCastShadows();
+				ar.SetError("active scene is null");
+				return;
 			}
-			else
+			if (meshName.empty())
 			{
-				FURYE << "Mesh " << str << " not found!";
-				return false;
+				ar.SetError("mesh is missing");
+				return;
+			}
+			auto mesh = manager->Get<Mesh>(meshName);
+			if (!mesh)
+			{
+				ar.SetError("mesh " + meshName + " not found");
+				return;
+			}
+			SetMesh(mesh);
+			// Files predating cast_shadows keep the asset's flag.
+			m_CastShadows = mesh->GetCastShadows();
+		}
+
+		ar.TransferNamed("cast_shadows", m_CastShadows,
+			ArchiveFieldPolicy::Optional, true);
+
+		std::vector<std::string> materialNames;
+		if (ar.IsSaving())
+		{
+			for (unsigned int i = 0; i < m_Materials.size(); i++)
+			{
+				if (auto material = m_Materials[i].lock())
+					materialNames.push_back(material->GetName());
+				else
+					FURYW << "Found empty material pointer at " << i << "!";
 			}
 		}
-		else
+		ar.Transfer("materials", materialNames, ArchiveFieldPolicy::Required, true);
+		if (!ar.IsValid() || !ar.IsLoading()) return;
+		if (!manager)
 		{
-			FURYE << "mesh " << str << " not found!";
-			return false;
+			ar.SetError("active scene is null");
+			return;
 		}
-
-		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
-
-		// load materials
 		m_Materials.clear();
-		if (!LoadArray(wrapper, "materials", [&](const void* node) -> bool
+		for (const auto &name : materialNames)
 		{
-			if (!LoadValue(node, str))
+			if (name.empty())
 			{
-				FURYE << "materials is a string array!";
-				return false;
+				ar.SetError("materials entry is empty");
+				return;
 			}
-			if (auto material = Scene::Manager()->Get<Material>(str))
+			auto material = manager->Get<Material>(name);
+			if (!material)
 			{
-				m_Materials.push_back(material);
-				return true;
+				ar.SetError("material " + name + " not found");
+				return;
 			}
-			else
-			{
-				FURYE << "Material " << str << " not found!";
-				return false;
-			}
-		}))
-		{
-			return false;
+			m_Materials.push_back(material);
 		}
-
-		// The LOD chain now lives on the bound Mesh itself (saved
-		// inline in the Mesh's JSON). MeshRender only carries the
-		// per-instance runtime selection (m_ActiveLod), which is
-		// recomputed every frame and not persisted.
-
-		return true;
-	}
-
-	void MeshRender::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		// save typeinfo
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "MeshRender");
-		
-		// save mesh
-		if (auto ptr = m_Mesh.lock())
-		{
-			SaveKey(wrapper, "mesh");
-			SaveValue(wrapper, ptr->GetName());
-		}
-
-		// Per-instance shadow-casting flag. The mesh itself has its
-		// own cast_shadows (asset-level default), but MeshRender
-		// overrides per-instance so a user can toggle one tank's
-		// shadow without touching every other instance of the mesh.
-		SaveKey(wrapper, "cast_shadows");
-		SaveValue(wrapper, m_CastShadows);
-
-		// save materials
-		SaveKey(wrapper, "materials");
-		StartArray(wrapper);
-		for (unsigned int i = 0; i < m_Materials.size(); i++)
-		{
-			if (auto ptr = m_Materials[i].lock())
-			{
-				SaveValue(wrapper, ptr->GetName());
-			}
-			else
-			{
-				FURYW << "Found empty material pointer at " << i << "!";
-			}
-		}
-		EndArray(wrapper);
-
-		// The LOD chain lives on the bound Mesh (saved inline in the
-		// Mesh's JSON). No per-MeshRender LOD data is persisted.
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	Component::Ptr MeshRender::Clone() const

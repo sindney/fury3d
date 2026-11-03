@@ -17,10 +17,12 @@
 #endif
 
 #include "Fury/BuoyancyComponent.h"
+#include "Fury/Archive.h"
 #include "Fury/Camera.h"
 #include "Fury/Engine.h"
 #include "Fury/Log.h"
 #include "Fury/EnumUtil.h"
+#include "Fury/EntityManager.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/FramePacket.h"
@@ -224,39 +226,14 @@ namespace
 		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, true);
 	}
 
-	bool PrelightPipeline::Load(const void* wrapper, bool object)
+	void PrelightPipeline::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		if (!Pipeline::Load(wrapper, false))
-			return false;
-
-		bool boolValue = IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
-		if (LoadMemberValue(wrapper, "cascaded_shadow_map", boolValue))
-			SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, boolValue);
-		else
-			SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, true);
-
-		return true;
+		Pipeline::Serialize(ar);
+		bool cascaded = ar.IsLoading() ? true : IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
+		ar << Optional("cascaded_shadow_map", cascaded);
+		if (ar.IsLoading()) SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, cascaded);
 	}
 
-	void PrelightPipeline::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Pipeline::Save(wrapper, false);
-
-		SaveKey(wrapper, "cascaded_shadow_map");
-		SaveValue(wrapper, IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP));
-
-		if (object)
-			EndObject(wrapper);
-	}
 
 	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
@@ -2654,6 +2631,7 @@ namespace
 		else
 		{
 			sourceTex = GetTextureByName("ldr_composite");
+			if (!sourceTex) sourceTex = GetTextureByName("hdr_composite");
 			if (!sourceTex) sourceTex = GetTextureByName("gbuffer_light");
 			if (!sourceTex) sourceTex = GetTextureByName("hdr_light");
 		}

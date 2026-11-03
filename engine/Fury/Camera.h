@@ -56,9 +56,7 @@ namespace fury
 		Component::Ptr Clone() const override;
 
 		// Persists projection params + shadow settings.
-		bool Load(const void* wrapper, bool object = true) override;
-
-		void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		void PerspectiveFov(float fov, float ratio, float near, float far);
 
@@ -85,6 +83,16 @@ namespace fury
 		float GetNear() const;
 
 		float GetFar() const;
+
+		// Raw projection half-extents (left/right/bottom/top of
+		// m_ProjectionParams), persisted verbatim.
+		float GetLeft() const { return m_ProjectionParams[0]; }
+
+		float GetRight() const { return m_ProjectionParams[1]; }
+
+		float GetBottom() const { return m_ProjectionParams[2]; }
+
+		float GetTop() const { return m_ProjectionParams[3]; }
 
 		// Vertical FOV in radians for a perspective camera. Returns 0 for
 		// orthographic. Used by the editor to rebuild the projection with

@@ -3,16 +3,16 @@
 ## Purpose
 TBD - created by archiving change 2026-10-10-tidy-lua-test-suite. Update Purpose after archive.
 ## Requirements
-### Requirement: Binding-smoke and regression-guard scripts SHALL live in `tests/lua/`; scene-generation samples SHALL live in `tests/lua/scenes/`
+### Requirement: Binding-smoke and regression-guard scripts SHALL live in `tests/lua/`; user-facing authoring scripts SHALL live beside their examples
 
-`tests/lua/` SHALL contain only Lua scripts that assert a binding or a component invariant against a scene, and that exit non-zero on failure (regression guards). One-off scripts whose purpose is to author or transform a scene asset (the output is a `.bin` / `.json` consumed by other tooling, not a pass/fail signal) SHALL live in `tests/lua/scenes/`.
+`tests/lua/` SHALL contain Lua scripts that assert a binding or a component invariant against a scene and exit non-zero on failure. User-facing scripts whose purpose is to author or transform a scene asset SHALL live beside the relevant example. Deterministic windowed render drivers and manual visual/performance probes MAY live in `tests/lua/scenes/`.
 
-A script's category SHALL be inferred from its exit code and output, not its name: a `tests/lua/<x>.lua` script MUST exit non-zero on invariant violation; a `tests/lua/scenes/<x>.lua` script is allowed to exit 0 unconditionally even when the produced asset is malformed (the caller inspects the output by hand).
+A script's category SHALL be inferred from its exit code and output, not its name: a `tests/lua/<x>.lua` script MUST exit non-zero on invariant violation; a retained harness under `tests/lua/scenes/` SHALL document whether it is a functional check, a visual review tool, or a performance probe.
 
-#### Scenario: Scene-generation scripts are not regression guards
-- **WHEN** a script in `tests/lua/scenes/` is invoked
-- **THEN** it MAY exit 0 unconditionally after producing an output asset
-- **AND** it is NOT required to assert invariant violations
+#### Scenario: Authoring scripts live with their examples
+- **WHEN** a user invokes a scene-authoring script
+- **THEN** its path is beside the example project or launcher it authors
+- **AND** automated references use that current path
 
 #### Scenario: Binding-smoke scripts exit non-zero on failure
 - **WHEN** a script in `tests/lua/` is invoked against a broken scene
@@ -77,12 +77,12 @@ A script that fails to run in the current environment (build error, missing bina
 - **AND** it lists the feature prefixes
 - **AND** it lists the scripts removed in this change with reasons
 
-### Requirement: Shell wrappers that reference renamed scripts SHALL be updated in the same change
+### Requirement: Test entry points that reference moved scripts SHALL be updated in the same change
 
-`tests/cloud_visual_suite.sh`, `tests/prez_ab_suite.sh`, and any other shell wrapper that names a Lua script SHALL be updated in the same change as the rename. Renames SHALL NOT land without a matching wrapper update.
+Manifests, retained shell harnesses, documentation, and scripts that name a Lua script SHALL be updated in the same change as a rename or removal. Renames SHALL NOT land without matching reference updates.
 
-#### Scenario: Wrapper script points at renamed test
-- **WHEN** a Lua script is renamed or moved
-- **THEN** every shell wrapper that referenced the old path is updated in the same change
-- **AND** no wrapper references a deleted script
+#### Scenario: Entry point points at a current test script
+- **WHEN** a Lua script is renamed, moved, or removed
+- **THEN** every maintained reference is updated in the same change
+- **AND** no manifest entry or retained harness references a deleted script
 

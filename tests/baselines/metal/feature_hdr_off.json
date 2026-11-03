@@ -1,0 +1,22 @@
+{
+  "scenario": "feature_hdr_off",
+  "backend": "metal",
+  "approved_by": "render_baseline.py --update",
+  "meta": {
+    "name": "feature_hdr_off",
+    "backend": "metal",
+    "size": "1280x720",
+    "hdr": "false",
+    "cam": "MainCamera",
+    "time": "12.500",
+    "anim": "0.800",
+    "temporal": "0",
+    "particles": "37"
+  },
+  "tolerances": {
+    "mean_abs_diff": 1.0,
+    "max_abs_diff": 48,
+    "frac_gt_8": 0.004
+  },
+  "masks": []
+}

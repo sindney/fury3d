@@ -13,7 +13,23 @@ cd examples/
 ```
 
 The scene working dir is this folder, so UI documents load from
-`ui/` and settings persist here.
+`ui/` and settings persist here. Automated runs override the settings path
+with `FURY_GAME_SETTINGS`.
+
+## Rebuild
+
+From `examples/`:
+
+```
+./fury exec Projects/ocean/ocean_base.bin Projects/ocean/setup_ocean_island.lua
+./fury Projects/ocean/populate_island_grass.lua /tmp/ocean_island_grass.bin
+cp /tmp/ocean_island_grass.bin Projects/ocean/ocean_island.bin
+./fury exec Projects/ocean/ocean_island.bin Projects/ocean/setup_ocean_island_trees.lua
+```
+
+The tree and grass builders use canonical textures under `Resource/Trees/`
+through `Engine/` references. The grass step writes an intermediate scene that
+is promoted to `ocean_island.bin` before the tree step.
 
 ## Controls
 
@@ -26,7 +42,8 @@ The scene working dir is this folder, so UI documents load from
 All UI lives in `ui/` as plain RML/RCSS - edit the files and restart
 the game to reload (no hot reload). Documents: main_menu.rml,
 pause_menu.rml, options.rml (shared by main and pause), hud.rml
-(crosshair + FPS counter). Theme: ui.rcss.
+(crosshair + FPS counter). Theme: `../../Resource/Ui/ui.rcss`, shared with
+FeatureGame and the UI smoke fixtures.
 
 ## Settings
 

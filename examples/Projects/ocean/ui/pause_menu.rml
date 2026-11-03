@@ -1,7 +1,7 @@
 <rml>
 <head>
 	<title>Island - Paused</title>
-	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+	<link rel="stylesheet" type="text/css" href="/Resource/Ui/ui.rcss" />
 </head>
 <body id="ui/pause_menu.rml">
 	<div class="backdrop">

@@ -22,6 +22,10 @@ if(GUI_IMP)
 	add_definitions(-D_FURY_GUI_IMP_)
 endif()
 
+# std::thread-backed test-engine coroutines (furye-ui-tests) need pthread.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 # Regenerate docs/LUA_API.md from LuaBindings.cpp at build time. Off by
 # default — most builds don't need to refresh the docs; only enable when
 # shipping a release or preparing a docs PR. Pass -DFURY_DOCGEN=ON to
@@ -178,6 +182,9 @@ if(FURY_RHI_VULKAN)
 		${PROJECT_SOURCE_DIR}/ThirdParty/Vulkan-Headers/include
 		${PROJECT_SOURCE_DIR}/ThirdParty/volk
 		${PROJECT_SOURCE_DIR}/ThirdParty/VulkanMemoryAllocator/include)
+endif()
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/ThirdParty/imgui_test_engine/imgui_test_engine/imgui_te_engine.h")
+	message(FATAL_ERROR "imgui_test_engine submodule missing - run: git submodule update --init --recursive")
 endif()
 
 # Kraut-CLI tree toolchain (add-kraut-vegetation). Vendored submodule built
@@ -491,6 +498,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/AnimationPlayer.cpp
 	${PROJECT_SOURCE_DIR}/Fury/AnimationState.cpp
 	${PROJECT_SOURCE_DIR}/Fury/AnimationUtil.cpp
+	${PROJECT_SOURCE_DIR}/Fury/Archive.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ArrayBuffers.cpp
 	${PROJECT_SOURCE_DIR}/Fury/AssetBackend.cpp
 	${PROJECT_SOURCE_DIR}/Fury/AssetLoader.cpp
@@ -563,8 +571,8 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/BuoyancyComponent.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Terrain.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Scene.cpp
+	${PROJECT_SOURCE_DIR}/Fury/SceneFingerprint.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SceneNode.cpp
-	${PROJECT_SOURCE_DIR}/Fury/Serializable.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Shader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ShaderCompiler.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ShaderCache.cpp
@@ -734,9 +742,8 @@ else()
 endif()
 set(FBX2GLTF_SRC_BINARY "${PROJECT_SOURCE_DIR}/ThirdParty/FBX2glTF/${FBX2GLTF_BINARY}")
 
-# Shared runtime output dir: every fury* binary lands here, next to the
-# examples/ content they load.
-set(FURY_RUNTIME_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/../examples")
+# Runtime output next to example content by default; isolated builds can override it.
+set(FURY_RUNTIME_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/../examples" CACHE PATH "Runtime output directory for fury executables")
 
 # Staging the vendored tool payloads (ktx CLI, slang compiler) into the
 # shared runtime output dir. One target, one pass: a per-target copy step
@@ -806,17 +813,11 @@ function(fury_add_target NAME)
 	endif()
 	set_target_properties(${NAME} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${FURY_RUNTIME_OUTPUT_DIR}"
-		# Multi-Config generators (Visual Studio / Xcode / Ninja Multi-Config)
-		# append $(Configuration) to RUNTIME_OUTPUT_DIRECTORY by default,
-		# dropping binaries into examples/Debug/, examples/Release/, etc.
-		# Single-config generators (Ninja, Unix Makefiles) ignore these
-		# per-config overrides -- harmless there. Forcing the same path
-		# across every config keeps `cd examples && ./furye Editor.lua`
-		# working regardless of which generator built the engine.
-		RUNTIME_OUTPUT_DIRECTORY_DEBUG          "${PROJECT_SOURCE_DIR}/../examples"
-		RUNTIME_OUTPUT_DIRECTORY_RELEASE        "${PROJECT_SOURCE_DIR}/../examples"
-		RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${PROJECT_SOURCE_DIR}/../examples"
-		RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     "${PROJECT_SOURCE_DIR}/../examples")
+		# Keep every configuration in the selected output directory.
+		RUNTIME_OUTPUT_DIRECTORY_DEBUG          "${FURY_RUNTIME_OUTPUT_DIR}"
+		RUNTIME_OUTPUT_DIRECTORY_RELEASE        "${FURY_RUNTIME_OUTPUT_DIR}"
+		RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${FURY_RUNTIME_OUTPUT_DIR}"
+		RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     "${FURY_RUNTIME_OUTPUT_DIR}")
 	if(FURY_WITH_SLANG)
 		if(OS_MACOSX)
 			set_property(TARGET ${NAME} APPEND PROPERTY BUILD_RPATH "@executable_path/slang/lib")
@@ -973,6 +974,28 @@ else()
 	target_compile_definitions(furye-cli PRIVATE WITH_EDITOR=1 FURY_HEADLESS_CLI=1)
 	target_link_libraries(furye-cli PRIVATE nfd::nfd)
 	install(TARGETS furye-cli DESTINATION bin)
+
+	# Editor UI test host: furye + the pinned Dear ImGui Test Engine
+	# (ThirdParty/imgui_test_engine submodule, upstream v1.92.8). Only this
+	# target defines FURY_UI_TEST_HOST / IMGUI_ENABLE_TEST_ENGINE, so the
+	# production fury / furye / furye-cli targets compile zero test-engine
+	# code. ImGui sources are compiled per-target, so scoping the defines to
+	# this target keeps ImGui and the test engine consistent by construction.
+	set(FURY_UI_TEST_ENGINE_DIR "${PROJECT_SOURCE_DIR}/ThirdParty/imgui_test_engine/imgui_test_engine")
+	file(GLOB FURY_UI_TEST_ENGINE_SRC ${FURY_UI_TEST_ENGINE_DIR}/*.cpp)
+	fury_add_target(furye-ui-tests ${FURY_COMMON_SRC} ${FURY_EDITOR_SRC}
+		${FURY_UI_TEST_ENGINE_SRC}
+		${PROJECT_SOURCE_DIR}/Fury/Editor/UiTestHost.cpp)
+	target_compile_definitions(furye-ui-tests PRIVATE WITH_EDITOR=1
+		FURY_UI_TEST_HOST=1
+		IMGUI_ENABLE_TEST_ENGINE
+		IMGUI_TEST_ENGINE_ENABLE_CAPTURE=1
+		IMGUI_DISABLE_STB_IMAGE_WRITE_IMPLEMENTATION
+		IMGUI_TEST_ENGINE_ENABLE_COROUTINE_STDTHREAD_IMPL=1)
+	target_include_directories(furye-ui-tests SYSTEM PRIVATE
+		${FURY_UI_TEST_ENGINE_DIR})
+	target_link_libraries(furye-ui-tests PRIVATE nfd::nfd Threads::Threads)
+	install(TARGETS furye-ui-tests DESTINATION bin)
 endif()
 
 # Tracy tools (tracy-profiler GUI + tracy-capture CLI) land next to fury/furye

@@ -5,6 +5,7 @@
 #include <rapidjson/document.h>
 
 #include "Fury/AssetBackend.h"
+#include "Fury/Archive.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Log.h"
@@ -33,43 +34,22 @@ namespace fury
 		m_Name = PathBasename(path);
 	}
 
-	bool Heightmap::Load(const void* wrapper, bool object)
+	void Heightmap::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+
+		ar << Optional("file_path", m_FilePath);
+		ar << Optional("resolution", m_Resolution, 0);
+		ar << Optional("worldSizeX", m_WorldSizeX, 0.0f);
+		ar << Optional("worldSizeZ", m_WorldSizeZ, 0.0f);
+		ar << Optional("heightScale", m_HeightScale, 0.0f);
+
+		if (ar.IsLoading())
 		{
-			FURYE << "Heightmap: json node is not an object!";
-			return false;
+			if (!m_FilePath.empty())
+				m_Name = PathBasename(m_FilePath);
+			LoadHeights();
 		}
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		LoadMemberValue(wrapper, "file_path", m_FilePath);
-		if (!m_FilePath.empty())
-			m_Name = PathBasename(m_FilePath);
-		LoadMemberValue(wrapper, "resolution", m_Resolution);
-		LoadMemberValue(wrapper, "worldSizeX", m_WorldSizeX);
-		LoadMemberValue(wrapper, "worldSizeZ", m_WorldSizeZ);
-		LoadMemberValue(wrapper, "heightScale", m_HeightScale);
-
-		LoadHeights();
-		return true;
-	}
-
-	void Heightmap::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "file_path");   SaveValue(wrapper, m_FilePath);
-		SaveKey(wrapper, "resolution");  SaveValue(wrapper, m_Resolution);
-		SaveKey(wrapper, "worldSizeX");  SaveValue(wrapper, m_WorldSizeX);
-		SaveKey(wrapper, "worldSizeZ");  SaveValue(wrapper, m_WorldSizeZ);
-		SaveKey(wrapper, "heightScale"); SaveValue(wrapper, m_HeightScale);
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	bool Heightmap::LoadHeights()

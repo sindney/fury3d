@@ -28,9 +28,7 @@ namespace fury
 
 		virtual ~PlayerController();
 
-		virtual bool LoadFields(const void* wrapper);
-
-		virtual void SaveFields(void* wrapper);
+		virtual void SerializeFields(Archive& ar);
 
 		bool IsEnabled() const { return m_Enabled; }
 		void SetEnabled(bool enabled) { m_Enabled = enabled; }
@@ -85,9 +83,7 @@ namespace fury
 
 		virtual Component::Ptr Clone() const override;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		virtual void Serialize(Archive& ar) override;
 
 		virtual void Activate() override;
 

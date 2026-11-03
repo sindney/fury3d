@@ -1,4 +1,5 @@
 #include "Fury/Camera.h"
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/Pass.h"
 #include "Fury/RenderThread.h"
@@ -30,6 +31,20 @@ namespace fury
 				|| format == TextureFormat::DEPTH24_STENCIL8
 				|| format == TextureFormat::DEPTH32F_STENCIL8;
 		}
+
+		template<typename T>
+		void SerializeNamedReferences(Archive& ar, const char* name, std::vector<std::string>& values,
+			ArchiveFieldPolicy policy = ArchiveFieldPolicy::Required)
+		{
+			if (!ar.EnterArray(name, policy)) return;
+			if (ar.IsLoading()) values.resize(ar.GetArraySize());
+			for (size_t i = 0; i < values.size(); ++i)
+			{
+				if (ar.IsLoading()) ar.SetArrayIndex(i);
+				ar << NameReference<T>(nullptr, values[i]);
+			}
+			ar.LeaveArray();
+		}
 	}
 
 	Pass::Ptr Pass::Create(const std::string &name)
@@ -47,212 +62,87 @@ namespace fury
 		DestroyRenderTarget();
 	}
 
-	bool Pass::Load(const void* wrapper, bool object)
+	void Pass::Serialize(Archive& ar)
 	{
-		if (Pipeline::Active == nullptr)
+		auto pipeline = ar.GetPipeline() ? ar.GetPipeline() : Pipeline::Active;
+		if (!pipeline)
 		{
-			FURYE << "Active Pipeline is null!";
-			return false;
+			ar.SetError("active pipeline is required");
+			return;
 		}
-
-		auto entityMgr = Pipeline::Active->GetEntityManager();
-		std::string str;
-
-		if (object && !IsObject(wrapper))
+		auto entityMgr = pipeline->GetEntityManager();
+		Entity::SerializeFields(ar);
+		if (ar.IsLoading())
 		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		if (LoadMemberValue(wrapper, "clearMode", str))
-			SetClearMode(EnumUtil::ClearModeFromString(str));
-		else
 			SetClearMode(ClearMode::COLOR_DEPTH_STENCIL);
-
-		std::vector<float> color;
-		LoadArray(wrapper, "clearColor", [&](const void* node) -> bool
-		{
-			float value;
-			if (!LoadValue(node, value))
-			{
-				FURYE << "clearColor is a 4 float array!";
-				return false;
-			}
-			color.push_back(value);
-			return true;
-		});
-		while (color.size() < 4) color.push_back(0);
-		SetClearColor(Color(color[0], color[1], color[2], color[3]));
-
-		if (LoadMemberValue(wrapper, "blendMode", str))
-			SetBlendMode(EnumUtil::BlendModeFromString(str));
-		else
+			SetClearColor(Color(0, 0, 0, 0));
 			SetBlendMode(BlendMode::REPLACE);
-
-		if (LoadMemberValue(wrapper, "compareMode", str))
-			SetCompareMode(EnumUtil::CompareModeFromString(str));
-		else
 			SetCompareMode(CompareMode::LESS);
-
-		if (LoadMemberValue(wrapper, "cullMode", str))
-			SetCullMode(EnumUtil::CullModeFromString(str));
-		else
 			SetCullMode(CullMode::BACK);
-
-		if (!LoadMemberValue(wrapper, "drawMode", str))
-		{
-			FURYE << "Pass param 'drawMode' not found!";
-			return false;
-		}
-		SetDrawMode(EnumUtil::DrawModeFromString(str));
-
-		bool depthWrite = true;
-		if (LoadMemberValue(wrapper, "depth_write", depthWrite))
-			SetDepthWrite(depthWrite);
-		else
 			SetDepthWrite(true);
-
-		if (!LoadMemberValue(wrapper, "index", (int&)m_RenderIndex))
-		{
-			FURYE << "Pass param 'index' not found!";
-			return false;
+			m_Shaders.clear();
+			m_InputTextures.clear();
+			m_OutputTextures.clear();
 		}
 
-		LoadArray(wrapper, "shaders", [&](const void* node) -> bool
+		std::string clearMode = EnumUtil::ClearModeToString(m_ClearMode);
+		std::string blendMode = EnumUtil::BlendModeToString(m_BlendMode);
+		std::string compareMode = EnumUtil::CompareModeToString(m_CompareMode);
+		std::string cullMode = EnumUtil::CullModeToString(m_CullMode);
+		std::string drawMode = EnumUtil::DrawModeToString(m_DrawMode);
+		ar << Optional("clearMode", clearMode);
+		ar << Optional("clearColor", m_ClearColor);
+		ar << Optional("blendMode", blendMode);
+		ar << Optional("compareMode", compareMode);
+		ar << Optional("cullMode", cullMode);
+		ar << Required("drawMode", drawMode);
+		int index = static_cast<int>(m_RenderIndex);
+		ar << Required("index", index);
+		ar << Optional("depth_write", m_DepthWrite);
+		if (ar.IsLoading())
 		{
-			if (!LoadValue(node, str))
-			{
-				FURYE << "Pass's shader name not found!";
-				return false;
-			}
-			if (auto shader = entityMgr->Get<Shader>(str))
-			{
-				AddShader(shader);
-				return true;
-			}
-			else
-			{
-				// Warn but keep going: capability-gated variants
-				// (INSTANCE_SSBO shaders on GL < 4.3) are intentionally
-				// absent from the manager; dropping the rest of the list
-				// would silently strip the pass's remaining shaders.
-				// The intentional-absence case is debug-level, not a
-				// warning, so pipeline loads stay quiet on GL 3.3/4.1.
-				if (str.size() > 5 && str.compare(str.size() - 5, 5, "_ssbo") == 0)
-					FURYD << "Shader " << str << " not found (SSBO-gated; expected on this context)";
-				else
-					FURYW << "Shader " << str << " not found!";
-				return true;
-			}
-		});
-
-		if (!LoadArray(wrapper, "input", [&](const void* node) -> bool
-		{
-			if (!LoadValue(node, str))
-			{
-				FURYE << "Pass's inputTexture name not found!";
-				return false;
-			}
-			if (auto texture = entityMgr->Get<Texture>(str))
-			{
-				AddTexture(texture, true);
-				return true;
-			}
-			else
-			{
-				FURYW << "Input Texture " << str << " not found!";
-				return false;
-			}
-		}))
-		{
-			FURYW << "Input texture array empty!";
-			return false;
+			SetClearMode(EnumUtil::ClearModeFromString(clearMode));
+			SetBlendMode(EnumUtil::BlendModeFromString(blendMode));
+			SetCompareMode(EnumUtil::CompareModeFromString(compareMode));
+			SetCullMode(EnumUtil::CullModeFromString(cullMode));
+			SetDrawMode(EnumUtil::DrawModeFromString(drawMode));
+			m_RenderIndex = static_cast<unsigned int>(index);
 		}
 
-		if (!LoadArray(wrapper, "output", [&](const void* node) -> bool
+		std::vector<std::string> shaders;
+		std::vector<std::string> inputs;
+		std::vector<std::string> outputs;
+		if (!ar.IsLoading())
 		{
-			if (!LoadValue(node, str))
-			{
-				FURYE << "Pass's outputTexture name not found!";
-				return false;
-			}
-			if (auto texture = entityMgr->Get<Texture>(str))
-			{
-				AddTexture(texture, false);
-				return true;
-			}
-			else
-			{
-				FURYW << "Output Texture " << str << " not found!";
-				return false;
-			}
-		}))
-		{
-			FURYW << "Output texture array empty!";
-			return false;
+			for (const auto& shader : m_Shaders) shaders.push_back(shader->GetName());
+			for (const auto& texture : m_InputTextures) inputs.push_back(texture->GetName());
+			for (const auto& texture : m_OutputTextures) outputs.push_back(texture->GetName());
 		}
+		SerializeNamedReferences<Shader>(ar, "shaders", shaders, ArchiveFieldPolicy::Optional);
+		SerializeNamedReferences<Texture>(ar, "input", inputs);
+		SerializeNamedReferences<Texture>(ar, "output", outputs);
+		if (!ar.IsLoading()) return;
 
-		return true;
+		for (const auto& name : shaders)
+		{
+			if (auto shader = entityMgr->Get<Shader>(name)) AddShader(shader);
+			else if (name.size() > 5 && name.compare(name.size() - 5, 5, "_ssbo") == 0)
+				FURYD << "Shader " << name << " not found (SSBO-gated; expected on this context)";
+			else
+				FURYW << "Shader " << name << " not found!";
+		}
+		for (const auto& name : inputs)
+		{
+			if (auto texture = entityMgr->Get<Texture>(name)) AddTexture(texture, true);
+			else ar.SetError("input texture not found: " + name);
+		}
+		for (const auto& name : outputs)
+		{
+			if (auto texture = entityMgr->Get<Texture>(name)) AddTexture(texture, false);
+			else ar.SetError("output texture not found: " + name);
+		}
 	}
 
-	void Pass::Save(void* wrapper, bool object)
-	{
-		std::vector<std::string> strs;
-		std::string emptyStr;
-
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "shaders");
-		SaveArray(wrapper, static_cast<unsigned int>(m_Shaders.size()), [&](unsigned int index)
-		{
-			SaveValue(wrapper, m_Shaders[index]->GetName());
-		});
-
-		SaveKey(wrapper, "input");
-		SaveArray(wrapper, static_cast<unsigned int>(m_InputTextures.size()), [&](unsigned int index)
-		{
-			SaveValue(wrapper, m_InputTextures[index]->GetName());
-		});
-
-		SaveKey(wrapper, "output");
-		SaveArray(wrapper, static_cast<unsigned int>(m_OutputTextures.size()), [&](unsigned int index)
-		{
-			SaveValue(wrapper, m_OutputTextures[index]->GetName());
-		});
-
-		SaveKey(wrapper, "index");
-		SaveValue(wrapper, (int&)m_RenderIndex);
-
-		SaveKey(wrapper, "clearMode");
-		SaveValue(wrapper, EnumUtil::ClearModeToString(m_ClearMode));
-
-		SaveKey(wrapper, "clearColor");
-		SaveValue(wrapper, m_ClearColor);
-
-		SaveKey(wrapper, "blendMode");
-		SaveValue(wrapper, EnumUtil::BlendModeToString(m_BlendMode));
-
-		SaveKey(wrapper, "compareMode");
-		SaveValue(wrapper, EnumUtil::CompareModeToString(m_CompareMode));
-
-		SaveKey(wrapper, "cullMode");
-		SaveValue(wrapper, EnumUtil::CullModeToString(m_CullMode));
-
-		SaveKey(wrapper, "drawMode");
-		SaveValue(wrapper, EnumUtil::DrawModeToString(m_DrawMode));
-
-		SaveKey(wrapper, "depth_write");
-		SaveValue(wrapper, m_DepthWrite);
-
-		if (object)
-			EndObject(wrapper);
-	}
 
 	void Pass::SetRenderIndex(unsigned int index)
 	{

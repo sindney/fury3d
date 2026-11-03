@@ -39,6 +39,12 @@ namespace fury
 		return ptr;
 	}
 
+	void Transform::Serialize(Archive& ar)
+	{
+		// Persists nothing; loading leaves the node transform untouched.
+		(void)ar;
+	}
+
 	void Transform::SetDeltaTime(float dt)
 	{
 		// TODO: optimize the case when dt is unchanged, or 0, or 1

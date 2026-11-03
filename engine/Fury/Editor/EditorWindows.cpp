@@ -1000,15 +1000,15 @@ void RenderProfilerWindow(bool* open) {
 	}
 
 	if (ImGui::BeginTabBar("ProfilerTabs")) {
-		if (ImGui::BeginTabItem("Perf")) {
+		if (ImGui::BeginTabItem("Perf###prof:perf")) {
 			RenderProfilerPerfTab();
 			ImGui::EndTabItem();
 		}
-		if (ImGui::BeginTabItem("GBuffer")) {
+		if (ImGui::BeginTabItem("GBuffer###prof:gbuffer")) {
 			RenderProfilerGBufferTab();
 			ImGui::EndTabItem();
 		}
-		if (ImGui::BeginTabItem("Shadows")) {
+		if (ImGui::BeginTabItem("Shadows###prof:shadows")) {
 			RenderProfilerShadowsTab();
 			ImGui::EndTabItem();
 		}
@@ -1300,6 +1300,19 @@ size_t FindRowIndex(const std::vector<SceneNode*>& rows, SceneNode* node) {
 	for (size_t i = 0; i < rows.size(); ++i) if (rows[i] == node) return i;
 	return SIZE_MAX;
 }
+
+// Name-path hierarchy IDs use UUIDs to distinguish same-named siblings.
+std::string NodeAutomationId(const SceneNode* node) {
+	const std::string name = node->GetName().empty() ? "(unnamed)" : node->GetName();
+	if (auto parent = node->GetParent()) {
+		for (unsigned int i = 0; i < parent->GetChildCount(); ++i) {
+			auto sibling = parent->GetChildAt(i);
+			if (sibling.get() != node && sibling->GetName() == node->GetName())
+				return "hier:" + name + "[" + node->GetUUID() + "]";
+		}
+	}
+	return "hier:" + name;
+}
 }
 
 // Multi-select click rule: plain resets selection; Ctrl toggles (anchor=clicked);
@@ -1392,8 +1405,15 @@ void RenderNodeRow(SceneNode* node, const std::string& displayName, int depth, b
 		}
 		ImGui::PopItemWidth();
 	} else {
-		open = ImGui::TreeNodeEx((void*)node, flags, "%s",
-								 displayName.empty() ? "(unnamed)" : displayName.c_str());
+		if (node) {
+			// Keep the visible display name independent of the stable automation ID.
+			const std::string autoId = NodeAutomationId(node);
+			open = ImGui::TreeNodeEx(autoId.c_str(), flags, "%s",
+									 displayName.empty() ? "(unnamed)" : displayName.c_str());
+		} else {
+			open = ImGui::TreeNodeEx((void*)node, flags, "%s",
+									 displayName.empty() ? "(unnamed)" : displayName.c_str());
+		}
 	}
 
 	// Mirror resolved open state back into Editor::g_OpenedNodes so
@@ -2020,9 +2040,8 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 	(void)anyTileScrolled;
 	const std::string& path = tile.path;
 	const std::string& label = tile.label;
-	// Paths are unique by construction, so path-keyed tile IDs cannot
-	// collide even when a mesh and a material share a basename.
-	const std::string tileId = std::string(tile.type.name()) + ":" + path;
+	// Path-keyed tile IDs use stable kind names rather than typeid mangling.
+	const std::string tileId = std::string("cb:") + TypeKindName(tile.type) + ":" + path;
 	ImGui::PushID(tileId.c_str());
 
 	// Capture the tile's top-left for drawing the type badge.
@@ -2146,7 +2165,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		// tile is clickable. We use SetCursorScreenPos to place
 		// it exactly over the thumbnail rect.
 		ImGui::SetCursorScreenPos(thumb_min);
-		ImGui::InvisibleButton("##thumb_hit", ImVec2(kTileThumbnail, kTileThumbnail));
+		ImGui::InvisibleButton("##cb_thumb", ImVec2(kTileThumbnail, kTileThumbnail));
 		bool thumbClicked = ImGui::IsItemClicked(0);
 		bool thumbDblClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0);
 
@@ -2203,7 +2222,7 @@ void RenderAssetTile(const TileEntry& tile, bool& anyTileScrolled) {
 		// Whole-tile InvisibleButton so clicking anywhere on the
 		// tile (not just the thumbnail) selects the asset.
 		ImGui::SetCursorScreenPos(tile_min);
-		ImGui::InvisibleButton("##tile_hit",
+		ImGui::InvisibleButton("##cb_tile",
 			ImVec2(kTilePitch, kTileThumbnail + kTileLabelH + 4));
 		if (ImGui::IsItemClicked(0))
 			g_SelectedAsset = std::make_pair(tile.type, path);

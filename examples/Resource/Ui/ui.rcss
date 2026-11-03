@@ -1,6 +1,8 @@
-/* Island demo shared UI theme - simple modern AAA direction:
-   dark translucent panels over the live scene, thin cyan accent,
-   uppercase labels, hover glow, short fade/slide transitions.
+/* Shared demo UI theme: dark translucent panels over the live scene, thin
+   cyan accent, uppercase labels, hover glow, short transitions.
+
+   Percentage/flex layout keeps every consumer responsive at any window
+   size; resolved by demos as /Resource/Ui/ui.rcss (cwd-relative).
 
    NOTE: RmlUi has no UA stylesheet - the property initial for `display`
    is inline, so every block-level tag used must be reset explicitly. */
@@ -13,11 +15,13 @@ body, div, p, span, h1, h2, button, input {
 	color: #e8eef4;
 }
 
+/* body is the document element: percentage sizes track the context,
+   so menus follow window resizes. */
 body {
 	position: absolute;
 	left: 0; top: 0;
-	width: 1280px;
-	height: 720px;
+	width: 100%;
+	height: 100%;
 }
 
 h1 {
@@ -32,25 +36,28 @@ h2 {
 	color: #9fb4c8;
 }
 
-/* dim full-screen backdrop for menus */
+/* dim full-screen backdrop; flex centers the modal in any resolution */
 .backdrop {
 	position: absolute;
 	left: 0; top: 0;
-	width: 1280px; height: 720px;
+	width: 100%; height: 100%;
 	background: #05080dd0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 /* left-anchored menu column (main menu) */
 .menu-root {
 	position: absolute;
 	left: 0; top: 0;
-	width: 1280px; height: 720px;
+	width: 100%; height: 100%;
 	pointer-events: none;
 }
 .menu-left {
 	position: absolute;
 	left: 96px; top: 0;
-	width: 420px; height: 720px;
+	width: 420px; height: 100%;
 	pointer-events: auto;
 	background: #05080dd0;
 }
@@ -67,21 +74,16 @@ h2 {
 	width: 340px; height: 280px;
 }
 
-/* centered modal (pause/options) */
+/* centered modal (pause/options) - child of the flex backdrop */
 .modal {
-	position: absolute;
-	left: 50%; top: 50%;
-	width: 560px;
-	height: 600px;
-	margin-left: -280px;
-	margin-top: -300px;
-	background: #0a0e14dc;
+	width: 620px;
+	background: #0a0e14e8;
 	border-top-width: 2px;
 	border-top-color: #4fd1ff;
-	padding: 32px 40px;
+	padding: 28px 40px 28px;
 }
 .modal h2 {
-	margin-bottom: 24px;
+	margin-bottom: 8px;
 }
 
 /* buttons */
@@ -111,69 +113,82 @@ h2 {
 	background: #ff555518;
 }
 
-/* options rows */
-.opt-row {
-	display: block;
-	padding: 6px 0;
+/* options layout: section headers + label/control column rows */
+.opt-section {
+	margin-top: 14px;
+	padding-bottom: 4px;
+	font-size: 12px;
+	letter-spacing: 3px;
+	color: #4fd1ff;
 	border-bottom-width: 1px;
-	border-bottom-color: #ffffff12;
+	border-bottom-color: #4fd1ff33;
+}
+.opt-row {
+	display: flex;
+	align-items: center;
+	padding: 5px 0;
+	border-bottom-width: 1px;
+	border-bottom-color: #ffffff10;
 }
 .opt-label {
-	display: inline-block;
-	width: 220px;
-	font-size: 15px;
+	width: 180px;
+	flex-shrink: 0;
+	font-size: 14px;
 	letter-spacing: 1px;
 	color: #9fb4c8;
 }
-.opt-row input[type=range] {
-	width: 240px;
-}
-.opt-value {
-	display: inline-block;
-	width: 64px;
-	text-align: right;
-	font-size: 14px;
-	color: #4fd1ff;
+/* control column: wraps inside itself, so a second line of segments
+   stays aligned to the values, not the label */
+.opt-controls {
+	flex-grow: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
 }
 
-/* segmented radio row (fps cap, resolution) */
+/* segmented radio choices */
 .seg {
 	display: inline-block;
-	padding: 4px 14px;
-	margin-right: 2px;
-	font-size: 14px;
+	padding: 4px 12px;
+	margin: 2px 6px 2px 0;
+	font-size: 13px;
 	color: #9fb4c8;
-	background: #ffffff0a;
+	background: #ffffff0d;
+	border-radius: 3px;
+	transition: background 0.12s, color 0.12s;
 }
 .seg:hover {
 	color: #ffffff;
-	background: #4fd1ff18;
+	background: #4fd1ff26;
 }
 .seg.active {
-	color: #05080d;
+	color: #06121a;
 	background: #4fd1ff;
 }
 
-/* range inputs: the internal track/handle parts need explicit styling
-   (RmlUi ships no default look for them); the parts match by TAG name */
+/* range inputs: RmlUi ships no default look for the internal parts,
+   and the part elements match by TAG name (slidertrack/sliderbar/...) */
 input[type=range] {
+	width: 240px;
 	height: 22px;
+	margin-right: 12px;
 }
 input[type=range] slidertrack {
 	margin-top: 9px;
 	height: 4px;
-	background: #ffffff1f;
 	border-radius: 2px;
+	background: #ffffff1f;
 }
 input[type=range] sliderprogress {
 	background: #4fd1ff;
+	border-radius: 2px;
 }
 input[type=range] sliderbar {
-	width: 14px;
-	height: 14px;
-	border-radius: 7px;
-	background: #e8eef4;
-	margin-top: 4px;
+	width: 6px;
+	height: 18px;
+	margin-top: 1px;
+	border-radius: 2px;
+	background: #c6d4e0;
 }
 input[type=range] sliderbar:hover {
 	background: #4fd1ff;
@@ -181,6 +196,40 @@ input[type=range] sliderbar:hover {
 input[type=range] sliderarrowdec,
 input[type=range] sliderarrowinc {
 	display: none;
+}
+
+/* Console-style focus navigation: Lua walks the focus ring on stick / dpad
+   input (RmlUi 6.3 has no built-in spatial-nav handler). */
+.btn, .seg, input[type=range] {
+	tab-index: auto;
+}
+.btn:focus {
+	color: #ffffff;
+	background: #4fd1ff18;
+	border-left-color: #4fd1ff;
+	padding-left: 24px;
+}
+.seg:focus {
+	color: #ffffff;
+	background: #4fd1ff26;
+}
+input[type=range]:focus sliderbar {
+	background: #4fd1ff;
+}
+input[type=range]:focus sliderprogress {
+	background: #4fd1ff80;
+}
+
+.opt-value {
+	width: 56px;
+	flex-shrink: 0;
+	text-align: right;
+	font-size: 14px;
+	color: #4fd1ff;
+}
+.opt-note {
+	font-size: 11px;
+	color: #9fb4c8;
 }
 
 /* HUD */

@@ -10,29 +10,28 @@ A `tests/lua/` directory SHALL exist at the repository root (sibling to `example
 
 The scripts are **binding smoke tests**, not replicas of existing CLI features. The repo already ships `fury convert` (headless format conversion) and `fury info` (headless scene summarization); these scripts do not duplicate that functionality. Their purpose is to prove the new Lua bindings work end-to-end from the `exec` path, and to serve as worked examples for agents.
 
-Each script SHALL exit non-zero on invariant violation (exit code 1 for user error / binding failure, code 2 for internal C++ exception escaping `DoExec`). Scripts whose purpose is to author or transform a scene asset SHALL live in `tests/lua/scenes/` instead; see the `lua-test-organization` capability.
+Each script SHALL exit non-zero on invariant violation (exit code 1 for user error / binding failure, code 2 for internal C++ exception escaping `DoExec`). Scripts whose purpose is to author or transform a scene asset SHALL live beside the relevant example or under `tests/lua/scenes/` when they are deterministic test fixtures; see the `lua-test-organization` capability.
 
 The required binding-smoke scripts SHALL include at minimum:
 
-- **`tests/lua/scene_smoke_save.lua`** — round-trip a scene through the Lua save binding. Reads `Scene.GetActive()` (the scene already loaded by `fury exec`), calls `Scene.SaveActive(arg[1])` (or `FileUtil.SaveByExtension` if that helper is preferred), then exits. The output format is inferred from `arg[1]`'s extension (`.json` or `.bin`). Verifies the Lua save-path binding works end-to-end. Does NOT exercise format conversion as a feature (that's `fury convert`'s job); only proves the save binding can round-trip a scene.
+- **`tests/lua/scene_archive_roundtrip.lua`** — save and reload fresh scenes through JSON and compressed BIN in isolated asset directories, compare structural counts and semantic fingerprints, verify string/clone texture identity, and exercise malformed and compatibility inputs. Reports structured field-path differences instead of only proving that the save binding writes a file.
 
 - **`tests/lua/scene_smoke_iterate.lua`** — exercise the `Scene.ForEachMesh` / `ForEachMaterial` / `ForEachNode` iteration bindings. Calls each in turn against `Scene.GetActive()`, counts callbacks, and logs the counts to stdout. Read-only — does not write any file. Does NOT summarize a scene as a feature (that's `fury info`'s job); only proves the iteration bindings work.
 
-The `tests/lua/scenes/gen_lod.lua` script (scene-generation, not a binding smoke) is documented separately in the `lua-test-organization` capability.
+The `examples/GenLod.lua` script (scene-generation, not a binding smoke) is documented separately in the `lua-test-organization` capability.
 
 A `tests/lua/README.md` SHALL exist describing the folder split, the feature-prefix naming convention, the CLI non-overlap invariant, and a list of the scripts removed in this change with reasons.
 
-#### Scenario: scene_smoke_save.lua round-trips a scene to .bin
-- **WHEN** a user runs `./fury exec examples/Resource/Scene/scene.json tests/lua/scene_smoke_save.lua /tmp/out.bin`
-- **THEN** the file at `/tmp/out.bin` exists
-- **AND** it begins with the 8-byte LZ4 envelope (network-order original size + compressed size)
+#### Scenario: scene_archive_roundtrip.lua round-trips both formats
+- **WHEN** a user runs `./fury exec examples/Projects/feature/feature.bin tests/lua/scene_archive_roundtrip.lua examples/Projects/feature/feature.bin /tmp/feature-archive`
+- **THEN** fresh scenes load from isolated JSON and BIN outputs
+- **AND** structural counts and semantic fingerprints match under their exactness and tolerance rules
 - **AND** the process exits 0
 
-#### Scenario: scene_smoke_save.lua round-trips a scene to .json
-- **WHEN** a user runs `./fury exec examples/Resource/Scene/scene.bin tests/lua/scene_smoke_save.lua /tmp/out.json`
-- **THEN** the file at `/tmp/out.json` is a valid UTF-8 JSON document
-- **AND** the document has top-level `textures`, `materials`, `meshes`, and `nodes` keys
-- **AND** the process exits 0
+#### Scenario: scene_archive_roundtrip.lua rejects malformed input
+- **WHEN** the harness loads a document with an invalid required field, unsupported version, wrong Vector4 arity, short uniform array, or truncated LZ4 envelope
+- **THEN** the load fails without installing a partial active scene
+- **AND** the process exits 0 after confirming every expected rejection
 
 #### Scenario: scene_smoke_iterate.lua runs end-to-end
 - **WHEN** a user runs `./fury exec examples/Resource/Scene/scene.json tests/lua/scene_smoke_iterate.lua`

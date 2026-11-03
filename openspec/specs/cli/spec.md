@@ -153,7 +153,7 @@ The script MAY call `FileUtil.SaveByExtension(path, scene)` (or a `Scene.SaveAct
 - **AND** the process exits 0
 
 #### Scenario: Exec runs a script that saves a modified scene
-- **WHEN** a user runs `./fury exec scene.json tests/lua/gen_lod.lua mesh_name /tmp/out.json`
+- **WHEN** a user runs `./fury exec scene.json examples/GenLod.lua mesh_name /tmp/out.json`
 - **AND** the script calls `Scene.SaveActive("/tmp/out.json")` (or `FileUtil.SaveByExtension`)
 - **THEN** the file at `/tmp/out.json` is a valid engine scene document
 - **AND** the process exits 0

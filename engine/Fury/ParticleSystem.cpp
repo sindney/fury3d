@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "Fury/Engine.h"
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
 
@@ -49,63 +50,42 @@ namespace fury
 		Update(dt);
 	}
 
-	bool ParticleSystem::Load(const void *wrapper, bool object)
+	void ParticleSystem::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "ParticleSystem: json node is not an object!";
-			return false;
-		}
+		Entity::SerializeFields(ar);
 
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "ParticleSystem")
+		std::string type = "ParticleSystem";
+		ar << Required("type", type);
+		if (ar.IsLoading() && type != "ParticleSystem")
 		{
-			FURYE << "ParticleSystem: invalid type " << str;
-			return false;
+			ar.SetError("invalid particle system type '" + type + "'");
+			return;
 		}
 
 		unsigned int cap = m_MaxParticles;
-		if (LoadMemberValue(wrapper, "maxParticles", cap))
+		ar << Optional("maxParticles", cap, m_MaxParticles);
+		if (ar.IsLoading())
 			SetMaxParticles(cap);
-		LoadMemberValue(wrapper, "lifetime", m_Lifetime);
-		LoadMemberValue(wrapper, "startSize", m_StartSize);
+		ar << Optional("lifetime", m_Lifetime, 1.0f);
+		ar << Optional("startSize", m_StartSize, 0.2f);
 
-		if (auto w = FindMember(wrapper, "emission")) m_Emission.Load(w, false);
-		if (auto w = FindMember(wrapper, "shape")) m_Shape.Load(w, false);
-		if (auto w = FindMember(wrapper, "velocity")) m_Velocity.Load(w, false);
-		if (auto w = FindMember(wrapper, "colorOverLifetime")) m_Color.Load(w, false);
-		if (auto w = FindMember(wrapper, "sizeOverLifetime")) m_Size.Load(w, false);
-		if (auto w = FindMember(wrapper, "rotationOverLifetime")) m_Rotation.Load(w, false);
-		if (auto w = FindMember(wrapper, "renderer")) m_Renderer.Load(w, false);
-
-		return true;
-	}
-
-	void ParticleSystem::Save(void *wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "type"); SaveValue(wrapper, "ParticleSystem");
-		SaveKey(wrapper, "maxParticles"); SaveValue(wrapper, m_MaxParticles);
-		SaveKey(wrapper, "lifetime"); SaveValue(wrapper, m_Lifetime);
-		SaveKey(wrapper, "startSize"); SaveValue(wrapper, m_StartSize);
-
-		SaveKey(wrapper, "emission"); m_Emission.Save(wrapper, true);
-		SaveKey(wrapper, "shape"); m_Shape.Save(wrapper, true);
-		SaveKey(wrapper, "velocity"); m_Velocity.Save(wrapper, true);
-		SaveKey(wrapper, "colorOverLifetime"); m_Color.Save(wrapper, true);
-		SaveKey(wrapper, "sizeOverLifetime"); m_Size.Save(wrapper, true);
-		SaveKey(wrapper, "rotationOverLifetime"); m_Rotation.Save(wrapper, true);
-		SaveKey(wrapper, "renderer"); m_Renderer.Save(wrapper, true);
-
-		if (object)
-			EndObject(wrapper);
+		// Modules: loaded only when their block is present (defaults
+		// kept otherwise), always written on save.
+		auto transferModule = [&ar](const char *name, Serializable &module)
+		{
+			if (ar.EnterObject(name, ArchiveFieldPolicy::Optional))
+			{
+				module.Serialize(ar);
+				ar.LeaveObject();
+			}
+		};
+		transferModule("emission", m_Emission);
+		transferModule("shape", m_Shape);
+		transferModule("velocity", m_Velocity);
+		transferModule("colorOverLifetime", m_Color);
+		transferModule("sizeOverLifetime", m_Size);
+		transferModule("rotationOverLifetime", m_Rotation);
+		transferModule("renderer", m_Renderer);
 	}
 
 	ParticleSystem::Ptr ParticleSystem::Clone() const
@@ -121,7 +101,9 @@ namespace fury
 		clone->m_Size = m_Size;
 		clone->m_Rotation = m_Rotation;
 		clone->m_Renderer = m_Renderer;
+		clone->m_RandomSeed = m_RandomSeed;
 		clone->m_Particles.resize(clone->m_MaxParticles);
+		clone->Reset();
 		return clone;
 	}
 
@@ -180,6 +162,7 @@ namespace fury
 		m_SpawnAccumulator = 0.0f;
 		m_BurstCursor = 0.0f;
 		m_WarnedCap = false;
+		m_RandomState = m_RandomSeed;
 	}
 
 	void ParticleSystem::Update(float dt)
@@ -223,7 +206,7 @@ namespace fury
 			if (b.time >= m_BurstCursor && b.time < m_BurstCursor + dt)
 			{
 				if (b.probability >= 1.0f ||
-					(static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) <= b.probability)
+					NextRandom() <= b.probability)
 				{
 					for (int i = 0; i < b.count; ++i)
 						SpawnOne();
@@ -273,10 +256,20 @@ namespace fury
 		return false;
 	}
 
+	float ParticleSystem::NextRandom()
+	{
+		unsigned int x = m_RandomState;
+		x ^= x << 13;
+		x ^= x >> 17;
+		x ^= x << 5;
+		m_RandomState = x;
+		return static_cast<float>(x >> 8) * (1.0f / 16777216.0f);
+	}
+
 	Vector4 ParticleSystem::SampleSpawnPosition()
 	{
-		auto rng = []() -> float {
-			return static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+		auto rng = [this]() -> float {
+			return NextRandom();
 		};
 		auto rngSigned = [&]() -> float {
 			return rng() * 2.0f - 1.0f;

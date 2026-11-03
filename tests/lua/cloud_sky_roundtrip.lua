@@ -48,11 +48,11 @@ local function on_init()
     local sky = find_sky(scene)
     if not sky then fail("no SkyAtmosphere in island scene") end
 
-    -- -- 1. legacy load: 2D-deck fields map, new fields stay at defaults ----
-    expect_float(sky, "legacy.cloud_alt_km", sky:GetCloudAltitudeKm(), 0.15)
-    expect_float(sky, "legacy.cloud_thick_km", sky:GetCloudThicknessKm(), 0.12)
-    expect_float(sky, "legacy.cloud_fade_km", sky:GetCloudFadeKm(), 2.5)
-    expect_float(sky, "default.cloud_type_bias", sky:GetCloudTypeBias(), 0.0)
+    -- -- 1. canonical load: volumetric cloud fields and defaults ------------
+    expect_float(sky, "canonical.cloud_alt_km", sky:GetCloudAltitudeKm(), 1.5)
+    expect_float(sky, "canonical.cloud_thick_km", sky:GetCloudThicknessKm(), 2.5)
+    expect_float(sky, "canonical.cloud_fade_km", sky:GetCloudFadeKm(), 20.0)
+    expect_float(sky, "canonical.cloud_type_bias", sky:GetCloudTypeBias(), 0.15)
     expect_float(sky, "default.cloud_detail_scale", sky:GetCloudDetailScale(), 2.4)
     expect_float(sky, "default.cloud_erosion", sky:GetCloudErosion(), 0.5)
     expect_float(sky, "default.cloud_powder", sky:GetCloudPowder(), 1.0)
@@ -66,7 +66,7 @@ local function on_init()
     if sky:GetCirrusEnabled() ~= true then fail("default.cirrus_enabled") end
     expect_float(sky, "default.cirrus_alt_km", sky:GetCirrusAltKm(), 8.0)
     expect_float(sky, "default.cirrus_density", sky:GetCirrusDensity(), 1.5)
-    io.stderr:write("cloud_sky_roundtrip: legacy load + defaults OK\n")
+    io.stderr:write("cloud_sky_roundtrip: canonical load + defaults OK\n")
 
     -- -- 2. set every field non-default, save, reload, assert ----------------
     sky:SetCloudsEnabled(true)

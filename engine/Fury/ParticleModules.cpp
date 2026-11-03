@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "Fury/Archive.h"
+
 namespace fury
 {
 	// ---- Gradient --------------------------------------------------------
@@ -9,6 +11,31 @@ namespace fury
 	{
 		keys.push_back({ 0.0f, Color::White });
 		keys.push_back({ 1.0f, Color::White });
+	}
+
+	void Gradient::Serialize(Archive& ar)
+	{
+		if (ar.IsLoading())
+			keys.clear();
+		if (!ar.EnterArray("keys", ArchiveFieldPolicy::Optional))
+			return;
+		std::size_t count = ar.IsLoading() ? ar.GetArraySize() : keys.size();
+		for (std::size_t i = 0; i < count; ++i)
+		{
+			if (ar.IsLoading())
+			{
+				ar.SetArrayIndex(i);
+				keys.emplace_back();
+			}
+			GradientKey &k = keys[i];
+			if (ar.EnterObject())
+			{
+				ar << Required("time", k.time);
+				ar << Required("color", k.color);
+				ar.LeaveObject();
+			}
+		}
+		ar.LeaveArray();
 	}
 
 	Color Gradient::Sample(float time01) const
@@ -35,41 +62,36 @@ namespace fury
 		return keys.back().color;
 	}
 
-	bool Gradient::Load(const void* wrapper, bool object)
-	{
-		if (object && !IsObject(wrapper)) return false;
-		keys.clear();
-		return LoadArray(wrapper, "keys", [&](const void* node) -> bool
-		{
-			GradientKey k;
-			if (!LoadMemberValue(node, "time", k.time)) return false;
-			if (!LoadMemberValue(node, "color", k.color)) return false;
-			keys.push_back(k);
-			return true;
-		});
-	}
-
-	void Gradient::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "keys");
-		StartArray(wrapper);
-		for (const auto& k : keys)
-		{
-			StartObject(wrapper);
-			SaveKey(wrapper, "time"); SaveValue(wrapper, k.time);
-			SaveKey(wrapper, "color"); SaveValue(wrapper, k.color);
-			EndObject(wrapper);
-		}
-		EndArray(wrapper);
-		if (object) EndObject(wrapper);
-	}
-
 	// ---- AnimationCurve --------------------------------------------------
 	AnimationCurve::AnimationCurve()
 	{
 		keys.push_back({ 0.0f, 1.0f });
 		keys.push_back({ 1.0f, 1.0f });
+	}
+
+	void AnimationCurve::Serialize(Archive& ar)
+	{
+		if (ar.IsLoading())
+			keys.clear();
+		if (!ar.EnterArray("keys", ArchiveFieldPolicy::Optional))
+			return;
+		std::size_t count = ar.IsLoading() ? ar.GetArraySize() : keys.size();
+		for (std::size_t i = 0; i < count; ++i)
+		{
+			if (ar.IsLoading())
+			{
+				ar.SetArrayIndex(i);
+				keys.emplace_back();
+			}
+			CurveKey &k = keys[i];
+			if (ar.EnterObject())
+			{
+				ar << Required("time", k.time);
+				ar << Required("value", k.value);
+				ar.LeaveObject();
+			}
+		}
+		ar.LeaveArray();
 	}
 
 	float AnimationCurve::Sample(float time01) const
@@ -92,191 +114,100 @@ namespace fury
 		return keys.back().value;
 	}
 
-	bool AnimationCurve::Load(const void* wrapper, bool object)
-	{
-		if (object && !IsObject(wrapper)) return false;
-		keys.clear();
-		return LoadArray(wrapper, "keys", [&](const void* node) -> bool
-		{
-			CurveKey k;
-			if (!LoadMemberValue(node, "time", k.time)) return false;
-			if (!LoadMemberValue(node, "value", k.value)) return false;
-			keys.push_back(k);
-			return true;
-		});
-	}
-
-	void AnimationCurve::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "keys");
-		StartArray(wrapper);
-		for (const auto& k : keys)
-		{
-			StartObject(wrapper);
-			SaveKey(wrapper, "time"); SaveValue(wrapper, k.time);
-			SaveKey(wrapper, "value"); SaveValue(wrapper, k.value);
-			EndObject(wrapper);
-		}
-		EndArray(wrapper);
-		if (object) EndObject(wrapper);
-	}
-
 	// ---- Burst -----------------------------------------------------------
-	bool Burst::Load(const void* wrapper, bool object)
+	void Burst::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		LoadMemberValue(wrapper, "time", time);
-		LoadMemberValue(wrapper, "count", count);
-		LoadMemberValue(wrapper, "probability", probability);
-		return true;
-	}
-
-	void Burst::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "time"); SaveValue(wrapper, time);
-		SaveKey(wrapper, "count"); SaveValue(wrapper, count);
-		SaveKey(wrapper, "probability"); SaveValue(wrapper, probability);
-		if (object) EndObject(wrapper);
+		ar << Optional("time", time, 0.0f);
+		ar << Optional("count", count, 0);
+		ar << Optional("probability", probability, 1.0f);
 	}
 
 	// ---- EmissionModule --------------------------------------------------
-	bool EmissionModule::Load(const void* wrapper, bool object)
+	void EmissionModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		LoadMemberValue(wrapper, "rateOverTime", rateOverTime);
-		bursts.clear();
-		LoadArray(wrapper, "bursts", [&](const void* node) -> bool
+		ar << Optional("rateOverTime", rateOverTime, 0.0f);
+		if (ar.IsLoading())
+			bursts.clear();
+		if (ar.EnterArray("bursts", ArchiveFieldPolicy::Optional))
 		{
-			Burst b;
-			if (!b.Load(node)) return false;
-			bursts.push_back(b);
-			return true;
-		});
-		return true;
-	}
-
-	void EmissionModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "rateOverTime"); SaveValue(wrapper, rateOverTime);
-		SaveKey(wrapper, "bursts");
-		StartArray(wrapper);
-		for (auto& b : bursts) b.Save(wrapper);
-		EndArray(wrapper);
-		if (object) EndObject(wrapper);
+			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : bursts.size();
+			for (std::size_t i = 0; i < count; ++i)
+			{
+				if (ar.IsLoading())
+				{
+					ar.SetArrayIndex(i);
+					bursts.emplace_back();
+					if (ar.EnterObject())
+					{
+						bursts.back().Serialize(ar);
+						ar.LeaveObject();
+					}
+				}
+				else
+				{
+					ar.EnterObject();
+					bursts[i].Serialize(ar);
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
+		}
 	}
 
 	// ---- ShapeModule -----------------------------------------------------
-	bool ShapeModule::Load(const void* wrapper, bool object)
+	void ShapeModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		unsigned int t = 0;
-		LoadMemberValue(wrapper, "type", t);
-		type = static_cast<ParticleShape>(t);
-		LoadMemberValue(wrapper, "scale", scale);
-		LoadMemberValue(wrapper, "radius", radius);
-		LoadMemberValue(wrapper, "angle", angle);
-		return true;
-	}
-
-	void ShapeModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "type"); SaveValue(wrapper, static_cast<unsigned int>(type));
-		SaveKey(wrapper, "scale"); SaveValue(wrapper, scale);
-		SaveKey(wrapper, "radius"); SaveValue(wrapper, radius);
-		SaveKey(wrapper, "angle"); SaveValue(wrapper, angle);
-		if (object) EndObject(wrapper);
+		unsigned int shapeType = static_cast<unsigned int>(type);
+		ar << Optional("type", shapeType, 0u);
+		ar << Optional("scale", scale);
+		ar << Optional("radius", radius, 0.5f);
+		ar << Optional("angle", angle, 25.0f);
+		if (ar.IsLoading())
+			type = static_cast<ParticleShape>(shapeType);
 	}
 
 	// ---- VelocityModule --------------------------------------------------
-	bool VelocityModule::Load(const void* wrapper, bool object)
+	void VelocityModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		LoadMemberValue(wrapper, "linear", linear);
-		LoadMemberValue(wrapper, "speed", speed);
-		LoadMemberValue(wrapper, "inheritFromParent", inheritFromParent);
-		return true;
-	}
-
-	void VelocityModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "linear"); SaveValue(wrapper, linear);
-		SaveKey(wrapper, "speed"); SaveValue(wrapper, speed);
-		SaveKey(wrapper, "inheritFromParent"); SaveValue(wrapper, inheritFromParent);
-		if (object) EndObject(wrapper);
+		ar << Optional("linear", linear);
+		ar << Optional("speed", speed, 1.0f);
+		ar << Optional("inheritFromParent", inheritFromParent, false);
 	}
 
 	// ---- ColorOverLifetimeModule ----------------------------------------
-	bool ColorOverLifetimeModule::Load(const void* wrapper, bool object)
+	void ColorOverLifetimeModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		if (auto w = FindMember(wrapper, "color"))
-			color.Load(w, false);
-		return true;
-	}
-
-	void ColorOverLifetimeModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "color");
-		color.Save(wrapper, true);
-		if (object) EndObject(wrapper);
+		if (ar.EnterObject("color", ArchiveFieldPolicy::Optional))
+		{
+			color.Serialize(ar);
+			ar.LeaveObject();
+		}
 	}
 
 	// ---- SizeOverLifetimeModule -----------------------------------------
-	bool SizeOverLifetimeModule::Load(const void* wrapper, bool object)
+	void SizeOverLifetimeModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		if (auto w = FindMember(wrapper, "size"))
-			size.Load(w, false);
-		return true;
-	}
-
-	void SizeOverLifetimeModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "size");
-		size.Save(wrapper, true);
-		if (object) EndObject(wrapper);
+		if (ar.EnterObject("size", ArchiveFieldPolicy::Optional))
+		{
+			size.Serialize(ar);
+			ar.LeaveObject();
+		}
 	}
 
 	// ---- RotationOverLifetimeModule -------------------------------------
-	bool RotationOverLifetimeModule::Load(const void* wrapper, bool object)
+	void RotationOverLifetimeModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		LoadMemberValue(wrapper, "angularVelocity", angularVelocity);
-		return true;
-	}
-
-	void RotationOverLifetimeModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "angularVelocity"); SaveValue(wrapper, angularVelocity);
-		if (object) EndObject(wrapper);
+		ar << Optional("angularVelocity", angularVelocity, 0.0f);
 	}
 
 	// ---- RendererModule --------------------------------------------------
-	bool RendererModule::Load(const void* wrapper, bool object)
+	void RendererModule::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper)) return false;
-		LoadMemberValue(wrapper, "materialName", materialName);
-		unsigned int bm = 0;
-		LoadMemberValue(wrapper, "blendMode", bm);
-		blendMode = static_cast<ParticleBlend>(bm);
-		LoadMemberValue(wrapper, "receiveShadows", receiveShadows);
-		return true;
-	}
-
-	void RendererModule::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "materialName"); SaveValue(wrapper, materialName);
-		SaveKey(wrapper, "blendMode"); SaveValue(wrapper, static_cast<unsigned int>(blendMode));
-		SaveKey(wrapper, "receiveShadows"); SaveValue(wrapper, receiveShadows);
-		if (object) EndObject(wrapper);
+		ar << Optional("materialName", materialName);
+		unsigned int blend = static_cast<unsigned int>(blendMode);
+		ar << Optional("blendMode", blend, 0u);
+		ar << Optional("receiveShadows", receiveShadows, true);
+		if (ar.IsLoading())
+			blendMode = static_cast<ParticleBlend>(blend);
 	}
 }

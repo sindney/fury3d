@@ -1,0 +1,44 @@
+<rml>
+<head>
+	<title>Feature - HDR Overlay</title>
+	<link rel="stylesheet" type="text/css" href="/Resource/Ui/ui.rcss" />
+	<style>
+		/* overlay floats over the showcase; it never captures input */
+		body { background: transparent; }
+		.feature-hud {
+			position: absolute;
+			left: 0; top: 0;
+			width: 100%; height: 100%;
+			pointer-events: none;
+		}
+		.feature-title {
+			position: absolute;
+			left: 48px; top: 40px;
+		}
+		.feature-status {
+			position: absolute;
+			right: 48px; top: 40px;
+			text-align: right;
+		}
+		.feature-status .seg {
+			pointer-events: none;
+		}
+		#fps {
+			right: 0; top: 12px;
+		}
+	</style>
+</head>
+<body id="ui/feature_overlay.rml">
+	<div class="feature-hud">
+		<div class="feature-title">
+			<h1>FURY FEATURE</h1>
+			<h2>rendering showcase</h2>
+		</div>
+		<div class="feature-status">
+			<div class="opt-section">OUTPUT</div>
+			<div id="hdr-badge" class="seg active">HDR ON</div>
+			<div id="fps">--</div>
+		</div>
+	</div>
+</body>
+</rml>

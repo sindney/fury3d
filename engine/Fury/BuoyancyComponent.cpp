@@ -10,6 +10,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include "Fury/BodySetup.h"
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/Matrix4.h"
 #include "Fury/OceanComponent.h"
@@ -30,66 +31,41 @@ namespace fury
 		m_TypeIndex = typeid(BuoyancyComponent);
 	}
 
-	bool BuoyancyComponent::Load(const void* wrapper, bool object)
+	void BuoyancyComponent::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		ar << Optional("name", m_Name);
+		ar << Optional("waterDensity", m_WaterDensity);
+		ar << Optional("linearDrag", m_LinearDrag);
+		ar << Optional("angularDrag", m_AngularDrag);
+		ar << Optional("rightingStrength", m_RightingStrength);
+		ar << Optional("oceanNode", m_OceanNodeName);
+
+		if (ar.IsLoading())
+			m_FloatPoints.clear();
+		if (ar.EnterArray("floatPoints", ArchiveFieldPolicy::Optional, true))
 		{
-			FURYE << "BuoyancyComponent: json node is not an object!";
-			return false;
+			if (ar.IsLoading())
+				m_FloatPoints.resize(ar.GetArraySize());
+			for (std::size_t i = 0; i < m_FloatPoints.size(); ++i)
+			{
+				if (ar.IsLoading())
+					ar.SetArrayIndex(i);
+				if (ar.EnterObject())
+				{
+					ar << Optional("offset", m_FloatPoints[i].Offset);
+					ar << Optional("radius", m_FloatPoints[i].Radius);
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
 		}
 
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "BuoyancyComponent")
+		if (ar.IsLoading())
 		{
-			FURYE << "BuoyancyComponent: invalid type " << str;
-			return false;
+			m_Ocean.reset();
+			m_WarnedNoOcean = false;
+			m_LastSubmersion.clear();
 		}
-
-		LoadMemberValue(wrapper, "name", m_Name);
-		LoadMemberValue(wrapper, "waterDensity", m_WaterDensity);
-		LoadMemberValue(wrapper, "linearDrag", m_LinearDrag);
-		LoadMemberValue(wrapper, "angularDrag", m_AngularDrag);
-		LoadMemberValue(wrapper, "rightingStrength", m_RightingStrength);
-		LoadMemberValue(wrapper, "oceanNode", m_OceanNodeName);
-
-		m_FloatPoints.clear();
-		LoadArray(wrapper, "floatPoints", [&](const void* elem) -> bool
-		{
-			FloatPoint point;
-			LoadMemberValue(elem, "offset", point.Offset);
-			LoadMemberValue(elem, "radius", point.Radius);
-			m_FloatPoints.push_back(point);
-			return true;
-		});
-
-		m_Ocean.reset();
-		m_WarnedNoOcean = false;
-		m_LastSubmersion.clear();
-		return true;
-	}
-
-	void BuoyancyComponent::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-
-		SaveKey(wrapper, "type"); SaveValue(wrapper, "BuoyancyComponent");
-		SaveKey(wrapper, "name"); SaveValue(wrapper, m_Name);
-		SaveKey(wrapper, "waterDensity"); SaveValue(wrapper, m_WaterDensity);
-		SaveKey(wrapper, "linearDrag"); SaveValue(wrapper, m_LinearDrag);
-		SaveKey(wrapper, "angularDrag"); SaveValue(wrapper, m_AngularDrag);
-		SaveKey(wrapper, "rightingStrength"); SaveValue(wrapper, m_RightingStrength);
-		SaveKey(wrapper, "oceanNode"); SaveValue(wrapper, m_OceanNodeName);
-
-		SaveKey(wrapper, "floatPoints");
-		SaveArray(wrapper, (unsigned int)m_FloatPoints.size(), [&](unsigned int i)
-		{
-			StartObject(wrapper);
-			SaveKey(wrapper, "offset"); SaveValue(wrapper, m_FloatPoints[i].Offset);
-			SaveKey(wrapper, "radius"); SaveValue(wrapper, m_FloatPoints[i].Radius);
-			EndObject(wrapper);
-		});
-
-		if (object) EndObject(wrapper);
 	}
 
 	Component::Ptr BuoyancyComponent::Clone() const

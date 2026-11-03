@@ -6,6 +6,7 @@
 #include <rapidjson/document.h>
 
 #include "Fury/EntityManager.h"
+#include "Fury/Archive.h"
 #include "Fury/FileUtil.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/Heightmap.h"
@@ -117,64 +118,28 @@ namespace fury
 		return ptr;
 	}
 
-	bool Terrain::Load(const void* wrapper, bool object)
+	void Terrain::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Terrain: json node is not an object!";
-			return false;
-		}
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "Terrain")
-		{
-			FURYE << "Terrain: invalid type " << str << "!";
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "heightmap", m_HeightmapName);
-		LoadMemberValue(wrapper, "splatmap", m_SplatmapPath);
-		LoadMemberValue(wrapper, "chunk_count", m_ChunkCount);
-		LoadMemberValue(wrapper, "lod_count", m_LodCount);
+		ar << OptionalNameReference<Heightmap>("heightmap", m_HeightmapName);
+		ar << OptionalPathReference<Texture>("splatmap", m_SplatmapPath);
+		if (ar.IsCooking()) ar.SetTextureSRGB(m_SplatmapPath, false);
+		ar << Optional("chunk_count", m_ChunkCount);
+		ar << Optional("lod_count", m_LodCount);
 
 		for (int i = 0; i < 4; i++)
 		{
 			std::string base = "layer" + std::to_string(i) + "_";
-			LoadMemberValue(wrapper, base + "name", m_Layers[i].Name);
-			LoadMemberValue(wrapper, base + "texture", m_Layers[i].TexturePath);
-			LoadMemberValue(wrapper, base + "tiling", m_Layers[i].TilingCm);
+			ar << Optional((base + "name").c_str(), m_Layers[i].Name);
+			ar << OptionalPathReference<Texture>((base + "texture").c_str(), m_Layers[i].TexturePath);
+			if (ar.IsCooking()) ar.SetTextureSRGB(m_Layers[i].TexturePath, true);
+			ar << Optional((base + "tiling").c_str(), m_Layers[i].TilingCm);
 		}
 
 		// chunks are runtime-built (never serialized), so a loaded terrain
 		// must rebuild them - this is also what restores them in play mode,
 		// whose temp scene strips editorOnly nodes
-		Rebuild();
-		return true;
-	}
-
-	void Terrain::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "Terrain");
-
-		SaveKey(wrapper, "heightmap");   SaveValue(wrapper, m_HeightmapName);
-		SaveKey(wrapper, "splatmap");    SaveValue(wrapper, m_SplatmapPath);
-		SaveKey(wrapper, "chunk_count"); SaveValue(wrapper, m_ChunkCount);
-		SaveKey(wrapper, "lod_count");   SaveValue(wrapper, m_LodCount);
-
-		for (int i = 0; i < 4; i++)
-		{
-			std::string base = "layer" + std::to_string(i) + "_";
-			SaveKey(wrapper, base + "name");    SaveValue(wrapper, m_Layers[i].Name);
-			SaveKey(wrapper, base + "texture"); SaveValue(wrapper, m_Layers[i].TexturePath);
-			SaveKey(wrapper, base + "tiling");  SaveValue(wrapper, m_Layers[i].TilingCm);
-		}
-
-		if (object)
-			EndObject(wrapper);
+		if (ar.IsLoading())
+			Rebuild();
 	}
 
 	void Terrain::OnAttaching(const std::shared_ptr<SceneNode> &node)

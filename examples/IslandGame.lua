@@ -53,7 +53,7 @@ local S = {
 	rhi = "",   -- "" = platform default; applies at next launch
 }
 
-local CFG_PATH = "Projects/ocean/game_settings.cfg"
+local CFG_PATH = os.getenv("FURY_GAME_SETTINGS") or "Projects/ocean/game_settings.cfg"
 
 local function settings_save()
 	local f = io.open(CFG_PATH, "w")
@@ -471,8 +471,8 @@ local function on_init()
 	controller:SetCameraNodeName("PlayerCamera")
 
 	-- documents (fonts first: documents reference Lato via the stylesheet)
-	rmlui:LoadFontFace("Engine/Fonts/LatoLatin-Regular.ttf")
-	rmlui:LoadFontFace("Engine/Fonts/LatoLatin-Bold.ttf")
+	rmlui:LoadFontFace("Engine/Ui/Fonts/LatoLatin-Regular.ttf")
+	rmlui:LoadFontFace("Engine/Ui/Fonts/LatoLatin-Bold.ttf")
 	rmlui.contexts["main"]:Update()
 	GameUI.LoadDocument(DOC_MENU)
 	GameUI.LoadDocument(DOC_PAUSE)

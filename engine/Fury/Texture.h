@@ -81,9 +81,7 @@ namespace fury
 
 		virtual ~Texture();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		void CreateFromImage(const std::string &filePath, bool srgb, bool mipMap);
 
@@ -104,9 +102,9 @@ namespace fury
 		// Set the serialization shape (file path + sRGB-ness) without
 		// triggering a GPU upload. Used by GltfImporter, which runs without
 		// a GL context: the actual upload happens later when the scene is
-		// loaded at runtime via Texture::Load -> CreateFromImage. After
-		// calling this, the Texture is safe to Save/Load but NOT to render
-		// against until something brings the GL context up.
+		// loaded at runtime via CreateFromImage. After calling this, the
+		// Texture is safe to serialize but NOT to render against until
+		// something brings the GL context up.
 		void SetFilePathAndSRGB(const std::string &filePath, bool srgb);
 
 		// Record the original filename for save-time extraction. Used by

@@ -8,10 +8,14 @@
 #include "Fury/AnimationPlayer.h"
 #include "Fury/AnimationState.h"
 #include "Fury/AnimationUtil.h"
+#include "Fury/Archive.h"
 #include "Fury/Camera.h"
 #include "Fury/Color.h"
 #include "Fury/Component.h"
 #include "Fury/Editor/Editor.h"
+#if defined(FURY_UI_TEST_HOST)
+#include "Fury/Editor/UiTestHost.h"
+#endif
 #include "Fury/Editor/EditorAssetWindows.h"
 #include "Fury/Editor/EditorBodySetupWindow.h"
 #include "Fury/Editor/EditorSkyWindow.h"
@@ -64,6 +68,7 @@
 #include "Fury/RenderThread.h"
 #include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
+#include "Fury/SceneFingerprint.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Serializable.h"
@@ -360,6 +365,7 @@ namespace fury
 				// for serialization and applies it to the live PhysicsWorld.
 				"GetPhysicsGravity", &Scene::GetPhysicsGravity,
 				"SetPhysicsGravity", &Scene::SetPhysicsGravity,
+				"HasPhysicsSettings", &Scene::HasPhysicsSettings,
 				// Union of every mesh-bearing node's world AABB -- the
 				// editor's import unit-scale detection reads this. Returns
 				// `min, max` (Vector4) or nil when the scene has no finite
@@ -404,6 +410,69 @@ namespace fury
 			lua["Scene"]["LoadActive"] = [](const std::string &path) -> bool {
 				if (!Scene::Active) return false;
 				return FileUtil::LoadByExtension(Scene::Active, path);
+			};
+
+			// Read-only persistent-state fingerprints for the round-trip
+			// harness: canonical string, structured diff, structural counts.
+			lua["Scene"]["GetPersistentFingerprint"] = [](const Scene::Ptr &s) -> std::string {
+				if (!s) return std::string();
+				return SceneFingerprint::Canonicalize(SceneFingerprint::Build(s));
+			};
+			lua["Scene"]["DiffPersistentFingerprints"] = [](const std::string &first,
+				const std::string &second, sol::this_state ts) -> sol::table {
+				sol::state_view lua(ts);
+				sol::table out = lua.create_table();
+				const FingerprintDiff diff = SceneFingerprint::DiffStrings(first, second);
+				int i = 1;
+				for (const auto &e : diff.entries)
+				{
+					out[i] = lua.create_table_with(
+						"path", e.path,
+						"first", e.first,
+						"second", e.second,
+						"firstRaw", e.firstRaw,
+						"secondRaw", e.secondRaw);
+					++i;
+				}
+				return out;
+			};
+			lua["Scene"]["GetFingerprintCounts"] = [](const Scene::Ptr &s, sol::this_state ts) -> sol::table {
+				sol::state_view lua(ts);
+				const SceneFingerprintCounts c = SceneFingerprint::Counts(s);
+				return lua.create_table_with(
+					"nodes", c.nodes,
+					"meshes_static", c.meshes_static,
+					"meshes_skinned", c.meshes_skinned,
+					"meshes_total", c.meshes_total,
+					"submeshes", c.submeshes,
+					"vertices", c.vertices,
+					"triangles", c.triangles,
+					"materials", c.materials,
+					"textures", c.textures,
+					"animations", c.animations,
+					"joints", c.joints,
+					"particle_systems", c.particle_systems,
+					"particle_renderers", c.particle_renderers);
+			};
+			lua["Scene"]["CollectCookReferences"] = [](const Scene::Ptr &s, sol::this_state ts) -> sol::table {
+				sol::state_view lua(ts);
+				sol::table out = lua.create_table();
+				if (!s) return out;
+				CookArchive ar;
+				ar.SetContext(s, s->GetEntityManager());
+				s->Serialize(ar);
+				if (!ar.IsValid())
+					luaL_error(lua.lua_state(), "cook archive failed at %s: %s",
+						ar.GetErrorPath().c_str(), ar.GetError().c_str());
+				int i = 1;
+				for (const auto &ref : ar.GetReferences())
+				{
+					out[i++] = lua.create_table_with(
+						"type", ref.Type.name(),
+						"identity", ref.Identity == ResourceIdentity::Path ? "path" : "name",
+						"value", ref.Value);
+				}
+				return out;
 			};
 
 			// Iteration helpers -- wrap the existing EntityManager::ForEach<T>
@@ -616,6 +685,7 @@ namespace fury
 				"GetRadius",    &Light::GetRadius,
 				"SetRadius",    &Light::SetRadius,
 				"SetCastShadows", &Light::SetCastShadows,
+				"GetCastShadows", &Light::GetCastShadows,
 				"CalculateAABB",  &Light::CalculateAABB);
 
 			// --- SkyAtmosphere ----------------------------------------------
@@ -1077,7 +1147,11 @@ namespace fury
 				"Emit",            &ParticleSystem::Emit,
 				"IsAlive",         &ParticleSystem::IsAlive,
 				"Update",          &ParticleSystem::Update,
-				"Reset",           &ParticleSystem::Reset);
+				"Reset",           &ParticleSystem::Reset,
+				"SetExternallyDriven", &ParticleSystem::SetExternallyDriven,
+				"IsExternallyDriven", &ParticleSystem::IsExternallyDriven,
+				"SetRandomSeed", &ParticleSystem::SetRandomSeed,
+				"GetRandomSeed", &ParticleSystem::GetRandomSeed);
 
 			// --- ParticleRenderer --------------------------------------------
 			lua.new_usertype<ParticleRenderer>("ParticleRenderer",
@@ -1508,6 +1582,12 @@ namespace fury
 			// The single dispatch point used by the editor and the CLI.
 			fu_tbl["SaveByExtension"] = [](const std::shared_ptr<Scene> &s, const std::string &p) {
 				return FileUtil::SaveByExtension(s, p);
+			};
+			fu_tbl["SerializeSceneToString"] = [](const std::shared_ptr<Scene> &s) {
+				return FileUtil::SerializeToString(s);
+			};
+			fu_tbl["DeserializeSceneFromString"] = [](const std::shared_ptr<Scene> &s, const std::string &json) {
+				return FileUtil::DeserializeFromString(s, json);
 			};
 			// Enumerate a directory, with an optional case-insensitive extension
 			// filter (a Lua array of strings like {".gltf", ".fbx"}). Hidden
@@ -2000,6 +2080,14 @@ namespace fury
 				const bool multi = (multi_obj.valid() && multi_obj.is<bool>())
 								   ? multi_obj.as<bool>() : false;
 
+#if defined(FURY_UI_TEST_HOST)
+				// Test-only service: queued dialog results replace the native
+				// OS dialog so unattended runs never block on (or automate) it.
+				std::string injected;
+				if (fury::UiTestHost::ConsumeOpenDialogResult(injected))
+					return injected.empty() ? sol::nil : sol::make_object(lua, injected);
+#endif
+
 				const std::string filter_name = "Files";
 				nfdu8filteritem_t filter_item;
 				filter_item.name = filter_name.c_str();
@@ -2060,6 +2148,12 @@ namespace fury
 				const std::string filter        = opts.get_or<std::string>("filter", "All");
 				const std::string default_path = opts.get_or<std::string>("default_path", "");
 				const std::string default_name = opts.get_or<std::string>("default_name", "");
+
+#if defined(FURY_UI_TEST_HOST)
+				std::string injected;
+				if (fury::UiTestHost::ConsumeSaveDialogResult(injected))
+					return injected.empty() ? sol::nil : sol::make_object(lua, injected);
+#endif
 
 				const std::string filter_name = "Files";
 				nfdu8filteritem_t filter_item;

@@ -13,6 +13,10 @@ namespace fury
 
 	class BoxBounds;
 
+	class Matrix4;
+
+	class Vector4;
+
 	class FURY_API MeshRender : public Component
 	{
 	public:
@@ -41,9 +45,7 @@ namespace fury
 
 		MeshRender(const std::shared_ptr<Material> &material, const std::shared_ptr<Mesh> &mesh);
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		Component::Ptr Clone() const override;
 

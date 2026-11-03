@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "defaults": {
+    "script": "{tests}/lua/scenes/cloud_visual_check.lua",
+    "backend": "opengl",
+    "capture_frame": 40,
+    "timeout": 240,
+    "env": {
+      "FURY_CLOUD_FREEZE": "1"
+    }
+  },
+  "cases": {
+    "cloud_coverage_sweep": {
+      "kind": "coverage_sweep",
+      "camera": "10000,30000,10000,225,5",
+      "region": "0,40,1280,300",
+      "captures": [
+        {"name": "cov005", "env": {"FURY_CLOUD_COVERAGE": "0.05"}},
+        {"name": "cov035", "env": {"FURY_CLOUD_COVERAGE": "0.35"}},
+        {"name": "cov080", "env": {"FURY_CLOUD_COVERAGE": "0.8"}}
+      ]
+    },
+    "cloud_tod_tint": {
+      "kind": "tod_tint",
+      "camera": "10000,30000,10000,225,5",
+      "region": "0,40,1280,300",
+      "grid": "8,4",
+      "min_ratio": 1.1,
+      "captures": [
+        {"name": "noon", "env": {"FURY_TOD_HOURS": "12", "FURY_CLOUD_COVERAGE": "0.5"}},
+        {"name": "sunset", "env": {"FURY_TOD_HOURS": "17.6", "FURY_CLOUD_COVERAGE": "0.5"}}
+      ]
+    },
+    "cloud_occlusion_terrain": {
+      "kind": "occlusion",
+      "camera": "10000,300,11500,200,10",
+      "captures": [
+        {"name": "on", "env": {"FURY_CLOUD_COVERAGE": "0.6"}},
+        {"name": "off", "env": {"FURY_CLOUD_OFF": "1"}}
+      ],
+      "regions": [
+        {"name": "opaque", "rect": "0,520,1280,700", "max_mean": 0.5},
+        {"name": "sky", "rect": "0,40,1280,300", "min_mean": 2.0}
+      ]
+    },
+    "cloud_occlusion_deck": {
+      "kind": "occlusion",
+      "camera": "10500,300,9500,225,6",
+      "captures": [
+        {"name": "on", "env": {"FURY_CLOUD_ALT": "0.05", "FURY_CLOUD_THICK": "1.0", "FURY_CLOUD_DENSITY": "30", "FURY_CLOUD_COVERAGE": "0.6"}},
+        {"name": "off", "env": {"FURY_CLOUD_OFF": "1"}}
+      ],
+      "regions": [
+        {"name": "far", "rect": "0,150,1280,440", "min_mean": 10.0},
+        {"name": "near", "rect": "0,480,1280,700", "max_mean": 1.0}
+      ]
+    },
+    "cloud_determinism": {
+      "kind": "image_ab",
+      "camera": "10000,30000,10000,225,5",
+      "max_mean": 1.0,
+      "captures": [
+        {"name": "a", "env": {"FURY_CLOUD_COVERAGE": "0.5"}},
+        {"name": "b", "env": {"FURY_CLOUD_COVERAGE": "0.5"}}
+      ]
+    },
+    "prez_image_ab": {
+      "kind": "image_ab",
+      "camera": "10000,300,11500,200,10",
+      "capture_frame": 60,
+      "max_mean": 0.5,
+      "max_frac": 0.01,
+      "captures": [
+        {"name": "on", "env": {"FURY_VEG_PREZ": "1"}},
+        {"name": "off", "env": {"FURY_VEG_PREZ": "0"}}
+      ]
+    },
+    "prez_self_skip": {
+      "kind": "self_skip",
+      "capture_frame": 25,
+      "captures": [
+        {"name": "self_skip", "screenshot": false, "env": {"FURY_SCENE": "Projects/outdoor/outdoor_terrain.bin", "FURY_VEG_PREZ": "1", "FURY_EXIT_FRAME": "25"}}
+      ]
+    },
+    "backend_parity_grove": {
+      "kind": "backend_parity",
+      "camera": "10000,300,11500,200,10",
+      "capture_frame": 60,
+      "max_mean": 0.10,
+      "max_frac": 0.005,
+      "env": {"FURY_TOD_HOURS": "13", "FURY_FIXED_TIME": "12.5"},
+      "captures": [
+        {"name": "gl", "backend": "opengl"},
+        {"name": "gl_repeat", "backend": "opengl"},
+        {"name": "metal", "backend": "metal"}
+      ]
+    },
+    "backend_parity_beach": {
+      "kind": "backend_parity",
+      "camera": "10000,600,10000,225,8",
+      "capture_frame": 60,
+      "max_mean": 0.10,
+      "max_frac": 0.005,
+      "env": {"FURY_TOD_HOURS": "13", "FURY_FIXED_TIME": "12.5"},
+      "captures": [
+        {"name": "gl", "backend": "opengl"},
+        {"name": "gl_repeat", "backend": "opengl"},
+        {"name": "metal", "backend": "metal"}
+      ]
+    },
+    "backend_parity_wide": {
+      "kind": "backend_parity",
+      "camera": "10000,1200,10000,225,-12",
+      "capture_frame": 60,
+      "max_mean": 0.10,
+      "max_frac": 0.005,
+      "env": {"FURY_TOD_HOURS": "13", "FURY_FIXED_TIME": "12.5"},
+      "captures": [
+        {"name": "gl", "backend": "opengl"},
+        {"name": "gl_repeat", "backend": "opengl"},
+        {"name": "metal", "backend": "metal"}
+      ]
+    }
+  }
+}

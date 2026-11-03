@@ -1,21 +1,18 @@
 #include "Fury/MathUtil.h"
+#include "Fury/Archive.h"
 #include "Fury/BodySetup.h"
 #include "Fury/Camera.h"
 #include "Fury/CharacterController.h"
 #include "Fury/Component.h"
 #include "Fury/FileUtil.h"
-#include "Fury/Log.h"
 #include "Fury/Light.h"
+#include "Fury/Log.h"
 #include "Fury/OcTreeNode.h"
 #include "Fury/OcTree.h"
 #include "Fury/PlayerController.h"
 #include "Fury/SceneNode.h"
-#include "Fury/EntityManager.h"
-#include "Fury/Scene.h"
 #include "Fury/MeshRender.h"
 #include "Fury/InstancedMeshRender.h"
-#include "Fury/Mesh.h"
-#include "Fury/Material.h"
 #include "Fury/Transform.h"
 #include "Fury/AnimationPlayer.h"
 #include "Fury/ParticleRenderer.h"
@@ -23,6 +20,8 @@
 #include "Fury/Terrain.h"
 #include "Fury/OceanComponent.h"
 #include "Fury/BuoyancyComponent.h"
+
+#include <map>
 
 namespace fury
 {
@@ -44,6 +43,22 @@ namespace fury
 		{ "InstancedMeshRender", []() -> Component::Ptr { return InstancedMeshRender::Create(nullptr, nullptr); } }
 	};
 
+	std::string SceneNode::GetComponentTypeName(std::type_index type)
+	{
+		static const std::map<std::type_index, std::string> names = []()
+		{
+			std::map<std::type_index, std::string> out;
+			for (const auto &kv : ComponentRegistry)
+			{
+				auto component = kv.second();
+				if (component) out[component->GetTypeIndex()] = kv.first;
+			}
+			return out;
+		}();
+		auto it = names.find(type);
+		return it == names.end() ? "" : it->second;
+	}
+
 	SceneNode::Ptr SceneNode::Create(const std::string &name)
 	{
 		return std::make_shared<SceneNode>(name);
@@ -63,161 +78,93 @@ namespace fury
 		//FURYD << m_Name << " destoried.";
 	}
 
-	bool SceneNode::Load(const void* wrapper, bool object)
+	void SceneNode::Serialize(Archive& ar)
 	{
-		if (Scene::Active == nullptr)
+		if (m_EditorOnly && !ar.IsLoading()) return;
+		Entity::SerializeFields(ar);
+		if (ar.IsLoading())
 		{
-			FURYE << "Active Scene is null!";
-			return false;
+			RemoveAllComponents();
+			RemoveAllChilds();
+			m_EditorOnly = false;
 		}
+		ar << Required("pos", m_LocalPosition);
+		ar << Required("rot", m_LocalRotation);
+		ar << Required("scl", m_LocalScale);
+		ar << Optional("aabb", m_ModelAABB);
+		if (ar.IsLoading()) Recompose(true);
 
-		if (object && !IsObject(wrapper))
+		if (ar.EnterArray("components"))
 		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		// local translation
-		if (!LoadMemberValue(wrapper, "pos", m_LocalPosition))
-		{
-			FURYE << "pos not found!";
-			return false;
-		}
-
-		if (!LoadMemberValue(wrapper, "scl", m_LocalScale))
-		{
-			FURYE << "scl not found!";
-			return false;
-		}
-
-		if (!LoadMemberValue(wrapper, "rot", m_LocalRotation))
-		{
-			FURYE << "rot not found!";
-			return false;
-		}
-
-		// model aabb
-		LoadMemberValue(wrapper, "aabb", m_ModelAABB);
-
-		// apply transforms
-		Recompose(true);
-
-		// load components
-		std::string type;
-		if (!LoadArray(wrapper, "components", [&](const void* node) -> bool
-		{
-			if (!IsObject(node))
+			if (ar.IsLoading())
 			{
-				FURYE << "Component is an object!";
-				return false;
-			}
-
-			if (!LoadMemberValue(node, "type", type))
-			{
-				FURYE << "type not found!";
-				return false;
-			}
-
-			auto it = ComponentRegistry.find(type);
-			if (it == ComponentRegistry.end())
-			{
-				FURYW << "Component " << type << " not found in SceneNode::ComponentRegistry!";
-				return true;
-			}
-
-			auto component = it->second();
-			if (component->Load(node))
-			{
-				AddComponent(component);
-				return true;
-			}
-			else
-			{
-				return false;
-			}
-		}))
-		{
-			return false;
-		}
-
-		// load childs
-		if (!LoadArray(wrapper, "childs", [&](const void* node) -> bool
-		{
-			auto child = SceneNode::Create("temp");
-			if (child->Load(node))
-			{
-				AddChild(child);
-				return true;
-			}
-			else
-			{
-				return false;
-			}
-		}))
-		{
-			return false;
-		}
-		
-		return true;
-	}
-
-	void SceneNode::Save(void* wrapper, bool object)
-	{
-		// Editor-only subtrees never serialize (the parent's childs walk
-		// already filters them; this guards direct Save calls).
-		if (m_EditorOnly)
-			return;
-
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "pos");
-		SaveValue(wrapper, m_LocalPosition);
-
-		SaveKey(wrapper, "rot");
-		SaveValue(wrapper, m_LocalRotation);
-
-		SaveKey(wrapper, "scl");
-		SaveValue(wrapper, m_LocalScale);
-
-		SaveKey(wrapper, "aabb");
-		SaveValue(wrapper, m_ModelAABB);
-
-		SaveKey(wrapper, "components");
-		StartArray(wrapper);
-		for (auto pair : m_Components)
-			pair.second->Save(wrapper);
-		EndArray(wrapper);
-
-		SaveKey(wrapper, "childs");
-		// Editor-only children are excluded from the serialized array -
-		// this is what keeps the editor camera out of saved scenes.
-		unsigned int savedChildCount = 0;
-		for (const auto &child : m_Childs)
-			if (!child->IsEditorOnly())
-				++savedChildCount;
-		SaveArray(wrapper, savedChildCount, [&](unsigned int index)
-		{
-			size_t seen = 0;
-			for (const auto &child : m_Childs)
-			{
-				if (child->IsEditorOnly())
-					continue;
-				if (seen++ == index)
+				for (size_t i = 0; i < ar.GetArraySize(); ++i)
 				{
-					child->Save(wrapper);
-					return;
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					std::string type;
+					ar << Required("type", type);
+					auto it = ComponentRegistry.find(type);
+					if (it == ComponentRegistry.end())
+					{
+						FURYW << "Component " << type << " not found in SceneNode::ComponentRegistry!";
+						ar.LeaveObject();
+						continue;
+					}
+					auto component = it->second();
+					component->Serialize(ar);
+					AddComponent(component);
+					ar.LeaveObject();
 				}
 			}
-		});
+			else
+			{
+				std::vector<std::pair<std::string, Component::Ptr>> components;
+				for (const auto& kv : m_Components)
+				{
+					std::string type = GetComponentTypeName(kv.first);
+					if (!type.empty()) components.push_back({ type, kv.second });
+				}
+				std::sort(components.begin(), components.end(),
+					[](const auto& a, const auto& b) { return a.first < b.first; });
+				for (const auto& kv : components)
+				{
+					if (!ar.EnterObject()) continue;
+					std::string type = kv.first;
+					ar << Required("type", type);
+					kv.second->Serialize(ar);
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
+		}
 
-		if (object)
-			EndObject(wrapper);
+		if (ar.EnterArray("childs"))
+		{
+			if (ar.IsLoading())
+			{
+				for (size_t i = 0; i < ar.GetArraySize(); ++i)
+				{
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					auto child = SceneNode::Create("temp");
+					child->Serialize(ar);
+					AddChild(child);
+					ar.LeaveObject();
+				}
+			}
+			else
+			{
+				for (const auto& child : m_Childs)
+				{
+					if (child->IsEditorOnly()) continue;
+					if (!ar.EnterObject()) continue;
+					child->Serialize(ar);
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
+		}
 	}
 
 	SceneNode::Ptr SceneNode::Clone(const std::string &name) const

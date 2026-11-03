@@ -25,9 +25,7 @@ namespace fury
 		// Location-cached variant (draw-command cache replay).
 		virtual void BindAt(RHIUniformHandle handle) = 0;
 
-		virtual bool Load(const void* wrapper, bool object = true) override = 0;
-
-		virtual void Save(void* wrapper, bool object = true) override = 0;
+		virtual void Serialize(Archive& ar) override = 0;
 
 		virtual std::type_index GetTypeIndex() const override;
 
@@ -61,9 +59,7 @@ namespace fury
 
 		virtual void BindAt(RHIUniformHandle handle) override;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		void SetData(std::initializer_list<Datatype> data);
 

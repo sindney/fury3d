@@ -44,8 +44,8 @@ doc:GetElementById("start"):AddEventListener("click", function(ev) ... end)
 
 ## Fonts
 
-- Fonts live in `Resource/Fonts/` and load through the VFS:
-  `rmlui:LoadFontFace("Engine/Fonts/LatoLatin-Regular.ttf")`. The face
+- Shared demo fonts live in `Resource/Ui/Fonts/` and load through the VFS:
+  `rmlui:LoadFontFace("Engine/Ui/Fonts/LatoLatin-Regular.ttf")`. The face
   name is the font's family name (`font-family: LatoLatin;` for the
   LatoLatin-*.ttf faces).
 - Load fonts BEFORE any document that references them: a failed
@@ -58,8 +58,8 @@ doc:GetElementById("start"):AddEventListener("click", function(ev) ... end)
 
 ## RML/RCSS basics + traps
 
-RML is HTML-like; RCSS is CSS-like. A complete theme to copy lives at
-`examples/Projects/ocean/ui/ui.rcss`. Traps that bite:
+RML is HTML-like; RCSS is CSS-like. The shared responsive theme lives at
+`examples/Resource/Ui/ui.rcss`. Traps that bite:
 
 - **No UA stylesheet.** The initial value of `display` is `inline`, so
   bare divs are zero-size and width/height are ignored on them. Reset

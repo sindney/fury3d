@@ -8,15 +8,13 @@
 
 Fury3D is a cross-platform rendering engine written in C++17 and OpenGL, with a Lua-driven editor, JSON-configurable rendering pipelines, and a data-driven post-process chain.
 
-Picked up the development with the help of Kimi K3, MiniMax M3, GLM 5.2 with Claude Code. 
-
-> Start with M3 and GLM, then mainly K3, since it's multimodal and easier to buy than GLM and is really powerful.
+Picked up the development with the help of Kimi K3/K3.1 Pro/K2.8, MiniMax M3/M3.1 with Claude Code. 
 
 Works on Windows and macOS. Designed for study — the editor, importers, and shaders are all small enough to read end-to-end.
 
 ### Highlights
 
-* **RHI layer** - an `RHI::Device / CommandList` abstraction with two working backends: **OpenGL 3.3+ core profile** and **Metal** (macOS; GLSL cross-compiled to MSL through Slang + SPIRV-Cross, cached in the shader DDC). **Vulkan** is compiled in but the device is a stub - cook can emit Vulkan shader artifacts, the runtime cannot run them yet. Explicit per-draw state (PSO-shaped) so chain + debug draws never leak `GL_BLEND` into unrelated passes. Backend selected per launch via `--rhi=` / `FURY_RHI` / `Engine.run{ rhi }` / editor ini (see `docs/CLI.md`).
+* **RHI layer** - an `RHI::Device / CommandList` abstraction with three working backends: **OpenGL 3.3+ core profile** and **Metal** (macOS; GLSL cross-compiled to MSL through Slang + SPIRV-Cross, cached in the shader DDC). And **Vulkan**. Backend selected per launch via `--rhi=` / `FURY_RHI` / `Engine.run{ rhi }` / editor ini (see `docs/CLI.md`).
 * **C++17** smart pointers, **`sol2 + Lua 5.4`** scripting bridge.
 * **JSON-configurable pipelines** — every pass, every shader variant, every uniform lives in a `.json` next to the runtime.
 * **Editor (ImGui + ImGuizmo)** — Scene Inspector, Content Browser, Node Properties, viewport gizmo, native file dialogs, configurable dock layout, persisted across launches.
@@ -82,6 +80,7 @@ Vendored dependencies (git submodules under `engine/ThirdParty/`):
 * tinygltf v2.9.7 — glTF 2.0 loader.
 * meshoptimizer — mesh optimisation / simplification / LOD chain.
 * nativefiledialog-extended (nfd) — platform-native file dialogs (editor-only).
+* imgui_test_engine — Dear ImGui test engine (editor-automation only).
 * STB image, ImGui, ImGuizmo, ImReflect - bundled in-tree.
 * metal-cpp, SPIRV-Cross, Slang - Metal RHI bindings and the GLSL -> MSL / SPIR-V cross-compile chain (shader DDC + pak artifacts).
 

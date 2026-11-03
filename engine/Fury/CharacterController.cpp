@@ -10,9 +10,9 @@ JPH_SUPPRESS_WARNINGS
 
 #include "Fury/AnimationPlayer.h"
 #include "Fury/AnimationState.h"
+#include "Fury/Archive.h"
 #include "Fury/Engine.h"
 #include "Fury/InputUtil.h"
-#include "Fury/Log.h"
 #include "Fury/MathUtil.h"
 #include "Fury/PhysicsWorld.h"
 #include "Fury/Scene.h"
@@ -103,82 +103,6 @@ Component::Ptr CharacterController::Clone() const
 	return clone;
 }
 
-bool CharacterController::Load(const void* wrapper, bool object)
-{
-	if (object && !IsObject(wrapper))
-	{
-		FURYE << "CharacterController: json node is not an object!";
-		return false;
-	}
-
-	std::string str;
-	if (!LoadMemberValue(wrapper, "type", str) || str != "CharacterController")
-	{
-		FURYE << "CharacterController: invalid type " << str << "!";
-		return false;
-	}
-
-	LoadFields(wrapper);
-	LoadMemberValue(wrapper, "height", m_Height);
-	LoadMemberValue(wrapper, "radius", m_Radius);
-	LoadMemberValue(wrapper, "walk_speed", m_WalkSpeed);
-	LoadMemberValue(wrapper, "run_speed", m_RunSpeed);
-	LoadMemberValue(wrapper, "jump_speed", m_JumpSpeed);
-	LoadMemberValue(wrapper, "camera_distance", m_CameraDistance);
-	LoadMemberValue(wrapper, "camera_height", m_CameraHeight);
-	LoadMemberValue(wrapper, "first_person", m_FirstPerson);
-	LoadMemberValue(wrapper, "mouse_sensitivity", m_MouseSensitivity);
-	LoadMemberValue(wrapper, "model_yaw_offset", m_ModelYawOffset);
-	LoadMemberValue(wrapper, "idle_clip", m_IdleClip);
-	LoadMemberValue(wrapper, "walk_clip", m_WalkClip);
-	LoadMemberValue(wrapper, "run_clip", m_RunClip);
-	LoadMemberValue(wrapper, "jump_clip", m_JumpClip);
-	return true;
-}
-
-void CharacterController::Save(void* wrapper, bool object)
-{
-	if (object)
-		StartObject(wrapper);
-
-	SaveKey(wrapper, "type");
-	SaveValue(wrapper, "CharacterController");
-
-	SaveFields(wrapper);
-
-	SaveKey(wrapper, "height");
-	SaveValue(wrapper, m_Height);
-	SaveKey(wrapper, "radius");
-	SaveValue(wrapper, m_Radius);
-	SaveKey(wrapper, "walk_speed");
-	SaveValue(wrapper, m_WalkSpeed);
-	SaveKey(wrapper, "run_speed");
-	SaveValue(wrapper, m_RunSpeed);
-	SaveKey(wrapper, "jump_speed");
-	SaveValue(wrapper, m_JumpSpeed);
-	SaveKey(wrapper, "camera_distance");
-	SaveValue(wrapper, m_CameraDistance);
-	SaveKey(wrapper, "camera_height");
-	SaveValue(wrapper, m_CameraHeight);
-	SaveKey(wrapper, "first_person");
-	SaveValue(wrapper, m_FirstPerson);
-	SaveKey(wrapper, "mouse_sensitivity");
-	SaveValue(wrapper, m_MouseSensitivity);
-	SaveKey(wrapper, "model_yaw_offset");
-	SaveValue(wrapper, m_ModelYawOffset);
-	SaveKey(wrapper, "idle_clip");
-	SaveValue(wrapper, m_IdleClip);
-	SaveKey(wrapper, "walk_clip");
-	SaveValue(wrapper, m_WalkClip);
-	SaveKey(wrapper, "run_clip");
-	SaveValue(wrapper, m_RunClip);
-	SaveKey(wrapper, "jump_clip");
-	SaveValue(wrapper, m_JumpClip);
-
-	if (object)
-		EndObject(wrapper);
-}
-
 void CharacterController::OnAttaching(const std::shared_ptr<SceneNode> &node)
 {
 	PlayerController::OnAttaching(node);
@@ -207,6 +131,25 @@ void CharacterController::OnDetaching(const std::shared_ptr<SceneNode> &node)
 void CharacterController::OnOwnerDestructing(SceneNode &node)
 {
 	DestroyCharacter();
+}
+
+void CharacterController::Serialize(Archive& ar)
+{
+	SerializeFields(ar);
+	ar << Optional("height", m_Height);
+	ar << Optional("radius", m_Radius);
+	ar << Optional("walk_speed", m_WalkSpeed);
+	ar << Optional("run_speed", m_RunSpeed);
+	ar << Optional("jump_speed", m_JumpSpeed);
+	ar << Optional("camera_distance", m_CameraDistance);
+	ar << Optional("camera_height", m_CameraHeight);
+	ar << Optional("first_person", m_FirstPerson);
+	ar << Optional("mouse_sensitivity", m_MouseSensitivity);
+	ar << Optional("model_yaw_offset", m_ModelYawOffset);
+	ar << Optional("idle_clip", m_IdleClip);
+	ar << Optional("walk_clip", m_WalkClip);
+	ar << Optional("run_clip", m_RunClip);
+	ar << Optional("jump_clip", m_JumpClip);
 }
 
 void CharacterController::Activate()

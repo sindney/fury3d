@@ -1,0 +1,1154 @@
+{
+ "manifest": "fury3d-test-suite",
+ "version": 1,
+ "description": "Aggregate automation manifest for tests/run.py. Lanes: headless (fury exec, no GPU), ui (furye-ui-tests injected editor automation), render (windowed fury, needs display+GPU). Approved render baselines live under tests/baselines/<backend>/.",
+ "defaults": {
+  "cwd": "{examples}",
+  "timeout": 120,
+  "expected_exit": 0
+ },
+ "binaries": {
+  "fury": "examples/fury",
+  "furye": "examples/furye",
+  "furye-cli": "examples/furye-cli"
+ },
+ "tests": [
+  {
+   "id": "scene_smoke_iterate",
+   "lane": "headless",
+   "script": "{tests}/lua/scene_smoke_iterate.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "scene",
+    "smoke"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "editor_only_nodes",
+   "lane": "headless",
+   "script": "{tests}/lua/editor_only_nodes.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 120,
+   "tags": [
+    "scene",
+    "editor",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin"
+   ]
+  },
+  {
+   "id": "joystick_smoke",
+   "lane": "headless",
+   "script": "{tests}/lua/joystick_smoke.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "input",
+    "smoke"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "physics_smoke",
+   "lane": "headless",
+   "script": "{tests}/lua/physics_smoke.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 180,
+   "tags": [
+    "physics",
+    "jolt",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin"
+   ]
+  },
+  {
+   "id": "terrain_physics",
+   "lane": "headless",
+   "script": "{tests}/lua/terrain_physics.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 180,
+   "tags": [
+    "terrain",
+    "physics",
+    "jolt"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin",
+    "{tests}/lua/_fixtures/terrain_mini"
+   ]
+  },
+  {
+   "id": "terrain_sky_scene",
+   "lane": "headless",
+   "script": "{tests}/lua/terrain_sky_scene.lua",
+   "scene": "Projects/outdoor/outdoor_terrain.bin",
+   "timeout": 180,
+   "tags": [
+    "terrain",
+    "sky",
+    "physics",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_terrain.bin"
+   ]
+  },
+  {
+   "id": "buoyancy_smoke",
+   "lane": "headless",
+   "script": "{tests}/lua/buoyancy_smoke.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 240,
+   "tags": [
+    "ocean",
+    "buoyancy"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin",
+    "{tests}/lua/_fixtures/ocean_mini"
+   ]
+  },
+  {
+   "id": "ocean_scene_roundtrip",
+   "lane": "headless",
+   "script": "{tests}/lua/ocean_scene_roundtrip.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 180,
+   "tags": [
+    "ocean",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin",
+    "{tests}/lua/_fixtures/ocean_mini"
+   ]
+  },
+  {
+   "id": "ocean_waves_spec",
+   "lane": "headless",
+   "script": "{tests}/lua/ocean_waves_spec.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 120,
+   "tags": [
+    "ocean",
+    "waves"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin",
+    "{tests}/lua/_fixtures/ocean_mini"
+   ]
+  },
+  {
+   "id": "ocean_asset_flow",
+   "lane": "headless",
+   "script": "{tests}/lua/ocean_asset_flow.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 180,
+   "tags": [
+    "ocean",
+    "assets",
+    "mergeinto"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_lake.bin"
+   ]
+  },
+  {
+   "id": "render_smoke_settings",
+   "lane": "headless",
+   "script": "{tests}/lua/render_smoke_settings_roundtrip.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "render",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "scene_asset_path_identity",
+   "lane": "headless",
+   "script": "{tests}/lua/scene_asset_path_identity.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 240,
+   "tags": [
+    "scene",
+    "assets",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "pak_scene_load_loose",
+   "lane": "headless",
+   "script": "{tests}/lua/pak_scene_load.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 180,
+   "tags": [
+    "pak",
+    "scene"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "pak_scene_load_pak",
+   "lane": "headless",
+   "script": "{tests}/lua/pak_scene_load.lua",
+   "scene": "Projects/ocean/ocean_island.pak",
+   "timeout": 180,
+   "tags": [
+    "pak",
+    "scene"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.pak"
+   ]
+  },
+  {
+   "id": "particle_smoke",
+   "lane": "headless",
+   "script": "{tests}/lua/particle_smoke.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 180,
+   "tags": [
+    "particles",
+    "assets",
+    "mergeinto"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin"
+   ]
+  },
+  {
+   "id": "shadow_smoke_receive",
+   "lane": "headless",
+   "script": "{tests}/lua/shadow_smoke_receive.lua",
+   "scene": "Projects/outdoor/outdoor_water.bin",
+   "timeout": 180,
+   "tags": [
+    "shadow",
+    "scene"
+   ],
+   "requires": [
+    "{examples}/Projects/outdoor/outdoor_water.bin"
+   ]
+  },
+  {
+   "id": "game_ui",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "game_ui",
+    "rmlui"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_smoke",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_smoke.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "game_ui",
+    "rmlui",
+    "smoke"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_capture",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_capture.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "game_ui",
+    "rmlui",
+    "input"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_demo",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_demo.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 180,
+   "tags": [
+    "game_ui",
+    "rmlui",
+    "settings"
+   ],
+   "env": {
+    "FURY_GAME_SETTINGS": "{artifacts}/game_ui_demo.cfg"
+   },
+   "notes": "Uses an isolated settings file in the artifact directory.",
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_settings_persist",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_settings_persist.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "game_ui",
+    "rmlui",
+    "settings"
+   ],
+   "env": {
+    "FURY_GAME_SETTINGS": "{artifacts}/game_ui_settings_persist.cfg"
+   },
+   "notes": "Seeds and verifies an isolated settings file in the artifact directory.",
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_slider_param",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_slider_param.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "game_ui",
+    "rmlui"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_spawn",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_spawn.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "env": {
+    "FURY_GAME_SETTINGS": "{artifacts}/game_ui_spawn.cfg"
+   },
+   "timeout": 180,
+   "tags": [
+    "game_ui",
+    "gameplay"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_swim",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_swim.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "env": {
+    "FURY_GAME_SETTINGS": "{artifacts}/game_ui_swim.cfg"
+   },
+   "timeout": 240,
+   "tags": [
+    "game_ui",
+    "gameplay",
+    "ocean"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "game_ui_window",
+   "lane": "headless",
+   "script": "{tests}/lua/game_ui_window.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "timeout": 120,
+   "tags": [
+    "game_ui",
+    "input",
+    "window"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "scene_sample_scenes_feature",
+   "lane": "headless",
+   "script": "{tests}/lua/scene_sample_scenes.lua",
+   "scene": "Projects/feature/feature.bin",
+   "args": [
+    "feature"
+   ],
+   "timeout": 180,
+   "tags": [
+    "scene",
+    "feature",
+    "assets",
+    "render"
+   ],
+   "notes": "Semantic guard for the canonical feature showcase (tanks, lights, particles, skeletal meshes, HDR/CSM, textures).",
+   "requires": [
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "scene_sample_scenes_island",
+   "lane": "headless",
+   "script": "{tests}/lua/scene_sample_scenes.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "args": [
+    "island"
+   ],
+   "timeout": 240,
+   "tags": [
+    "scene",
+    "island",
+    "ocean",
+    "terrain",
+    "vegetation"
+   ],
+   "notes": "Semantic guard for the canonical island terrain, ocean, shared vegetation textures, and nonempty kraut HISM/LOD content.",
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "scene_archive_roundtrip_feature",
+   "lane": "headless",
+   "script": "{tests}/lua/scene_archive_roundtrip.lua",
+   "scene": "Projects/feature/feature.bin",
+   "args": [
+    "Projects/feature/feature.bin",
+    "{artifacts}/archive-feature"
+   ],
+   "timeout": 600,
+   "tags": [
+    "scene",
+    "serialization",
+    "roundtrip",
+    "feature"
+   ],
+   "requires": [
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "scene_archive_roundtrip_island",
+   "lane": "headless",
+   "script": "{tests}/lua/scene_archive_roundtrip.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "args": [
+    "Projects/ocean/ocean_island.bin",
+    "{artifacts}/archive-island"
+   ],
+   "timeout": 900,
+   "tags": [
+    "scene",
+    "serialization",
+    "roundtrip",
+    "island",
+    "terrain",
+    "ocean"
+   ],
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "gen_lod",
+   "lane": "headless",
+   "script": "{examples}/GenLod.lua",
+   "scene": "Projects/ocean/ocean_island.bin",
+   "args": [
+    "--all",
+    "{artifacts}/gen_lod_out.bin"
+   ],
+   "timeout": 240,
+   "tags": [
+    "vegetation",
+    "lod",
+    "assets"
+   ],
+   "notes": "Asset-authoring tool, headless-safe; writes its output only into the artifact directory.",
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "kraut_import_roundtrip",
+   "lane": "headless",
+   "script": "{tests}/lua/kraut_import_roundtrip.lua",
+   "scene": "/tmp/kraut_gen/PalmTree2.bin",
+   "timeout": 180,
+   "tags": [
+    "kraut",
+    "vegetation",
+    "import"
+   ],
+   "notes": "Only headless test not reproducible from the repo alone; regenerate the fragment with examples/KrautCLI import into /tmp/kraut_gen to enable.",
+   "requires": [
+    "/tmp/kraut_gen/PalmTree2.bin"
+   ]
+  },
+  {
+   "id": "pak_pipeline",
+   "lane": "headless",
+   "command": [
+    "bash",
+    "{tests}/pak_pipeline.sh"
+   ],
+   "env": {
+    "PAK_TEST_RHI": "opengl,vulkan,metal"
+   },
+   "cwd": "{repo}",
+   "timeout": 1200,
+   "tags": [
+    "pak",
+    "cook",
+    "package",
+    "assets"
+   ],
+   "notes": "PAK_TEST_RHI is set explicitly: stock macOS bash 3.2 kills the script under set -u with an unset RHI_ARGS array otherwise.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/furye-cli"
+   ]
+  },
+  {
+   "id": "check_engine_ascii",
+   "lane": "headless",
+   "command": [
+    "python3",
+    "{tests}/check_engine_ascii.py"
+   ],
+   "cwd": "{repo}",
+   "timeout": 120,
+   "tags": [
+    "lint",
+    "ascii"
+   ]
+  },
+  {
+   "id": "editor_ui_suite",
+   "lane": "ui",
+   "command": [
+    "{examples}/furye-ui-tests",
+    "Editor.lua",
+    "--ui-test",
+    "--render-thread=0",
+    "--ui-test-artifacts",
+    "{artifacts}/editor-ui",
+    "--ui-test-junit",
+    "{artifacts}/editor-ui/junit.xml",
+    "--ui-test-timeout",
+    "120"
+   ],
+   "cwd": "{examples}",
+   "display": true,
+   "timeout": 1200,
+   "tags": [
+    "ui",
+    "editor",
+    "automation"
+   ],
+   "requires": [
+    "{examples}/furye-ui-tests"
+   ]
+  },
+  {
+   "id": "ui_saved_scene_verify",
+   "lane": "headless",
+   "script": "{tests}/lua/ui_saved_scene_verify.lua",
+   "scene": "{artifacts}/editor-ui/saved_scene.json",
+   "args": [
+    "{artifacts}/editor-ui/saved_scene.json",
+    "{artifacts}/editor-ui/verify"
+   ],
+   "timeout": 120,
+   "tags": [
+    "editor",
+    "ui",
+    "scene"
+   ],
+   "requires": [
+    "{artifacts}/editor-ui/saved_scene.json"
+   ]
+  },
+  {
+   "id": "editor_ui_render_thread_smoke",
+   "lane": "ui",
+   "command": [
+    "{examples}/furye-ui-tests",
+    "Editor.lua",
+    "--ui-test",
+    "--ui-test-filter",
+    "select_and_edit_known_node",
+    "--render-thread=1",
+    "--ui-test-artifacts",
+    "{artifacts}/editor-ui-render-thread",
+    "--ui-test-junit",
+    "{artifacts}/editor-ui-render-thread/junit.xml",
+    "--ui-test-timeout",
+    "120"
+   ],
+   "cwd": "{examples}",
+   "display": true,
+   "timeout": 300,
+   "tags": [
+    "ui",
+    "editor",
+    "render_thread",
+    "smoke"
+   ],
+   "requires": [
+    "{examples}/furye-ui-tests"
+   ]
+  },
+  {
+   "id": "editor_ui_failure_artifacts",
+   "lane": "ui",
+   "command": [
+    "bash",
+    "{tests}/ui_failure_probe.sh",
+    "{artifacts}/editor-ui-failure"
+   ],
+   "cwd": "{examples}",
+   "display": true,
+   "timeout": 300,
+   "tags": [
+    "ui",
+    "editor",
+    "failure_artifacts"
+   ],
+   "notes": "Intentional failure probe via tests/ui_failure_probe.sh: verifies non-zero exit, JUnit failure entry, and capture PNG under the artifact dir.",
+   "requires": [
+    "{examples}/furye-ui-tests"
+   ]
+  },
+  {
+   "id": "cloud_sky_roundtrip",
+   "lane": "render",
+   "script": "{tests}/lua/cloud_sky_roundtrip.lua",
+   "display": true,
+   "timeout": 180,
+   "tags": [
+    "sky",
+    "cloud",
+    "serialization"
+   ],
+   "notes": "Windowed guard: lives under tests/lua but drives Engine.run; writes /tmp/cloud_sky_roundtrip.bin."
+  },
+  {
+   "id": "scene_node_picker_roundtrip",
+   "lane": "render",
+   "script": "{tests}/lua/scene_node_picker_roundtrip.lua",
+   "env": {
+    "FURY_SCENE": "Projects/ocean/ocean_island.bin"
+   },
+   "display": true,
+   "timeout": 180,
+   "tags": [
+    "scene",
+    "serialization"
+   ],
+   "notes": "Windowed guard; writes /tmp/scene_node_picker_roundtrip.bin.",
+   "requires": [
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "pipeline_compile_check",
+   "lane": "render",
+   "script": "{tests}/lua/pipeline_compile_check.lua",
+   "args": [
+    "--screenshot",
+    "{artifacts}/pcc.png",
+    "--screenshot-frame",
+    "8"
+   ],
+   "env": {
+    "FURY_EXIT_FRAME": "10"
+   },
+   "display": true,
+   "timeout": 240,
+   "tags": [
+    "render",
+    "pipeline",
+    "shaders"
+   ]
+  },
+  {
+   "id": "render_cloud_coverage_sweep",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "cloud_coverage_sweep",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cloud_coverage_sweep"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 900,
+   "tags": [
+    "render",
+    "cloud",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_cloud_tod_tint",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "cloud_tod_tint",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cloud_tod_tint"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "cloud",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_cloud_occlusion_terrain",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "cloud_occlusion_terrain",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cloud_occlusion_terrain"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "cloud",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_cloud_occlusion_deck",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "cloud_occlusion_deck",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cloud_occlusion_deck"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "cloud",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_cloud_determinism",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "cloud_determinism",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cloud_determinism"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "cloud",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_prez_image_ab",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "prez_image_ab",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/prez_image_ab"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "prez",
+    "vegetation",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_prez_self_skip",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "prez_self_skip",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/prez_self_skip"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 300,
+   "tags": [
+    "render",
+    "prez",
+    "vegetation"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/outdoor/outdoor_terrain.bin"
+   ]
+  },
+  {
+   "id": "render_backend_parity_grove",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "backend_parity_grove",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/backend_parity_grove"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 900,
+   "tags": [
+    "render",
+    "backend",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_backend_parity_beach",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "backend_parity_beach",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/backend_parity_beach"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 900,
+   "tags": [
+    "render",
+    "backend",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_backend_parity_wide",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "backend_parity_wide",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/backend_parity_wide"
+   ],
+   "cwd": "{repo}",
+   "display": true,
+   "timeout": 900,
+   "tags": [
+    "render",
+    "backend",
+    "visual"
+   ],
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_feature_hdr_off_opengl",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_hdr_off",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "feature",
+    "baseline"
+   ],
+   "notes": "Feature showcase, HDR off, UI overlay with fixed test values. Compared against the reviewed OpenGL baseline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_feature_hdr_off_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_hdr_off",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "feature",
+    "baseline"
+   ],
+   "notes": "Feature showcase, HDR off, Metal variant with its own baseline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_feature_hdr_on_opengl",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_hdr_on",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "feature",
+    "hdr",
+    "baseline"
+   ],
+   "notes": "Feature showcase, HDR on, UI overlay shown (hdr badge + fixed fps text). Same 3D content as HDR off; only the declared output config differs.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_feature_hdr_on_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_hdr_on",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "feature",
+    "hdr",
+    "baseline"
+   ],
+   "notes": "Feature showcase, HDR on, Metal variant with its own baseline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_island_opengl",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "island",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "island",
+    "baseline"
+   ],
+   "notes": "Island vista with pinned TOD/wave time and frozen clouds (FURY_CLOUD_FREEZE), compared against the reviewed OpenGL baseline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_island_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "island",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "island",
+    "baseline"
+   ],
+   "notes": "Island vista, Metal variant with its own baseline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  }
+ ]
+}

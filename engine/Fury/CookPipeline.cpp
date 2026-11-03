@@ -28,6 +28,7 @@
 #endif
 
 #include "Fury/AnimationClip.h"
+#include "Fury/Archive.h"
 #include "Fury/DdcStore.h"
 #include "Fury/EntityManager.h"
 #include "Fury/EnumUtil.h"
@@ -857,58 +858,32 @@ namespace fury
 		const std::shared_ptr<EntityManager> em = scene->GetEntityManager();
 		const auto normalByPath = InferNormalUsage(em);
 
-		// Gather unique texture paths (EntityManager path map is already
-		// deduplicated; pathless entries cannot cook).
 		std::vector<std::string> texturePaths;
+		std::unordered_map<std::string, bool> srgbHints;
+		std::unordered_set<std::string> seen;
 		em->ForEach<Texture>([&](const std::shared_ptr<Texture>& texture)
 		{
-			const std::string path = texture->GetPath();
-			if (!path.empty())
-				texturePaths.push_back(path);
+			if (!texture->GetPath().empty() && seen.insert(texture->GetPath()).second)
+				texturePaths.push_back(texture->GetPath());
 			return true;
 		});
 
-		// Terrain components bind splat/layer textures at render-setup time,
-		// so a headless cook never sees them in the EM; collect them from the
-		// node tree. Layer textures are albedo (sRGB), the splat map is data.
-		std::unordered_map<std::string, bool> srgbHints;
+		CookArchive cook;
+		cook.SetContext(scene, em);
+		scene->Serialize(cook);
+		if (!cook.IsValid())
 		{
-			std::unordered_set<std::string> seen(texturePaths.begin(), texturePaths.end());
-			std::function<void(const std::shared_ptr<SceneNode>&)> walk = [&](const std::shared_ptr<SceneNode>& node) {
-				if (!node) return;
-				if (auto terrain = node->GetComponent<Terrain>())
-				{
-					if (!terrain->GetSplatmapPath().empty() && seen.insert(terrain->GetSplatmapPath()).second)
-					{
-						texturePaths.push_back(terrain->GetSplatmapPath());
-						srgbHints[terrain->GetSplatmapPath()] = false;
-					}
-					for (int i = 0; i < 4; ++i)
-					{
-						const std::string& p = terrain->GetLayer(i).TexturePath;
-						if (!p.empty() && seen.insert(p).second)
-						{
-							texturePaths.push_back(p);
-							srgbHints[p] = true;
-						}
-					}
-				}
-				if (auto sky = node->GetComponent<SkyAtmosphere>())
-				{
-					auto addSkyTexture = [&](const std::string &path, bool srgb) {
-						if (!path.empty() && seen.insert(path).second)
-						{
-							texturePaths.push_back(path);
-							srgbHints[path] = srgb;
-						}
-					};
-					addSkyTexture(sky->GetMoonTexturePath(), true);
-					addSkyTexture(sky->GetCloudNoisePath(), false);
-				}
-				for (unsigned int c = 0; c < node->GetChildCount(); ++c)
-					walk(node->GetChildAt(c));
-			};
-			walk(scene->GetRootNode());
+			result.error = cook.GetErrorPath() + ": " + cook.GetError();
+			return result;
+		}
+		for (const auto& ref : cook.GetReferences())
+		{
+			if (ref.Type != typeid(Texture) || ref.Identity != ResourceIdentity::Path)
+				continue;
+			if (!seen.insert(ref.Value).second)
+				continue;
+			texturePaths.push_back(ref.Value);
+			srgbHints[ref.Value] = cook.GetTextureSRGB(ref.Value, true);
 		}
 
 		result.texturesTotal = (int)texturePaths.size();

@@ -66,9 +66,8 @@ namespace fury
 
 		virtual ~AnimationClip();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
-		virtual void Save(void* wrapper, bool object = true) override;
 
 		void CalculateDuration();
 

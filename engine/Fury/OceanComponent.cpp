@@ -3,8 +3,8 @@
 #include <cmath>
 
 #include "Fury/BoxBounds.h"
+#include "Fury/Archive.h"
 #include "Fury/Engine.h"
-#include "Fury/Log.h"
 
 #include "Fury/OceanWaves.h"
 #include "Fury/SceneNode.h"
@@ -23,108 +23,56 @@ namespace fury
 		m_TypeIndex = typeid(OceanComponent);
 	}
 
-	bool OceanComponent::Load(const void* wrapper, bool object)
+	void OceanComponent::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		unsigned int mode = (unsigned int)m_Mode;
+		unsigned int waveSource = (unsigned int)m_WaveSource;
+
+		ar << Optional("name", m_Name);
+		ar << Optional("mode", mode);
+		ar << Optional("waveSource", waveSource);
+		ar << OptionalPathReference<OceanWaves>("waveAsset", m_WaveAssetPath);
+
+		ar << Optional("seed", m_Seed);
+		ar << Optional("windSpeed", m_WindSpeed);
+		ar << Optional("windDirectionDeg", m_WindDirectionDeg);
+		ar << Optional("fetchCm", m_FetchCm);
+		ar << Optional("choppiness", m_Choppiness);
+		ar << Optional("swellResolution", m_SwellResolution);
+		ar << Optional("rippleResolution", m_RippleResolution);
+		ar << Optional("swellTileCm", m_SwellTileCm);
+		ar << Optional("rippleTileCm", m_RippleTileCm);
+		ar << Optional("frameCount", m_FrameCount);
+		ar << Optional("loopSeconds", m_LoopSeconds);
+
+		ar << Optional("waterLevel", m_WaterLevel);
+
+		ar << Optional("finiteSizeCm", m_FiniteSizeCm);
+		ar << Optional("finiteResolution", m_FiniteResolution);
+		ar << Optional("ringCellSizeCm", m_RingCellSizeCm);
+		ar << Optional("ringCells", m_RingCells);
+		ar << Optional("ringCount", m_RingCount);
+		ar << Optional("skirtRadiusCm", m_SkirtRadiusCm);
+
+		ar << Optional("absorbColor", m_AbsorbColor);
+		ar << Optional("scatterColor", m_ScatterColor);
+		ar << Optional("roughness", m_Roughness);
+		ar << Optional("normalStrength", m_NormalStrength);
+		ar << Optional("foamAmount", m_FoamAmount);
+		ar << Optional("shoreFoamDepthCm", m_ShoreFoamDepthCm);
+		ar << Optional("ssr", m_Ssr);
+
+		ar << Optional("debugView", m_DebugView);
+
+		if (ar.IsLoading())
 		{
-			FURYE << "OceanComponent: json node is not an object!";
-			return false;
+			m_Mode = (Mode)mode;
+			m_WaveSource = (WaveSource)waveSource;
+			m_Waves.reset();
+			m_ResolvedSource = 0;
+			m_ResolvedReason = "unresolved";
+			m_MeshesDirty = true;
 		}
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "OceanComponent")
-		{
-			FURYE << "OceanComponent: invalid type " << str;
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "name", m_Name);
-
-		unsigned int u = 0;
-		if (LoadMemberValue(wrapper, "mode", u)) m_Mode = (Mode)u;
-		if (LoadMemberValue(wrapper, "waveSource", u)) m_WaveSource = (WaveSource)u;
-		LoadMemberValue(wrapper, "waveAsset", m_WaveAssetPath);
-
-		LoadMemberValue(wrapper, "seed", m_Seed);
-		LoadMemberValue(wrapper, "windSpeed", m_WindSpeed);
-		LoadMemberValue(wrapper, "windDirectionDeg", m_WindDirectionDeg);
-		LoadMemberValue(wrapper, "fetchCm", m_FetchCm);
-		LoadMemberValue(wrapper, "choppiness", m_Choppiness);
-		LoadMemberValue(wrapper, "swellResolution", m_SwellResolution);
-		LoadMemberValue(wrapper, "rippleResolution", m_RippleResolution);
-		LoadMemberValue(wrapper, "swellTileCm", m_SwellTileCm);
-		LoadMemberValue(wrapper, "rippleTileCm", m_RippleTileCm);
-		LoadMemberValue(wrapper, "frameCount", m_FrameCount);
-		LoadMemberValue(wrapper, "loopSeconds", m_LoopSeconds);
-
-		LoadMemberValue(wrapper, "waterLevel", m_WaterLevel);
-
-		LoadMemberValue(wrapper, "finiteSizeCm", m_FiniteSizeCm);
-		LoadMemberValue(wrapper, "finiteResolution", m_FiniteResolution);
-		LoadMemberValue(wrapper, "ringCellSizeCm", m_RingCellSizeCm);
-		LoadMemberValue(wrapper, "ringCells", m_RingCells);
-		LoadMemberValue(wrapper, "ringCount", m_RingCount);
-		LoadMemberValue(wrapper, "skirtRadiusCm", m_SkirtRadiusCm);
-
-		LoadMemberValue(wrapper, "absorbColor", m_AbsorbColor);
-		LoadMemberValue(wrapper, "scatterColor", m_ScatterColor);
-		LoadMemberValue(wrapper, "roughness", m_Roughness);
-		LoadMemberValue(wrapper, "normalStrength", m_NormalStrength);
-		LoadMemberValue(wrapper, "foamAmount", m_FoamAmount);
-		LoadMemberValue(wrapper, "shoreFoamDepthCm", m_ShoreFoamDepthCm);
-		LoadMemberValue(wrapper, "ssr", m_Ssr);
-
-		LoadMemberValue(wrapper, "debugView", m_DebugView);
-
-		m_Waves.reset();
-		m_ResolvedSource = 0;
-		m_ResolvedReason = "unresolved";
-		m_MeshesDirty = true;
-		return true;
-	}
-
-	void OceanComponent::Save(void* wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-
-		SaveKey(wrapper, "type"); SaveValue(wrapper, "OceanComponent");
-		SaveKey(wrapper, "name"); SaveValue(wrapper, m_Name);
-		SaveKey(wrapper, "mode"); SaveValue(wrapper, (unsigned int)m_Mode);
-		SaveKey(wrapper, "waveSource"); SaveValue(wrapper, (unsigned int)m_WaveSource);
-		SaveKey(wrapper, "waveAsset"); SaveValue(wrapper, m_WaveAssetPath);
-
-		SaveKey(wrapper, "seed"); SaveValue(wrapper, m_Seed);
-		SaveKey(wrapper, "windSpeed"); SaveValue(wrapper, m_WindSpeed);
-		SaveKey(wrapper, "windDirectionDeg"); SaveValue(wrapper, m_WindDirectionDeg);
-		SaveKey(wrapper, "fetchCm"); SaveValue(wrapper, m_FetchCm);
-		SaveKey(wrapper, "choppiness"); SaveValue(wrapper, m_Choppiness);
-		SaveKey(wrapper, "swellResolution"); SaveValue(wrapper, m_SwellResolution);
-		SaveKey(wrapper, "rippleResolution"); SaveValue(wrapper, m_RippleResolution);
-		SaveKey(wrapper, "swellTileCm"); SaveValue(wrapper, m_SwellTileCm);
-		SaveKey(wrapper, "rippleTileCm"); SaveValue(wrapper, m_RippleTileCm);
-		SaveKey(wrapper, "frameCount"); SaveValue(wrapper, m_FrameCount);
-		SaveKey(wrapper, "loopSeconds"); SaveValue(wrapper, m_LoopSeconds);
-
-		SaveKey(wrapper, "waterLevel"); SaveValue(wrapper, m_WaterLevel);
-
-		SaveKey(wrapper, "finiteSizeCm"); SaveValue(wrapper, m_FiniteSizeCm);
-		SaveKey(wrapper, "finiteResolution"); SaveValue(wrapper, m_FiniteResolution);
-		SaveKey(wrapper, "ringCellSizeCm"); SaveValue(wrapper, m_RingCellSizeCm);
-		SaveKey(wrapper, "ringCells"); SaveValue(wrapper, m_RingCells);
-		SaveKey(wrapper, "ringCount"); SaveValue(wrapper, m_RingCount);
-		SaveKey(wrapper, "skirtRadiusCm"); SaveValue(wrapper, m_SkirtRadiusCm);
-
-		SaveKey(wrapper, "absorbColor"); SaveValue(wrapper, m_AbsorbColor);
-		SaveKey(wrapper, "scatterColor"); SaveValue(wrapper, m_ScatterColor);
-		SaveKey(wrapper, "roughness"); SaveValue(wrapper, m_Roughness);
-		SaveKey(wrapper, "normalStrength"); SaveValue(wrapper, m_NormalStrength);
-		SaveKey(wrapper, "foamAmount"); SaveValue(wrapper, m_FoamAmount);
-		SaveKey(wrapper, "shoreFoamDepthCm"); SaveValue(wrapper, m_ShoreFoamDepthCm);
-		SaveKey(wrapper, "ssr"); SaveValue(wrapper, m_Ssr);
-
-		SaveKey(wrapper, "debugView"); SaveValue(wrapper, m_DebugView);
-
-		if (object) EndObject(wrapper);
 	}
 
 	Component::Ptr OceanComponent::Clone() const

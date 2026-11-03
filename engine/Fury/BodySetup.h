@@ -51,9 +51,7 @@ namespace fury
 
 		virtual Component::Ptr Clone() const override;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		virtual void Serialize(Archive& ar) override;
 
 		ShapeType GetShapeType() const { return m_ShapeType; }
 		void SetShapeType(ShapeType type);

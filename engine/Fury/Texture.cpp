@@ -7,6 +7,7 @@
 #include "Fury/BufferManager.h"
 #include "Fury/Log.h"
 #include "Fury/EntityUtil.h"
+#include "Fury/Archive.h"
 #include "Fury/AssetBackend.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Ktx2Loader.h"
@@ -113,119 +114,56 @@ namespace fury
 		DeleteBuffer();
 	}
 
-	bool Texture::Load(const void* wrapper, bool object)
-	{
-		std::string str;
-
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		auto filterMode = FilterMode::LINEAR;
-		if (LoadMemberValue(wrapper, "filter", str))
-			filterMode = EnumUtil::FilterModeFromString(str);
-
-		auto wrapMode = WrapMode::REPEAT;
-		if (LoadMemberValue(wrapper, "wrap", str))
-			wrapMode = EnumUtil::WrapModeFromString(str);
-
-		auto color = Color::Black;
-		LoadMemberValue(wrapper, "borderColor", color);
-		SetBorderColor(color);
-
-		bool mipmap = false;
-		LoadMemberValue(wrapper, "mipmap", mipmap);
-
-		SetFilterMode(filterMode);
-		SetWrapMode(wrapMode);
-
-		if (LoadMemberValue(wrapper, "path", str))
-		{
-			bool srgb = false;
-			LoadMemberValue(wrapper, "srgb", srgb);
-			CreateFromImage(str, srgb, mipmap);
-		}
-		else
-		{
-			if (!LoadMemberValue(wrapper, "format", str))
-			{
-				FURYE << "Texture param 'format' not found!";
-				return false;
-			}
-			auto format = EnumUtil::TextureFormatFromString(str);
-
-			if (!LoadMemberValue(wrapper, "type", str))
-				str = EnumUtil::TextureTypeToString(TextureType::TEXTURE_2D);
-			auto type = EnumUtil::TextureTypeFromString(str);
-
-			int width = 0, height = 0;
-			if (!LoadMemberValue(wrapper, "width", width) || !LoadMemberValue(wrapper, "height", height))
-			{
-				FURYE << "Texture param 'width/height' not found!";
-				return false;
-			}
-
-			int depth = 0;
-			LoadMemberValue(wrapper, "depth", depth);
-
-			CreateEmpty(width, height, depth, format, type, mipmap);
-		}
-
-		return true;
-	}
-
-	void Texture::Save(void* wrapper, bool object)
+	void Texture::Serialize(Archive& ar)
 	{
 		// FileUtil::SaveFile / SaveCompressedFile must extract any
 		// memory-backed textures to sibling files before serialization
-		// runs. If a memory-backed texture reaches Save it indicates a
-		// missed extraction call site.
-		assert(!IsMemoryBacked() && "Texture::Save reached with memory-backed texture; FileUtil should have extracted");
+		// runs.
+		assert(!ar.IsSaving() || !IsMemoryBacked());
 
-		if (object)
-			StartObject(wrapper);
+		Entity::SerializeFields(ar);
 
-		Entity::Save(wrapper, false);
+		std::string filter = EnumUtil::FilterModeToString(m_FilterMode);
+		std::string wrap = EnumUtil::WrapModeToString(m_WrapMode);
+		bool mipmap = m_Mipmap;
+		Color borderColor = m_BorderColor;
+		std::string path = m_FilePath;
+		bool srgb = IsSRGB();
 
-		if (m_FilePath.empty())
+		ar << Optional("filter", filter, EnumUtil::FilterModeToString(FilterMode::LINEAR));
+		ar << Optional("wrap", wrap, EnumUtil::WrapModeToString(WrapMode::REPEAT));
+		ar << Optional("borderColor", borderColor, Color::Black);
+		ar << Optional("mipmap", mipmap, false);
+
+		// File-backed and embedded shapes are mutually exclusive:
+		// "path" present decides on load, m_FilePath on save.
+		ar << Conditional("path", path, !m_FilePath.empty());
+		ar << Conditional("srgb", srgb, !m_FilePath.empty());
+
+		const bool embedded = ar.IsLoading() ? path.empty() : m_FilePath.empty();
+		std::string format = EnumUtil::TextureFormatToString(m_Format);
+		std::string type = EnumUtil::TextureTypeToString(m_Type);
+		int width = m_Width;
+		int height = m_Height;
+		int depth = m_Depth;
+		ar << Conditional("format", format, embedded);
+		ar << Conditional("type", type, embedded);
+		ar << Conditional("width", width, embedded);
+		ar << Conditional("height", height, embedded);
+		ar << Conditional("depth", depth, embedded);
+
+		if (ar.IsLoading())
 		{
-			SaveKey(wrapper, "format");
-			SaveValue(wrapper, EnumUtil::TextureFormatToString(m_Format));
-			SaveKey(wrapper, "type");
-			SaveValue(wrapper, EnumUtil::TextureTypeToString(m_Type));
-			SaveKey(wrapper, "width");
-			SaveValue(wrapper, m_Width);
-			SaveKey(wrapper, "height");
-			SaveValue(wrapper, m_Height);
-			SaveKey(wrapper, "depth");
-			SaveValue(wrapper, m_Depth);
+			SetFilterMode(EnumUtil::FilterModeFromString(filter));
+			SetWrapMode(EnumUtil::WrapModeFromString(wrap));
+			SetBorderColor(borderColor);
+			if (!path.empty())
+				CreateFromImage(path, srgb, mipmap);
+			else
+				CreateEmpty(width, height, depth,
+					EnumUtil::TextureFormatFromString(format),
+					EnumUtil::TextureTypeFromString(type), mipmap);
 		}
-		else
-		{
-			SaveKey(wrapper, "path");
-			SaveValue(wrapper, m_FilePath);
-			SaveKey(wrapper, "srgb");
-			SaveValue(wrapper, m_Format == TextureFormat::SRGB || m_Format == TextureFormat::SRGB8 ||
-				m_Format == TextureFormat::SRGB8_ALPHA8 || m_Format == TextureFormat::SRGB_ALPHA);
-		}
-
-		SaveKey(wrapper, "borderColor");
-		SaveValue(wrapper, m_BorderColor);
-		SaveKey(wrapper, "mipmap");
-		SaveValue(wrapper, m_Mipmap);
-
-		SaveKey(wrapper, "filter");
-		SaveValue(wrapper, EnumUtil::FilterModeToString(m_FilterMode));
-		SaveKey(wrapper, "wrap");
-		SaveValue(wrapper, EnumUtil::WrapModeToString(m_WrapMode));
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	void Texture::CreateFromImage(const std::string &filePath, bool srgb, bool mipMap)
@@ -253,11 +191,8 @@ namespace fury
 
 		// Record the requested path up-front so the save-side
 		// relocation can find and rewrite it even when the load
-		// fails (the pre-fix behavior cleared m_FilePath on a
-		// failed LoadImage, which meant Texture::Save fell through
-		// to the embedded 0x0 branch and the bad multi-segment
-		// path was lost). Set once at the top, regardless of
-		// whether LoadImage succeeds below.
+		// fails. Set once at the top, regardless of whether LoadImage
+		// succeeds below.
 		SetPath(filePath);
 
 		// Content-sniffed dispatch: the pak layer may serve cooked KTX2
@@ -672,7 +607,7 @@ namespace fury
 	void Texture::SetFilePathAndSRGB(const std::string &filePath, bool srgb)
 	{
 		SetPath(filePath);
-		// Use the sRGB-encoding family so Texture::Save emits "srgb": true.
+		// Use the sRGB-encoding family so serialization emits "srgb": true.
 		// 3 vs 4 channels gets fixed up later by CreateFromImage on the
 		// first runtime load -- for serialization the family is what matters.
 		m_Format = srgb ? TextureFormat::SRGB8_ALPHA8 : TextureFormat::RGBA8;

@@ -1,6 +1,9 @@
 #include "Fury/AnimationPlayer.h"
 
+#include <rapidjson/document.h>
+
 #include "Fury/AnimationClip.h"
+#include "Fury/Archive.h"
 #include "Fury/AnimationState.h"
 #include "Fury/Engine.h"
 #include "Fury/EntityManager.h"
@@ -33,34 +36,55 @@ namespace fury
 		m_TypeIndex = typeid(Animator);
 	}
 
-	bool Animator::Load(const void* wrapper, bool object)
+	void Animator::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Animator: json node is not an object!";
-			return false;
-		}
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "Animator")
-		{
-			FURYE << "Animator: invalid type " << str;
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "animate_physics", m_AnimatePhysics);
+		ar << Optional("animate_physics", m_AnimatePhysics);
 
 		std::string wrapStr;
-		if (LoadMemberValue(wrapper, "default_wrap", wrapStr))
+		if (ar.IsSaving()) wrapStr = EnumUtil::AnimWrapModeToString(m_DefaultWrapMode);
+		if (ar.TransferNamed("default_wrap", wrapStr,
+				ArchiveFieldPolicy::Optional, true) == ArchiveFieldResult::Ok && ar.IsLoading())
 			m_DefaultWrapMode = EnumUtil::AnimWrapModeFromString(wrapStr);
 
-		// Bound clip names are resolved back through EntityManager on load.
-		m_States.clear();
-		LoadArray(wrapper, "clips", [&](const void* node) -> bool
+		std::vector<std::string> clipNames;
+		if (ar.IsSaving())
 		{
-			std::string clipName;
-			if (!LoadValue(node, clipName) || clipName.empty())
-				return true;
+			for (const auto &state : m_States)
+			{
+				if (state && !state->GetName().empty())
+					clipNames.push_back(state->GetName());
+			}
+		}
+		if (ar.EnterArray("clips", ArchiveFieldPolicy::Optional, true))
+		{
+			// Legacy leniency: non-string entries are skipped, not errors.
+			JsonReadArchive *json = ar.IsLoading() ? dynamic_cast<JsonReadArchive*>(&ar) : nullptr;
+			const std::size_t count = json ? ar.GetArraySize() : clipNames.size();
+			for (std::size_t i = 0; i < count; ++i)
+			{
+				std::string clipName;
+				if (json)
+				{
+					ar.SetArrayIndex(i);
+					const auto *value = static_cast<const rapidjson::Value*>(json->GetCurrentValue());
+					if (!value || !value->IsString()) continue;
+					ar.Transfer(nullptr, clipName, ArchiveFieldPolicy::Optional, true);
+					if (clipName.empty()) continue;
+					clipNames.push_back(clipName);
+				}
+				else
+				{
+					clipName = clipNames[i];
+					ar.Transfer(nullptr, clipName, ArchiveFieldPolicy::Optional, true);
+				}
+			}
+			ar.LeaveArray();
+		}
+
+		if (!ar.IsLoading() || !ar.IsValid()) return;
+		m_States.clear();
+		for (const auto &clipName : clipNames)
+		{
 			if (auto clip = ResolveClipFromManager(clipName))
 			{
 				auto state = AnimationState::Create(clipName, clip);
@@ -71,37 +95,7 @@ namespace fury
 			{
 				FURYW << "Animator: clip " << clipName << " not found in EntityManager on load";
 			}
-			return true;
-		});
-
-		return true;
-	}
-
-	void Animator::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "Animator");
-
-		SaveKey(wrapper, "animate_physics");
-		SaveValue(wrapper, m_AnimatePhysics);
-
-		SaveKey(wrapper, "default_wrap");
-		SaveValue(wrapper, EnumUtil::AnimWrapModeToString(m_DefaultWrapMode));
-
-		SaveKey(wrapper, "clips");
-		StartArray(wrapper);
-		for (const auto &state : m_States)
-		{
-			if (state && !state->GetName().empty())
-				SaveValue(wrapper, state->GetName());
 		}
-		EndArray(wrapper);
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	Component::Ptr Animator::Clone() const

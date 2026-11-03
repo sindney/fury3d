@@ -11,6 +11,9 @@
 #include "Fury/BufferManager.h"
 #include "Fury/AssetLoader.h"
 #include "Fury/Editor/Editor.h"
+#if defined(FURY_UI_TEST_HOST)
+#include "Fury/Editor/UiTestHost.h"
+#endif
 #include "Fury/Engine.h"
 #include "Fury/Macros.h"
 #include "Fury/Camera.h"
@@ -584,7 +587,16 @@ namespace fury
 		AssetLoader::Get().Shutdown();
 
 		Editor::Shutdown();
+#if defined(FURY_UI_TEST_HOST)
+		// Before Gui::Shutdown: Stop joins the test coroutine, which
+		// asserts on the still-alive ImGui context.
+		UiTestHost::Shutdown();
+#endif
 		Gui::Shutdown();
+#if defined(FURY_UI_TEST_HOST)
+		// After Gui::Shutdown (ImGui::DestroyContext) per test-engine docs.
+		UiTestHost::DestroyEngine();
+#endif
 		Editor::SetWindowForPersistence(nullptr);
 
 		RHI::DestroyDevice();
@@ -691,9 +703,21 @@ namespace fury
 		float effectiveFontScale = opts.gui_font_scale;
 		if (opts.gui_font_scale == 0.0f) effectiveFontScale = effectiveScale;
 
+#if defined(FURY_UI_TEST_HOST)
+		// UI tests run at a fixed scale so layouts are reproducible.
+		effectiveScale = UiTestHost::ForceGuiScale(effectiveScale);
+		effectiveFontScale = UiTestHost::ForceGuiScale(effectiveFontScale);
+#endif
+
 #ifdef _FURY_GUI_IMP_
 		Gui::Initialize(&window, effectiveScale, effectiveFontScale);
 
+#if defined(FURY_UI_TEST_HOST)
+		// Test engine attaches to the editor's ImGui context after
+		// Gui::Initialize and before Editor::Initialize, whose
+		// LoadIniSettingsFromDisk must see the redirected ini filename.
+		UiTestHost::Initialize();
+#endif
 		Editor::Initialize();
 #endif
 		// Game UI (RmlUi) is active in every binary, editor or player.
@@ -722,11 +746,23 @@ namespace fury
 			if (GRHIDevice != nullptr)
 			{
 				GRHIDevice->EndFrame();
+#if defined(FURY_UI_TEST_HOST)
+				UiTestHost::PreSwap();
+#endif
 				GRHIDevice->Present();
+#if defined(FURY_UI_TEST_HOST)
+				UiTestHost::PostSwap();
+#endif
 			}
 			else
 			{
+#if defined(FURY_UI_TEST_HOST)
+				UiTestHost::PreSwap();
+#endif
 				window.display();
+#if defined(FURY_UI_TEST_HOST)
+				UiTestHost::PostSwap();
+#endif
 			}
 			FURY_GPU_COLLECT();
 			FURY_FRAME;
@@ -857,6 +893,13 @@ namespace fury
 			FURY_ZONE_NAMED("Editor::TickPostRender");
 			Editor::TickPostRender();
 		}
+
+#if defined(FURY_UI_TEST_HOST)
+		// Game-thread pump: after editor/Lua UI submission, before the
+		// draw snapshot below is cloned. The test coroutine itself runs
+		// via the engine's ImGui EndFrame hook inside BuildDrawDataSnapshot.
+		UiTestHost::Pump();
+#endif
 
 		// Build the GUI draw data on the game thread (the GL submission
 		// happens inside the frame executor on the GL thread). ImGui

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/Uniform.h"
 
@@ -27,142 +28,105 @@ namespace fury
 	{
 	}
 
-	bool RenderSettings::Load(const void* wrapper, bool object)
+	void RenderSettings::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		ar << Optional("pipeline", m_PipelinePath);
+		ar << Optional("hdr", m_HDR, false);
+		ar << Optional("cascaded_shadow_map", m_CascadedShadowMap, true);
+		ar << Optional("vegetation_prez", m_VegetationPreZ, true);
+		ar << Optional("csm_map_size", m_CsmMapSize, 2048);
+		ar << Optional("shadow_far", m_ShadowFar, 20000.0f);
+		ar << Optional("csm_split_blend", m_CsmSplitBlend, 0.7f);
+		ar << Optional("wind_params", m_WindParams, Vector4(1.0f, 0.0f, 1.0f, 1.0f));
+
+		// Ordered chain: [{ effect, enabled, uniforms? }, ...]. Entries
+		// without a usable "effect" are dropped.
+		if (ar.IsLoading())
+			m_Chain.clear();
+		if (ar.EnterArray("chain", ArchiveFieldPolicy::Optional))
 		{
-			FURYE << "RenderSettings: Json node is not an object!";
-			return false;
-		}
-
-		std::string str;
-		if (LoadMemberValue(wrapper, "pipeline", str))
-			m_PipelinePath = str;
-
-		bool b = m_HDR;
-		if (LoadMemberValue(wrapper, "hdr", b))
-			m_HDR = b;
-		else
-			m_HDR = false;
-
-		b = m_CascadedShadowMap;
-		if (LoadMemberValue(wrapper, "cascaded_shadow_map", b))
-			m_CascadedShadowMap = b;
-		else
-			m_CascadedShadowMap = true; // legacy default: CSM on
-
-		LoadMemberValue(wrapper, "vegetation_prez", m_VegetationPreZ);
-
-		LoadMemberValue(wrapper, "csm_map_size", m_CsmMapSize);
-		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
-		LoadMemberValue(wrapper, "csm_split_blend", m_CsmSplitBlend);
-		LoadMemberValue(wrapper, "wind_params", m_WindParams);
-
-		m_Chain.clear();
-		// Ordered chain: [{ effect, enabled, uniforms? }, ...]. Missing /
-		// empty chain loads as empty (legacy compatible); entries without
-		// "uniforms" get empty overrides (effect defaults).
-		LoadArray(wrapper, "chain", [&](const void* node) -> bool
-		{
-			RenderChainEntry e;
-			if (LoadMemberValue(node, "effect", e.effectName))
+			if (ar.IsLoading())
 			{
-				bool en = true;
-				LoadMemberValue(node, "enabled", en);
-				e.enabled = en;
-				if (auto uniformsNode = FindMember(node, "uniforms"))
-					LoadArray(uniformsNode, [&](const void* unode) -> bool
-					{
-						// {"name","value":[...]} -- same shape as
-						// PostProcessEffect descriptor defaults.
-						if (!IsObject(unode)) return true;
-						std::string uname;
-						if (!LoadMemberValue(unode, "name", uname)) return true;
-						std::vector<float> values;
-						if (auto v = FindMember(unode, "value"))
-							if (!LoadArray<float>(v, values)) return true;
-						switch (values.size())
-						{
-						case 1: e.uniformOverrides[uname] = Uniform1f::Create({values[0]}); break;
-						case 2: e.uniformOverrides[uname] = Uniform2f::Create({values[0], values[1]}); break;
-						case 3: e.uniformOverrides[uname] = Uniform3f::Create({values[0], values[1], values[2]}); break;
-						case 4: e.uniformOverrides[uname] = Uniform4f::Create({values[0], values[1], values[2], values[3]}); break;
-						default: break;
-						}
-						return true;
-					});
-				m_Chain.push_back(e);
-			}
-			return true;
-		});
-
-		return true;
-	}
-
-	void RenderSettings::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		SaveKey(wrapper, "pipeline");
-		SaveValue(wrapper, m_PipelinePath);
-
-		SaveKey(wrapper, "hdr");
-		SaveValue(wrapper, m_HDR);
-
-		SaveKey(wrapper, "cascaded_shadow_map");
-		SaveValue(wrapper, m_CascadedShadowMap);
-
-		SaveKey(wrapper, "vegetation_prez");
-		SaveValue(wrapper, m_VegetationPreZ);
-
-		SaveKey(wrapper, "csm_map_size");
-		SaveValue(wrapper, m_CsmMapSize);
-
-		SaveKey(wrapper, "shadow_far");
-		SaveValue(wrapper, m_ShadowFar);
-
-		SaveKey(wrapper, "csm_split_blend");
-		SaveValue(wrapper, m_CsmSplitBlend);
-
-		SaveKey(wrapper, "wind_params");
-		SaveValue(wrapper, m_WindParams);
-
-		SaveKey(wrapper, "chain");
-		StartArray(wrapper);
-		for (const auto &e : m_Chain)
-		{
-			StartObject(wrapper);
-			SaveKey(wrapper, "effect");
-			SaveValue(wrapper, e.effectName);
-			SaveKey(wrapper, "enabled");
-			SaveValue(wrapper, e.enabled);
-			if (!e.uniformOverrides.empty())
-			{
-				SaveKey(wrapper, "uniforms");
-				StartArray(wrapper);
-				for (const auto &kv : e.uniformOverrides)
+				std::size_t count = ar.GetArraySize();
+				for (std::size_t i = 0; i < count; ++i)
 				{
-					auto floats = UniformFloats(kv.second);
-					if (floats.empty()) continue;
-					StartObject(wrapper);
-					SaveKey(wrapper, "name");
-					SaveValue(wrapper, kv.first);
-					SaveKey(wrapper, "value");
-					StartArray(wrapper);
-					for (float f : floats)
-						SaveValue(wrapper, f);
-					EndArray(wrapper);
-					EndObject(wrapper);
+					ar.SetArrayIndex(i);
+					if (ar.EnterObject())
+					{
+						RenderChainEntry e;
+						ArchiveFieldResult effectResult = ar.TransferNamed("effect", e.effectName,
+							ArchiveFieldPolicy::Optional, true);
+						if (effectResult == ArchiveFieldResult::Ok)
+						{
+							ar << Optional("enabled", e.enabled, true);
+							if (ar.EnterArray("uniforms", ArchiveFieldPolicy::Optional))
+							{
+								std::size_t uniformCount = ar.GetArraySize();
+								for (std::size_t j = 0; j < uniformCount; ++j)
+								{
+									ar.SetArrayIndex(j);
+									if (ar.EnterObject())
+									{
+										std::string uname;
+										ArchiveFieldResult nameResult = ar.TransferNamed("name", uname,
+											ArchiveFieldPolicy::Optional, true);
+										std::vector<float> values;
+										ar.TransferNamed("value", values, ArchiveFieldPolicy::Optional, true);
+										if (nameResult == ArchiveFieldResult::Ok)
+										{
+											switch (values.size())
+											{
+											case 1: e.uniformOverrides[uname] = Uniform1f::Create({values[0]}); break;
+											case 2: e.uniformOverrides[uname] = Uniform2f::Create({values[0], values[1]}); break;
+											case 3: e.uniformOverrides[uname] = Uniform3f::Create({values[0], values[1], values[2]}); break;
+											case 4: e.uniformOverrides[uname] = Uniform4f::Create({values[0], values[1], values[2], values[3]}); break;
+											default: break;
+											}
+										}
+										ar.LeaveObject();
+									}
+								}
+								ar.LeaveArray();
+							}
+							m_Chain.push_back(e);
+						}
+						ar.LeaveObject();
+					}
 				}
-				EndArray(wrapper);
 			}
-			EndObject(wrapper);
+			else
+			{
+				std::size_t count = m_Chain.size();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.EnterObject();
+					const auto &e = m_Chain[i];
+					std::string effect = e.effectName;
+					ar << Required("effect", effect);
+					bool enabled = e.enabled;
+					ar << Required("enabled", enabled);
+					if (!e.uniformOverrides.empty())
+					{
+						if (ar.EnterArray("uniforms", ArchiveFieldPolicy::Required))
+						{
+							for (const auto &kv : e.uniformOverrides)
+							{
+								auto floats = UniformFloats(kv.second);
+								if (floats.empty()) continue;
+								ar.EnterObject();
+								std::string name = kv.first;
+								ar << Required("name", name);
+								ar << Required("value", floats);
+								ar.LeaveObject();
+							}
+							ar.LeaveArray();
+						}
+					}
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
 		}
-		EndArray(wrapper);
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	const std::string &RenderSettings::GetPipelinePath() const

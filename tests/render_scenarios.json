@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "description": "Render-scenario matrix for tests/render_baseline.py (change: refactor-automation-and-sample-scenes, tasks 8.2-8.4). Scene/camera/time/UI parameters live in tests/lua/render_scenario.lua; this file carries the runner-side configuration: backends, tolerances, masks, temporal checks and preconditions. Baselines are stored per backend under tests/baselines/<backend>/<scenario>.png and are only written by the explicit update operation.",
+  "defaults": {
+    "width": 1280,
+    "height": 720,
+    "capture_frame": 40,
+    "timeout": 600,
+    "tolerances": {
+      "mean_abs_diff": 1.0,
+      "max_abs_diff": 24,
+      "frac_gt_8": 0.001
+    },
+    "masks": []
+  },
+  "scenarios": {
+    "feature_hdr_off": {
+      "backends": [
+        "opengl",
+        "metal"
+      ],
+      "capture_frame": 40,
+      "requires": [
+        "{examples}/Projects/feature/feature.bin"
+      ],
+      "tolerances": {
+        "mean_abs_diff": 1.0,
+        "max_abs_diff": 24,
+        "frac_gt_8": 0.001
+      },
+      "temporal": {
+        "frames": 4,
+        "interval": 4,
+        "min_move_mean": 0.5,
+        "max_static_mean": 0.5,
+        "move_regions": {
+          "fox": "270,350,630,570",
+          "james": "930,370,1080,490",
+          "campfire": "740,420,850,540"
+        },
+        "static_regions": {
+          "tanks": "380,230,540,330",
+          "title": "40,30,430,140"
+        }
+      },
+      "backend_tolerances": {
+        "metal": {
+          "max_abs_diff": 48,
+          "frac_gt_8": 0.004
+        }
+      }
+    },
+    "feature_hdr_on": {
+      "backends": [
+        "opengl",
+        "metal"
+      ],
+      "capture_frame": 40,
+      "requires": [
+        "{examples}/Projects/feature/feature.bin"
+      ],
+      "tolerances": {
+        "mean_abs_diff": 1.0,
+        "max_abs_diff": 24,
+        "frac_gt_8": 0.001
+      },
+      "temporal": {
+        "frames": 4,
+        "interval": 4,
+        "min_move_mean": 0.5,
+        "max_static_mean": 0.5,
+        "move_regions": {
+          "fox": "270,350,630,570",
+          "james": "930,370,1080,490",
+          "campfire": "740,420,850,540"
+        },
+        "static_regions": {
+          "tanks": "380,230,540,330",
+          "title": "40,30,430,140"
+        }
+      },
+      "backend_tolerances": {
+        "metal": {
+          "max_abs_diff": 48,
+          "frac_gt_8": 0.004
+        }
+      }
+    },
+    "island": {
+      "backends": [
+        "opengl",
+        "metal"
+      ],
+      "capture_frame": 60,
+      "env": {
+        "FURY_CLOUD_FREEZE": "1"
+      },
+      "requires": [
+        "{examples}/Projects/ocean/ocean_island.bin"
+      ],
+      "tolerances": {
+        "mean_abs_diff": 2.0,
+        "max_abs_diff": 32,
+        "frac_gt_8": 0.005
+      },
+      "masks": [],
+      "backend_tolerances": {
+        "opengl": {
+          "max_abs_diff": 48
+        },
+        "metal": {
+          "max_abs_diff": 48,
+          "frac_gt_8": 0.008
+        }
+      }
+    }
+  }
+}

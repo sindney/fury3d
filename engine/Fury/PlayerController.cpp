@@ -4,6 +4,7 @@
 
 #include "Fury/Camera.h"
 #include "Fury/CharacterController.h"
+#include "Fury/Archive.h"
 #include "Fury/Engine.h"
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
@@ -23,20 +24,10 @@ PlayerController::~PlayerController()
 {
 }
 
-bool PlayerController::LoadFields(const void* wrapper)
+void PlayerController::SerializeFields(Archive& ar)
 {
-	LoadMemberValue(wrapper, "camera_node", m_CameraNodeName);
-	LoadMemberValue(wrapper, "enabled", m_Enabled);
-	return true;
-}
-
-void PlayerController::SaveFields(void* wrapper)
-{
-	SaveKey(wrapper, "camera_node");
-	SaveValue(wrapper, m_CameraNodeName);
-
-	SaveKey(wrapper, "enabled");
-	SaveValue(wrapper, m_Enabled);
+	ar << Optional("camera_node", m_CameraNodeName);
+	ar << Optional("enabled", m_Enabled);
 }
 
 std::shared_ptr<SceneNode> PlayerController::ResolveCameraNode() const
@@ -172,45 +163,11 @@ Component::Ptr FreeFlyController::Clone() const
 	return clone;
 }
 
-bool FreeFlyController::Load(const void* wrapper, bool object)
+void FreeFlyController::Serialize(Archive& ar)
 {
-	if (object && !IsObject(wrapper))
-	{
-		FURYE << "FreeFlyController: json node is not an object!";
-		return false;
-	}
-
-	std::string str;
-	if (!LoadMemberValue(wrapper, "type", str) || str != "FreeFlyController")
-	{
-		FURYE << "FreeFlyController: invalid type " << str << "!";
-		return false;
-	}
-
-	LoadFields(wrapper);
-	LoadMemberValue(wrapper, "move_speed", m_MoveSpeed);
-	LoadMemberValue(wrapper, "mouse_sensitivity", m_MouseSensitivity);
-	return true;
-}
-
-void FreeFlyController::Save(void* wrapper, bool object)
-{
-	if (object)
-		StartObject(wrapper);
-
-	SaveKey(wrapper, "type");
-	SaveValue(wrapper, "FreeFlyController");
-
-	SaveFields(wrapper);
-
-	SaveKey(wrapper, "move_speed");
-	SaveValue(wrapper, m_MoveSpeed);
-
-	SaveKey(wrapper, "mouse_sensitivity");
-	SaveValue(wrapper, m_MouseSensitivity);
-
-	if (object)
-		EndObject(wrapper);
+	SerializeFields(ar);
+	ar << Optional("move_speed", m_MoveSpeed);
+	ar << Optional("mouse_sensitivity", m_MouseSensitivity);
 }
 
 void FreeFlyController::Activate()

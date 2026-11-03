@@ -45,9 +45,7 @@ namespace fury
 
 		virtual Component::Ptr Clone() const override;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		virtual void Serialize(Archive& ar) override;
 
 		// Heightmap asset reference (EntityManager name; the path-based
 		// setters keep working - name == path for file-backed assets).
