@@ -1,0 +1,22 @@
+{
+  "scenario": "island",
+  "backend": "opengl",
+  "approved_by": "render_baseline.py --update",
+  "meta": {
+    "name": "island",
+    "backend": "opengl",
+    "size": "1280x720",
+    "hdr": "true",
+    "cam": "MainCamera",
+    "time": "12.500",
+    "anim": "0.000",
+    "temporal": "0",
+    "particles": "0"
+  },
+  "tolerances": {
+    "mean_abs_diff": 2.0,
+    "max_abs_diff": 48,
+    "frac_gt_8": 0.005
+  },
+  "masks": []
+}

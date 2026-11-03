@@ -1,14 +1,6 @@
--- tests/lua/scenes/gen_lod.lua — exercise MeshSimplifier.SimplifyMesh + Mesh.SetLodMeshes
--- bindings end-to-end. Genuinely new — no existing CLI feature generates LODs.
---
--- Selection:
---   arg[1] = mesh name to target, OR "--all" to process every mesh in the scene
---   arg[2] = optional output path (if omitted, just logs per-mesh counts)
---
--- Usage:
---   ./fury exec scene.json tests/lua/scenes/gen_lod.lua --all /tmp/out.json
---   ./fury exec scene.json tests/lua/scenes/gen_lod.lua TankMesh /tmp/out.json
---   ./fury exec scene.json tests/lua/scenes/gen_lod.lua --all   # read-only, no save
+-- Generate and attach LOD chains through the MeshSimplifier Lua bindings.
+-- arg[1]: mesh name or --all; arg[2]: optional output scene path.
+-- Run from examples/: ./fury exec scene.json GenLod.lua --all /tmp/out.json
 
 local target = arg[1]
 local out_path = arg[2]

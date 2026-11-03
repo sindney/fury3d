@@ -1,16 +1,5 @@
--- tests/lua/scenes/populate_island_grass.lua - bake the grass layer into
--- ocean_island.bin (change: add-kraut-vegetation, task 10.6).
---
--- Placement comes from examples/Projects/ocean/grass_points.lua (written by
--- tools/gen_island_grass.py: splat-dominant-grass + slope + height gated).
--- The grass mesh/materials enter the island scene by merging the
--- GrassClump.bin fragment and instantiating an InstancedMeshRender; the
--- fragment's template node is removed.
---
--- Usage (from examples/):
---   ./fury ../tests/lua/scenes/populate_island_grass.lua <output.bin>
--- Always writes a NEW file; review the diff, then replace
--- ocean_island.bin manually (cp).
+-- Bake the seeded grass layer into a new island scene.
+-- Run from examples/: ./fury Projects/ocean/populate_island_grass.lua <output.bin>
 
 local function fail(msg)
     io.stderr:write("populate_island_grass FAIL: " .. msg .. "\n")
@@ -31,6 +20,11 @@ local function on_init()
     -- grass fragment: separate scene, then merge assets in
     local grass = Importer.LoadScene(FileUtil.GetAbsPath("Resource/Trees/Grass/GrassClump.bin"))
     if not grass then fail("failed to load GrassClump.bin") end
+    for _, name in ipairs({ "GrassClump_D.png", "GrassClump_Billboard.png" }) do
+        local texture = grass:GetTexture(name)
+        if not texture then fail("grass texture not found: " .. name) end
+        texture:SetFilePathAndSRGB("Engine/Trees/Grass/" .. name, true)
+    end
     if Importer.MergeInto(scene, grass) < 1 then fail("merge produced no nodes") end
 
     -- find the merged template node; harvest mesh + materials, then remove it
@@ -57,10 +51,11 @@ local function on_init()
         print("removed existing GrassField")
     end
 
-    -- Texture paths: the material blocks embed bare filenames
-    -- ("GrassClump_D.png") that resolve relative to the island's working
-    -- dir -- the sibling convention the tree textures already follow.
-    -- tools/gen_island_grass.py copies the two PNGs into Projects/ocean/.
+    for _, name in ipairs({ "GrassClump_D.png", "GrassClump_Billboard.png" }) do
+        if not scene:GetTexture("Engine/Trees/Grass/" .. name) then
+            fail("canonical grass texture not found: " .. name)
+        end
+    end
 
     local points = dofile("Projects/ocean/grass_points.lua")
     if not points or #points < 5 then fail("grass_points.lua empty") end

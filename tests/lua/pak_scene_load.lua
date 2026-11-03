@@ -10,10 +10,10 @@
 --   ./fury exec scene.json|scene.pak ../tests/lua/pak_scene_load.lua 3 4 sky_moon.png
 --
 -- Args:
---   arg[1] expected texture count (default 14, ocean_island EM unique paths)
+--   arg[1] expected texture count (default 10, ocean_island EM unique paths)
 --   arg[2] expected node count    (default 267)
---   arg[3] known texture name    (default "Palm1.tga"; path-created textures
---                                 carry GetName == GetFilePath)
+--   arg[3] known texture path    (default "Engine/Trees/PalmTree2/Palm1.tga";
+--                                 path-created textures carry GetName == GetFilePath)
 --   arg[4] optional "check_postprocess": require all 5 registry JSONs from pak
 --
 -- Asserts (same enumeration APIs as scene_asset_path_identity.lua):
@@ -31,9 +31,9 @@ local function fail(msg)
     os.exit(1)
 end
 
-local EXPECT_TEX = tonumber(arg and arg[1]) or 14
+local EXPECT_TEX = tonumber(arg and arg[1]) or 10
 local EXPECT_NODES = tonumber(arg and arg[2]) or 267
-local KNOWN = (arg and arg[3]) or "Palm1.tga"
+local KNOWN = (arg and arg[3]) or "Engine/Trees/PalmTree2/Palm1.tga"
 
 if EXPECT_NODES <= 0 then fail("expected node count must be > 0") end
 

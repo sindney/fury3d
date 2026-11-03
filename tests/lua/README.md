@@ -1,19 +1,20 @@
-# tests/lua/ — runnable Lua smoke tests for `fury exec`
+# tests/lua/ - Lua regression guards and render drivers
 
-This folder holds Lua scripts invoked via `./fury exec <scene> <script.lua> [args...]`.
-Two sub-conventions:
+Most scripts in this folder run headlessly via
+`./fury exec <scene> <script.lua> [args...]`. The manifest is authoritative for
+lane and display requirements:
 
-- **`tests/lua/`** — binding-smoke regression guards. Each script exits
-  non-zero on invariant violation and is suitable for headless CI.
-- **`tests/lua/scenes/`** — scene-generation samples and render harnesses.
-  Some produce an asset (LOD chain, populated island) that the caller
-  inspects by hand; others run a windowed harness used by the shell
-  suites in `tests/`.
+- **`tests/lua/`** - binding and component regression guards. Each script exits
+  non-zero on invariant violation.
+- **`tests/lua/scenes/`** - deterministic render drivers and retained manual
+  visual/performance harnesses. Authoring tools live beside their examples.
 
-Scripts in `tests/lua/` are invoked via the `fury exec` contract documented in
-`docs/CLI.md` (no SFML window, no `Engine::Initialize`, no GL context on the
-`exec` path). Scripts in `tests/lua/scenes/` open a window and drive
-`Engine.run`; see `tests/lua/scenes/README.md`.
+`cloud_sky_roundtrip.lua`, `scene_node_picker_roundtrip.lua`, and
+`pipeline_compile_check.lua` are windowed render-lane guards despite their
+location; they call `Engine.run` and require a display/GPU. `gen_lod.lua` moved
+to `examples/GenLod.lua` and remains headless-safe. The `fury exec` contract is
+documented in `docs/CLI.md`; see `tests/lua/scenes/README.md` for windowed
+harnesses and `tests/README.md` for aggregate commands.
 
 ## Naming convention
 
@@ -32,8 +33,11 @@ may omit the prefix.
 
 - `scene_smoke_iterate.lua` — exercise `Scene.ForEach*` iteration bindings.
   Read-only; not a replacement for `fury info`.
-- `scene_smoke_save.lua` — round-trip a scene through the Lua save
-  binding. Not a replacement for `fury convert`.
+- `scene_archive_roundtrip.lua` — JSON/BIN semantic round trips, string and
+  clone texture identity, and malformed/compatibility cases in isolated dirs.
+- `scene_component_registry.lua` — every registered component type, including
+  typed Transform persistence and strict component-field validation.
+- `scene_sample_scenes.lua` — canonical feature and island content guards.
 - `scene_asset_path_identity.lua` — merged unique-path-identity invariant
   covering both the bundled `ocean_island.bin` (legacy collapse) and a
   synthetic Terrain scene (deliberate duplicate). Replaces the prior
@@ -60,10 +64,14 @@ may omit the prefix.
 - `game_ui_smoke.lua`, `game_ui.lua`, `game_ui_capture.lua`,
   `game_ui_demo.lua`, `game_ui_settings_persist.lua`,
   `game_ui_slider_param.lua`, `game_ui_spawn.lua`, `game_ui_swim.lua`,
-  `game_ui_window.lua` — RmlUi + IslandGame regression guards.
+  `game_ui_window.lua` — RmlUi + IslandGame regression guards. IslandGame
+  tests use `FURY_GAME_SETTINGS` paths in the artifact directory rather than
+  reading or rewriting project/user settings.
 
 ## Removed in this change
 
+- `scene_smoke_save.lua` — superseded by the semantic JSON/BIN round-trip
+  and compatibility coverage in `scene_archive_roundtrip.lua`.
 - `dump_nodes.lua`, `dump_ground.lua`, `dump_lights.lua` — debug-only
   scene dumpers. No assert; the iteration pattern is covered by
   `scene_smoke_iterate.lua`.
@@ -79,6 +87,10 @@ may omit the prefix.
 - `content_browser_folders.lua` — 177-line synthetic-fixture twin of the
   above. Invariant kept under `scene_asset_path_identity.lua` (fixture B).
 
-## Scene samples (`tests/lua/scenes/`)
+- `cloud_visual_suite.sh`, `prez_ab_suite.sh`, and `metal_gl_compare.sh` -
+  replaced by named manifest cases driven by `tests/render_regression.py`.
+  The PreZ timing check remains as the standalone `tests/prez_perf.sh` probe.
+
+## Render drivers (`tests/lua/scenes/`)
 
 See `tests/lua/scenes/README.md` for the moved sample / harness scripts.

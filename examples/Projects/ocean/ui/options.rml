@@ -1,7 +1,7 @@
 <rml>
 <head>
 	<title>Island - Options</title>
-	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+	<link rel="stylesheet" type="text/css" href="/Resource/Ui/ui.rcss" />
 </head>
 <body id="ui/options.rml">
 	<div class="backdrop">

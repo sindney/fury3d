@@ -46,3 +46,6 @@
 [submodule "engine/ThirdParty/Vulkan-Headers"]
 	path = engine/ThirdParty/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers
+[submodule "engine/ThirdParty/imgui_test_engine"]
+	path = engine/ThirdParty/imgui_test_engine
+	url = https://github.com/ocornut/imgui_test_engine.git

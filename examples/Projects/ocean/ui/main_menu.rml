@@ -1,7 +1,7 @@
 <rml>
 <head>
 	<title>Island - Main Menu</title>
-	<link rel="stylesheet" type="text/css" href="ui.rcss" />
+	<link rel="stylesheet" type="text/css" href="/Resource/Ui/ui.rcss" />
 </head>
 <body id="ui/main_menu.rml">
 	<div class="menu-root">

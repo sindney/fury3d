@@ -231,6 +231,11 @@ namespace fury
 		// settings handler parses too late for device creation).
 		bool FURY_API GetPersistedRhiBackend(std::string &out);
 
+		// Redirects the imgui.ini path used by the early manual readers
+		// above (and the s_HadIniOnStartup check). Empty resets to the
+		// default "imgui.ini". The UI test host uses this to isolate runs.
+		void FURY_API SetPersistedIniPath(const std::string &path);
+
 		void FURY_API SetWindowForPersistence(sf::Window *window);
 
 #else
@@ -277,6 +282,7 @@ namespace fury
 		inline void FrameSelection(SceneNode*) {}
 		inline bool GetPersistedWindowSize(int &, int &, int &, int &) { return false; }
 		inline bool GetPersistedRhiBackend(std::string &) { return false; }
+		inline void SetPersistedIniPath(const std::string &) {}
 		inline void SetWindowForPersistence(sf::Window *) {}
 #endif
 	}

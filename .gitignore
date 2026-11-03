@@ -35,6 +35,9 @@ compile_commands.json
 /examples/fury
 /examples/furye
 /examples/furye-cli
+/examples/furye-ui-tests
+# Staged MoltenVK payload version marker (copied next to the binaries)
+/examples/.pinned-version
 /examples/ktx
 /examples/ktx.exe
 /examples/libktx*.dylib

@@ -128,7 +128,7 @@ Island layer: `tools/gen_island_grass.py` computes splat-aware placement
 (dominant grass splat channel + slope/height gates) in **meadow patches**
 (habitat seeds -> gaussian blobs; uniform density can't read dense at island
 scale) -> `Projects/ocean/grass_points.lua`;
-`tests/lua/scenes/populate_island_grass.lua` merges the clump fragment into a scene
+`Projects/ocean/populate_island_grass.lua` merges the clump fragment into a scene
 copy and bakes a `GrassField` InstancedMeshRender (45k instances, no shadow
 casting). Wind waves roll across the field via the position-phase term in
 the WIND variant (`dot(worldPos.xz, windDir) * 0.00785`, ~800 m wavelength).

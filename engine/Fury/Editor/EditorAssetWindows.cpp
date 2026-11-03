@@ -465,7 +465,7 @@ void RenderMeshMetadata(const std::shared_ptr<Mesh>& mesh,
 			label = "Auto";
 		else
 			label = "LOD " + std::to_string(selected_lod);
-		if (ImGui::BeginCombo("##lod_dropdown", label.c_str()))
+		if (ImGui::BeginCombo("##mesh_lod", label.c_str()))
 		{
 			bool auto_selected = (selected_lod < 0);
 			if (ImGui::Selectable("Auto", auto_selected))

@@ -40,6 +40,9 @@
 #include <Fury/AssetBackend.h>
 #include <Fury/Cli.h>
 #include <Fury/Editor/Editor.h>
+#if defined(FURY_UI_TEST_HOST)
+#include <Fury/Editor/UiTestHost.h>
+#endif
 #include <Fury/FileUtil.h>
 #include <Fury/GameUI.h>
 #include <Fury/Fury.h>
@@ -356,6 +359,12 @@ namespace
 				out_options.rhi = value;
 				continue;
 			}
+#if defined(FURY_UI_TEST_HOST)
+			// UI automation flags (furye-ui-tests only); stripped here so
+			// they never reach the Lua `arg` table.
+			if (fury::UiTestHost::ConsumeLauncherArg(argc, argv, i))
+				continue;
+#endif
 			out_filtered.push_back(a);
 		}
 		return true;
@@ -559,6 +568,13 @@ int main(int argc, char *argv[])
 	// Otherwise: existing Lua launcher behavior.
 	sf::Vector2u window_size{1280, 720};
 	sf::Vector2i window_pos{-1, -1};
+#if defined(FURY_UI_TEST_HOST)
+	// Isolated run: point the editor's early manual ini readers at the
+	// artifact dir BEFORE GetPersistedWindowSize / GetPersistedRhiBackend
+	// scan them, so user settings never shape (or get touched by) a run.
+	if (fury::UiTestHost::Active())
+		fury::Editor::SetPersistedIniPath(fury::UiTestHost::IniOverridePath());
+#endif
 	int pw = 0, ph = 0, px2 = 0, py2 = 0;
 	if (fury::Editor::GetPersistedWindowSize(pw, ph, px2, py2))
 	{
@@ -567,6 +583,16 @@ int main(int argc, char *argv[])
 		window_pos.x = px2;
 		window_pos.y = py2;
 	}
+#if defined(FURY_UI_TEST_HOST)
+	if (fury::UiTestHost::Active())
+	{
+		unsigned int fw = window_size.x, fh = window_size.y;
+		fury::UiTestHost::ApplyWindowConstraints(fw, fh);
+		window_size.x = fw;
+		window_size.y = fh;
+		window_pos = sf::Vector2i(-1, -1);
+	}
+#endif
 
 	sf::Window window;
 	if (!CreateWindowNegotiated(window, sf::VideoMode(window_size),
@@ -701,5 +727,10 @@ int main(int argc, char *argv[])
 	}
 
 	fury::Engine::Shutdown();
+#if defined(FURY_UI_TEST_HOST)
+	// A UI automation run reports its own result (failed / empty / timeout).
+	if (fury::UiTestHost::Ran())
+		exit_code = fury::UiTestHost::ExitCode();
+#endif
 	return exit_code;
 }

@@ -586,32 +586,22 @@ So the glTF pipeline today reaches "I parsed the JSON" and stops.
 
 ### 8.3 Custom JSON / LZ4 (`Serializable` + `FileUtil`)
 
-Generic `Serializable` interface — virtual `Load(void* json)` and
-`Save(void* writer)`, where the `void*` is a `rapidjson::Value` or
-`rapidjson::Writer<StringBuffer>`. Static helpers cover bool / int / uint /
-float / string / `Color` / `Vector4` / `Quaternion` / `Matrix4` / `BoxBounds`,
-plus `LoadArray(walker)` / `SaveArray(walker)` and object brackets.
+`Serializable` exposes one `Serialize(Archive&)` field list per persistent type. Archives have exactly one of three modes: `Loading`, `Saving`, or `Cooking`. Direction branches are limited to object lifetime, resource registration, and derived-data rebuilds.
 
-Round-trip on disk:
+Named `Required`, `Optional`, and `Conditional` fields preserve the existing schema and defaults. Object and array scopes replace flattened wrappers. Missing optional fields retain their defaults; a missing required field or a present malformed field records a sticky error with its nested field path. Scene version validation runs before scene contents are cleared, and failed loads do not become active.
+
+`CookArchive` uses the same field lists to collect typed name/path references without decoding textures, uploading GPU data, rebuilding terrain, registering physics, or writing scene documents.
+
+`FileUtil` is the transport facade for plain JSON, the existing LZ4 envelope, extension dispatch, and in-memory strings:
 
 ```cpp
-FileUtil::SaveCompressedFile(scene, "scene.bin");   // rapidjson → string → LZ4
+FileUtil::SaveCompressedFile(scene, "scene.bin");
 FileUtil::LoadCompressedFile(scene, "scene.bin");
-FileUtil::SaveFile(scene, "scene.json");            // human-readable
+FileUtil::SaveFile(scene, "scene.json");
 FileUtil::LoadFile(scene, "scene.json");
 ```
 
-Caveats from reading the code:
-
-- `Mesh::Save` writes positions / normals / tangents / UVs / indices /
-  submeshes / aabb / cast-shadows. Skinned meshes also round-trip
-  `bone_ids`, `bone_weights`, and a flat `joints` array (with parent
-  indices) + `root_joint` name. The skin keys are emitted only when
-  present, so static-mesh scene files remain byte-identical to
-  pre-skin-roundtrip output. (Closed by the add-cli-gltf-convert change;
-  the `TODO: no joints yet` in Mesh.cpp is gone.)
-- The `void*` opacity means a rapidjson API change cascades through the
-  whole codebase, and there is no schema validation.
+Memory-backed texture extraction is a file-save preparation step only. String serialization, clone/duplicate, and cooking do not relocate textures. Project file-backed textures relocate beside the saved scene; `Engine/` resource paths remain shared and are not copied.
 
 ### 8.4 Texture loading
 
@@ -1015,8 +1005,8 @@ Useful to know before designing tests and the new asset path:
 
 Not refactor decisions — just so the next document can refer to them:
 
-- `void*`-as-rapidjson in `Serializable`, `void*`-as-payload in `ThreadUtil`,
-  `shared_ptr<void>` storage in `EntityManager`. Loose typing; unsafe casts.
+- `void*`-as-payload in `ThreadUtil`, `shared_ptr<void>` storage in
+  `EntityManager`. Loose typing; unsafe casts.
 - `Singleton<T>` everywhere makes mocking and parallel test isolation
   harder.
 - SFML enums in `InputUtil`'s public signatures.
@@ -1408,9 +1398,6 @@ What we have **not** decided yet (open questions for the next discussion):
 - Whether `AnimationClip` switches from frame-tick to seconds-based
   timing (glTF stores time as floats in seconds; the current
   ticks-per-second model is FBX-shaped).
-- Whether the `Serializable` `void*`/rapidjson layer stays; if it stays,
-  whether skinned-mesh round-tripping (currently a `TODO`) is in scope
-  for this refactor.
 - Whether `Signal` gets a lambda-friendly variant, or whether we leave
   it alone and live with member-function-only callbacks.
 
@@ -1538,8 +1525,9 @@ AssetBackend.{h,cpp}       pak-first asset reads with loose-file fallback
 
 FbxParser.{h,cpp}          FBX SDK importer (gated by _FURY_FBXPARSER_IMP_)
 GLTFDom.{h,cpp}            partial glTF 2.0 JSON DOM (no scene-graph build)
-FileUtil.{h,cpp}            path resolution, stb image, rapidjson, LZ4, glTF buffers
-Serializable.{h,cpp}        Load/Save virtual interface + primitive helpers
+FileUtil.{h,cpp}            path resolution, stb image, archive transport, LZ4, glTF buffers
+Archive.{h,cpp}             loading/saving/cooking archives, field scopes, typed references
+Serializable.h              shared Serialize(Archive&) interface
 
 AnimationClip.{h,cpp}       channels + keyframes, 24 fps default
 AnimationPlayer.{h,cpp}     `Animator` component, advances time, drives Transform TRS pairs (joints via their linked SceneNodes)

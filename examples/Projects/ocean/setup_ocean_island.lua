@@ -8,7 +8,8 @@
 -- (tools/gen_terrain_assets.py --island 0.7 --height-scale 4000: 18 m peak,
 -- beach falling to sea floor at the map edge) with a static heightfield
 -- body, the base infinite ocean raised to 400 cm so the island shoreline
--- cuts a foam ring, and a buoyant cube on the beach shallows.
+-- cuts a foam ring, a PlayerSpawn marker on the island peak, and a buoyant
+-- cube on the beach shallows.
 
 local function fail(msg)
     io.stderr:write("setup_ocean_island FAIL: " .. msg .. "\n")
@@ -39,6 +40,16 @@ end
 local terrain_body = BodySetup.Create()
 terrain_body:SetShapeType(3) -- heightfield, static
 terrain_node:AddComponent(terrain_body)
+
+-- -- 1b. Player spawn marker (IslandGame contract) -----------------------------
+-- IslandGame spawns at this marker (plus its own 100 cm clearance) instead
+-- of probing the terrain; on the island peak at the map center
+local spawn_node = root:FindChildRecursively("PlayerSpawn")
+if not spawn_node then
+    spawn_node = SceneNode.Create("PlayerSpawn")
+    root:AddChild(spawn_node)
+end
+spawn_node:SetLocalPosition(Vector4(0.0, terrain:GetHeight(0.0, 0.0), 0.0, 1.0))
 
 -- -- 2. Ocean: infinite, raised to the beach ----------------------------------
 local ocean_node = root:FindChildRecursively("Ocean")

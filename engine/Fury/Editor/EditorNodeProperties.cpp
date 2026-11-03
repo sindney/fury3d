@@ -79,6 +79,9 @@ bool g_NodeShowWorld = false;
 void RenderSceneNodeSection(SceneNode* node) {
 	if (!ImGui::CollapsingHeader("Node", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
+	// Scope same-named properties by node and component.
+	ImGui::PushID("ins:node");
+
 	ImGui::Text("Name: %s", node->GetName().empty() ? "(unnamed)" : node->GetName().c_str());
 
 	if (ImGui::RadioButton("Local##NodeSpace", !g_NodeShowWorld)) g_NodeShowWorld = false;
@@ -131,8 +134,12 @@ void RenderSceneNodeSection(SceneNode* node) {
 		ImReflect::Input("Scale", scl);
 		ImGui::EndDisabled();
 	}
-	if (changed) node->Recompose(false);
+	if (changed) {
+		node->Recompose(false);
+		Editor::MarkSceneDirty();
+	}
 	if (isRoot) ImGui::EndDisabled();
+	ImGui::PopID();
 }
 
 // ----- Component body renderers -----
@@ -144,14 +151,17 @@ void RenderTransformBody(SceneNode* node, Transform* t) {
 	Vector4 pos = t->GetPosition();
 	if (ImReflect::Input("Position", pos).get<Vector4>().is_changed()) {
 		t->SetPreTransforms(pos, t->GetRotation(), t->GetScale());
+		Editor::MarkSceneDirty();
 	}
 	Quaternion rot = t->GetRotation();
 	if (ImReflect::Input("Rotation", rot).get<Quaternion>().is_changed()) {
 		t->SetPreTransforms(t->GetPosition(), rot, t->GetScale());
+		Editor::MarkSceneDirty();
 	}
 	Vector4 scl = t->GetScale();
 	if (ImReflect::Input("Scale", scl).get<Vector4>().is_changed()) {
 		t->SetPreTransforms(t->GetPosition(), t->GetRotation(), scl);
+		Editor::MarkSceneDirty();
 	}
 }
 
@@ -163,44 +173,52 @@ void RenderLightBody(SceneNode* node, Light* light) {
 	if (ImReflect::Input("Type", lt).get<LightType>().is_changed()) {
 		light->SetType(lt);
 		aabb_dirty = true;
+		Editor::MarkSceneDirty();
 	}
 
 	Color col = light->GetColor();
 	if (ImReflect::Input("Color", col).get<Color>().is_changed()) {
 		light->SetColor(col);
+		Editor::MarkSceneDirty();
 	}
 
 	float intensity = light->GetIntensity();
 	if (ImGui::DragFloat("Intensity", &intensity, 0.01f, 0.0f, 100.0f)) {
 		light->SetIntensity(intensity);
+		Editor::MarkSceneDirty();
 	}
 
 	float inner_deg = light->GetInnerAngle() * MathUtil::RadToDeg;
 	if (ImGui::DragFloat("Inner Angle", &inner_deg, 0.5f, 0.0f, 180.0f, "%.1f deg")) {
 		light->SetInnerAngle(inner_deg * MathUtil::DegToRad);
 		aabb_dirty = true;
+		Editor::MarkSceneDirty();
 	}
 
 	float outer_deg = light->GetOutterAngle() * MathUtil::RadToDeg;
 	if (ImGui::DragFloat("Outer Angle", &outer_deg, 0.5f, 0.0f, 180.0f, "%.1f deg")) {
 		light->SetOutterAngle(outer_deg * MathUtil::DegToRad);
 		aabb_dirty = true;
+		Editor::MarkSceneDirty();
 	}
 
 	float falloff = light->GetFalloff();
 	if (ImGui::DragFloat("Falloff", &falloff, 0.01f, 0.0f, 10.0f)) {
 		light->SetFalloff(falloff);
+		Editor::MarkSceneDirty();
 	}
 
 	float radius = light->GetRadius();
 	if (ImGui::DragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f)) {
 		light->SetRadius(radius);
 		aabb_dirty = true;
+		Editor::MarkSceneDirty();
 	}
 
 	bool cast = light->GetCastShadows();
 	if (ImGui::Checkbox("Cast Shadows", &cast)) {
 		light->SetCastShadows(cast);
+		Editor::MarkSceneDirty();
 	}
 
 	if (aabb_dirty) {
@@ -220,17 +238,21 @@ void RenderCameraBody(SceneNode* node, Camera* cam) {
 	float fov = cam->GetFov();
 	if (ImGui::DragFloat("FOV (deg)", &fov, 0.5f, 1.0f, 179.0f, "%.1f")) {
 		cam->PerspectiveFov(fov, s_Aspect, cam->GetNear(), cam->GetFar());
+		Editor::MarkSceneDirty();
 	}
 	float near_p = cam->GetNear();
 	if (ImGui::DragFloat("Near", &near_p, 0.01f, 0.001f, 100.0f)) {
 		cam->PerspectiveFov(fov, s_Aspect, near_p, cam->GetFar());
+		Editor::MarkSceneDirty();
 	}
 	float far_p = cam->GetFar();
 	if (ImGui::DragFloat("Far", &far_p, 1.0f, 1.0f, 10000.0f)) {
 		cam->PerspectiveFov(fov, s_Aspect, cam->GetNear(), far_p);
+		Editor::MarkSceneDirty();
 	}
 	if (ImGui::DragFloat("Aspect", &s_Aspect, 0.01f, 0.1f, 10.0f, "%.2f")) {
 		cam->SetAspect(s_Aspect);
+		Editor::MarkSceneDirty();
 	}
 	// shadow range/distribution live in Render Settings (scene-wide)
 	BoxBounds sb = cam->GetShadowBounds(false);
@@ -260,6 +282,7 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 	bool cast = mr->GetCastShadows();
 	if (ImGui::Checkbox("Cast Shadows", &cast)) {
 		mr->SetCastShadows(cast);
+		Editor::MarkSceneDirty();
 	}
 
 	// Mesh row: buttons first, then label + name.
@@ -283,6 +306,7 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 	// x remove button -- unbinds the mesh from this MeshRender.
 	if (ImGui::Button("x")) {
 		mr->SetMesh(nullptr);
+		Editor::MarkSceneDirty();
 	}
 	ImGui::SameLine();
 
@@ -341,6 +365,7 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 		// x remove-slot button -- sets the slot to null weak_ptr.
 		if (ImGui::Button("x")) {
 			mr->SetMaterial(nullptr, i);
+			Editor::MarkSceneDirty();
 		}
 		ImGui::SameLine();
 
@@ -373,6 +398,7 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 	if (mesh && mr->GetMaterialCount() < mesh->GetSubMeshCount()) {
 		if (ImGui::Button("Add Material Slot")) {
 			mr->SetMaterial(nullptr, mr->GetMaterialCount());
+			Editor::MarkSceneDirty();
 		}
 	}
 }
@@ -400,19 +426,25 @@ void RenderInstancedMeshRenderBody(SceneNode* node, InstancedMeshRender* imr) {
 	auto mesh = imr->GetMesh();
 
 	bool cast = imr->GetCastShadows();
-	if (EditorUi::CheckboxRow("Cast Shadows", &cast))
+	if (EditorUi::CheckboxRow("Cast Shadows", &cast)) {
 		imr->SetCastShadows(cast);
+		Editor::MarkSceneDirty();
+	}
 
 	// ISM (single tier) vs HISM (per-instance LOD buckets).
 	bool hism = imr->GetHierarchical();
-	if (EditorUi::CheckboxRow("HISM (per-instance LOD)", &hism))
+	if (EditorUi::CheckboxRow("HISM (per-instance LOD)", &hism)) {
 		imr->SetHierarchical(hism);
+		Editor::MarkSceneDirty();
+	}
 
 	float cullDist = imr->GetCullDistance();
 	EditorUi::FieldRow("Cull Distance (cm)", 220.0f, [&](float w) {
 		ImGui::SetNextItemWidth(w);
-		if (ImGui::DragFloat("##cull", &cullDist, 50.0f, 0.0f, 500000.0f, "%.0f"))
+		if (ImGui::DragFloat("##cull", &cullDist, 50.0f, 0.0f, 500000.0f, "%.0f")) {
 			imr->SetCullDistance(cullDist);
+			Editor::MarkSceneDirty();
+		}
 	}, "0 = no cap; past this distance instances drop out entirely");
 
 	// Mesh row (same button layout as the MeshRender body).
@@ -430,6 +462,7 @@ void RenderInstancedMeshRenderBody(SceneNode* node, InstancedMeshRender* imr) {
 	ImGui::SameLine();
 	if (ImGui::Button("x")) {
 		imr->SetMesh(nullptr);
+		Editor::MarkSceneDirty();
 	}
 	ImGui::SameLine();
 	ImGui::TextUnformatted("Mesh:");
@@ -510,6 +543,7 @@ void RenderInstancedMeshRenderBody(SceneNode* node, InstancedMeshRender* imr) {
 	if (ImGui::Button("Add Instance")) {
 		InstancedMeshRender::Instance inst;
 		imr->AddInstance(inst);
+		Editor::MarkSceneDirty();
 	}
 
 	// Fixed-height scrolling list via ImGuiListClipper: the raw per-row
@@ -560,14 +594,18 @@ void RenderInstancedMeshRenderBody(SceneNode* node, InstancedMeshRender* imr) {
 			inst.Scale.y = inst.Scale.z = inst.Scale.x;
 			changed = true;
 		}
-		if (changed)
+		if (changed) {
 			imr->SetInstance(static_cast<unsigned int>(s_SelectedInstance), inst);
+			Editor::MarkSceneDirty();
+		}
 		if (ImGui::Button("Remove")) {
 			removeIndex = static_cast<unsigned int>(s_SelectedInstance);
+			Editor::MarkSceneDirty();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Duplicate")) {
 			duplicateIndex = static_cast<unsigned int>(s_SelectedInstance);
+			Editor::MarkSceneDirty();
 		}
 	}
 	if (removeIndex != 0xffffffff) {
@@ -645,6 +683,7 @@ void RenderInstancedMeshRenderBody(SceneNode* node, InstancedMeshRender* imr) {
 				imr->AddInstance(inst);
 				++placed;
 			}
+			Editor::MarkSceneDirty();
 		}
 	}
 	if (!terrain) ImGui::EndDisabled();
@@ -683,8 +722,10 @@ void RenderParticleRendererBody(SceneNode* node, ParticleRenderer* pr) {
 		Editor::SelectAssetInBrowser(typeid(ParticleSystem), pr->GetSystemName());
 	if (!hasSystem) ImGui::EndDisabled();
 	ImGui::SameLine();
-	if (ImGui::Button("x"))
+	if (ImGui::Button("x")) {
 		pr->SetSystemName("");
+		Editor::MarkSceneDirty();
+	}
 	ImGui::SameLine();
 	ImGui::TextUnformatted("System:");
 	ImGui::SameLine();
@@ -698,6 +739,7 @@ void RenderParticleRendererBody(SceneNode* node, ParticleRenderer* pr) {
 		[pr](std::shared_ptr<void> p) {
 			auto ps = std::static_pointer_cast<ParticleSystem>(p);
 			pr->SetSystemName(ps ? ps->GetName() : "");
+			Editor::MarkSceneDirty();
 		});
 
 	if (system)

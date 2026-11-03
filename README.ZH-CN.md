@@ -8,15 +8,13 @@
 
 Fury3D 是一个使用 C++17 与 OpenGL 编写的跨平台 3D 渲染引擎，附带 Lua 驱动的编辑器、JSON 可配置的渲染管线，以及数据驱动后处理特效链。
 
-在 Kimi K3、MiniMax M3、GLM 5.2 与 Claude Code 的协助下继续开发。
-
-> 先用 M3 和 GLM,再主要用 K3,因为它支持多模态,比 GLM 更容易买到,而且能力非常强。
+在 Kimi K3/K3.1 Pro/K2.8, MiniMax M3/M3.1 与 Claude Code 的协助下继续开发。
 
 目前支持 Windows 与 macOS。代码面向学习——编辑器、导入器与着色器从头到尾都短得可以读完。
 
 ### 亮点
 
-* **OpenGL**（3.3+ Core Profile），每个绘制显式声明状态（参考 Vulkan PSO 的写法），特效链与调试绘制不会把 `GL_BLEND` 泄漏到其它绘制中。
+* **RHI layer** - 支持三种 RHI，**OpenGL**（3.3+ Core Profile），Metal，Vulkan，可以通过 `--rhi=` 来指定（详见 `docs/CLI.md`）
 * **C++17** 智能指针，**`sol2 + Lua 5.4`** 脚本绑定。
 * **JSON 可配置管线** — 每个 Pass、每个着色器变体、每个 Uniform 都放在运行时同目录的 `.json` 中。
 * **编辑器（ImGui + ImGuizmo）** — 场景检视器、内容浏览器、节点属性面板、视口 Gizmo、原生文件对话框、可配置并持久化的停靠布局。
@@ -82,6 +80,7 @@ Vendor 的依赖（位于 `engine/ThirdParty/` 的 git submodule）：
 * tinygltf v2.9.7 — glTF 2.0 加载器。
 * meshoptimizer — 网格优化 / 简化 / LOD 链。
 * nativefiledialog-extended（nfd）— 平台原生文件对话框（仅编辑器）。
+* imgui_test_engine — Dear ImGui 测试引擎（仅编辑器自动化）。
 * LZ4、STB image、ImGui、ImGuizmo、ImReflect — 内嵌在源码树中。
 
 不依赖 FBX SDK。

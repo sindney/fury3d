@@ -5,7 +5,7 @@ ocean_island (change: add-kraut-vegetation, task 10.6).
 Reads the island's heightmap + splatmap (TerrainIsland/height.r16,
 splat.png -- both 513x513 over a 102400cm square, heightScale 4000) and
 writes examples/Projects/ocean/grass_points.lua: a flat {x,y,z,yaw,scale}
-tuple list consumed by tests/lua/scenes/populate_island_grass.lua.
+tuple list consumed by Projects/ocean/populate_island_grass.lua.
 
 Accept rule: grass is the dominant splat channel (R of R=grass,G=rock,
 B=mud,A=snow), slope < ~31 deg, height > 30cm (above the waterline).
@@ -47,15 +47,6 @@ def main():
     target = TARGET
     if "--count" in sys.argv:
         target = int(sys.argv[sys.argv.index("--count") + 1])
-
-    # grass textures as scene siblings (the island's texture convention:
-    # material blocks embed bare filenames resolved against the scene's
-    # working dir)
-    import shutil
-    ocean_dir = os.path.dirname(OUT_LUA)
-    for tex in ("GrassClump_D.png", "GrassClump_Billboard.png"):
-        shutil.copyfile(os.path.join(REPO, "examples", "Resource", "Trees", "Grass", tex),
-                        os.path.join(ocean_dir, tex))
 
     heights = load_heights()
     splat = Image.open(os.path.join(TERRAIN_DIR, "splat.png")).convert("RGBA")

@@ -10,28 +10,10 @@
 -- same function on_update's ESC edge calls -- plus the real user path back
 -- to the pause screen via Menu_OpenOptions('pause') / Menu_CloseOptions().
 --
--- A pre-existing Projects/ocean/game_settings.cfg is backed up and restored
--- (the save-path asserts rewrite it); with no pre-existing file the test
--- deletes the one it wrote.
---
 --   ./fury exec Projects/ocean/ocean_island.bin ../tests/lua/game_ui_demo.lua
 
-local CFG = "Projects/ocean/game_settings.cfg"
-
-local cfg_backup = nil
-do
-    local f = io.open(CFG, "rb")
-    if f then cfg_backup = f:read("*a") f:close() end
-end
-
-local function cfg_restore()
-    if cfg_backup ~= nil then
-        local f = io.open(CFG, "wb")
-        if f then f:write(cfg_backup) f:close() end
-    else
-        os.remove(CFG)
-    end
-end
+local CFG = os.getenv("FURY_GAME_SETTINGS") or "/tmp/fury_game_ui_demo.cfg"
+os.remove(CFG)
 
 local function cfg_value(key)
     local f = io.open(CFG, "rb")
@@ -41,7 +23,6 @@ local function cfg_value(key)
 end
 
 local function fail(msg)
-    cfg_restore()
     io.stderr:write("game_ui_demo FAIL: " .. msg .. "\n")
     os.exit(1)
 end
@@ -161,6 +142,5 @@ if cfg_value("vsync") ~= tostring(not vsync_before) then
     fail("cfg vsync after Menu_Exit=" .. tostring(cfg_value("vsync")))
 end
 
-cfg_restore()
 print("game_ui_demo OK")
 os.exit(0)

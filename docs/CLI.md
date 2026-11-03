@@ -473,11 +473,11 @@ screenshots, or GUI should use the Lua launcher path with `--screenshot`
 # Iterate scene contents from Lua (read-only).
 ./fury exec examples/Resource/Scene/scene.json tests/lua/scene_smoke_iterate.lua
 
-# Round-trip a scene to .bin via the Lua save binding.
-./fury exec examples/Resource/Scene/scene.json tests/lua/scene_smoke_save.lua /tmp/out.bin
+# Round-trip a scene through JSON/BIN and compare semantic state.
+./fury exec examples/Projects/feature/feature.bin tests/lua/scene_archive_roundtrip.lua examples/Projects/feature/feature.bin /tmp/feature-archive
 
 # Generate LODs and save to a new scene file.
-./fury exec examples/Resource/Scene/scene.json tests/lua/scenes/gen_lod.lua --all /tmp/out.json
+./fury exec examples/Resource/Scene/scene.json examples/GenLod.lua --all /tmp/out.json
 
 # Run on an FBX (FBX2glTF chain runs first).
 ./fury exec model.fbx tests/lua/scene_smoke_iterate.lua

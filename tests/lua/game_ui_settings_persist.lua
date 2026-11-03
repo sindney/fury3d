@@ -1,32 +1,13 @@
--- Settings persistence restart verify (task 9.6): seed a cfg with
--- non-defaults, boot the demo headless (ISLANDGAME_NO_RUN seam), open
--- options, assert the panel reflects the persisted values.
-local CFG = "Projects/ocean/game_settings.cfg"
-
--- back up a pre-existing cfg
-local backup = nil
-do
-	local f = io.open(CFG, "rb")
-	if f then backup = f:read("a") f:close() end
-end
+-- Seed isolated settings, restart the demo headless, and verify options sync.
+local CFG = os.getenv("FURY_GAME_SETTINGS") or "/tmp/fury_game_ui_settings_persist.cfg"
 
 local f = assert(io.open(CFG, "wb"))
 f:write("shadow_quality=3\nfps_cap=60\nvsync=true\nhide_cursor=false\nsens=2.5\n")
 f:close()
 
-local function restore()
-	if backup then
-		local w = assert(io.open(CFG, "wb"))
-		w:write(backup) w:close()
-	else
-		os.remove(CFG)
-	end
-end
-
 local function check(label, fn)
 	local ok, res = pcall(fn)
 	if not ok or not res then
-		restore()
 		print("PERSIST FAIL: " .. label)
 		os.exit(1)
 	end
@@ -36,7 +17,6 @@ _G.ISLANDGAME_NO_RUN = true
 dofile("IslandGame.lua")
 _G.ISLANDGAME.on_init()
 
--- open options (syncs the panel from S), then read the doc
 Menu_OpenOptions("main")
 local doc = rmlui.contexts["main"].documents["ui/options.rml"]
 check("options doc", function() return doc ~= nil end)
@@ -66,6 +46,5 @@ check("sens label=2.5", function()
 	return doc:GetElementById("sens-value").inner_rml == "2.5"
 end)
 
-restore()
 print("game_ui_settings_persist OK")
 os.exit(0)

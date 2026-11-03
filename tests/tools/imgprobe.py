@@ -6,6 +6,9 @@ Usage:
       prints "MEAN_R MEAN_G MEAN_B" (0..255 floats) of the region
   imgprobe.py diff <a.png> <b.png> [x0,y0,x1,y1]
       prints "MEAN_ABS_DIFF MAX_ABS_DIFF FRAC_GT_8" (frac in 0..1)
+  imgprobe.py diffmask <a.png> <b.png> <x0,y0,x1,y1> [<excl>...]
+      like diff over the full frame, excluding the given rectangles
+      prints "MEAN_ABS_DIFF MAX_ABS_DIFF FRAC_GT_8 EVAL_FRAC"
   imgprobe.py frac_nonblue <png> <x0,y0,x1,y1>
       prints "FRAC" - fraction of pixels where R/B > 0.55 (cloud proxy)
   imgprobe.py rb_ratio <png> <x0,y0,x1,y1>
@@ -84,6 +87,57 @@ def main(argv):
             if m > 8:
                 over += 1
         print("%.4f %d %.6f" % (total / (3.0 * n), mx, over / float(n)))
+        return 0
+
+    if cmd == "diffmask":
+        a = Image.open(argv[2]).convert("RGB")
+        b = Image.open(argv[3]).convert("RGB")
+        if a.size != b.size:
+            sys.stderr.write("diffmask: size mismatch %s vs %s\n" % (a.size, b.size))
+            return 1
+        excl = []
+        for spec in argv[4:]:
+            x0, y0, x1, y1 = parse_region(spec)
+            if x0 < 0 or y0 < 0 or x1 > a.width or y1 > a.height or x0 >= x1 or y0 >= y1:
+                sys.stderr.write("diffmask: exclude %s outside %dx%d\n" % (spec, a.width, a.height))
+                return 1
+            excl.append((x0, y0, x1, y1))
+
+        def masked(x, y):
+            for x0, y0, x1, y1 in excl:
+                if x0 <= x < x1 and y0 <= y < y1:
+                    return True
+            return False
+
+        pa = a.getdata()
+        n = a.width * a.height
+        total = 0
+        mx = 0
+        over = 0
+        kept = 0
+        for i, (ca, cb) in enumerate(zip(pa, b.getdata())):
+            if masked(i % a.width, i // a.width):
+                continue
+            kept += 1
+            d0 = abs(ca[0] - cb[0])
+            d1 = abs(ca[1] - cb[1])
+            d2 = abs(ca[2] - cb[2])
+            d = d0 + d1 + d2
+            total += d
+            m = d0
+            if d1 > m:
+                m = d1
+            if d2 > m:
+                m = d2
+            if m > mx:
+                mx = m
+            if m > 8:
+                over += 1
+        if kept == 0:
+            sys.stderr.write("diffmask: no pixels left after exclusions\n")
+            return 1
+        print("%.4f %d %.6f %.6f" % (total / (3.0 * kept), mx,
+                                     over / float(kept), kept / float(n)))
         return 0
 
     if cmd == "frac_nonblue":

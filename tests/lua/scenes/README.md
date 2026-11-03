@@ -1,24 +1,23 @@
-# tests/lua/scenes/ — scene-generation samples and render harnesses
+# tests/lua/scenes/ - render drivers and retained probes
 
-Scripts here are not regression guards: they author a scene asset or drive
-a render that the caller (or a shell wrapper) reviews by hand. They are
-not run by `./fury exec` from a CI smoke context; each is invoked from
-its own setup.
+These scripts require a window/display unless their entry in
+`tests/manifest.json` explicitly marks them headless. They are not invoked with
+`fury exec` unless that manifest entry says so. User-facing authoring scripts
+live beside their examples instead.
 
-- `gen_lod.lua` — generate LOD chains on every mesh (or one by name).
-- `populate_island_grass.lua` — bake the grass HISM into `ocean_island.bin`.
-- `cloud_visual_check.lua` — render target for the cloud / PreZ shell suites.
-- `tree_preview.lua` — render a kraut-imported tree fragment with
-  `FURY_FORCE_LOD` / `FURY_WIND_*` / `FURY_BB_BIAS` env switches.
-- `instancing_smoke.lua` — 2500-instance ISM draw-call flatness probe.
-- `vegetation_perf.lua` — `ocean_island.bin` 120-frame perf probe.
-- `grass_field_perf.lua` — dense grass scatter perf (`FURY_GRASS_N`).
-- `grass_island_check.lua` — grass-layer batch composition + perf.
-- `lod_transition_check.lua` — palm-wall dithered LOD swap.
-- `billboard_pop_check.lua` — single tree LOD -> billboard boundary check.
+- `cloud_visual_check.lua` - deterministic target for the named cloud, PreZ,
+  and OpenGL/Metal parity cases in `tests/render_regressions.json`.
+- `tree_preview.lua` - render a Kraut tree with `FURY_FORCE_LOD`, `FURY_WIND_*`,
+  and `FURY_BB_BIAS` switches.
+- `instancing_smoke.lua` - 2500-instance ISM draw-call flatness probe.
+- `vegetation_perf.lua` - island vegetation timing probe.
+- `grass_field_perf.lua` - dense grass scatter timing (`FURY_GRASS_N`).
+- `grass_island_check.lua` - grass-layer batch composition and timing.
+- `lod_transition_check.lua` - palm-wall dithered LOD visual review.
+- `billboard_pop_check.lua` - tree LOD-to-billboard boundary visual review.
 
-Shell wrappers that reference these paths:
-- `tests/cloud_visual_suite.sh` -> `tests/lua/scenes/cloud_visual_check.lua`
-- `tests/prez_ab_suite.sh` -> `tests/lua/scenes/cloud_visual_check.lua`
-- `tests/metal_gl_compare.sh` -> `tests/lua/scenes/cloud_visual_check.lua`
-- `tests/pak_pipeline.sh` -> `tests/lua/pak_scene_load.lua` (kept under `tests/lua/`)
+The performance scripts and `tests/prez_perf.sh` are standalone tools, not
+functional gates. Use the aggregate runner for automated cloud, PreZ, backend,
+and baseline checks. `examples/GenLod.lua` and
+`examples/Projects/ocean/populate_island_grass.lua` are the maintained scene
+authoring entry points.

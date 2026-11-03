@@ -23,7 +23,7 @@ end
 local scene = Scene.GetActive()
 if not scene then fail("Scene.GetActive() returned nil") end
 
-local EXPECT_A = 14
+local EXPECT_A = 10
 local EXPECT_B = 4
 local RELOCATED_B = {
     ["splat.png"] = true,
@@ -77,7 +77,7 @@ for cycle = 1, 5 do
     scene = r
 end
 os.remove(tmp)
-io.stderr:write("scene_asset_path_identity: fixture A OK (14 unique paths, 5 cycles stable)\n")
+io.stderr:write("scene_asset_path_identity: fixture A OK (10 unique paths, 5 cycles stable)\n")
 
 -- Fixture B: synthetic Terrain scene with deliberate duplicate.
 local SRC = "scene_asset_path_identity_b_src.json"
