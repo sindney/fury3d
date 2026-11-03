@@ -80,9 +80,7 @@ namespace fury
 		const std::string &GetName() const { return m_Name; }
 		void SetName(const std::string &name) { m_Name = name; }
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		Component::Ptr Clone() const override;
 

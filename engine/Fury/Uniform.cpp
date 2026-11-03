@@ -1,5 +1,6 @@
 #include <type_traits>
 
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/Uniform.h"
 #include "Fury/Serializable.h"
@@ -194,31 +195,8 @@ namespace fury
 	}
 
 	template<typename Datatype, unsigned int Size>
-	bool Uniform<Datatype, Size>::Load(const void* wrapper, bool object)
+	void Uniform<Datatype, Size>::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		std::vector<Datatype> raw;
-		raw.reserve(Size);
-		if (!LoadArray(wrapper, "data", raw))
-			return false;
-
-		for (unsigned int i = 0; i < Size; i++)
-			m_Data[i] = raw[i];
-
-		return true;
-	}
-
-	template<typename Datatype, unsigned int Size>
-	void Uniform<Datatype, Size>::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
 		auto it = m_UniformTypeMap.find((std::type_index)typeid(Uniform<Datatype, Size>));
 		if (it == m_UniformTypeMap.end())
 		{
@@ -226,17 +204,23 @@ namespace fury
 			return;
 		}
 
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, it->second);
+		std::string type = it->second;
+		ar << Required("type", type);
 
-		SaveKey(wrapper, "data");
-		SaveArray(wrapper, Size, [&](unsigned int index)
+		std::vector<Datatype> raw(m_Data, m_Data + Size);
+		ar << Required("data", raw);
+
+		if (ar.IsLoading())
 		{
-			SaveValue(wrapper, m_Data[index]);
-		});
-
-		if (object)
-			EndObject(wrapper);
+			if (raw.size() != Size)
+			{
+				ar.SetError("expected " + std::to_string(Size) + " uniform components, got "
+					+ std::to_string(raw.size()));
+				return;
+			}
+			for (unsigned int i = 0; i < Size; i++)
+				m_Data[i] = raw[i];
+		}
 	}
 
 	template<typename Datatype, unsigned int Size>

@@ -52,13 +52,7 @@ namespace fury
 	// transition thresholds. LOD 0 is the highest detail. Not an
 	// Entity -- lives as a value type on MeshRender. Empty groups are
 	// invalid and never assigned.
-	//
-	// Inherits from Serializable so the protected save/load helpers
-	// (StartObject, SaveArray, ...) are accessible. The inherited
-	// virtual Save/Load are stubs because the EntityManager-relative
-	// mesh-name resolution needs a manager handle -- use the
-	// Save/Load overloads below instead.
-	class FURY_API LodGroup : public Serializable
+	class FURY_API LodGroup
 	{
 	public:
 
@@ -71,12 +65,6 @@ namespace fury
 		// default (empty) state.
 		LodGroup(const std::vector<std::shared_ptr<class Mesh>> &meshes,
 				 const std::vector<float> &thresholds);
-
-		// Serializable stubs -- use the manager-aware overloads below
-		// for the actual persistence path. The base virtuals are
-		// declared here so LodGroup is concrete.
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
 
 		unsigned int GetLodCount() const;
 
@@ -94,15 +82,6 @@ namespace fury
 		// failure logs FURYE and the previous group state is preserved.
 		void Set(const std::vector<std::shared_ptr<class Mesh>> &meshes,
 				 const std::vector<float> &thresholds);
-
-		// Persist as {thresholds:[...], meshes:["name", ...]}. `wrapper`
-		// matches Serializable's rapidjson contract.
-		void SaveMeshData(void* wrapper, bool object = true) const;
-
-		// Read a `lod_group` object previously written by Save. Mesh
-		// names are resolved through `manager`; any unresolved name
-		// causes the load to fail (return false) and logs FURYE.
-		bool LoadFromManager(const void* wrapper, const std::shared_ptr<class EntityManager> &manager, bool object = true);
 
 	private:
 
@@ -182,9 +161,7 @@ namespace fury
 
 		virtual ~Mesh();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		void AddSubMesh(const SubMesh::Ptr &subMesh);
 
@@ -206,7 +183,7 @@ namespace fury
 		// Replace this mesh's joint registry. Used by GltfImporter and any
 		// other importer that needs to attach a freshly-built skeleton. The
 		// rebuilt m_JointMap is keyed by joint name (matching what the
-		// runtime Mesh::Load path expects).
+		// runtime mesh-load path expects).
 		void SetJointTree(const std::vector<std::shared_ptr<Joint>> &joints,
 			const std::shared_ptr<Joint> &root_joint);
 

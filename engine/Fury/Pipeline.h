@@ -183,9 +183,7 @@ namespace fury
 
 		virtual ~Pipeline();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) = 0;
 

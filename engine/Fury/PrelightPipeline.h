@@ -119,9 +119,7 @@ namespace fury
 
 		PrelightPipeline(const std::string &name);
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		// Game-thread entry (called from Lua on_update): gathers the frame
 		// packet and stages it with the RenderThread. Execution happens at

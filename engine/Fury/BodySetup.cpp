@@ -14,6 +14,8 @@ JPH_SUPPRESS_WARNINGS
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 
 #include "Fury/Log.h"
+#include "Fury/Archive.h"
+#include "Fury/EntityManager.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshRender.h"
@@ -81,76 +83,26 @@ Component::Ptr BodySetup::Clone() const
 	return clone;
 }
 
-bool BodySetup::Load(const void* wrapper, bool object)
+void BodySetup::Serialize(Archive& ar)
 {
-	if (object && !IsObject(wrapper))
+	std::string shapeType = ShapeTypeToString(m_ShapeType);
+	std::string motionType = m_MotionType == MotionType::Dynamic ? "dynamic" : "static";
+
+	ar << Optional("shape_type", shapeType);
+	ar << Optional("motion_type", motionType);
+	ar << OptionalNameReference<Mesh>("collision_mesh", m_CollisionMeshName);
+	ar << Optional("half_extents", m_HalfExtents);
+	ar << Optional("radius", m_Radius);
+	ar << Optional("mass", m_Mass);
+	ar << Optional("friction", m_Friction);
+	ar << Optional("restitution", m_Restitution);
+
+	if (ar.IsLoading())
 	{
-		FURYE << "BodySetup: json node is not an object!";
-		return false;
+		if (!StringToShapeType(shapeType, m_ShapeType))
+			FURYW << "BodySetup: unknown shape_type '" << shapeType << "', keeping mesh.";
+		m_MotionType = (motionType == "dynamic") ? MotionType::Dynamic : MotionType::Static;
 	}
-
-	std::string str;
-	if (!LoadMemberValue(wrapper, "type", str) || str != "BodySetup")
-	{
-		FURYE << "BodySetup: invalid type " << str << "!";
-		return false;
-	}
-
-	if (LoadMemberValue(wrapper, "shape_type", str))
-	{
-		if (!StringToShapeType(str, m_ShapeType))
-			FURYW << "BodySetup: unknown shape_type '" << str << "', keeping mesh.";
-	}
-	str.clear();
-
-	if (LoadMemberValue(wrapper, "motion_type", str))
-		m_MotionType = (str == "dynamic") ? MotionType::Dynamic : MotionType::Static;
-	str.clear();
-
-	LoadMemberValue(wrapper, "collision_mesh", m_CollisionMeshName);
-	LoadMemberValue(wrapper, "half_extents", m_HalfExtents);
-	LoadMemberValue(wrapper, "radius", m_Radius);
-	LoadMemberValue(wrapper, "mass", m_Mass);
-	LoadMemberValue(wrapper, "friction", m_Friction);
-	LoadMemberValue(wrapper, "restitution", m_Restitution);
-
-	return true;
-}
-
-void BodySetup::Save(void* wrapper, bool object)
-{
-	if (object)
-		StartObject(wrapper);
-
-	SaveKey(wrapper, "type");
-	SaveValue(wrapper, "BodySetup");
-
-	SaveKey(wrapper, "shape_type");
-	SaveValue(wrapper, ShapeTypeToString(m_ShapeType));
-
-	SaveKey(wrapper, "motion_type");
-	SaveValue(wrapper, m_MotionType == MotionType::Dynamic ? "dynamic" : "static");
-
-	SaveKey(wrapper, "collision_mesh");
-	SaveValue(wrapper, m_CollisionMeshName);
-
-	SaveKey(wrapper, "half_extents");
-	SaveValue(wrapper, m_HalfExtents);
-
-	SaveKey(wrapper, "radius");
-	SaveValue(wrapper, m_Radius);
-
-	SaveKey(wrapper, "mass");
-	SaveValue(wrapper, m_Mass);
-
-	SaveKey(wrapper, "friction");
-	SaveValue(wrapper, m_Friction);
-
-	SaveKey(wrapper, "restitution");
-	SaveValue(wrapper, m_Restitution);
-
-	if (object)
-		EndObject(wrapper);
 }
 
 void BodySetup::SetShapeType(ShapeType type)

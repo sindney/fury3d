@@ -1,4 +1,5 @@
 #include "Fury/AnimationClip.h"
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 
 namespace fury
@@ -19,109 +20,88 @@ namespace fury
 		FURYD << "AnimationClip " << m_Name << " destoried!";
 	}
 
-	bool AnimationClip::Load(const void* wrapper, bool object)
+	void AnimationClip::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+
+		ar << Optional("ticksPerSecond", m_TicksPerSecond, 24);
+		ar << Optional("speed", m_Speed, 1.0f);
+		ar << Optional("loop", m_Loop, true);
+		ar << Optional("duration", m_Duration, 0.0f);
+
+		// One TRS bucket (tick + vec3; rotations are Euler radians).
+		auto transferKfArray = [&ar](const char *key, std::vector<KeyFrame> &frames)
 		{
-			FURYE << "AnimationClip: json node is not an object!";
-			return false;
-		}
-
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		LoadMemberValue(wrapper, "ticksPerSecond", m_TicksPerSecond);
-		LoadMemberValue(wrapper, "speed", m_Speed);
-		LoadMemberValue(wrapper, "loop", m_Loop);
-		LoadMemberValue(wrapper, "duration", m_Duration);
-
-		// Read one TRS bucket (positions/rotations/scalings) into `out`
-		// as tick + vec3. Rotation buckets are stored as Euler radians.
-		auto loadKfArray = [](const void* parent, const std::string &key, std::vector<KeyFrame> &out) -> bool
-		{
-			out.clear();
-			return LoadArray(parent, key, [&](const void* node) -> bool
+			if (ar.IsLoading())
+				frames.clear();
+			if (!ar.EnterArray(key, ArchiveFieldPolicy::Optional))
+				return;
+			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : frames.size();
+			for (std::size_t i = 0; i < count; ++i)
 			{
-				unsigned int tick = 0;
-				float x = 0.0f, y = 0.0f, z = 0.0f;
-				LoadMemberValue(node, "tick", tick);
-				LoadMemberValue(node, "x", x);
-				LoadMemberValue(node, "y", y);
-				LoadMemberValue(node, "z", z);
-				out.emplace_back(tick, x, y, z);
-				return true;
-			});
-		};
-
-		m_Channels.clear();
-		LoadArray(wrapper, "channels", [&](const void* node) -> bool
-		{
-			std::string name;
-			if (!LoadMemberValue(node, "name", name))
-				return false;
-			auto ch = std::make_shared<AnimationChannel>(name);
-			loadKfArray(node, "positions", ch->positions);
-			loadKfArray(node, "rotations", ch->rotations);
-			loadKfArray(node, "scalings", ch->scalings);
-			m_Channels.push_back(ch);
-			return true;
-		});
-
-		return true;
-	}
-
-	void AnimationClip::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "ticksPerSecond");
-		SaveValue(wrapper, m_TicksPerSecond);
-
-		SaveKey(wrapper, "speed");
-		SaveValue(wrapper, m_Speed);
-
-		SaveKey(wrapper, "loop");
-		SaveValue(wrapper, m_Loop);
-
-		SaveKey(wrapper, "duration");
-		SaveValue(wrapper, m_Duration);
-
-		// Emit one keyframe sub-array per TRS bucket (tick + vec3).
-		auto saveKfArray = [wrapper](const std::string &key, const std::vector<KeyFrame> &frames)
-		{
-			SaveKey(wrapper, key);
-			StartArray(wrapper);
-			for (const auto &kf : frames)
-			{
-				StartObject(wrapper);
-				SaveKey(wrapper, "tick"); SaveValue(wrapper, static_cast<unsigned int>(kf.tick));
-				SaveKey(wrapper, "x"); SaveValue(wrapper, kf.x);
-				SaveKey(wrapper, "y"); SaveValue(wrapper, kf.y);
-				SaveKey(wrapper, "z"); SaveValue(wrapper, kf.z);
-				EndObject(wrapper);
+				if (ar.IsLoading())
+				{
+					ar.SetArrayIndex(i);
+					frames.emplace_back();
+				}
+				KeyFrame &kf = frames[i];
+				if (ar.EnterObject())
+				{
+					unsigned int tick = static_cast<unsigned int>(kf.tick);
+					float x = kf.x, y = kf.y, z = kf.z;
+					ar << Optional("tick", tick, 0u);
+					ar << Optional("x", x, 0.0f);
+					ar << Optional("y", y, 0.0f);
+					ar << Optional("z", z, 0.0f);
+					if (ar.IsLoading())
+					{
+						kf.tick = tick;
+						kf.x = x;
+						kf.y = y;
+						kf.z = z;
+					}
+					ar.LeaveObject();
+				}
 			}
-			EndArray(wrapper);
+			ar.LeaveArray();
 		};
 
-		SaveKey(wrapper, "channels");
-		StartArray(wrapper);
-		for (const auto &ch : m_Channels)
+		if (ar.IsLoading())
+			m_Channels.clear();
+		if (ar.EnterArray("channels", ArchiveFieldPolicy::Optional))
 		{
-			StartObject(wrapper);
-			SaveKey(wrapper, "name");
-			SaveValue(wrapper, ch->name);
-			saveKfArray("positions", ch->positions);
-			saveKfArray("rotations", ch->rotations);
-			saveKfArray("scalings", ch->scalings);
-			EndObject(wrapper);
+			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Channels.size();
+			for (std::size_t i = 0; i < count; ++i)
+			{
+				if (ar.IsLoading())
+				{
+					ar.SetArrayIndex(i);
+					auto channel = std::make_shared<AnimationChannel>("");
+					if (ar.EnterObject())
+					{
+						std::string name;
+						ar << Required("name", name);
+						channel->name = name;
+						transferKfArray("positions", channel->positions);
+						transferKfArray("rotations", channel->rotations);
+						transferKfArray("scalings", channel->scalings);
+						ar.LeaveObject();
+					}
+					m_Channels.push_back(channel);
+				}
+				else
+				{
+					ar.EnterObject();
+					std::string name = m_Channels[i]->name;
+					ar << Required("name", name);
+					transferKfArray("positions", m_Channels[i]->positions);
+					transferKfArray("rotations", m_Channels[i]->rotations);
+					transferKfArray("scalings", m_Channels[i]->scalings);
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
 		}
-		EndArray(wrapper);
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	void AnimationClip::CalculateDuration()

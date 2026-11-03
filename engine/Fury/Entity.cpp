@@ -1,5 +1,6 @@
 #include "Fury/Entity.h"
 
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 
 #include <cstdio>
@@ -42,40 +43,20 @@ std::type_index Entity::GetTypeIndex() const {
 	return m_TypeIndex;
 }
 
-bool Entity::Load(const void* wrapper, bool object) {
-	if (object && !IsObject(wrapper)) {
-		FURYE << "Json node is not an object!";
-		return false;
-	}
-
-	if (!LoadMemberValue(wrapper, "name", m_Name)) {
-		FURYE << "Name not found!";
-		return false;
-	}
-
-	// Load UUID (optional -- auto-generate if absent for old
-	// scenes that don't have a "uuid" field).
-	LoadMemberValue(wrapper, "uuid", m_UUID);
-	if (m_UUID.empty())
-		m_UUID = GenerateUUID();
-	m_HashCode = std::hash<std::string>()(m_UUID);
-
-	return true;
+void Entity::Serialize(Archive& ar) {
+	SerializeFields(ar);
 }
 
-void Entity::Save(void* wrapper, bool object) {
-	if (object)
-		StartObject(wrapper);
-
-	SaveKey(wrapper, "name");
-	SaveValue(wrapper, m_Name);
-
-	SaveKey(wrapper, "uuid");
-	SaveValue(wrapper, m_UUID);
-
-	if (object)
-		EndObject(wrapper);
+void Entity::SerializeFields(Archive& ar) {
+	ar << Required("name", m_Name);
+	ar << Optional("uuid", m_UUID);
+	if (ar.IsLoading()) {
+		if (m_UUID.empty()) m_UUID = GenerateUUID();
+		m_HashCode = std::hash<std::string>()(m_UUID);
+	}
 }
+
+
 
 std::string Entity::GetName() const {
 	return m_Name;

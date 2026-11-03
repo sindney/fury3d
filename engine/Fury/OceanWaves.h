@@ -53,9 +53,8 @@ namespace fury
 
 		virtual ~OceanWaves();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
-		virtual void Save(void* wrapper, bool object = true) override;
 
 		const std::string &GetFilePath() const { return m_FilePath; }
 		void SetFilePath(const std::string &path) { m_FilePath = path; }

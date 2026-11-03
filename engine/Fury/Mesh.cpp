@@ -1,7 +1,7 @@
-#include <stack>
 #include <cstdio>
 
 #include "Fury/Log.h"
+#include "Fury/Archive.h"
 #include "Fury/Material.h"
 #include "Fury/Mesh.h"
 #include "Fury/RenderThread.h"
@@ -83,284 +83,231 @@ namespace fury
 		FURYD << "Mesh: " << m_Name << " Destoried!";
 	}
 
-	bool Mesh::Load(const void* wrapper, bool object)
+	void Mesh::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+
+		ar << Optional("cast_shadows", m_CastShadows, false);
+
+		ar << Required("positions", Positions.Data);
+		ar << Conditional("normals", Normals.Data, !Normals.Data.empty());
+		ar << Conditional("tangents", Tangents.Data, !Tangents.Data.empty());
+		ar << Conditional("uvs", UVs.Data, !UVs.Data.empty());
+		ar << Conditional("colors", Colors.Data, !Colors.Data.empty());
+		ar << Conditional("bone_ids", IDs.Data, !IDs.Data.empty());
+		ar << Conditional("bone_weights", Weights.Data, !Weights.Data.empty());
+
+		// Joint tree: flat array; parent links rebuilt from explicit
+		// indices after all joints exist.
+		if (ar.EnterArray("joints", ArchiveFieldPolicy::Optional, !m_Joints.empty()))
 		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
-
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		if (!LoadArray(wrapper, "positions", Positions.Data))
-		{
-			FURYE << "positions not found!";
-			return false;
-		}
-
-		LoadArray(wrapper, "normals", Normals.Data);
-		LoadArray(wrapper, "tangents", Tangents.Data);
-		LoadArray(wrapper, "uvs", UVs.Data);
-
-		// Per-vertex colors -- optional. Kraut trees pack wind weights here.
-		LoadArray(wrapper, "colors", Colors.Data);
-
-		// Per-vertex skin data -- optional. Absent on static meshes; present (with the
-		// joints array below) on skinned meshes. Each vertex carries 4 bone indices
-		// and 3 explicit weights; the 4th weight is implicit (1 - sum of the first 3).
-		LoadArray(wrapper, "bone_ids", IDs.Data);
-		LoadArray(wrapper, "bone_weights", Weights.Data);
-
-		// Joint tree -- flat array; parent links rebuilt below from explicit indices.
-		// Tree shape (first-child / sibling pointers) is reconstructed from parent indices.
-		std::vector<Joint::Ptr> loaded_joints;
-		LoadArray(wrapper, "joints", [&](const void* node) -> bool
-		{
-			std::string joint_name;
-			Matrix4 local, offset;
-			if (!LoadMemberValue(node, "name", joint_name)) return false;
-			LoadMemberValue(node, "local_matrix", local);
-			LoadMemberValue(node, "offset_matrix", offset);
-			auto joint = Joint::Create(joint_name, nullptr);
-			joint->SetLocalMatrix(local);
-			joint->SetOffsetMatrix(offset);
-			std::string scene_node_uuid;
-			if (LoadMemberValue(node, "scene_node_uuid", scene_node_uuid) && !scene_node_uuid.empty())
-				joint->SetSceneNodeUUID(scene_node_uuid);
-			loaded_joints.push_back(joint);
-			m_Joints.push_back(joint);
-			m_JointMap[joint_name] = joint;
-			return true;
-		});
-		// Second pass: wire parent -> first_child / sibling links by index.
-		// LoadArray<callback> doesn't expose the index, so we re-scan in parallel with
-		// loaded_joints to read each entry's parent and link it back.
-		{
-			unsigned int idx = 0;
-			LoadArray(wrapper, "joints", [&](const void* node) -> bool
+			if (ar.IsLoading())
 			{
-				int parent_index = -1;
-				LoadMemberValue(node, "parent", parent_index);
-				if (parent_index >= 0 && parent_index < static_cast<int>(loaded_joints.size()))
+				struct JointRecord
 				{
-					auto child = loaded_joints[idx];
-					auto parent = loaded_joints[parent_index];
-					child->SetParent(parent);
-					auto existing = parent->GetFirstChild();
-					child->SetSibling(existing);
-					parent->SetFirstChild(child);
+					std::string name;
+					Matrix4 local;
+					Matrix4 offset;
+					std::string uuid;
+					int parent = -1;
+				};
+				std::vector<JointRecord> records;
+				std::size_t count = ar.GetArraySize();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.SetArrayIndex(i);
+					if (ar.EnterObject())
+					{
+						JointRecord record;
+						ar << Required("name", record.name);
+						ar << Optional("local_matrix", record.local);
+						ar << Optional("offset_matrix", record.offset);
+						std::string uuid;
+						ar << Optional("scene_node_uuid", uuid);
+						if (!uuid.empty())
+							record.uuid = uuid;
+						ar << Optional("parent", record.parent);
+						records.push_back(record);
+						ar.LeaveObject();
+					}
 				}
-				++idx;
-				return true;
-			});
-		}
-		std::string root_joint_name;
-		if (LoadMemberValue(wrapper, "root_joint", root_joint_name))
-		{
-			auto it = m_JointMap.find(root_joint_name);
-			if (it != m_JointMap.end()) m_RootJoint = it->second;
-		}
 
-		if (!LoadArray(wrapper, "indices", Indices.Data))
-		{
-			FURYE << "indices not found!";
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
-
-		// model aabb
-		LoadMemberValue(wrapper, "aabb", m_AABB);
-
-		// subMeshes
-		if (!LoadArray(wrapper, "submeshes", [&](const void* node) -> bool
-		{
-			auto subMesh = SubMesh::Create();
-			if (LoadArray(node, subMesh->Indices.Data))
-			{
-				AddSubMesh(subMesh);
-				return true;
+				std::vector<Joint::Ptr> loadedJoints;
+				for (auto &record : records)
+				{
+					auto joint = Joint::Create(record.name, nullptr);
+					joint->SetLocalMatrix(record.local);
+					joint->SetOffsetMatrix(record.offset);
+					if (!record.uuid.empty())
+						joint->SetSceneNodeUUID(record.uuid);
+					loadedJoints.push_back(joint);
+					m_Joints.push_back(joint);
+					m_JointMap[record.name] = joint;
+				}
+				for (std::size_t i = 0; i < records.size(); ++i)
+				{
+					int parentIndex = records[i].parent;
+					if (parentIndex >= 0 && parentIndex < static_cast<int>(loadedJoints.size()))
+					{
+						auto child = loadedJoints[i];
+						auto parent = loadedJoints[parentIndex];
+						child->SetParent(parent);
+						auto existing = parent->GetFirstChild();
+						child->SetSibling(existing);
+						parent->SetFirstChild(child);
+					}
+				}
 			}
 			else
 			{
-				return false;
+				std::unordered_map<std::string, int> nameToIndex;
+				for (unsigned int i = 0; i < m_Joints.size(); ++i)
+					nameToIndex[m_Joints[i]->GetName()] = static_cast<int>(i);
+
+				std::size_t count = m_Joints.size();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.EnterObject();
+					const auto &joint = m_Joints[i];
+					std::string name = joint->GetName();
+					Matrix4 local = joint->GetLocalMatrix();
+					Matrix4 offset = joint->GetOffsetMatrix();
+					std::string uuid = joint->GetSceneNodeUUID();
+					int parentIndex = -1;
+					if (auto parent = joint->GetParent())
+					{
+						auto it = nameToIndex.find(parent->GetName());
+						if (it != nameToIndex.end())
+							parentIndex = it->second;
+					}
+					ar << Required("name", name);
+					ar << Required("local_matrix", local);
+					ar << Required("offset_matrix", offset);
+					ar << Conditional("scene_node_uuid", uuid, !uuid.empty());
+					ar << Required("parent", parentIndex);
+					ar.LeaveObject();
+				}
 			}
-		}))
-		{
-			return false;
+			ar.LeaveArray();
 		}
 
-		// LOD chain (LOD 1..N). Optional -- pre-LOD scene files don't
-		// have it. Each entry in `lod_meshes` is a full Mesh JSON
-		// object; `lod_thresholds` is the parallel screen-coverage
-		// array.
-		LoadArray(wrapper, "lod_thresholds", m_LodThresholds);
-		LoadArray(wrapper, "lod_billboard_flags", m_LodBillboardFlags);
-		// Billboard tier material, resolved by name. Materials load
-		// before meshes in Scene::Load, so the scene manager has them.
+		std::string rootJoint = m_RootJoint ? m_RootJoint->GetName() : "";
+		ar << Conditional("root_joint", rootJoint, m_RootJoint != nullptr);
+		if (ar.IsLoading() && !rootJoint.empty())
+		{
+			auto it = m_JointMap.find(rootJoint);
+			if (it != m_JointMap.end())
+				m_RootJoint = it->second;
+		}
+
+		ar << Required("indices", Indices.Data);
+
+		ar << Optional("aabb", m_AABB);
+
+		// submeshes: array of index arrays. Required -- always emitted.
+		if (ar.EnterArray("submeshes", ArchiveFieldPolicy::Required))
+		{
+			if (ar.IsLoading())
+			{
+				std::size_t count = ar.GetArraySize();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.SetArrayIndex(i);
+					auto subMesh = SubMesh::Create();
+					ar.Transfer(nullptr, subMesh->Indices.Data, ArchiveFieldPolicy::Required, true);
+					AddSubMesh(subMesh);
+				}
+			}
+			else
+			{
+				std::size_t count = m_SubMeshes.size();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.Transfer(nullptr, m_SubMeshes[i]->Indices.Data,
+						ArchiveFieldPolicy::Required, true);
+				}
+			}
+			ar.LeaveArray();
+		}
+
+		// LOD chain (LOD 1..N): inline full Mesh objects, optional.
+		ar << Conditional("lod_thresholds", m_LodThresholds, !m_LodMeshes.empty());
+		if (ar.EnterArray("lod_billboard_flags", ArchiveFieldPolicy::Optional,
+			!m_LodBillboardFlags.empty()))
+		{
+			if (ar.IsLoading())
+			{
+				m_LodBillboardFlags.clear();
+				std::size_t count = ar.GetArraySize();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.SetArrayIndex(i);
+					bool flag = false;
+					ar.Transfer(nullptr, flag, ArchiveFieldPolicy::Required, true);
+					m_LodBillboardFlags.push_back(flag);
+				}
+			}
+			else
+			{
+				for (std::size_t i = 0; i < m_LodBillboardFlags.size(); ++i)
+				{
+					bool flag = m_LodBillboardFlags[i];
+					ar.Transfer(nullptr, flag, ArchiveFieldPolicy::Required, true);
+				}
+			}
+			ar.LeaveArray();
+		}
 		std::string billboardMat;
-		if (LoadMemberValue(wrapper, "lod_billboard_material", billboardMat))
+		if (ar.IsSaving())
 		{
-			if (Scene::Active && Scene::Manager())
-				m_BillboardMaterial = Scene::Manager()->Get<Material>(billboardMat);
-			if (m_BillboardMaterial.expired())
-				FURYW << "Mesh::Load: billboard material '" << billboardMat << "' not found";
-		}
-		LoadArray(wrapper, "lod_meshes", [&](const void* node) -> bool
-		{
-			auto lod = Mesh::Create("");
-			if (lod->Load(node, false))
-			{
-				m_LodMeshes.push_back(lod);
-				return true;
-			}
-			FURYE << "Mesh::Load: failed to load an entry in 'lod_meshes'";
-			return false;
-		});
-
-		if (!m_LodBillboardFlags.empty() && m_LodBillboardFlags.size() != m_LodMeshes.size())
-		{
-			FURYE << "Mesh::Load: lod_billboard_flags size != lod_meshes size, dropping flags!";
-			m_LodBillboardFlags.clear();
-		}
-
-		return true;
-	}
-
-	void Mesh::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "cast_shadows");
-		SaveValue(wrapper, m_CastShadows);
-
-		SaveKey(wrapper, "positions");
-		SaveArray(wrapper, Positions.Data);
-
-		if (Normals.Data.size() > 0)
-		{
-			SaveKey(wrapper, "normals");
-			SaveArray(wrapper, Normals.Data);
-		}
-
-		if (Tangents.Data.size() > 0)
-		{
-			SaveKey(wrapper, "tangents");
-			SaveArray(wrapper, Tangents.Data);
-		}
-
-		if (UVs.Data.size() > 0)
-		{
-			SaveKey(wrapper, "uvs");
-			SaveArray(wrapper, UVs.Data);
-		}
-
-		if (Colors.Data.size() > 0)
-		{
-			SaveKey(wrapper, "colors");
-			SaveArray(wrapper, Colors.Data);
-		}
-
-		// Per-vertex skin data + joint tree. Emitted only when present so static-mesh
-		// scene files remain byte-identical to pre-skin-roundtrip output.
-		if (IDs.Data.size() > 0)
-		{
-			SaveKey(wrapper, "bone_ids");
-			SaveArray(wrapper, IDs.Data);
-		}
-		if (Weights.Data.size() > 0)
-		{
-			SaveKey(wrapper, "bone_weights");
-			SaveArray(wrapper, Weights.Data);
-		}
-		if (!m_Joints.empty())
-		{
-			// Build name->index map so joint.parent can be saved as an integer index
-			// (matching the rebuild-on-load contract above).
-			std::unordered_map<std::string, int> name_to_index;
-			for (unsigned int i = 0; i < m_Joints.size(); ++i)
-				name_to_index[m_Joints[i]->GetName()] = static_cast<int>(i);
-
-			SaveKey(wrapper, "joints");
-			SaveArray(wrapper, static_cast<unsigned int>(m_Joints.size()), [&](unsigned int index)
-			{
-				const auto &joint = m_Joints[index];
-				StartObject(wrapper);
-				SaveKey(wrapper, "name");
-				SaveValue(wrapper, joint->GetName());
-			SaveKey(wrapper, "local_matrix");
-			SaveValue(wrapper, joint->GetLocalMatrix());
-			SaveKey(wrapper, "offset_matrix");
-			SaveValue(wrapper, joint->GetOffsetMatrix());
-			// Persist linked SceneNode UUID for unambiguous re-link on load.
-			const auto &uuid = joint->GetSceneNodeUUID();
-			if (!uuid.empty())
-			{
-				SaveKey(wrapper, "scene_node_uuid");
-				SaveValue(wrapper, uuid);
-			}
-			int parent_index = -1;
-			auto parent = joint->GetParent();
-			if (parent)
-			{
-				auto it = name_to_index.find(parent->GetName());
-				if (it != name_to_index.end()) parent_index = it->second;
-			}
-			SaveKey(wrapper, "parent");
-			SaveValue(wrapper, parent_index);
-			EndObject(wrapper);
-		});
-
-			if (m_RootJoint)
-			{
-				SaveKey(wrapper, "root_joint");
-				SaveValue(wrapper, m_RootJoint->GetName());
-			}
-		}
-
-		SaveKey(wrapper, "indices");
-		SaveArray(wrapper, Indices.Data);
-
-		SaveKey(wrapper, "submeshes");
-		SaveArray(wrapper, static_cast<unsigned int>(m_SubMeshes.size()), [&](unsigned int index)
-		{
-			SaveArray(wrapper, m_SubMeshes[index]->Indices.Data);
-		});
-
-		SaveKey(wrapper, "aabb");
-		SaveValue(wrapper, m_AABB);
-
-		// LOD chain (LOD 1..N). Written inline as a sub-object so a
-		// "loded mesh" is a single asset on disk. Absent when empty
-		// (pre-LOD scene files load unchanged).
-		if (!m_LodMeshes.empty())
-		{
-			SaveKey(wrapper, "lod_meshes");
-			SaveArray(wrapper, static_cast<unsigned int>(m_LodMeshes.size()), [&](unsigned int index)
-			{
-				m_LodMeshes[index]->Save(wrapper, true);
-			});
-			SaveKey(wrapper, "lod_thresholds");
-			SaveArray(wrapper, m_LodThresholds);
-			if (!m_LodBillboardFlags.empty())
-			{
-				SaveKey(wrapper, "lod_billboard_flags");
-				SaveArray(wrapper, m_LodBillboardFlags);
-			}
 			if (auto bbMat = m_BillboardMaterial.lock())
+				billboardMat = bbMat->GetName();
+		}
+		ar << Conditional("lod_billboard_material", billboardMat, !billboardMat.empty());
+		if (ar.EnterArray("lod_meshes", ArchiveFieldPolicy::Optional, !m_LodMeshes.empty()))
+		{
+			if (ar.IsLoading())
 			{
-				SaveKey(wrapper, "lod_billboard_material");
-				SaveValue(wrapper, bbMat->GetName());
+				std::size_t count = ar.GetArraySize();
+				for (std::size_t i = 0; i < count; ++i)
+				{
+					ar.SetArrayIndex(i);
+					auto lod = Mesh::Create("");
+					if (ar.EnterObject())
+					{
+						lod->Serialize(ar);
+						ar.LeaveObject();
+					}
+					m_LodMeshes.push_back(lod);
+				}
 			}
+			else
+			{
+				for (auto &lod : m_LodMeshes)
+				{
+					ar.EnterObject();
+					lod->Serialize(ar);
+					ar.LeaveObject();
+				}
+			}
+			ar.LeaveArray();
 		}
 
-		if (object)
-			EndObject(wrapper);
+		if (ar.IsLoading())
+		{
+			if (ar.IsValid() && !m_LodBillboardFlags.empty()
+				&& m_LodBillboardFlags.size() != m_LodMeshes.size())
+			{
+				FURYE << "Mesh: lod_billboard_flags size != lod_meshes size, dropping flags!";
+				m_LodBillboardFlags.clear();
+			}
+			if (!billboardMat.empty() && Scene::Active && Scene::Manager())
+			{
+				m_BillboardMaterial = Scene::Manager()->Get<Material>(billboardMat);
+				if (m_BillboardMaterial.expired())
+					FURYW << "Mesh: billboard material '" << billboardMat << "' not found";
+			}
+		}
 	}
 
 	void Mesh::AddSubMesh(const SubMesh::Ptr &subMesh)
@@ -710,89 +657,6 @@ namespace fury
 		}
 		m_Meshes = meshes;
 		m_Thresholds = thresholds;
-	}
-
-	void LodGroup::Save(void* wrapper, bool object)
-	{
-		// Serializable stub -- the MeshRender Save path calls
-		// SaveMeshData (non-virtual) directly to write the
-		// sub-object. This virtual exists only to make LodGroup
-		// concrete; it should not be invoked in production paths.
-		(void)wrapper; (void)object;
-	}
-
-	bool LodGroup::Load(const void* wrapper, bool object)
-	{
-		// Same as Save -- exists only to satisfy the Serializable
-		// abstract. Use LoadFromManager from MeshRender::Load.
-		(void)wrapper; (void)object;
-		FURYE << "LodGroup::Load called without a manager; use LoadFromManager";
-		return false;
-	}
-
-	void LodGroup::SaveMeshData(void* wrapper, bool object) const
-	{
-		if (object) StartObject(wrapper);
-		SaveKey(wrapper, "thresholds");
-		// Serializable::SaveArray takes a non-const vector ref; copy
-		// out of the const member for the call.
-		std::vector<float> thresholds = m_Thresholds;
-		Serializable::SaveArray(wrapper, thresholds);
-		SaveKey(wrapper, "meshes");
-		StartArray(wrapper);
-		for (const auto &m : m_Meshes)
-		{
-			if (m) SaveValue(wrapper, m->GetName());
-			else SaveValue(wrapper, std::string{});
-		}
-		EndArray(wrapper);
-		if (object) EndObject(wrapper);
-	}
-
-	bool LodGroup::LoadFromManager(const void* wrapper, const std::shared_ptr<EntityManager> &manager, bool object)
-	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "LodGroup::LoadFromManager: node is not an object";
-			return false;
-		}
-
-		std::vector<float> thresholds;
-		std::vector<std::string> names;
-
-		if (!LoadArray(wrapper, "thresholds", thresholds))
-		{
-			FURYE << "LodGroup::LoadFromManager: thresholds not found";
-			return false;
-		}
-		if (!LoadArray(wrapper, "meshes", names))
-		{
-			FURYE << "LodGroup::LoadFromManager: meshes not found";
-			return false;
-		}
-		if (thresholds.size() != names.size())
-		{
-			FURYE << "LodGroup::LoadFromManager: mesh count (" << names.size()
-				  << ") != threshold count (" << thresholds.size() << ")";
-			return false;
-		}
-
-		std::vector<std::shared_ptr<Mesh>> meshes;
-		meshes.reserve(names.size());
-		for (const auto &n : names)
-		{
-			auto m = manager->Get<Mesh>(n);
-			if (!m)
-			{
-				FURYE << "LodGroup::LoadFromManager: mesh '" << n << "' not found";
-				return false;
-			}
-			meshes.push_back(m);
-		}
-
-		m_Meshes = std::move(meshes);
-		m_Thresholds = std::move(thresholds);
-		return true;
 	}
 
 	// MeshContentHash -- FNV-1a 64-bit over positions + top-level indices

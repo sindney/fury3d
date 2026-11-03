@@ -42,10 +42,7 @@ namespace fury
 		Color color = Color::White;
 	};
 
-	// Inherit from Serializable so Load/Save can reach the
-	// Serializable::IsObject / LoadMemberValue / SaveKey helpers
-	// (those are protected; the inheritance is the documented
-	// access path).
+	// Inherit from Serializable for the shared Serialize(Archive&) API.
 	struct FURY_API Gradient : public Serializable
 	{
 		std::vector<GradientKey> keys;
@@ -56,8 +53,7 @@ namespace fury
 		// clamped to [0, 1]; empty gradient returns white.
 		Color Sample(float time01) const;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// (time01, value) key. Linear interpolation; values multiply the
@@ -79,8 +75,7 @@ namespace fury
 		// empty / default curves.
 		float Sample(float time01) const;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// One-shot emission pulse. Task 5.x: EmissionModule applies bursts on
@@ -92,8 +87,7 @@ namespace fury
 		int count = 0;
 		float probability = 1.0f;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// Spawn cadence. Defaults to a no-op (rate = 0, no bursts); the
@@ -104,8 +98,7 @@ namespace fury
 		float rateOverTime = 0.0f;
 		std::vector<Burst> bursts;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// Where the particle spawns. Defaults to a unit box so a freshly
@@ -117,8 +110,7 @@ namespace fury
 		float radius = 0.5f;
 		float angle = 25.0f; // CONE half-angle in degrees
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// Initial linear velocity, multiplied by `speed`. Inherit-from-parent
@@ -130,32 +122,28 @@ namespace fury
 		float speed = 1.0f;
 		bool inheritFromParent = false;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	struct FURY_API ColorOverLifetimeModule : public Serializable
 	{
 		Gradient color;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	struct FURY_API SizeOverLifetimeModule : public Serializable
 	{
 		AnimationCurve size;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	struct FURY_API RotationOverLifetimeModule : public Serializable
 	{
 		float angularVelocity = 0.0f; // degrees / second, around camera-axis
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// Renderer-side authoring. materialName references an EntityManager
@@ -170,8 +158,7 @@ namespace fury
 		// by convention and never shadowed).
 		bool receiveShadows = true;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 	};
 
 	// Live particle POD. Initial size lives on the Particle; SizeOverLifetime

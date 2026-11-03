@@ -188,9 +188,7 @@ namespace fury
 
 		virtual Component::Ptr Clone() const override;
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		virtual void Serialize(Archive& ar) override;
 
 		bool GetEnabled() const { return m_Enabled; }
 		void SetEnabled(bool value) { m_Enabled = value; }
@@ -296,6 +294,15 @@ namespace fury
 		const std::string &GetCloudNoisePath() const { return m_CloudNoisePath; }
 		float GetCloudThicknessKm() const { return m_CloudThickKm; }
 		void SetCloudThicknessKm(float v) { m_CloudThickKm = v; }
+
+		// Read-only views of the persisted atmosphere coefficients.
+		float GetTopRadiusKm() const { return m_TopRadiusKm; }
+		float GetRayleighExpScale() const { return m_RayleighExpScale; }
+		float GetMieExtinction() const { return m_MieExt; }
+		float GetMieExpScale() const { return m_MieExpScale; }
+		Vector4 GetOzoneExtinction() const { return m_OzoneExt; }
+		float GetOzoneCenterKm() const { return m_OzoneCenterKm; }
+		float GetOzoneWidthKm() const { return m_OzoneWidthKm; }
 
 		// --- render hooks (PrelightPipeline) ---
 		// Render-thread entry: LUT refresh from a params/camera snapshot (no

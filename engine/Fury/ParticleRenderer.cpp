@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "Fury/EntityManager.h"
+#include "Fury/Archive.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/Log.h"
@@ -39,68 +40,37 @@ namespace fury
 		}
 	}
 
-	bool ParticleRenderer::Load(const void *wrapper, bool object)
+	void ParticleRenderer::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "ParticleRenderer: json node is not an object!";
-			return false;
-		}
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "ParticleRenderer")
-		{
-			FURYE << "ParticleRenderer: invalid type " << str;
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "name", m_Name);
+		ar << Optional("name", m_Name);
 
 		// ParticleSystem asset reference (name; resolved at first draw).
-		std::string sysName;
-		LoadMemberValue(wrapper, "system", sysName);
-		m_SystemName = sysName;
-		m_System.reset();
+		ar << OptionalNameReference<ParticleSystem>("system", m_SystemName);
+		if (ar.IsLoading()) m_System.reset();
 
 		// Optional inline material binding (legacy + convenience).
 		std::string matName;
-		if (LoadMemberValue(wrapper, "material", matName) && !matName.empty())
+		if (ar.IsSaving())
 		{
-			if (auto mat = Scene::Manager()->Get<Material>(matName))
-				SetMaterial(mat);
+			if (auto mat = m_Material.lock())
+				matName = mat->GetName();
+		}
+		ar << Optional("material", matName);
+		if (ar.IsLoading() && !matName.empty())
+		{
+			auto manager = ar.GetEntityManager();
+			if (!manager && Scene::Active) manager = Scene::Manager();
+			if (manager)
+			{
+				if (auto mat = manager->Get<Material>(matName))
+					SetMaterial(mat);
+			}
 		}
 
 		// Blend mode (RendererModule mirror for the transparent pass).
-		unsigned int bm = 0;
-		LoadMemberValue(wrapper, "blendMode", bm);
-		m_BlendMode = static_cast<ParticleBlend>(bm);
-
-		return true;
-	}
-
-	void ParticleRenderer::Save(void *wrapper, bool object)
-	{
-		if (object) StartObject(wrapper);
-
-		SaveKey(wrapper, "type"); SaveValue(wrapper, "ParticleRenderer");
-		SaveKey(wrapper, "name"); SaveValue(wrapper, m_Name);
-		SaveKey(wrapper, "system"); SaveValue(wrapper, m_SystemName);
-
-		if (auto mat = m_Material.lock())
-		{
-			SaveKey(wrapper, "material");
-			SaveValue(wrapper, mat->GetName());
-		}
-		else
-		{
-			SaveKey(wrapper, "material");
-			SaveValue(wrapper, std::string());
-		}
-
-		SaveKey(wrapper, "blendMode");
-		SaveValue(wrapper, static_cast<unsigned int>(m_BlendMode));
-
-		if (object) EndObject(wrapper);
+		unsigned int bm = static_cast<unsigned int>(m_BlendMode);
+		ar << Optional("blendMode", bm);
+		if (ar.IsLoading()) m_BlendMode = static_cast<ParticleBlend>(bm);
 	}
 
 	Component::Ptr ParticleRenderer::Clone() const

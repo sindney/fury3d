@@ -117,9 +117,7 @@ namespace fury
 
 		virtual ~Material();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		virtual void UpdateBuffer() override;
 

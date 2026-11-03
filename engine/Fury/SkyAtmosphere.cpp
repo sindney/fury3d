@@ -19,6 +19,7 @@
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
+#include "Fury/Archive.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
 #include "Fury/MeshUtil.h"
@@ -209,141 +210,65 @@ namespace fury
 		return ptr;
 	}
 
-	bool SkyAtmosphere::Load(const void* wrapper, bool object)
+	void SkyAtmosphere::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "SkyAtmosphere: json node is not an object!";
-			return false;
-		}
+		ar << Optional("enabled", m_Enabled);
+		ar << Optional("bottom_radius", m_BottomRadiusKm);
+		ar << Optional("top_radius", m_TopRadiusKm);
+		ar << Optional("rayleigh_scat", m_RayleighScat);
+		ar << Optional("rayleigh_exp_scale", m_RayleighExpScale);
+		ar << Optional("mie_scat", m_MieScat);
+		ar << Optional("mie_ext", m_MieExt);
+		ar << Optional("mie_exp_scale", m_MieExpScale);
+		ar << Optional("mie_g", m_MieG);
+		ar << Optional("ozone_ext", m_OzoneExt);
+		ar << Optional("ozone_center", m_OzoneCenterKm);
+		ar << Optional("ozone_width", m_OzoneWidthKm);
+		ar << Optional("ground_albedo", m_GroundAlbedo);
+		ar << Optional("sun_angular_radius", m_SunAngularRadius);
+		ar << Optional("sun_disc_intensity", m_SunDiscIntensity);
+		ar << Optional("sun_intensity", m_SunIntensity);
+		ar << Optional("ap_range_km", m_ApRangeKm);
+		ar << Optional("moon_enabled", m_MoonEnabled);
+		ar << Optional("moon_angular_radius", m_MoonAngularRadius);
+		ar << Optional("moon_intensity", m_MoonIntensity);
+		ar << OptionalPathReference<Texture>("moon_texture", m_MoonTexturePath);
+		if (ar.IsCooking()) ar.SetTextureSRGB(m_MoonTexturePath, true);
+		ar << Optional("clouds_enabled", m_CloudsEnabled);
+		ar << Optional("cloud_coverage", m_CloudCoverage);
+		ar << Optional("cloud_alt_km", m_CloudAltKm);
+		ar << Optional("cloud_thick_km", m_CloudThickKm);
+		ar << Optional("cloud_scale", m_CloudScale);
+		ar << Optional("cloud_density", m_CloudDensity);
+		ar << Optional("cloud_wind_speed", m_CloudWindSpeedCm);
+		ar << Optional("cloud_fade_km", m_CloudFadeKm);
+		ar << OptionalPathReference<Texture>("cloud_noise_texture", m_CloudNoisePath);
+		if (ar.IsCooking()) ar.SetTextureSRGB(m_CloudNoisePath, false);
+		ar << Optional("cloud_type_bias", m_CloudTypeBias);
+		ar << Optional("cloud_detail_scale", m_CloudDetailScale);
+		ar << Optional("cloud_erosion", m_CloudErosion);
+		ar << Optional("cloud_powder", m_CloudPowder);
+		ar << Optional("cloud_hg_g", m_CloudHgG);
+		ar << Optional("cloud_hg_g_fwd", m_CloudHgGFwd);
+		ar << Optional("cloud_hg_blend", m_CloudHgBlend);
+		ar << Optional("cloud_ambient_scale", m_CloudAmbientScale);
+		ar << Optional("cloud_quality", m_CloudQuality);
+		ar << Optional("cloud_debug_mode", m_CloudDebugMode);
+		ar << Optional("cloud_weather_bias", m_CloudWeatherBias);
+		ar << Optional("cloud_weather_type_contrast", m_CloudWeatherTypeContrast);
+		ar << Optional("cirrus_enabled", m_CirrusEnabled);
+		ar << Optional("cirrus_coverage", m_CirrusCoverage);
+		ar << Optional("cirrus_alt_km", m_CirrusAltKm);
+		ar << Optional("cirrus_scale", m_CirrusScale);
+		ar << Optional("cirrus_density", m_CirrusDensity);
+		ar << Optional("time_hours", m_TimeHours);
+		ar << Optional("day_length_minutes", m_DayLengthMinutes);
+		ar << Optional("auto_advance", m_AutoAdvance);
+		ar << Optional("sun_from_tod", m_SunFromTod);
+		ar << Optional("sun_light_name", m_SunLightName);
 
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "SkyAtmosphere")
-		{
-			FURYE << "SkyAtmosphere: invalid type " << str << "!";
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "enabled", m_Enabled);
-		LoadMemberValue(wrapper, "bottom_radius", m_BottomRadiusKm);
-		LoadMemberValue(wrapper, "top_radius", m_TopRadiusKm);
-		LoadMemberValue(wrapper, "rayleigh_scat", m_RayleighScat);
-		LoadMemberValue(wrapper, "rayleigh_exp_scale", m_RayleighExpScale);
-		LoadMemberValue(wrapper, "mie_scat", m_MieScat);
-		LoadMemberValue(wrapper, "mie_ext", m_MieExt);
-		LoadMemberValue(wrapper, "mie_exp_scale", m_MieExpScale);
-		LoadMemberValue(wrapper, "mie_g", m_MieG);
-		LoadMemberValue(wrapper, "ozone_ext", m_OzoneExt);
-		LoadMemberValue(wrapper, "ozone_center", m_OzoneCenterKm);
-		LoadMemberValue(wrapper, "ozone_width", m_OzoneWidthKm);
-		LoadMemberValue(wrapper, "ground_albedo", m_GroundAlbedo);
-		LoadMemberValue(wrapper, "sun_angular_radius", m_SunAngularRadius);
-		LoadMemberValue(wrapper, "sun_disc_intensity", m_SunDiscIntensity);
-		LoadMemberValue(wrapper, "sun_intensity", m_SunIntensity);
-		LoadMemberValue(wrapper, "ap_range_km", m_ApRangeKm);
-		LoadMemberValue(wrapper, "moon_enabled", m_MoonEnabled);
-		LoadMemberValue(wrapper, "moon_angular_radius", m_MoonAngularRadius);
-		LoadMemberValue(wrapper, "moon_intensity", m_MoonIntensity);
-		LoadMemberValue(wrapper, "moon_texture", m_MoonTexturePath);
-		LoadMemberValue(wrapper, "clouds_enabled", m_CloudsEnabled);
-		LoadMemberValue(wrapper, "cloud_coverage", m_CloudCoverage);
-		LoadMemberValue(wrapper, "cloud_alt_km", m_CloudAltKm);
-		LoadMemberValue(wrapper, "cloud_thick_km", m_CloudThickKm);
-		LoadMemberValue(wrapper, "cloud_scale", m_CloudScale);
-		LoadMemberValue(wrapper, "cloud_density", m_CloudDensity);
-		LoadMemberValue(wrapper, "cloud_wind_speed", m_CloudWindSpeedCm);
-		LoadMemberValue(wrapper, "cloud_fade_km", m_CloudFadeKm);
-		LoadMemberValue(wrapper, "cloud_noise_texture", m_CloudNoisePath);
-		LoadMemberValue(wrapper, "cloud_type_bias", m_CloudTypeBias);
-		LoadMemberValue(wrapper, "cloud_detail_scale", m_CloudDetailScale);
-		LoadMemberValue(wrapper, "cloud_erosion", m_CloudErosion);
-		LoadMemberValue(wrapper, "cloud_powder", m_CloudPowder);
-		LoadMemberValue(wrapper, "cloud_hg_g", m_CloudHgG);
-		LoadMemberValue(wrapper, "cloud_hg_g_fwd", m_CloudHgGFwd);
-		LoadMemberValue(wrapper, "cloud_hg_blend", m_CloudHgBlend);
-		LoadMemberValue(wrapper, "cloud_ambient_scale", m_CloudAmbientScale);
-		LoadMemberValue(wrapper, "cloud_quality", m_CloudQuality);
-		LoadMemberValue(wrapper, "cloud_debug_mode", m_CloudDebugMode);
-		LoadMemberValue(wrapper, "cloud_weather_bias", m_CloudWeatherBias);
-		LoadMemberValue(wrapper, "cloud_weather_type_contrast", m_CloudWeatherTypeContrast);
-		LoadMemberValue(wrapper, "cirrus_enabled", m_CirrusEnabled);
-		LoadMemberValue(wrapper, "cirrus_coverage", m_CirrusCoverage);
-		LoadMemberValue(wrapper, "cirrus_alt_km", m_CirrusAltKm);
-		LoadMemberValue(wrapper, "cirrus_scale", m_CirrusScale);
-		LoadMemberValue(wrapper, "cirrus_density", m_CirrusDensity);
-		LoadMemberValue(wrapper, "time_hours", m_TimeHours);
-		LoadMemberValue(wrapper, "day_length_minutes", m_DayLengthMinutes);
-		LoadMemberValue(wrapper, "auto_advance", m_AutoAdvance);
-		LoadMemberValue(wrapper, "sun_from_tod", m_SunFromTod);
-		LoadMemberValue(wrapper, "sun_light_name", m_SunLightName);
-
-		m_StaticDirty = true;
-		return true;
-	}
-
-	void SkyAtmosphere::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "SkyAtmosphere");
-
-		SaveKey(wrapper, "enabled");            SaveValue(wrapper, m_Enabled);
-		SaveKey(wrapper, "bottom_radius");      SaveValue(wrapper, m_BottomRadiusKm);
-		SaveKey(wrapper, "top_radius");         SaveValue(wrapper, m_TopRadiusKm);
-		SaveKey(wrapper, "rayleigh_scat");      SaveValue(wrapper, m_RayleighScat);
-		SaveKey(wrapper, "rayleigh_exp_scale"); SaveValue(wrapper, m_RayleighExpScale);
-		SaveKey(wrapper, "mie_scat");           SaveValue(wrapper, m_MieScat);
-		SaveKey(wrapper, "mie_ext");            SaveValue(wrapper, m_MieExt);
-		SaveKey(wrapper, "mie_exp_scale");      SaveValue(wrapper, m_MieExpScale);
-		SaveKey(wrapper, "mie_g");              SaveValue(wrapper, m_MieG);
-		SaveKey(wrapper, "ozone_ext");          SaveValue(wrapper, m_OzoneExt);
-		SaveKey(wrapper, "ozone_center");       SaveValue(wrapper, m_OzoneCenterKm);
-		SaveKey(wrapper, "ozone_width");        SaveValue(wrapper, m_OzoneWidthKm);
-		SaveKey(wrapper, "ground_albedo");      SaveValue(wrapper, m_GroundAlbedo);
-		SaveKey(wrapper, "sun_angular_radius"); SaveValue(wrapper, m_SunAngularRadius);
-		SaveKey(wrapper, "sun_disc_intensity"); SaveValue(wrapper, m_SunDiscIntensity);
-		SaveKey(wrapper, "sun_intensity");      SaveValue(wrapper, m_SunIntensity);
-		SaveKey(wrapper, "ap_range_km");        SaveValue(wrapper, m_ApRangeKm);
-		SaveKey(wrapper, "moon_enabled");       SaveValue(wrapper, m_MoonEnabled);
-		SaveKey(wrapper, "moon_angular_radius"); SaveValue(wrapper, m_MoonAngularRadius);
-		SaveKey(wrapper, "moon_intensity");     SaveValue(wrapper, m_MoonIntensity);
-		SaveKey(wrapper, "moon_texture");       SaveValue(wrapper, m_MoonTexturePath);
-		SaveKey(wrapper, "clouds_enabled");     SaveValue(wrapper, m_CloudsEnabled);
-		SaveKey(wrapper, "cloud_coverage");     SaveValue(wrapper, m_CloudCoverage);
-		SaveKey(wrapper, "cloud_alt_km");       SaveValue(wrapper, m_CloudAltKm);
-		SaveKey(wrapper, "cloud_thick_km");     SaveValue(wrapper, m_CloudThickKm);
-		SaveKey(wrapper, "cloud_scale");        SaveValue(wrapper, m_CloudScale);
-		SaveKey(wrapper, "cloud_density");      SaveValue(wrapper, m_CloudDensity);
-		SaveKey(wrapper, "cloud_wind_speed");   SaveValue(wrapper, m_CloudWindSpeedCm);
-		SaveKey(wrapper, "cloud_fade_km");      SaveValue(wrapper, m_CloudFadeKm);
-		SaveKey(wrapper, "cloud_noise_texture"); SaveValue(wrapper, m_CloudNoisePath);
-		SaveKey(wrapper, "cloud_type_bias");    SaveValue(wrapper, m_CloudTypeBias);
-		SaveKey(wrapper, "cloud_detail_scale"); SaveValue(wrapper, m_CloudDetailScale);
-		SaveKey(wrapper, "cloud_erosion");      SaveValue(wrapper, m_CloudErosion);
-		SaveKey(wrapper, "cloud_powder");       SaveValue(wrapper, m_CloudPowder);
-		SaveKey(wrapper, "cloud_hg_g");         SaveValue(wrapper, m_CloudHgG);
-		SaveKey(wrapper, "cloud_hg_g_fwd");     SaveValue(wrapper, m_CloudHgGFwd);
-		SaveKey(wrapper, "cloud_hg_blend");     SaveValue(wrapper, m_CloudHgBlend);
-		SaveKey(wrapper, "cloud_ambient_scale"); SaveValue(wrapper, m_CloudAmbientScale);
-		SaveKey(wrapper, "cloud_quality");      SaveValue(wrapper, m_CloudQuality);
-		SaveKey(wrapper, "cloud_debug_mode");   SaveValue(wrapper, m_CloudDebugMode);
-		SaveKey(wrapper, "cloud_weather_bias"); SaveValue(wrapper, m_CloudWeatherBias);
-		SaveKey(wrapper, "cloud_weather_type_contrast"); SaveValue(wrapper, m_CloudWeatherTypeContrast);
-		SaveKey(wrapper, "cirrus_enabled");     SaveValue(wrapper, m_CirrusEnabled);
-		SaveKey(wrapper, "cirrus_coverage");    SaveValue(wrapper, m_CirrusCoverage);
-		SaveKey(wrapper, "cirrus_alt_km");      SaveValue(wrapper, m_CirrusAltKm);
-		SaveKey(wrapper, "cirrus_scale");       SaveValue(wrapper, m_CirrusScale);
-		SaveKey(wrapper, "cirrus_density");     SaveValue(wrapper, m_CirrusDensity);
-		SaveKey(wrapper, "time_hours");         SaveValue(wrapper, m_TimeHours);
-		SaveKey(wrapper, "day_length_minutes"); SaveValue(wrapper, m_DayLengthMinutes);
-		SaveKey(wrapper, "auto_advance");       SaveValue(wrapper, m_AutoAdvance);
-		SaveKey(wrapper, "sun_from_tod");       SaveValue(wrapper, m_SunFromTod);
-		SaveKey(wrapper, "sun_light_name");     SaveValue(wrapper, m_SunLightName);
-
-		if (object)
-			EndObject(wrapper);
+		if (ar.IsLoading())
+			m_StaticDirty = true;
 	}
 
 	void SkyAtmosphere::OnAttaching(const std::shared_ptr<SceneNode> &node)

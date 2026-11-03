@@ -74,9 +74,7 @@ namespace fury
 
 		void Clear();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		std::shared_ptr<SceneNode> GetRootNode() const;
 

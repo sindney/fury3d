@@ -49,19 +49,17 @@ namespace fury
 
 		typedef std::shared_ptr<RenderSettings> Ptr;
 
-		// Defaults match the legacy "no renderSettings block" path:
-		// no pipeline, LDR, CSM on, empty chain. So when Scene::Load
-		// constructs a fresh RenderSettings for an old scene file it
+		// Defaults match the "no renderSettings block" path: no
+		// pipeline, LDR, CSM on, empty chain. So scene loading
+		// constructs a fresh RenderSettings for an old scene file that
 		// already behaves correctly.
 		RenderSettings();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		// pipeline path (relative to working dir, same convention as
-		// Shader::m_FilePath). Empty = use the active pipeline (legacy
-		// behaviour: the editor / Lua script picks it).
+		// Shader::m_FilePath). Empty = use the active pipeline (the
+		// editor / Lua script picks it).
 		const std::string &GetPipelinePath() const;
 		void SetPipelinePath(const std::string &path);
 
@@ -94,8 +92,7 @@ namespace fury
 
 		// Chain accessors. The chain is owned by RenderSettings; UI
 		// code mutates it in place via these methods. Resolution
-		// against the registry happens on scene load (see
-		// Scene::Load).
+		// against the registry happens on scene load.
 		const std::vector<RenderChainEntry> &GetChain() const;
 		std::vector<RenderChainEntry> &GetChainMutable();
 

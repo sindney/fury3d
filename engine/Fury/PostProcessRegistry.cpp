@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #include "Fury/FileUtil.h"
+#include "Fury/Archive.h"
 #include "Fury/AssetBackend.h"
 #include "Fury/Log.h"
 #include "Fury/Scene.h"
@@ -141,9 +142,16 @@ namespace fury
 			}
 
 			auto effect = PostProcessEffect::Create("");
-			if (!effect->Load(&dom))
+			JsonReadArchive ar(&dom);
+			if (ar.EnterObject())
 			{
-				FURYW << "PostProcessRegistry: failed to load effect from " << path;
+				effect->Serialize(ar);
+				ar.LeaveObject();
+			}
+			if (!ar.IsValid())
+			{
+				FURYW << "PostProcessRegistry: failed to load effect from " << path
+					  << " at " << ar.GetErrorPath() << ": " << ar.GetError();
 				continue;
 			}
 

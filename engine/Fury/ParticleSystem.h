@@ -34,8 +34,8 @@ namespace fury
 
 		virtual ~ParticleSystem();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
+
 		Ptr Clone() const;
 
 		// Live particle count (slots whose `alive` flag is true).
@@ -89,6 +89,8 @@ namespace fury
 		// Runtime-only state, never serialized.
 		void SetExternallyDriven(bool driven) { m_ExternallyDriven = driven; }
 		bool IsExternallyDriven() const { return m_ExternallyDriven; }
+		void SetRandomSeed(unsigned int seed) { m_RandomSeed = m_RandomState = seed; }
+		unsigned int GetRandomSeed() const { return m_RandomSeed; }
 
 		// Advance the simulation by `dt` seconds. Connected to
 		// Engine::OnUpdate by Create() -- the editor's preview can
@@ -129,12 +131,15 @@ namespace fury
 		size_t m_UpdateKey = 0;
 		bool m_Subscribed = false;
 		bool m_ExternallyDriven = false;
+		unsigned int m_RandomSeed = 1;
+		unsigned int m_RandomState = 1;
 
 		void Subscribe();
 		void Unsubscribe();
 		void TickOnUpdate(float dt);
 
 		bool SpawnOne();
+		float NextRandom();
 		Vector4 SampleSpawnPosition();
 	};
 }

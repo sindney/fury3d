@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "Fury/BoxBounds.h"
+#include "Fury/Archive.h"
 #include "Fury/Color.h"
 #include "Fury/BuoyancyComponent.h"
 #include "Fury/Camera.h"
@@ -48,6 +49,26 @@ namespace fury
 {
 	Pipeline::Ptr Pipeline::Active = nullptr;
 
+	namespace
+	{
+		template<typename T>
+		void SerializePipelineAssets(Archive& ar, const char* name,
+			const std::shared_ptr<EntityManager>& manager)
+		{
+			if (!ar.EnterArray(name)) return;
+			manager->ForEach<T>([&](const std::shared_ptr<T>& ptr) -> bool
+			{
+				if (ar.EnterObject())
+				{
+					ptr->Serialize(ar);
+					ar.LeaveObject();
+				}
+				return ar.IsValid();
+			});
+			ar.LeaveArray();
+		}
+	}
+
 	Pipeline::Pipeline(const std::string &name) : Entity(name)
 	{
 		m_TypeIndex = typeid(Pipeline);
@@ -71,144 +92,84 @@ namespace fury
 		FURYD << "Pipeline " << m_Name << " destoried!";
 	}
 
-	bool Pipeline::Load(const void* wrapper, bool object)
+	void Pipeline::Serialize(Archive& ar)
 	{
-		std::string str;
-
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+		if (ar.IsLoading())
 		{
-			FURYE << "Json node is not an object!";
-			return false;
+			m_EntityManager->RemoveAll<Texture>();
+			m_EntityManager->RemoveAll<Shader>();
+			m_EntityManager->RemoveAll<Pass>();
+			m_SortedPasses.clear();
 		}
 
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		// A pipeline JSON is a complete definition: drop previously
-		// loaded render entities before parsing.
-		m_EntityManager->RemoveAll<Texture>();
-		m_EntityManager->RemoveAll<Shader>();
-		m_EntityManager->RemoveAll<Pass>();
-		m_SortedPasses.clear();
-
-		if (!LoadArray(wrapper, "textures", [&](const void* node) -> bool
+		if (ar.IsLoading())
 		{
-			if (!LoadMemberValue(node, "name", str))
+			if (ar.EnterArray("textures"))
 			{
-				FURYE << "Texture param 'name' not found!";
-				return false;
-			}
-
-			auto texture = Texture::Create(str);
-			if (!texture->Load(node))
-				return false;
-
-			if (!m_EntityManager->Add(texture) && !texture->GetPath().empty())
-				FURYW << "Pipeline: duplicate texture path '" << texture->GetPath()
-					  << "' -- first registered entry wins";
-
-			return true;
-		}))
-		{
-			FURYE << "Error reading texture array!";
-			return false;
-		}
-
-		if (!LoadArray(wrapper, "shaders", [&](const void* node) -> bool
-		{
-			if (!LoadMemberValue(node, "name", str))
-			{
-				FURYE << "Shader param 'name' not found!";
-				return false;
-			}
-
-			// Skip INSTANCE_SSBO variants when the context lacks SSBO
-			// (GL 3.3/4.1): they'd fail to compile and are never
-			// selected there (the divisor-VBO variants serve instead).
-			if (!InstancedMeshStreamer::Get().SSBOAvailable())
-			{
-				bool wantsSSBO = false;
-				LoadArray(node, "defines", [&](const void* defineNode) -> bool
+				for (size_t i = 0; i < ar.GetArraySize(); ++i)
 				{
-					std::string define;
-					if (LoadValue(defineNode, define) && define == "INSTANCE_SSBO")
-						wantsSSBO = true;
-					return true;
-				});
-				if (wantsSSBO)
-				{
-					FURYD << "Pipeline: skipping INSTANCE_SSBO shader '" << str << "' (no SSBO support)";
-					return true;
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					std::string name;
+					ar << Required("name", name);
+					auto texture = Texture::Create(name);
+					texture->Serialize(ar);
+					if (!m_EntityManager->Add(texture) && !texture->GetPath().empty())
+						FURYW << "Pipeline: duplicate texture path '" << texture->GetPath()
+							  << "' -- first registered entry wins";
+					ar.LeaveObject();
 				}
+				ar.LeaveArray();
 			}
-
-			auto shader = Shader::Create(str, ShaderType::OTHER);
-			if (!shader->Load(node))
-				return false;
-
-			m_EntityManager->Add(shader);
-
-			return true;
-		}))
-		{
-			FURYE << "Error reading shader array!";
-			return false;
-		}
-
-		if (!LoadArray(wrapper, "passes", [&](const void* node) -> bool
-		{
-			if (!LoadMemberValue(node, "name", str))
+			if (ar.EnterArray("shaders"))
 			{
-				FURYE << "Pass param 'name' not found!";
-				return false;
+				for (size_t i = 0; i < ar.GetArraySize(); ++i)
+				{
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					std::string name;
+					std::vector<std::string> defines;
+					ar << Required("name", name);
+					ar << Optional("defines", defines);
+					bool skip = !InstancedMeshStreamer::Get().SSBOAvailable() &&
+						std::find(defines.begin(), defines.end(), "INSTANCE_SSBO") != defines.end();
+					if (skip)
+					{
+						FURYD << "Pipeline: skipping INSTANCE_SSBO shader '" << name << "' (no SSBO support)";
+						ar.LeaveObject();
+						continue;
+					}
+					auto shader = Shader::Create(name, ShaderType::OTHER);
+					shader->Serialize(ar);
+					m_EntityManager->Add(shader);
+					ar.LeaveObject();
+				}
+				ar.LeaveArray();
 			}
-
-			auto pass = Pass::Create(str);
-			if (!pass->Load(node))
-				return false;
-
-			m_EntityManager->Add(pass);
-
-			return true;
-		}))
-		{
-			FURYE << "Error reading pass array!";
-			return false;
+			if (ar.EnterArray("passes"))
+			{
+				for (size_t i = 0; i < ar.GetArraySize(); ++i)
+				{
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					std::string name;
+					ar << Required("name", name);
+					auto pass = Pass::Create(name);
+					pass->Serialize(ar);
+					m_EntityManager->Add(pass);
+					ar.LeaveObject();
+				}
+				ar.LeaveArray();
+			}
+			return;
 		}
 
-		return true;
+		SerializePipelineAssets<Texture>(ar, "textures", m_EntityManager);
+		SerializePipelineAssets<Shader>(ar, "shaders", m_EntityManager);
+		SerializePipelineAssets<Pass>(ar, "passes", m_EntityManager);
 	}
 
-	void Pipeline::Save(void* wrapper, bool object)
-	{
-		std::vector<std::string> strs;
-
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "textures");
-		SaveArray<Texture>(wrapper, m_EntityManager, [&](const std::shared_ptr<Texture> &ptr)
-		{
-			ptr->Save(wrapper);
-		});
-
-		SaveKey(wrapper, "shaders");
-		SaveArray<Shader>(wrapper, m_EntityManager, [&](const std::shared_ptr<Shader> &ptr)
-		{
-			ptr->Save(wrapper);
-		});
-
-		SaveKey(wrapper, "passes");
-		SaveArray<Pass>(wrapper, m_EntityManager, [&](const std::shared_ptr<Pass> &ptr)
-		{
-			ptr->Save(wrapper);
-		});
-
-		if (object)
-			EndObject(wrapper);
-	}
 
 	std::shared_ptr<EntityManager> Pipeline::GetEntityManager() const
 	{

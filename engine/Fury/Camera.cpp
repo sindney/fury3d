@@ -1,5 +1,5 @@
 #include "Fury/Camera.h"
-#include "Fury/Log.h"
+#include "Fury/Archive.h"
 #include "Fury/Plane.h"
 #include "Fury/SceneNode.h"
 
@@ -31,32 +31,38 @@ namespace fury
 		return ptr;
 	}
 
-	bool Camera::Load(const void* wrapper, bool object)
+	void Camera::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Camera: json node is not an object!";
-			return false;
-		}
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "Camera")
-		{
-			FURYE << "Camera: invalid type " << str << "!";
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "perspective", m_Perspective);
+		ar << Optional("perspective", m_Perspective);
 
 		// left, right, bottom, top, near, far - then rebuild the
 		// projection through the OffCenter setters (keeps matrix +
 		// frustum consistent).
 		float p[6] = { 0, 0, 0, 0, 0, 0 };
-		bool haveParams = false;
 		const char *keys[6] = { "left", "right", "bottom", "top", "near", "far" };
+		if (ar.IsSaving())
+			for (int i = 0; i < 6; ++i) p[i] = m_ProjectionParams[i];
+		bool haveParams = false;
 		for (int i = 0; i < 6; ++i)
-			haveParams = LoadMemberValue(wrapper, keys[i], p[i]) || haveParams;
+			haveParams = (ar.TransferNamed(keys[i], p[i],
+				ArchiveFieldPolicy::Optional, true) == ArchiveFieldResult::Ok) || haveParams;
 
+		ar << Optional("shadow_far", m_ShadowFar);
+		ar << Optional("csm_split_blend", m_CsmSplitBlend);
+
+		Vector4 bmin, bmax;
+		if (ar.IsSaving())
+		{
+			const BoxBounds bounds = GetShadowBounds(false);
+			bmin = bounds.GetMin();
+			bmax = bounds.GetMax();
+		}
+		bool haveBounds = (ar.TransferNamed("shadow_min", bmin,
+				ArchiveFieldPolicy::Optional, true) == ArchiveFieldResult::Ok)
+			& (ar.TransferNamed("shadow_max", bmax,
+				ArchiveFieldPolicy::Optional, true) == ArchiveFieldResult::Ok);
+
+		if (!ar.IsLoading()) return;
 		if (haveParams)
 		{
 			if (m_Perspective)
@@ -64,49 +70,7 @@ namespace fury
 			else
 				OrthoOffCenter(p[0], p[1], p[2], p[3], p[4], p[5]);
 		}
-
-		LoadMemberValue(wrapper, "shadow_far", m_ShadowFar);
-		LoadMemberValue(wrapper, "csm_split_blend", m_CsmSplitBlend);
-
-		Vector4 bmin, bmax;
-		if (LoadMemberValue(wrapper, "shadow_min", bmin) && LoadMemberValue(wrapper, "shadow_max", bmax))
-			SetShadowBounds(bmin, bmax);
-
-		return true;
-	}
-
-	void Camera::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "Camera");
-
-		SaveKey(wrapper, "perspective");
-		SaveValue(wrapper, m_Perspective);
-
-		const char *keys[6] = { "left", "right", "bottom", "top", "near", "far" };
-		for (int i = 0; i < 6; ++i)
-		{
-			SaveKey(wrapper, keys[i]);
-			SaveValue(wrapper, m_ProjectionParams[i]);
-		}
-
-		SaveKey(wrapper, "shadow_far");
-		SaveValue(wrapper, m_ShadowFar);
-
-		SaveKey(wrapper, "csm_split_blend");
-		SaveValue(wrapper, m_CsmSplitBlend);
-
-		const BoxBounds bounds = GetShadowBounds(false);
-		SaveKey(wrapper, "shadow_min");
-		SaveValue(wrapper, bounds.GetMin());
-		SaveKey(wrapper, "shadow_max");
-		SaveValue(wrapper, bounds.GetMax());
-
-		if (object)
-			EndObject(wrapper);
+		if (haveBounds) SetShadowBounds(bmin, bmax);
 	}
 
 	void Camera::PerspectiveFov(float fov, float ratio, float near, float far)

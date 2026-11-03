@@ -34,6 +34,9 @@ namespace fury
 		// to enable serialization of custom component, registe to this map.
 		static std::unordered_map<std::string, std::function<std::shared_ptr<Component>()>> ComponentRegistry;
 
+		// Reverse ComponentRegistry lookup: persisted type name, or "" if unregistered.
+		static std::string GetComponentTypeName(std::type_index type);
+
 	protected:
 
 		std::weak_ptr<OcTreeNode> m_OcTreeNode;
@@ -83,9 +86,7 @@ namespace fury
 
 		virtual ~SceneNode();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		// copies components and translations (leaf-only -- does NOT recurse
 		// into m_Childs). Use CloneTree when the caller needs descendants

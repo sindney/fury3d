@@ -35,6 +35,7 @@
 #define STBI_ONLY_TGA
 
 #include "Fury/EntityManager.h"
+#include "Fury/Archive.h"
 #include "Fury/AssetBackend.h"
 #include "Fury/FileUtil.h"
 #include "Fury/RenderThread.h"
@@ -44,6 +45,7 @@
 #include "Fury/MeshRender.h"
 #include "Fury/MeshUtil.h"
 #include "Fury/Scene.h"
+#include "Fury/Pipeline.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Serializable.h"
 #include "Fury/Texture.h"
@@ -237,14 +239,10 @@ bool ExtractMemoryBackedTextures(
 	entities->ForEach<Texture>([&](const std::shared_ptr<Texture>& tex) -> bool {
 		if (!tex) return true;
 
-		// Decide which branch: memory-backed (has encoded bytes)
-		// or file-backed (no bytes, has a path). File-backed
-		// textures are relocated to a sibling of the output and
-		// rewritten to a bare filename so the saved scene is
-		// portable across directories.
+		// Project textures relocate beside the output; Engine/ textures stay shared.
 		if (tex->GetEncodedBytes().empty()) {
 			const std::string &file_path = tex->GetFilePath();
-			if (file_path.empty()) return true;
+			if (file_path.empty() || file_path.compare(0, 7, "Engine/") == 0) return true;
 
 			// Resolve the source image on disk. Try the stored path first;
 			// if that misses (e.g. the original scene stored a
@@ -406,6 +404,54 @@ struct ActiveSceneScope {
 	}
 	~ActiveSceneScope() { Scene::Active = prev; }
 };
+
+void SetArchiveContext(Archive& ar, const Serializable::Ptr& source) {
+	if (auto scene = std::dynamic_pointer_cast<Scene>(source))
+		ar.SetContext(scene);
+	else if (Scene::Active)
+		ar.SetContext(Scene::Active);
+	if (auto pipeline = std::dynamic_pointer_cast<Pipeline>(source))
+		ar.SetPipelineContext(pipeline);
+	else if (Pipeline::Active)
+		ar.SetPipelineContext(Pipeline::Active);
+}
+
+bool LoadDocument(const Serializable::Ptr& source, const rapidjson::Document& dom) {
+	RenderThread::Get().Flush();
+	ActiveSceneScope scene_scope(source);
+	JsonReadArchive ar(&dom);
+	SetArchiveContext(ar, source);
+	if (ar.EnterObject())
+	{
+		source->Serialize(ar);
+		ar.LeaveObject();
+	}
+	if (!ar.IsValid())
+	{
+		FURYE << "Serialization failed at " << ar.GetErrorPath() << ": " << ar.GetError();
+		return false;
+	}
+	RenderThread::Get().Flush();
+	return true;
+}
+
+bool SaveDocument(const Serializable::Ptr& source, rapidjson::StringBuffer& sb, int maxDecimalPlaces) {
+	rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+	writer.SetMaxDecimalPlaces(maxDecimalPlaces);
+	JsonWriteArchive ar(&writer);
+	SetArchiveContext(ar, source);
+	if (ar.EnterObject())
+	{
+		source->Serialize(ar);
+		ar.LeaveObject();
+	}
+	if (!ar.IsValid())
+	{
+		FURYE << "Serialization failed at " << ar.GetErrorPath() << ": " << ar.GetError();
+		return false;
+	}
+	return true;
+}
 } // namespace
 
 bool FileUtil::LoadFile(const Serializable::Ptr& source, const std::string& filePath) {
@@ -423,19 +469,8 @@ bool FileUtil::LoadFile(const Serializable::Ptr& source, const std::string& file
 			return false;
 		}
 
-		// Pre-load quiesce: a scene/pipeline being replaced may still be
-		// referenced by the frame in flight on the render thread.
-		RenderThread::Get().Flush();
-
-		ActiveSceneScope scene_scope(source);
-		if (!source->Load(&dom)) {
-			FURYE << "Serialization failed!";
+		if (!LoadDocument(source, dom))
 			return false;
-		}
-
-		// Loads may have queued GL uploads on the render thread; drain
-		// before the caller consumes the scene (no-op single-threaded).
-		RenderThread::Get().Flush();
 
 		FURYD << filePath << " successfully deserialized!";
 		return true;
@@ -454,14 +489,12 @@ bool FileUtil::SaveFile(const Serializable::Ptr& source, const std::string& file
 	if (!ExtractMemoryBackedTextures(source, output_dir, output_stem))
 		return false;
 
+	StringBuffer sb;
+	if (!SaveDocument(source, sb, maxDecimalPlaces))
+		return false;
+
 	std::ofstream output(filePath);
 	if (output) {
-		StringBuffer sb;
-		PrettyWriter<StringBuffer> writer(sb);
-		writer.SetMaxDecimalPlaces(maxDecimalPlaces);
-
-		source->Save(&writer);
-
 		output.write(sb.GetString(), sb.GetSize());
 		output.close();
 
@@ -516,19 +549,8 @@ bool FileUtil::LoadCompressedFile(const std::shared_ptr<Serializable>& source, c
 			return false;
 		}
 
-		// Pre-load quiesce: a scene/pipeline being replaced may still be
-		// referenced by the frame in flight on the render thread.
-		RenderThread::Get().Flush();
-
-		ActiveSceneScope scene_scope(source);
-		if (!source->Load(&dom)) {
-			FURYE << "Deserialization failed!";
+		if (!LoadDocument(source, dom))
 			return false;
-		}
-
-		// Loads may have queued GL uploads on the render thread; drain
-		// before the caller consumes the scene (no-op single-threaded).
-		RenderThread::Get().Flush();
 
 		FURYD << filePath << " successfully deserialized!";
 		return true;
@@ -547,14 +569,12 @@ bool FileUtil::SaveCompressedFile(const std::shared_ptr<Serializable>& source, c
 	if (!ExtractMemoryBackedTextures(source, output_dir, output_stem))
 		return false;
 
+	StringBuffer sb;
+	if (!SaveDocument(source, sb, maxDecimalPlaces))
+		return false;
+
 	std::ofstream stream(filePath, std::ios_base::binary);
 	if (stream) {
-		StringBuffer sb;
-		PrettyWriter<StringBuffer> writer(sb);
-		writer.SetMaxDecimalPlaces(maxDecimalPlaces);
-
-		source->Save(&writer);
-
 		const char* src = sb.GetString();
 		uint32_t srcSize = static_cast<uint32_t>(sb.GetSize());
 
@@ -564,6 +584,7 @@ bool FileUtil::SaveCompressedFile(const std::shared_ptr<Serializable>& source, c
 		uint32_t size = LZ4_compress_default(src, buffer, srcSize, bufferSize);
 		if (size == 0) {
 			FURYE << "Failed to compress json string!";
+			delete[] buffer;
 			return false;
 		} else {
 			FURYD << "Before: " << srcSize << " After: " << size;
@@ -591,9 +612,8 @@ bool FileUtil::SaveCompressedFile(const std::shared_ptr<Serializable>& source, c
 std::string FileUtil::SerializeToString(const std::shared_ptr<Serializable>& source, int maxDecimalPlaces) {
 	using namespace rapidjson;
 	StringBuffer sb;
-	PrettyWriter<StringBuffer> writer(sb);
-	writer.SetMaxDecimalPlaces(maxDecimalPlaces);
-	source->Save(&writer);
+	if (!SaveDocument(source, sb, maxDecimalPlaces))
+		return "";
 	return std::string(sb.GetString(), sb.GetSize());
 }
 
@@ -639,8 +659,8 @@ bool FileUtil::DeserializeFromString(const std::shared_ptr<Serializable>& target
 		FURYE << "FileUtil::DeserializeFromString: parse error " << dom.GetParseError();
 		return false;
 	}
-	if (!target->Load(&dom)) {
-		FURYE << "FileUtil::DeserializeFromString: Load returned false";
+	if (!LoadDocument(target, dom)) {
+		FURYE << "FileUtil::DeserializeFromString: serialization failed";
 		return false;
 	}
 	return true;

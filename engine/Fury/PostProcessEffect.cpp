@@ -1,10 +1,29 @@
 #include "Fury/PostProcessEffect.h"
 
+#include <cmath>
+#include <map>
+
+#include "Fury/Archive.h"
+
 #include "Fury/Log.h"
 #include "Fury/Serializable.h"
+#include "Fury/Shader.h"
 
 namespace fury
 {
+	namespace
+	{
+		std::vector<float> UniformFloats(const UniformBase::Ptr& uniform)
+		{
+			if (!uniform) return {};
+			if (auto p = std::dynamic_pointer_cast<Uniform1f>(uniform)) return { p->GetDataAt(0) };
+			if (auto p = std::dynamic_pointer_cast<Uniform2f>(uniform)) return { p->GetDataAt(0), p->GetDataAt(1) };
+			if (auto p = std::dynamic_pointer_cast<Uniform3f>(uniform)) return { p->GetDataAt(0), p->GetDataAt(1), p->GetDataAt(2) };
+			if (auto p = std::dynamic_pointer_cast<Uniform4f>(uniform)) return { p->GetDataAt(0), p->GetDataAt(1), p->GetDataAt(2), p->GetDataAt(3) };
+			return {};
+		}
+	}
+
 	PostProcessEffect::Ptr PostProcessEffect::Create(const std::string &name)
 	{
 		return std::make_shared<PostProcessEffect>(name);
@@ -20,236 +39,114 @@ namespace fury
 	{
 	}
 
-	bool PostProcessEffect::Load(const void* wrapper, bool object)
+	void PostProcessEffect::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+		if (ar.IsLoading())
 		{
-			FURYE << "PostProcessEffect: Json node is not an object!";
-			return false;
+			m_ShaderPath.clear();
+			m_ShaderDefines.clear();
+			m_Inputs.clear();
+			m_OutputFormat = TextureFormat::RGBA8;
+			m_Stage = PostProcessStage::POST_TONEMAP;
+			m_Order = 0;
+			m_OutputWidth = m_OutputHeight = 0;
+			m_Uniforms.clear();
+			m_UniformMeta.clear();
+			m_Description.clear();
 		}
 
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		std::string str;
-		if (LoadMemberValue(wrapper, "shader", str))
-			m_ShaderPath = str;
-
-		// Optional defines array (mirrors Shader::Load's defines parsing).
-		if (auto defs = FindMember(wrapper, "defines"))
+		ar << OptionalPathReference<Shader>("shader", m_ShaderPath);
+		ar << Conditional("defines", m_ShaderDefines, !m_ShaderDefines.empty());
+		ar << Conditional("inputs", m_Inputs, !m_Inputs.empty());
+		std::string outputFormat = EnumUtil::TextureFormatToString(m_OutputFormat);
+		std::string stage = ar.IsLoading() ? "" : EnumUtil::PostProcessStageToString(m_Stage);
+		ar << Optional("output_format", outputFormat);
+		ar << Optional("stage", stage);
+		ar << Conditional("order", m_Order, m_Order != 0);
+		int outputWidth = static_cast<int>(m_OutputWidth);
+		int outputHeight = static_cast<int>(m_OutputHeight);
+		ar << Conditional("output_width", outputWidth, outputWidth > 0);
+		ar << Conditional("output_height", outputHeight, outputHeight > 0);
+		ar << Conditional("description", m_Description, !m_Description.empty());
+		if (ar.IsLoading())
 		{
-			LoadArray(defs, [&](const void* node) -> bool
+			if (outputWidth < 0 || outputHeight < 0)
 			{
-				std::string d;
-				if (LoadValue(node, d))
-					m_ShaderDefines.push_back(d);
-				return true;
-			});
-		}
-
-		// inputs: ordered list of declared input texture names. Mirrors
-		// the way pipeline shaders declare textures.
-		if (auto ins = FindMember(wrapper, "inputs"))
-		{
-			LoadArray(ins, [&](const void* node) -> bool
+				ar.SetError("output dimensions must be non-negative");
+				return;
+			}
+			m_OutputWidth = static_cast<unsigned int>(outputWidth);
+			m_OutputHeight = static_cast<unsigned int>(outputHeight);
+			auto format = EnumUtil::TextureFormatFromString(outputFormat);
+			if (format != TextureFormat::UNKNOW) m_OutputFormat = format;
+			if (!stage.empty())
 			{
-				std::string in;
-				if (LoadValue(node, in))
-					m_Inputs.push_back(in);
-				return true;
-			});
-		}
-
-		// Chain placement. Explicit "stage" wins; otherwise infer:
-		// gbuffer consumers are pre-tonemap by nature, everything
-		// else is a post-tonemap display effect.
-		str.clear();
-		if (LoadMemberValue(wrapper, "stage", str))
-		{
-			m_Stage = EnumUtil::PostProcessStageFromString(str);
-		}
-		else
-		{
-			for (const auto &in : m_Inputs)
+				m_Stage = EnumUtil::PostProcessStageFromString(stage);
+			}
+			else
 			{
-				if (in.rfind("$gbuffer", 0) == 0)
-				{
-					m_Stage = PostProcessStage::PRE_TONEMAP;
-					break;
-				}
+				for (const auto& input : m_Inputs)
+					if (input.rfind("$gbuffer", 0) == 0) m_Stage = PostProcessStage::PRE_TONEMAP;
 			}
 		}
 
-		int order = 0;
-		if (LoadMemberValue(wrapper, "order", order))
-			m_Order = order;
-
-		// output format: defaults to RGBA8; ACES uses rgba16f to
-		// receive HDR input.
-		str.clear();
-		if (LoadMemberValue(wrapper, "output_format", str))
+		if (!ar.EnterArray("uniforms", ArchiveFieldPolicy::Conditional, !m_Uniforms.empty())) return;
+		if (ar.IsLoading())
 		{
-			auto fmt = EnumUtil::TextureFormatFromString(str);
-			if (fmt != TextureFormat::UNKNOW)
-				m_OutputFormat = fmt;
-		}
-
-		int w = 0, h = 0;
-		if (LoadMemberValue(wrapper, "output_width", w))
-			m_OutputWidth = (unsigned int)w;
-		if (LoadMemberValue(wrapper, "output_height", h))
-			m_OutputHeight = (unsigned int)h;
-
-		// Optional effect-level description (editor chain-row tooltip).
-		str.clear();
-		if (LoadMemberValue(wrapper, "description", str))
-			m_Description = str;
-
-		// Optional defaults object: { "u_name": [v0, v1, v2, ...] }.
-		// The size of the float array picks the Uniform1f/2f/3f/4f
-		// template instantiation. Missing defaults are ignored.
-		// Each entry may also carry editor metadata: "tip" (hover
-		// help) and "min"/"max" (rough adjustment range).
-		if (auto uniformsNode = FindMember(wrapper, "uniforms"))
-		{
-			LoadArray(uniformsNode, [&](const void* node) -> bool
+			for (size_t i = 0; i < ar.GetArraySize(); ++i)
 			{
-				if (!IsObject(node)) return true;
-				std::string uname;
-				if (!LoadMemberValue(node, "name", uname)) return true;
+				ar.SetArrayIndex(i);
+				if (!ar.EnterObject()) continue;
+				std::string name;
 				std::vector<float> values;
-				// Load the "value" member as a typed float array
-				// (the LoadMemberValue overloads in Serializable
-				// cover scalar + Color + Vector4, not arrays; for
-				// the array form we use LoadArray with the typed
-				// float template, which reads every element).
-				if (auto v = FindMember(node, "value"))
+				UniformMeta meta;
+				float min = NAN, max = NAN;
+				ar << Required("name", name);
+				ar << Optional("value", values);
+				ar << Optional("tip", meta.tip);
+				ar << Optional("min", min);
+				ar << Optional("max", max);
+				if (std::isfinite(min) && std::isfinite(max))
 				{
-					if (!LoadArray<float>(v, values)) return true;
+					meta.min = min;
+					meta.max = max;
+					meta.hasRange = true;
 				}
 				switch (values.size())
 				{
-				case 1: SetUniform(uname, Uniform1f::Create({values[0]})); break;
-				case 2: SetUniform(uname, Uniform2f::Create({values[0], values[1]})); break;
-				case 3: SetUniform(uname, Uniform3f::Create({values[0], values[1], values[2]})); break;
-				case 4: SetUniform(uname, Uniform4f::Create({values[0], values[1], values[2], values[3]})); break;
-				default:
-					FURYW << "PostProcessEffect '" << m_Name << "': uniform '" << uname
-						  << "' has unsupported arity " << values.size();
-					break;
+				case 1: SetUniform(name, Uniform1f::Create({ values[0] })); break;
+				case 2: SetUniform(name, Uniform2f::Create({ values[0], values[1] })); break;
+				case 3: SetUniform(name, Uniform3f::Create({ values[0], values[1], values[2] })); break;
+				case 4: SetUniform(name, Uniform4f::Create({ values[0], values[1], values[2], values[3] })); break;
+				default: ar.SetError("uniform value must contain one to four floats"); break;
 				}
-
-				UniformMeta meta;
-				LoadMemberValue(node, "tip", meta.tip);
-				float fmin = 0.0f, fmax = 0.0f;
-				const bool hasMin = LoadMemberValue(node, "min", fmin);
-				const bool hasMax = LoadMemberValue(node, "max", fmax);
-				if (hasMin && hasMax)
-				{
-					meta.min = fmin;
-					meta.max = fmax;
-					meta.hasRange = true;
-				}
-				if (!meta.tip.empty() || meta.hasRange)
-					m_UniformMeta[uname] = meta;
-				return true;
-			});
-		}
-
-		return true;
-	}
-
-	void PostProcessEffect::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "shader");
-		SaveValue(wrapper, m_ShaderPath);
-
-		if (!m_ShaderDefines.empty())
-		{
-			SaveKey(wrapper, "defines");
-			StartArray(wrapper);
-			for (const auto &d : m_ShaderDefines)
-				SaveValue(wrapper, d);
-			EndArray(wrapper);
-		}
-
-		if (!m_Inputs.empty())
-		{
-			SaveKey(wrapper, "inputs");
-			StartArray(wrapper);
-			for (const auto &i : m_Inputs)
-				SaveValue(wrapper, i);
-			EndArray(wrapper);
-		}
-
-		SaveKey(wrapper, "output_format");
-		SaveValue(wrapper, EnumUtil::TextureFormatToString(m_OutputFormat));
-
-		SaveKey(wrapper, "stage");
-		SaveValue(wrapper, EnumUtil::PostProcessStageToString(m_Stage));
-
-		if (m_Order != 0)
-		{
-			SaveKey(wrapper, "order");
-			SaveValue(wrapper, m_Order);
-		}
-
-		if (m_OutputWidth > 0)
-		{
-			SaveKey(wrapper, "output_width");
-			SaveValue(wrapper, (int)m_OutputWidth);
-		}
-		if (m_OutputHeight > 0)
-		{
-			SaveKey(wrapper, "output_height");
-			SaveValue(wrapper, (int)m_OutputHeight);
-		}
-
-		if (!m_Description.empty())
-		{
-			SaveKey(wrapper, "description");
-			SaveValue(wrapper, m_Description);
-		}
-
-		if (!m_Uniforms.empty())
-		{
-			SaveKey(wrapper, "uniforms");
-			StartArray(wrapper);
-			for (const auto &kv : m_Uniforms)
-			{
-				StartObject(wrapper);
-				SaveKey(wrapper, "name");
-				SaveValue(wrapper, kv.first);
-				SaveKey(wrapper, "value");
-				kv.second->Save(wrapper);
-				if (auto meta = GetUniformMeta(kv.first))
-				{
-					if (!meta->tip.empty())
-					{
-						SaveKey(wrapper, "tip");
-						SaveValue(wrapper, meta->tip);
-					}
-					if (meta->hasRange)
-					{
-						SaveKey(wrapper, "min");
-						SaveValue(wrapper, meta->min);
-						SaveKey(wrapper, "max");
-						SaveValue(wrapper, meta->max);
-					}
-				}
-				EndObject(wrapper);
+				if (!meta.tip.empty() || meta.hasRange) m_UniformMeta[name] = meta;
+				ar.LeaveObject();
 			}
-			EndArray(wrapper);
 		}
-
-		if (object)
-			EndObject(wrapper);
+		else
+		{
+			std::map<std::string, UniformBase::Ptr> sorted(m_Uniforms.begin(), m_Uniforms.end());
+			for (const auto& kv : sorted)
+			{
+				if (!ar.EnterObject()) continue;
+				std::string name = kv.first;
+				std::vector<float> values = UniformFloats(kv.second);
+				ar << Required("name", name);
+				ar << Required("value", values);
+				if (values.empty()) ar.SetError("unsupported uniform type");
+				UniformMeta meta;
+				if (const auto* existing = GetUniformMeta(name)) meta = *existing;
+				ar << Conditional("tip", meta.tip, !meta.tip.empty());
+				ar << Conditional("min", meta.min, meta.hasRange);
+				ar << Conditional("max", meta.max, meta.hasRange);
+				ar.LeaveObject();
+			}
+		}
+		ar.LeaveArray();
 	}
+
 
 	const std::string &PostProcessEffect::GetShaderPath() const
 	{

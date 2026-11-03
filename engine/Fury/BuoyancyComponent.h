@@ -37,8 +37,7 @@ namespace fury
 
 		BuoyancyComponent(const std::string &name = "BuoyancyComponent");
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-		virtual void Save(void* wrapper, bool object = true) override;
+		virtual void Serialize(Archive& ar) override;
 		Component::Ptr Clone() const override;
 
 		const std::string &GetName() const { return m_Name; }

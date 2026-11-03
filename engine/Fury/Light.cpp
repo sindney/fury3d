@@ -1,4 +1,5 @@
 #include "Fury/Log.h"
+#include "Fury/Archive.h"
 #include "Fury/Light.h"
 #include "Fury/MathUtil.h"
 #include "Fury/Mesh.h"
@@ -21,45 +22,22 @@ namespace fury
 		m_TypeIndex = typeid(Light);
 	};
 
-	bool Light::Load(const void* wrapper, bool object)
+	void Light::Serialize(Archive& ar)
 	{
-		if (Scene::Active == nullptr)
-		{
-			FURYE << "Active Pipeline is null!";
-			return false;
-		}
+		std::string typeStr;
+		if (ar.IsSaving()) typeStr = EnumUtil::LightTypeToString(m_Type);
+		ar << Required("light_type", typeStr);
+		if (ar.IsLoading()) SetType(EnumUtil::LightTypeFromString(typeStr));
 
-		if (object && !IsObject(wrapper))
-		{
-			FURYE << "Json node is not an object!";
-			return false;
-		}
+		ar << Optional("color", m_Color);
+		ar << Optional("intensity", m_Intensity);
+		ar << Optional("inner_angle", m_InnerAngle);
+		ar << Optional("outter_angle", m_OutterAngle);
+		ar << Optional("falloff", m_Falloff);
+		ar << Optional("radius", m_Radius);
+		ar << Optional("cast_shadows", m_CastShadows);
 
-		// check type
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "Light")
-		{
-			FURYE << "Invalide type " << str << "!";
-			return false;
-		}
-
-		if (!LoadMemberValue(wrapper, "light_type", str))
-		{
-			FURYE << "light_type not found!";
-			return false;
-		}
-		else
-		{
-			SetType(EnumUtil::LightTypeFromString(str));
-		}
-
-		LoadMemberValue(wrapper, "color", m_Color);
-		LoadMemberValue(wrapper, "intensity", m_Intensity);
-		LoadMemberValue(wrapper, "inner_angle", m_InnerAngle);
-		LoadMemberValue(wrapper, "outter_angle", m_OutterAngle);
-		LoadMemberValue(wrapper, "falloff", m_Falloff);
-		LoadMemberValue(wrapper, "radius", m_Radius);
-		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
+		if (!ar.IsLoading()) return;
 
 		// Legacy scenes serialized degree values into these radian
 		// fields (old default was 45.0); a spot fov never exceeds pi,
@@ -74,38 +52,6 @@ namespace fury
 		}
 
 		CalculateAABB();
-
-		return true;
-	}
-
-	void Light::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		// save typeinfo
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "Light");
-
-		SaveKey(wrapper, "light_type");
-		SaveValue(wrapper, EnumUtil::LightTypeToString(m_Type));
-		SaveKey(wrapper, "color");
-		SaveValue(wrapper, m_Color);
-		SaveKey(wrapper, "intensity");
-		SaveValue(wrapper, m_Intensity);
-		SaveKey(wrapper, "inner_angle");
-		SaveValue(wrapper, m_InnerAngle);
-		SaveKey(wrapper, "outter_angle");
-		SaveValue(wrapper, m_OutterAngle);
-		SaveKey(wrapper, "falloff");
-		SaveValue(wrapper, m_Falloff);
-		SaveKey(wrapper, "radius");
-		SaveValue(wrapper, m_Radius);
-		SaveKey(wrapper, "cast_shadows");
-		SaveValue(wrapper, m_CastShadows);
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	Component::Ptr Light::Clone() const

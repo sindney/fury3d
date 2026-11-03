@@ -99,9 +99,7 @@ namespace fury
 
 		virtual ~PostProcessEffect();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
-
-		virtual void Save(void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
 		const std::string &GetShaderPath() const;
 

@@ -53,9 +53,8 @@ namespace fury
 
 		virtual ~Shader();
 
-		virtual bool Load(const void* wrapper, bool object = true) override;
+		void Serialize(Archive& ar) override;
 
-		virtual void Save(void* wrapper, bool object = true) override;
 
 		RHIShaderModuleRef GetRHIModule() const { return m_Module; }
 
@@ -70,6 +69,11 @@ namespace fury
 		void SetTextureFlags(unsigned int flags);
 
 		void AddDefine(std::string define);
+
+		// Read-only views of the persisted define list / geometry flag.
+		const std::vector<std::string> &GetDefines() const { return m_Defines; }
+
+		bool GetUseGeomShader() const { return m_UseGeomShader; }
 
 		bool LoadAndCompile(const std::string &shaderPath, bool useGeomShader = false);
 

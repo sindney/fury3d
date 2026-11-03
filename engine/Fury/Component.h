@@ -27,12 +27,8 @@ namespace fury
 
 		virtual Ptr Clone() const = 0;
 
-		virtual bool Load(const void* /*wrapper*/, bool /*object*/ = true)
-		{
-			return true;
-		}
-
-		virtual void Save(void* /*wrapper*/, bool /*object*/ = true) {}
+		// Field-less custom components need no override.
+		void Serialize(Archive& /*ar*/) override {}
 
 		bool HasOwner() const;
 

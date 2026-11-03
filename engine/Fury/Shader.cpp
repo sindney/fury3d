@@ -1,5 +1,6 @@
 #include "Fury/Camera.h"
 #include "Fury/Log.h"
+#include "Fury/Archive.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Joint.h"
@@ -125,106 +126,36 @@ namespace fury
 		DeleteProgram();
 	}
 
-	bool Shader::Load(const void* wrapper, bool object)
+	void Shader::Serialize(Archive& ar)
 	{
-		std::string str;
+		Entity::SerializeFields(ar);
 
-		if (object && !IsObject(wrapper))
+		std::string type = EnumUtil::ShaderTypeToString(m_Type);
+		ar << Optional("type", type, std::string("OTHER"));
+
+		// Texture flags travel as their string names; absent array = 0.
+		std::vector<std::string> textureFlags;
+		if (ar.IsSaving())
 		{
-			FURYE << "Json node is not an object!";
-			return false;
+			std::vector<ShaderTexture> enums;
+			EnumUtil::GetShaderTextures(m_TextureFlags, enums);
+			for (auto e : enums)
+				textureFlags.push_back(EnumUtil::ShaderTextureToString(e));
 		}
+		ar << Optional("textures", textureFlags);
 
-		if (!Entity::Load(wrapper, false))
-			return false;
+		ar << Optional("defines", m_Defines);
+		ar << Required("path", m_FilePath);
+		ar << Conditional("geom", m_UseGeomShader, m_UseGeomShader);
 
-		m_Type = ShaderType::OTHER;
-		if (LoadMemberValue(wrapper, "type", str))
-			m_Type = EnumUtil::ShaderTypeFromString(str);
-
-		// read shader texture flags
-
-		std::vector<ShaderTexture> textures;
-
-		m_TextureFlags = 0;
-		if (LoadArray(wrapper, "textures", [&](const void* node) -> bool
+		if (ar.IsLoading())
 		{
-			if (!LoadValue(node, str))
-			{
-				FURYE << "Shader's texture flag not found!";
-				return false;
-			}
-			textures.push_back(EnumUtil::ShaderTextureFromString(str));
-			return true;
-		}))
-		{
-			for (auto texture : textures)
-				m_TextureFlags = m_TextureFlags | (unsigned int)texture;
+			m_Type = EnumUtil::ShaderTypeFromString(type);
+			m_TextureFlags = 0;
+			for (auto &flag : textureFlags)
+				m_TextureFlags |= (unsigned int)EnumUtil::ShaderTextureFromString(flag);
+			LoadAndCompile(FileUtil::GetAbsPath() + m_FilePath, m_UseGeomShader);
 		}
-
-		// end: read shader texture flags
-
-		LoadArray(wrapper, "defines", [&](const void* node) -> bool
-		{
-			if (!LoadValue(node, str))
-			{
-				FURYE << "Shader's define must be string!";
-				return false;
-			}
-			m_Defines.push_back(str);
-			return true;
-		});
-
-		if (!LoadMemberValue(wrapper, "path", str))
-		{
-			FURYE << "Shader param 'path' not found!";
-			return false;
-		}
-
-		if (!LoadMemberValue(wrapper, "geom", m_UseGeomShader))
-			m_UseGeomShader = false;
-
-		LoadAndCompile(FileUtil::GetAbsPath() + str, m_UseGeomShader);
-
-		return true;
-	}
-
-	void Shader::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, EnumUtil::ShaderTypeToString(m_Type));
-
-		std::vector<ShaderTexture> enums;
-		EnumUtil::GetShaderTextures(m_TextureFlags, enums);
-
-		SaveKey(wrapper, "textures");
-		SaveArray(wrapper, static_cast<unsigned int>(enums.size()), [&](unsigned int index)
-		{
-			SaveValue(wrapper, EnumUtil::ShaderTextureToString(enums[index]));
-		});
-
-		SaveKey(wrapper, "defines");
-		SaveArray(wrapper, static_cast<unsigned int>(m_Defines.size()), [&](unsigned int index)
-		{
-			SaveValue(wrapper, m_Defines[index]);
-		});
-
-		SaveKey(wrapper, "path");
-		SaveValue(wrapper, m_FilePath);
-
-		if (m_UseGeomShader)
-		{
-			SaveKey(wrapper, "geom");
-			SaveValue(wrapper, m_UseGeomShader);
-		}
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	bool Shader::GetDirty() const

@@ -1,4 +1,5 @@
 #include "Fury/EntityManager.h"
+#include "Fury/Archive.h"
 #include "Fury/Log.h"
 #include "Fury/Frustum.h"
 #include "Fury/InstancedMeshRender.h"
@@ -27,131 +28,101 @@ namespace fury
 			SetMaterial(material);
 	}
 
-	bool InstancedMeshRender::Load(const void* wrapper, bool object)
+	void InstancedMeshRender::Serialize(Archive& ar)
 	{
-		if (Scene::Active == nullptr)
-		{
-			FURYE << "Active Pipeline is null!";
-			return false;
-		}
+		auto manager = ar.GetEntityManager();
+		if (!manager && Scene::Active) manager = Scene::Manager();
 
-		if (object && !IsObject(wrapper))
+		std::string meshName;
+		if (ar.IsSaving())
 		{
-			FURYE << "Json node is not an object!";
-			return false;
+			if (auto mesh = m_Mesh.lock())
+				meshName = mesh->GetName();
 		}
-
-		std::string str;
-		if (!LoadMemberValue(wrapper, "type", str) || str != "InstancedMeshRender")
+		ar << Conditional("mesh", meshName, !meshName.empty());
+		if (ar.IsLoading())
 		{
-			FURYE << "Invalide type " << str << "!";
-			return false;
-		}
-
-		if (LoadMemberValue(wrapper, "mesh", str))
-		{
-			if (auto mesh = Scene::Manager()->Get<Mesh>(str))
-				SetMesh(mesh);
-			else
+			if (!manager)
 			{
-				FURYE << "Mesh " << str << " not found!";
-				return false;
+				ar.SetError("active scene is null");
+				return;
+			}
+			if (meshName.empty())
+			{
+				ar.SetError("mesh is missing");
+				return;
+			}
+			auto mesh = manager->Get<Mesh>(meshName);
+			if (!mesh)
+			{
+				ar.SetError("mesh " + meshName + " not found");
+				return;
+			}
+			SetMesh(mesh);
+		}
+
+		ar.TransferNamed("cast_shadows", m_CastShadows,
+			ArchiveFieldPolicy::Optional, true);
+		ar.TransferNamed("hierarchical", m_Hierarchical,
+			ArchiveFieldPolicy::Optional, true);
+		ar.TransferNamed("cull_distance", m_CullDistance,
+			ArchiveFieldPolicy::Optional, true);
+
+		std::vector<std::string> materialNames;
+		if (ar.IsSaving())
+		{
+			for (unsigned int i = 0; i < m_Materials.size(); i++)
+			{
+				if (auto material = m_Materials[i].lock())
+					materialNames.push_back(material->GetName());
+				else
+					FURYW << "Found empty material pointer at " << i << "!";
 			}
 		}
-		else
+		ar.Transfer("materials", materialNames, ArchiveFieldPolicy::Required, true);
+		if (!ar.IsValid()) return;
+		if (ar.IsLoading())
 		{
-			FURYE << "InstancedMeshRender: mesh not found!";
-			return false;
-		}
-
-		LoadMemberValue(wrapper, "cast_shadows", m_CastShadows);
-		LoadMemberValue(wrapper, "hierarchical", m_Hierarchical);
-		LoadMemberValue(wrapper, "cull_distance", m_CullDistance);
-
-		m_Materials.clear();
-		if (!LoadArray(wrapper, "materials", [&](const void* node) -> bool
-		{
-			if (!LoadValue(node, str))
+			m_Materials.clear();
+			for (const auto &name : materialNames)
 			{
-				FURYE << "materials is a string array!";
-				return false;
-			}
-			if (auto material = Scene::Manager()->Get<Material>(str))
-			{
+				auto material = manager->Get<Material>(name);
+				if (!material)
+				{
+					ar.SetError("material " + name + " not found");
+					return;
+				}
 				m_Materials.push_back(material);
-				return true;
 			}
-			FURYE << "Material " << str << " not found!";
-			return false;
-		}))
-		{
-			return false;
 		}
 
-		m_Instances.clear();
-		LoadArray(wrapper, "instances", [&](const void* node) -> bool
+		std::vector<Instance> instances;
+		if (ar.IsSaving()) instances = m_Instances;
+		if (ar.EnterArray("instances", ArchiveFieldPolicy::Optional, true))
 		{
-			Instance instance;
-			LoadMemberValue(node, "position", instance.Position);
-			LoadMemberValue(node, "rotation", instance.Rotation);
-			LoadMemberValue(node, "scale", instance.Scale);
-			m_Instances.push_back(instance);
-			return true;
-		});
-
-		m_ShadowMatricesDirty = true;
-		m_MatrixCacheDirty = true;
-		return true;
-	}
-
-	void InstancedMeshRender::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		SaveKey(wrapper, "type");
-		SaveValue(wrapper, "InstancedMeshRender");
-
-		if (auto ptr = m_Mesh.lock())
-		{
-			SaveKey(wrapper, "mesh");
-			SaveValue(wrapper, ptr->GetName());
+			if (ar.IsLoading()) instances.resize(ar.GetArraySize());
+			for (std::size_t i = 0; i < instances.size(); ++i)
+			{
+				if (ar.IsLoading()) ar.SetArrayIndex(i);
+				if (!ar.EnterObject())
+				{
+					ar.LeaveArray();
+					return;
+				}
+				Instance &instance = instances[i];
+				ar << Optional("position", instance.Position);
+				ar << Optional("rotation", instance.Rotation);
+				ar << Optional("scale", instance.Scale, Vector4(1.0f, 1.0f, 1.0f));
+				ar.LeaveObject();
+			}
+			ar.LeaveArray();
 		}
-
-		SaveKey(wrapper, "cast_shadows");
-		SaveValue(wrapper, m_CastShadows);
-		SaveKey(wrapper, "hierarchical");
-		SaveValue(wrapper, m_Hierarchical);
-		SaveKey(wrapper, "cull_distance");
-		SaveValue(wrapper, m_CullDistance);
-
-		SaveKey(wrapper, "materials");
-		StartArray(wrapper);
-		for (unsigned int i = 0; i < m_Materials.size(); i++)
+		if (ar.IsLoading())
 		{
-			if (auto ptr = m_Materials[i].lock())
-				SaveValue(wrapper, ptr->GetName());
-			else
-				FURYW << "Found empty material pointer at " << i << "!";
+			m_Instances = std::move(instances);
+			m_ShadowMatricesDirty = true;
+			m_MatrixCacheDirty = true;
 		}
-		EndArray(wrapper);
-
-		SaveKey(wrapper, "instances");
-		SaveArray(wrapper, static_cast<unsigned int>(m_Instances.size()), [&](unsigned int index)
-		{
-			const auto &instance = m_Instances[index];
-			StartObject(wrapper);
-			SaveKey(wrapper, "position");
-			SaveValue(wrapper, instance.Position);
-			SaveKey(wrapper, "rotation");
-			SaveValue(wrapper, instance.Rotation);
-			SaveKey(wrapper, "scale");
-			SaveValue(wrapper, instance.Scale);
-			EndObject(wrapper);
-		});
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	Component::Ptr InstancedMeshRender::Clone() const

@@ -40,6 +40,9 @@ namespace fury
 
 		Component::Ptr Clone() const override;
 
+		// No persisted fields.
+		void Serialize(Archive& ar) override;
+
 		float GetDeltaTime() const;
 
 		// this'll recalculate output matrices.

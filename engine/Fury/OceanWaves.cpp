@@ -7,7 +7,9 @@
 #include <rapidjson/document.h>
 
 #include "Fury/EnumUtil.h"
+#include "Fury/Archive.h"
 #include "Fury/AssetBackend.h"
+#include "Fury/EntityManager.h"
 #include "Fury/EntityUtil.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/Log.h"
@@ -106,35 +108,18 @@ namespace fury
 		m_Name = PathBasename(path);
 	}
 
-	bool OceanWaves::Load(const void* wrapper, bool object)
+	void OceanWaves::Serialize(Archive& ar)
 	{
-		if (object && !IsObject(wrapper))
+		Entity::SerializeFields(ar);
+
+		ar << Optional("file_path", m_FilePath);
+
+		if (ar.IsLoading())
 		{
-			FURYE << "OceanWaves: json node is not an object!";
-			return false;
+			if (!m_FilePath.empty())
+				m_Name = PathBasename(m_FilePath);
+			LoadWaves();
 		}
-		if (!Entity::Load(wrapper, false))
-			return false;
-
-		LoadMemberValue(wrapper, "file_path", m_FilePath);
-		if (!m_FilePath.empty())
-			m_Name = PathBasename(m_FilePath);
-
-		LoadWaves();
-		return true;
-	}
-
-	void OceanWaves::Save(void* wrapper, bool object)
-	{
-		if (object)
-			StartObject(wrapper);
-
-		Entity::Save(wrapper, false);
-
-		SaveKey(wrapper, "file_path"); SaveValue(wrapper, m_FilePath);
-
-		if (object)
-			EndObject(wrapper);
 	}
 
 	bool OceanWaves::LoadWaves()
