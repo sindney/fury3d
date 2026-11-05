@@ -31,13 +31,13 @@ namespace fury
 	void RenderSettings::Serialize(Archive& ar)
 	{
 		ar << Optional("pipeline", m_PipelinePath);
-		ar << Optional("hdr", m_HDR, false);
-		ar << Optional("cascaded_shadow_map", m_CascadedShadowMap, true);
-		ar << Optional("vegetation_prez", m_VegetationPreZ, true);
-		ar << Optional("csm_map_size", m_CsmMapSize, 2048);
-		ar << Optional("shadow_far", m_ShadowFar, 20000.0f);
-		ar << Optional("csm_split_blend", m_CsmSplitBlend, 0.7f);
-		ar << Optional("wind_params", m_WindParams, Vector4(1.0f, 0.0f, 1.0f, 1.0f));
+		ar << Optional("hdr", m_HDR);
+		ar << Optional("cascaded_shadow_map", m_CascadedShadowMap);
+		ar << Optional("vegetation_prez", m_VegetationPreZ);
+		ar << Optional("csm_map_size", m_CsmMapSize);
+		ar << Optional("shadow_far", m_ShadowFar);
+		ar << Optional("csm_split_blend", m_CsmSplitBlend);
+		ar << Optional("wind_params", m_WindParams);
 
 		// Ordered chain: [{ effect, enabled, uniforms? }, ...]. Entries
 		// without a usable "effect" are dropped.
@@ -58,7 +58,7 @@ namespace fury
 							ArchiveFieldPolicy::Optional, true);
 						if (effectResult == ArchiveFieldResult::Ok)
 						{
-							ar << Optional("enabled", e.enabled, true);
+							ar << Optional("enabled", e.enabled);
 							if (ar.EnterArray("uniforms", ArchiveFieldPolicy::Optional))
 							{
 								std::size_t uniformCount = ar.GetArraySize();

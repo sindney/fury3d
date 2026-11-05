@@ -13,29 +13,15 @@ namespace fury
 		keys.push_back({ 1.0f, Color::White });
 	}
 
+	void GradientKey::Serialize(Archive& ar)
+	{
+		ar << Required("time", time);
+		ar << Required("color", color);
+	}
+
 	void Gradient::Serialize(Archive& ar)
 	{
-		if (ar.IsLoading())
-			keys.clear();
-		if (!ar.EnterArray("keys", ArchiveFieldPolicy::Optional))
-			return;
-		std::size_t count = ar.IsLoading() ? ar.GetArraySize() : keys.size();
-		for (std::size_t i = 0; i < count; ++i)
-		{
-			if (ar.IsLoading())
-			{
-				ar.SetArrayIndex(i);
-				keys.emplace_back();
-			}
-			GradientKey &k = keys[i];
-			if (ar.EnterObject())
-			{
-				ar << Required("time", k.time);
-				ar << Required("color", k.color);
-				ar.LeaveObject();
-			}
-		}
-		ar.LeaveArray();
+		ar << Optional("keys", keys);
 	}
 
 	Color Gradient::Sample(float time01) const
@@ -69,29 +55,15 @@ namespace fury
 		keys.push_back({ 1.0f, 1.0f });
 	}
 
+	void CurveKey::Serialize(Archive& ar)
+	{
+		ar << Required("time", time);
+		ar << Required("value", value);
+	}
+
 	void AnimationCurve::Serialize(Archive& ar)
 	{
-		if (ar.IsLoading())
-			keys.clear();
-		if (!ar.EnterArray("keys", ArchiveFieldPolicy::Optional))
-			return;
-		std::size_t count = ar.IsLoading() ? ar.GetArraySize() : keys.size();
-		for (std::size_t i = 0; i < count; ++i)
-		{
-			if (ar.IsLoading())
-			{
-				ar.SetArrayIndex(i);
-				keys.emplace_back();
-			}
-			CurveKey &k = keys[i];
-			if (ar.EnterObject())
-			{
-				ar << Required("time", k.time);
-				ar << Required("value", k.value);
-				ar.LeaveObject();
-			}
-		}
-		ar.LeaveArray();
+		ar << Optional("keys", keys);
 	}
 
 	float AnimationCurve::Sample(float time01) const
@@ -117,51 +89,26 @@ namespace fury
 	// ---- Burst -----------------------------------------------------------
 	void Burst::Serialize(Archive& ar)
 	{
-		ar << Optional("time", time, 0.0f);
-		ar << Optional("count", count, 0);
-		ar << Optional("probability", probability, 1.0f);
+		ar << Optional("time", time);
+		ar << Optional("count", count);
+		ar << Optional("probability", probability);
 	}
 
 	// ---- EmissionModule --------------------------------------------------
 	void EmissionModule::Serialize(Archive& ar)
 	{
-		ar << Optional("rateOverTime", rateOverTime, 0.0f);
-		if (ar.IsLoading())
-			bursts.clear();
-		if (ar.EnterArray("bursts", ArchiveFieldPolicy::Optional))
-		{
-			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : bursts.size();
-			for (std::size_t i = 0; i < count; ++i)
-			{
-				if (ar.IsLoading())
-				{
-					ar.SetArrayIndex(i);
-					bursts.emplace_back();
-					if (ar.EnterObject())
-					{
-						bursts.back().Serialize(ar);
-						ar.LeaveObject();
-					}
-				}
-				else
-				{
-					ar.EnterObject();
-					bursts[i].Serialize(ar);
-					ar.LeaveObject();
-				}
-			}
-			ar.LeaveArray();
-		}
+		ar << Optional("rateOverTime", rateOverTime);
+		ar << Optional("bursts", bursts);
 	}
 
 	// ---- ShapeModule -----------------------------------------------------
 	void ShapeModule::Serialize(Archive& ar)
 	{
 		unsigned int shapeType = static_cast<unsigned int>(type);
-		ar << Optional("type", shapeType, 0u);
+		ar << Optional("type", shapeType);
 		ar << Optional("scale", scale);
-		ar << Optional("radius", radius, 0.5f);
-		ar << Optional("angle", angle, 25.0f);
+		ar << Optional("radius", radius);
+		ar << Optional("angle", angle);
 		if (ar.IsLoading())
 			type = static_cast<ParticleShape>(shapeType);
 	}
@@ -170,8 +117,8 @@ namespace fury
 	void VelocityModule::Serialize(Archive& ar)
 	{
 		ar << Optional("linear", linear);
-		ar << Optional("speed", speed, 1.0f);
-		ar << Optional("inheritFromParent", inheritFromParent, false);
+		ar << Optional("speed", speed);
+		ar << Optional("inheritFromParent", inheritFromParent);
 	}
 
 	// ---- ColorOverLifetimeModule ----------------------------------------
@@ -197,7 +144,7 @@ namespace fury
 	// ---- RotationOverLifetimeModule -------------------------------------
 	void RotationOverLifetimeModule::Serialize(Archive& ar)
 	{
-		ar << Optional("angularVelocity", angularVelocity, 0.0f);
+		ar << Optional("angularVelocity", angularVelocity);
 	}
 
 	// ---- RendererModule --------------------------------------------------
@@ -205,8 +152,8 @@ namespace fury
 	{
 		ar << Optional("materialName", materialName);
 		unsigned int blend = static_cast<unsigned int>(blendMode);
-		ar << Optional("blendMode", blend, 0u);
-		ar << Optional("receiveShadows", receiveShadows, true);
+		ar << Optional("blendMode", blend);
+		ar << Optional("receiveShadows", receiveShadows);
 		if (ar.IsLoading())
 			blendMode = static_cast<ParticleBlend>(blend);
 	}

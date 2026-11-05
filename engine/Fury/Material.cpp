@@ -97,7 +97,7 @@ namespace fury
 		// A fresh material has no textures: it is color-only. (The zero
 		// default silently matched the pass's first textured shader, which
 		// then sampled unit-0's leftover texture - invisible/garbage output.)
-		: Entity(name), m_TextureFlags((unsigned int)ShaderTexture::COLOR_ONLY), m_Opaque(true), m_AlphaMode(AlphaMode::OPAQUE), m_AlphaCutoff(0.5f), m_ID(GetMaterialID())
+		: Entity(name), m_TextureFlags((unsigned int)ShaderTexture::COLOR_ONLY), m_AlphaMode(AlphaMode::OPAQUE), m_ID(GetMaterialID())
 	{
 		m_TypeIndex = typeid(Material);
 		m_Dirty = false;
@@ -114,13 +114,13 @@ namespace fury
 		Entity::SerializeFields(ar);
 
 		std::string alphaMode = EnumUtil::AlphaModeToString(m_AlphaMode);
-		ar << Optional("opaque", m_Opaque, true);
+		ar << Optional("opaque", m_Opaque);
 		ArchiveFieldResult alphaResult = ar.TransferNamed("alpha_mode", alphaMode,
 			ArchiveFieldPolicy::Optional, true);
-		ar << Optional("alpha_cutoff", m_AlphaCutoff, 0.5f);
-		ar << Optional("two_sided", m_TwoSided, false);
-		ar << Optional("wind_enabled", m_WindEnabled, false);
-		ar << Optional("pre_z", m_PreZ, false);
+		ar << Optional("alpha_cutoff", m_AlphaCutoff);
+		ar << Optional("two_sided", m_TwoSided);
+		ar << Optional("wind_enabled", m_WindEnabled);
+		ar << Optional("pre_z", m_PreZ);
 		ar << Optional("texture_flags", m_TextureFlags);
 
 		if (ar.IsLoading())
@@ -134,31 +134,7 @@ namespace fury
 		}
 
 		// shaders: full inline Shader objects, one per pass slot.
-		if (ar.EnterArray("shaders", ArchiveFieldPolicy::Required))
-		{
-			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Shaders.size();
-			for (std::size_t i = 0; i < count; ++i)
-			{
-				if (ar.IsLoading())
-				{
-					ar.SetArrayIndex(i);
-					auto shader = Shader::Create("temp", ShaderType::OTHER);
-					if (ar.EnterObject())
-					{
-						shader->Serialize(ar);
-						ar.LeaveObject();
-					}
-					m_Shaders.push_back(shader);
-				}
-				else
-				{
-					ar.EnterObject();
-					m_Shaders[i]->Serialize(ar);
-					ar.LeaveObject();
-				}
-			}
-			ar.LeaveArray();
-		}
+		ar << Required("shaders", m_Shaders);
 
 		// textures: {"key", <inline Texture fields>}. Loading binds the
 		// EntityManager's canonical entry for the path when one is

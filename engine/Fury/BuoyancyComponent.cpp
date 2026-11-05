@@ -31,6 +31,12 @@ namespace fury
 		m_TypeIndex = typeid(BuoyancyComponent);
 	}
 
+	void BuoyancyComponent::FloatPoint::Serialize(Archive& ar)
+	{
+		ar << Optional("offset", Offset);
+		ar << Optional("radius", Radius);
+	}
+
 	void BuoyancyComponent::Serialize(Archive& ar)
 	{
 		ar << Optional("name", m_Name);
@@ -40,25 +46,7 @@ namespace fury
 		ar << Optional("rightingStrength", m_RightingStrength);
 		ar << Optional("oceanNode", m_OceanNodeName);
 
-		if (ar.IsLoading())
-			m_FloatPoints.clear();
-		if (ar.EnterArray("floatPoints", ArchiveFieldPolicy::Optional, true))
-		{
-			if (ar.IsLoading())
-				m_FloatPoints.resize(ar.GetArraySize());
-			for (std::size_t i = 0; i < m_FloatPoints.size(); ++i)
-			{
-				if (ar.IsLoading())
-					ar.SetArrayIndex(i);
-				if (ar.EnterObject())
-				{
-					ar << Optional("offset", m_FloatPoints[i].Offset);
-					ar << Optional("radius", m_FloatPoints[i].Radius);
-					ar.LeaveObject();
-				}
-			}
-			ar.LeaveArray();
-		}
+		ar << Optional("floatPoints", m_FloatPoints);
 
 		if (ar.IsLoading())
 		{

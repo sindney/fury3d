@@ -40,6 +40,8 @@ namespace fury
 	{
 		float time = 0.0f;
 		Color color = Color::White;
+
+		void Serialize(Archive& ar);
 	};
 
 	// Inherit from Serializable for the shared Serialize(Archive&) API.
@@ -63,6 +65,8 @@ namespace fury
 	{
 		float time = 0.0f;
 		float value = 1.0f;
+
+		void Serialize(Archive& ar);
 	};
 
 	struct FURY_API AnimationCurve : public Serializable

@@ -52,7 +52,7 @@ namespace fury
 
 		WrapMode m_WrapMode = WrapMode::REPEAT;
 
-		Color m_BorderColor;
+		Color m_BorderColor = Color::Black;
 
 		bool m_Mipmap = false;
 

@@ -39,10 +39,10 @@ namespace fury
 		Entity::SerializeFields(ar);
 
 		ar << Optional("file_path", m_FilePath);
-		ar << Optional("resolution", m_Resolution, 0);
-		ar << Optional("worldSizeX", m_WorldSizeX, 0.0f);
-		ar << Optional("worldSizeZ", m_WorldSizeZ, 0.0f);
-		ar << Optional("heightScale", m_HeightScale, 0.0f);
+		ar << Optional("resolution", m_Resolution);
+		ar << Optional("worldSizeX", m_WorldSizeX);
+		ar << Optional("worldSizeZ", m_WorldSizeZ);
+		ar << Optional("heightScale", m_HeightScale);
 
 		if (ar.IsLoading())
 		{

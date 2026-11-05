@@ -34,13 +34,13 @@ namespace fury
 
 		ArrayBuffer(const std::string &name, RHIBufferType bufferType, RHIBufferUsage bufferUsage);
 
-		virtual std::type_index GetTypeIndex() const;
+		virtual std::type_index GetTypeIndex() const override;
 
 		virtual ~ArrayBuffer();
 
-		void UpdateBuffer();
+		virtual void UpdateBuffer() override;
 
-		virtual void DeleteBuffer();
+		virtual void DeleteBuffer() override;
 
 		RHIBufferRef GetRHIBuffer() const;
 

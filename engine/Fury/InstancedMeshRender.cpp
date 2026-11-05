@@ -28,6 +28,13 @@ namespace fury
 			SetMaterial(material);
 	}
 
+	void InstancedMeshRender::Instance::Serialize(Archive& ar)
+	{
+		ar << Optional("position", Position);
+		ar << Optional("rotation", Rotation);
+		ar << Optional("scale", Scale);
+	}
+
 	void InstancedMeshRender::Serialize(Archive& ar)
 	{
 		auto manager = ar.GetEntityManager();
@@ -98,25 +105,7 @@ namespace fury
 
 		std::vector<Instance> instances;
 		if (ar.IsSaving()) instances = m_Instances;
-		if (ar.EnterArray("instances", ArchiveFieldPolicy::Optional, true))
-		{
-			if (ar.IsLoading()) instances.resize(ar.GetArraySize());
-			for (std::size_t i = 0; i < instances.size(); ++i)
-			{
-				if (ar.IsLoading()) ar.SetArrayIndex(i);
-				if (!ar.EnterObject())
-				{
-					ar.LeaveArray();
-					return;
-				}
-				Instance &instance = instances[i];
-				ar << Optional("position", instance.Position);
-				ar << Optional("rotation", instance.Rotation);
-				ar << Optional("scale", instance.Scale, Vector4(1.0f, 1.0f, 1.0f));
-				ar.LeaveObject();
-			}
-			ar.LeaveArray();
-		}
+		ar << Optional("instances", instances);
 		if (ar.IsLoading())
 		{
 			m_Instances = std::move(instances);

@@ -104,7 +104,7 @@ namespace fury
 	}
 
 	Texture::Texture(const std::string &name)
-		: Entity(name), m_BorderColor(0, 0, 0, 0)
+		: Entity(name)
 	{
 		m_TypeIndex = typeid(Texture);
 	}
@@ -130,10 +130,10 @@ namespace fury
 		std::string path = m_FilePath;
 		bool srgb = IsSRGB();
 
-		ar << Optional("filter", filter, EnumUtil::FilterModeToString(FilterMode::LINEAR));
-		ar << Optional("wrap", wrap, EnumUtil::WrapModeToString(WrapMode::REPEAT));
-		ar << Optional("borderColor", borderColor, Color::Black);
-		ar << Optional("mipmap", mipmap, false);
+		ar << Optional("filter", filter);
+		ar << Optional("wrap", wrap);
+		ar << Optional("borderColor", borderColor);
+		ar << Optional("mipmap", mipmap);
 
 		// File-backed and embedded shapes are mutually exclusive:
 		// "path" present decides on load, m_FilePath on save.
