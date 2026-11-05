@@ -92,11 +92,11 @@ namespace fury
 
 		// Derived: m_AlphaMode != AlphaMode::BLEND. Kept as a stored
 		// field because legacy files serialize it directly.
-		bool m_Opaque;
+		bool m_Opaque = true;
 
 		AlphaMode m_AlphaMode;
 
-		float m_AlphaCutoff;
+		float m_AlphaCutoff = 0.5f;
 
 		// Vegetation flags. TwoSided: cull off + back-face normal flip.
 		// WindEnabled: vertex-color-weighted sway in the WIND shader variant.

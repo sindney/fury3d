@@ -56,7 +56,7 @@ namespace fury
 
 		virtual ~OcTreeNode();
 
-		virtual std::type_index GetTypeIndex() const;
+		virtual std::type_index GetTypeIndex() const override;
 
 		BoxBounds GetAABB() const;
 

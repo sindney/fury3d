@@ -27,11 +27,17 @@ namespace fury
 			VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT *data, void *)
 		{
 			if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+			{
 				FURYE << "Vulkan validation: " << data->pMessage;
+			}
 			else if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+			{
 				FURYW << "Vulkan validation: " << data->pMessage;
+			}
 			else
+			{
 				FURYD << "Vulkan validation: " << data->pMessage;
+			}
 			return VK_FALSE;
 		}
 

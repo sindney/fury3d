@@ -87,7 +87,7 @@ namespace fury
 	{
 		Entity::SerializeFields(ar);
 
-		ar << Optional("cast_shadows", m_CastShadows, false);
+		ar << Optional("cast_shadows", m_CastShadows);
 
 		ar << Required("positions", Positions.Data);
 		ar << Conditional("normals", Normals.Data, !Normals.Data.empty());

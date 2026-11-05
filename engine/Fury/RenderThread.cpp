@@ -91,7 +91,7 @@ namespace fury
 		// Hand the context over. SFML serializes: deactivate here, the
 		// render thread activates on its side (m_StartDone gates the return
 		// so the caller never races ahead of the handoff).
-		window.setActive(false);
+		(void)window.setActive(false);
 
 		m_Window = &window;
 		m_Quit = false;
@@ -116,7 +116,7 @@ namespace fury
 			lock.unlock();
 			m_Thread.join();
 			m_Window = nullptr;
-			window.setActive(true);
+			(void)window.setActive(true);
 			ASSERT_MSG(false, "RenderThread failed to acquire the GL context");
 		}
 	}
@@ -136,7 +136,7 @@ namespace fury
 		m_Running.store(false, std::memory_order_release);
 		if (m_Window != nullptr)
 		{
-			m_Window->setActive(true);
+			(void)m_Window->setActive(true);
 			m_Window = nullptr;
 		}
 		m_Executor = nullptr;
@@ -238,7 +238,7 @@ namespace fury
 		}
 
 		m_Running.store(false, std::memory_order_release);
-		window->setActive(false);
+		(void)window->setActive(false);
 	}
 
 	void RenderThread::ExecuteInline(FramePacket &packet)
@@ -404,7 +404,7 @@ namespace fury
 		if (frames <= 0)
 			frames = 120;
 
-		window.setActive(false);
+		(void)window.setActive(false);
 
 		std::atomic<int> presented{ 0 };
 		std::atomic<int> mismatches{ 0 };
@@ -445,7 +445,7 @@ namespace fury
 				++presented;
 			}
 
-			window.setActive(false);
+			(void)window.setActive(false);
 		});
 
 		// Main thread keeps the window responsive (macOS requires the window
@@ -461,7 +461,7 @@ namespace fury
 		}
 
 		worker.join();
-		window.setActive(true);
+		(void)window.setActive(true);
 
 		if (mismatches.load() != 0)
 		{

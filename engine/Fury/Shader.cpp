@@ -131,7 +131,7 @@ namespace fury
 		Entity::SerializeFields(ar);
 
 		std::string type = EnumUtil::ShaderTypeToString(m_Type);
-		ar << Optional("type", type, std::string("OTHER"));
+		ar << Optional("type", type);
 
 		// Texture flags travel as their string names; absent array = 0.
 		std::vector<std::string> textureFlags;

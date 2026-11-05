@@ -29,6 +29,8 @@ namespace fury
 		{
 			Vector4 Offset = Vector4(0.0f, 0.0f, 0.0f, 1.0f); // node-local, cm
 			float Radius = 25.0f;                              // submersion depth scale, cm
+
+			void Serialize(Archive& ar);
 		};
 
 		typedef std::shared_ptr<BuoyancyComponent> Ptr;

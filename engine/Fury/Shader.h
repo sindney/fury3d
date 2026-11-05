@@ -35,7 +35,7 @@ namespace fury
 
 		std::string m_FilePath;
 
-		ShaderType m_Type;
+		ShaderType m_Type = ShaderType::OTHER;
 
 		unsigned int m_TextureFlags;
 
@@ -49,7 +49,8 @@ namespace fury
 
 	public:
 
-		Shader(const std::string &name, ShaderType type, unsigned int textureFlags = 0);
+		Shader(const std::string &name = "", ShaderType type = ShaderType::OTHER,
+			unsigned int textureFlags = 0);
 
 		virtual ~Shader();
 
