@@ -129,6 +129,12 @@ namespace fury
 		// Backends defer native destruction until the GPU is done; called per frame.
 		virtual void RetireDeletedResources() = 0;
 
+		// Create the ImGui font-atlas backend textures synchronously. Must
+		// run on the game thread before the render thread starts: the
+		// backend publishes TexID/Status into the atlas, which the game
+		// thread reads in ImGui::NewFrame.
+		virtual void WarmUpUiFontAtlas() {}
+
 	protected:
 
 		std::vector<RHITextureRef> m_FrameRenderTargets;

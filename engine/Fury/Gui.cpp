@@ -121,6 +121,17 @@ namespace fury
 				ImGui_ImplOpenGL3_NewFrame();
 				ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 			}
+			else
+			{
+				// Build the atlas and create its backend texture now, before
+				// the render thread starts: the backend publishes TexID/Status
+				// into the atlas, which ImGui::NewFrame reads on this thread
+				// every frame. Runtime font changes need a re-run of this.
+				ImGui_ImplSFML3_NewFrame(m_Window, 1.0f / 60.0f);
+				ImGui::NewFrame();
+				ImGui::Render();
+				GRHIDevice->WarmUpUiFontAtlas();
+			}
 
 			return true;
 		}
@@ -292,6 +303,9 @@ namespace fury
 		{
 			ImDrawData drawData;
 			std::vector<ImDrawList*> lists;
+			// Own copy of the atlas texture list: the render thread must not
+			// read ImGui's live list, which the game thread rewrites.
+			ImVector<ImTextureData*> textures;
 			~GuiFrameData()
 			{
 				for (auto *l : lists)
@@ -302,6 +316,7 @@ namespace fury
 		std::shared_ptr<void> BuildDrawDataSnapshot()
 		{
 			if (ImGui::GetCurrentContext() == nullptr) return nullptr;
+
 			ImGui::Render();
 			ImDrawData *src = ImGui::GetDrawData();
 			if (src == nullptr || !src->Valid) return nullptr;
@@ -312,7 +327,9 @@ namespace fury
 			out->drawData.DisplaySize = src->DisplaySize;
 			out->drawData.FramebufferScale = src->FramebufferScale;
 			out->drawData.OwnerViewport = src->OwnerViewport;
-			out->drawData.Textures = src->Textures;
+			if (src->Textures != nullptr)
+				out->textures = *src->Textures;
+			out->drawData.Textures = &out->textures;
 			for (int i = 0; i < src->CmdListsCount; ++i)
 			{
 				const ImDrawList *sl = src->CmdLists[i];

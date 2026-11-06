@@ -111,6 +111,7 @@ namespace fury
 		bool InitUiRenderer() override;
 		void ShutdownUiRenderer() override;
 		void DrawUiOverlay(void *drawData) override;
+		void WarmUpUiFontAtlas() override;
 		uintptr_t GetUiTextureId(const RHITextureRef &texture) override;
 
 		VkDevice GetDevice() const { return m_Device; }
