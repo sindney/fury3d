@@ -2877,8 +2877,16 @@ void RenderViewportToolbar() {
 		if (ImGui::BeginMenu("Clusters")) {
 			for (int i = 0; i < 3; ++i) {
 				if (ImGui::Selectable(kClusterViews[i], cluster_view == i,
-									  ImGuiSelectableFlags_DontClosePopups))
+									  ImGuiSelectableFlags_DontClosePopups)) {
+					// A backend without clustered support cannot show the
+					// view; say so in the log instead of in the viewport.
+					if (i != 0 && cluster_view != i && Pipeline::Active) {
+						const char *diagnostic = Pipeline::Active->GetClusteredLightingDiagnostic();
+						if (diagnostic[0] != '\0')
+							FURYE << "Cluster debug view unavailable: " << diagnostic;
+					}
 					cluster_view = i;
+				}
 			}
 			ImGui::EndMenu();
 		}
@@ -2928,13 +2936,9 @@ void RenderViewportToolbar() {
 		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, postfx_view == 2);
 		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_GRID_VIEW, cluster_view == 1);
 		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW, cluster_view == 2);
-		if (cluster_view != 0) {
-			const char *diagnostic = Pipeline::Active->GetClusteredLightingDiagnostic();
-			if (diagnostic[0] != '\0')
-				ImGui::TextDisabled("Clusters unavailable: %s", diagnostic);
-			if (cluster_view == 2)
-				ImGui::TextDisabled("Max lights/cluster: %d; overflow: %d",
-					Pipeline::Active->GetClusterMaxLightCount(), Pipeline::Active->GetClusterOverflowCount());
+		if (cluster_view == 2 && Pipeline::Active->GetClusteredLightingDiagnostic()[0] == '\0') {
+			ImGui::TextDisabled("Max lights/cluster: %d; overflow: %d",
+				Pipeline::Active->GetClusterMaxLightCount(), Pipeline::Active->GetClusterOverflowCount());
 		}
 	}
 }
