@@ -63,11 +63,11 @@ namespace fury
 		}
 
 		unsigned int cap = m_MaxParticles;
-		ar << Optional("maxParticles", cap, m_MaxParticles);
+		ar << Optional("maxParticles", cap);
 		if (ar.IsLoading())
 			SetMaxParticles(cap);
-		ar << Optional("lifetime", m_Lifetime, 1.0f);
-		ar << Optional("startSize", m_StartSize, 0.2f);
+		ar << Optional("lifetime", m_Lifetime);
+		ar << Optional("startSize", m_StartSize);
 
 		// Modules: loaded only when their block is present (defaults
 		// kept otherwise), always written on save.

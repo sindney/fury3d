@@ -21,7 +21,7 @@ namespace fury
 
 		virtual ~Entity() {}
 
-		virtual std::type_index GetTypeIndex() const;
+		virtual std::type_index GetTypeIndex() const override;
 
 		void Serialize(Archive& ar) override;
 

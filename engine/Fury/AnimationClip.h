@@ -18,6 +18,8 @@ namespace fury
 
 		KeyFrame(unsigned int tick = 0, float x = 0.0f, float y = 0.0f, float z = 0.0f) :
 			tick(tick), x(x), y(y), z(z) {}
+
+		void Serialize(Archive& ar);
 	};
 
 	struct AnimationChannel
@@ -32,8 +34,10 @@ namespace fury
 
 		std::string name;
 
-		AnimationChannel(const std::string &name) : 
+		AnimationChannel(const std::string &name = "") :
 			name(name) {}
+
+		void Serialize(Archive& ar);
 	};
 
 	class FURY_API AnimationClip final : public Entity

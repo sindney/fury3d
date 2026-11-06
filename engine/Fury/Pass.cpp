@@ -125,11 +125,18 @@ namespace fury
 
 		for (const auto& name : shaders)
 		{
-			if (auto shader = entityMgr->Get<Shader>(name)) AddShader(shader);
+			if (auto shader = entityMgr->Get<Shader>(name))
+			{
+				AddShader(shader);
+			}
 			else if (name.size() > 5 && name.compare(name.size() - 5, 5, "_ssbo") == 0)
+			{
 				FURYD << "Shader " << name << " not found (SSBO-gated; expected on this context)";
+			}
 			else
+			{
 				FURYW << "Shader " << name << " not found!";
+			}
 		}
 		for (const auto& name : inputs)
 		{

@@ -261,6 +261,13 @@ if(FURY_WITH_KRAUT)
 	if(CMAKE_OSX_DEPLOYMENT_TARGET)
 		list(APPEND FURY_KRAUT_OSX_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET})
 	endif()
+	# GLEW 2.2 (fetched by KrautPreview) unconditionally appends -framework
+	# AGL on Apple. AGL is gone from the macOS SDK, so the link fails; glew.c
+	# references no AGL symbol, so an empty AGL_LIBRARY drops it.
+	set(FURY_KRAUT_AGL_OPT "")
+	if(OS_MACOSX)
+		set(FURY_KRAUT_AGL_OPT -DAGL_LIBRARY:FILEPATH=)
+	endif()
 	# POLICY_VERSION_MINIMUM: Kraut's vendored FetchContent deps (SDL2 2.30.5)
 	# predate CMake 3.5+ policy requirements.
 	# BUILD_ALWAYS: the submodule's content changes when the pin moves (git
@@ -272,6 +279,7 @@ if(FURY_WITH_KRAUT)
 		CMAKE_ARGS
 			-DCMAKE_BUILD_TYPE=Release
 			${FURY_KRAUT_OSX_ARGS}
+			${FURY_KRAUT_AGL_OPT}
 			-DKRAUT_BUILD_EDITOR=OFF
 			-DKRAUT_BUILD_PREVIEW=${FURY_KRAUT_PREVIEW_OPT}
 			-DCMAKE_POLICY_VERSION_MINIMUM=3.5

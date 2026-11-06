@@ -5,6 +5,12 @@
 #include <SFML/Window/Vulkan.hpp>
 #include <SFML/Window/WindowBase.hpp>
 
+#if PLATFORM_MACOS
+#include <CoreFoundation/CoreFoundation.h>
+#include <vulkan/vulkan_metal.h>
+#include "Fury/RHI/Metal/MetalWindowBridge.h"
+#endif
+
 #include "ImGui/imgui.h"
 #include "ImGui/backends/imgui_impl_vulkan.h"
 
@@ -19,12 +25,6 @@
 #include "Fury/RHI/Vulkan/VulkanResources.h"
 #include "Fury/RHI/Vulkan/VulkanShaderModule.h"
 
-#if PLATFORM_MACOS
-#include <CoreFoundation/CoreFoundation.h>
-#include <vulkan/vulkan_metal.h>
-#include "Fury/RHI/Metal/MetalWindowBridge.h"
-#endif
-
 namespace fury
 {
 	namespace
@@ -33,11 +33,17 @@ namespace fury
 			VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT *data, void *)
 		{
 			if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+			{
 				FURYE << "Vulkan validation: " << data->pMessage;
+			}
 			else if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+			{
 				FURYW << "Vulkan validation: " << data->pMessage;
+			}
 			else
+			{
 				FURYD << "Vulkan validation: " << data->pMessage;
+			}
 			return VK_FALSE;
 		}
 

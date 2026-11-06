@@ -23,7 +23,7 @@ namespace fury
 
 		virtual ~Component();
 
-		virtual std::type_index GetTypeIndex() const;
+		virtual std::type_index GetTypeIndex() const override;
 
 		virtual Ptr Clone() const = 0;
 

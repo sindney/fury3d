@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 #include <typeindex>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <rapidjson/fwd.h>
@@ -15,6 +17,7 @@
 
 namespace fury
 {
+	class Archive;
 	class Scene;
 	class Pipeline;
 	class EntityManager;
@@ -72,7 +75,6 @@ namespace fury
 	{
 		const char* Name;
 		T& Value;
-		std::shared_ptr<T> Default;
 	};
 
 	template<typename T>
@@ -102,13 +104,7 @@ namespace fury
 	template<typename T>
 	OptionalField<T> Optional(const char* name, T& value)
 	{
-		return { name, value, nullptr };
-	}
-
-	template<typename T>
-	OptionalField<T> Optional(const char* name, T& value, const T& defaultValue)
-	{
-		return { name, value, std::make_shared<T>(defaultValue) };
+		return { name, value };
 	}
 
 	template<typename T>
@@ -139,6 +135,16 @@ namespace fury
 	ResourceReferenceField<T> OptionalPathReference(const char* name, std::string& value)
 	{
 		return { name, value, ResourceIdentity::Path, ArchiveFieldPolicy::Optional, true };
+	}
+
+	namespace detail
+	{
+		template<typename T, typename = void>
+		struct HasSerialize : std::false_type {};
+
+		template<typename T>
+		struct HasSerialize<T, std::void_t<decltype(std::declval<T&>().Serialize(std::declval<Archive&>()))>>
+			: std::true_type {};
 	}
 
 	class FURY_API Archive
@@ -206,10 +212,31 @@ namespace fury
 		virtual ArchiveFieldResult Transfer(const char* name, BoxBounds& value,
 			ArchiveFieldPolicy policy, bool present) = 0;
 
+		// One array element: types carrying their own Serialize(Archive&)
+		// write an object, everything else transfers as a plain value.
+		template<typename T>
+		void SerializeElement(T& value)
+		{
+			if constexpr (detail::HasSerialize<T>::value)
+			{
+				if (EnterObject())
+				{
+					value.Serialize(*this);
+					LeaveObject();
+				}
+			}
+			else
+			{
+				Transfer(nullptr, value, ArchiveFieldPolicy::Required, true);
+			}
+		}
+
 		template<typename T>
 		ArchiveFieldResult Transfer(const char* name, std::vector<T>& values,
 			ArchiveFieldPolicy policy, bool present)
 		{
+			if (IsLoading())
+				values.clear();
 			if (!EnterArray(name, policy, present))
 				return IsValid() ? ArchiveFieldResult::Missing : ArchiveFieldResult::Ok;
 
@@ -219,7 +246,60 @@ namespace fury
 			{
 				if (IsLoading())
 					SetArrayIndex(i);
-				Transfer(nullptr, values[i], ArchiveFieldPolicy::Required, true);
+				SerializeElement(values[i]);
+			}
+			LeaveArray();
+			return ArchiveFieldResult::Ok;
+		}
+
+		// std::vector<bool> hands out proxies, which cannot bind to bool&.
+		ArchiveFieldResult Transfer(const char* name, std::vector<bool>& values,
+			ArchiveFieldPolicy policy, bool present)
+		{
+			if (IsLoading())
+				values.clear();
+			if (!EnterArray(name, policy, present))
+				return IsValid() ? ArchiveFieldResult::Missing : ArchiveFieldResult::Ok;
+
+			if (IsLoading())
+				values.resize(GetArraySize());
+			for (std::size_t i = 0; i < values.size(); ++i)
+			{
+				if (IsLoading())
+					SetArrayIndex(i);
+				bool value = values[i];
+				Transfer(nullptr, value, ArchiveFieldPolicy::Required, true);
+				if (IsLoading())
+					values[i] = value;
+			}
+			LeaveArray();
+			return ArchiveFieldResult::Ok;
+		}
+
+		// Elements behind a shared_ptr are created on load, so the pointee
+		// has to be default constructible.
+		template<typename T>
+		ArchiveFieldResult Transfer(const char* name, std::vector<std::shared_ptr<T>>& values,
+			ArchiveFieldPolicy policy, bool present)
+		{
+			if (IsLoading())
+				values.clear();
+			if (!EnterArray(name, policy, present))
+				return IsValid() ? ArchiveFieldResult::Missing : ArchiveFieldResult::Ok;
+
+			if (IsLoading())
+				values.resize(GetArraySize());
+			for (std::size_t i = 0; i < values.size(); ++i)
+			{
+				if (IsLoading())
+					SetArrayIndex(i);
+				if (!values[i])
+					values[i] = std::make_shared<T>();
+				if (values[i] && EnterObject())
+				{
+					values[i]->Serialize(*this);
+					LeaveObject();
+				}
 			}
 			LeaveArray();
 			return ArchiveFieldResult::Ok;
@@ -227,14 +307,11 @@ namespace fury
 
 		template<typename T>
 		ArchiveFieldResult TransferNamed(const char* name, T& value,
-			ArchiveFieldPolicy policy, bool present, const T* defaultValue = nullptr)
+			ArchiveFieldPolicy policy, bool present)
 		{
 			if (!IsValid())
 				return ArchiveFieldResult::Ok;
-			ArchiveFieldResult result = Transfer(name, value, policy, present);
-			if (IsLoading() && result == ArchiveFieldResult::Missing && defaultValue)
-				value = *defaultValue;
-			return result;
+			return Transfer(name, value, policy, present);
 		}
 
 		ArchiveFieldResult TransferResource(std::type_index type, ResourceIdentity identity,
@@ -264,8 +341,7 @@ namespace fury
 	template<typename T>
 	Archive& operator<<(Archive& ar, const OptionalField<T>& field)
 	{
-		ar.TransferNamed(field.Name, field.Value, ArchiveFieldPolicy::Optional, true,
-			field.Default.get());
+		ar.TransferNamed(field.Name, field.Value, ArchiveFieldPolicy::Optional, true);
 		return ar;
 	}
 

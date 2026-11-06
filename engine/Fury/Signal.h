@@ -53,7 +53,7 @@ namespace fury
 			m_DefaultOwner = std::static_pointer_cast<void>(std::make_shared<bool>(true));
 		}
 
-		virtual std::type_index GetTypeIndex() const
+		virtual std::type_index GetTypeIndex() const override
 		{
 			return m_TypeIndex;
 		}

@@ -20,88 +20,32 @@ namespace fury
 		FURYD << "AnimationClip " << m_Name << " destoried!";
 	}
 
+	void KeyFrame::Serialize(Archive& ar)
+	{
+		ar << Optional("tick", tick);
+		ar << Optional("x", x);
+		ar << Optional("y", y);
+		ar << Optional("z", z);
+	}
+
+	void AnimationChannel::Serialize(Archive& ar)
+	{
+		ar << Required("name", name);
+		ar << Optional("positions", positions);
+		ar << Optional("rotations", rotations);
+		ar << Optional("scalings", scalings);
+	}
+
 	void AnimationClip::Serialize(Archive& ar)
 	{
 		Entity::SerializeFields(ar);
 
-		ar << Optional("ticksPerSecond", m_TicksPerSecond, 24);
-		ar << Optional("speed", m_Speed, 1.0f);
-		ar << Optional("loop", m_Loop, true);
-		ar << Optional("duration", m_Duration, 0.0f);
+		ar << Optional("ticksPerSecond", m_TicksPerSecond);
+		ar << Optional("speed", m_Speed);
+		ar << Optional("loop", m_Loop);
+		ar << Optional("duration", m_Duration);
 
-		// One TRS bucket (tick + vec3; rotations are Euler radians).
-		auto transferKfArray = [&ar](const char *key, std::vector<KeyFrame> &frames)
-		{
-			if (ar.IsLoading())
-				frames.clear();
-			if (!ar.EnterArray(key, ArchiveFieldPolicy::Optional))
-				return;
-			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : frames.size();
-			for (std::size_t i = 0; i < count; ++i)
-			{
-				if (ar.IsLoading())
-				{
-					ar.SetArrayIndex(i);
-					frames.emplace_back();
-				}
-				KeyFrame &kf = frames[i];
-				if (ar.EnterObject())
-				{
-					unsigned int tick = static_cast<unsigned int>(kf.tick);
-					float x = kf.x, y = kf.y, z = kf.z;
-					ar << Optional("tick", tick, 0u);
-					ar << Optional("x", x, 0.0f);
-					ar << Optional("y", y, 0.0f);
-					ar << Optional("z", z, 0.0f);
-					if (ar.IsLoading())
-					{
-						kf.tick = tick;
-						kf.x = x;
-						kf.y = y;
-						kf.z = z;
-					}
-					ar.LeaveObject();
-				}
-			}
-			ar.LeaveArray();
-		};
-
-		if (ar.IsLoading())
-			m_Channels.clear();
-		if (ar.EnterArray("channels", ArchiveFieldPolicy::Optional))
-		{
-			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Channels.size();
-			for (std::size_t i = 0; i < count; ++i)
-			{
-				if (ar.IsLoading())
-				{
-					ar.SetArrayIndex(i);
-					auto channel = std::make_shared<AnimationChannel>("");
-					if (ar.EnterObject())
-					{
-						std::string name;
-						ar << Required("name", name);
-						channel->name = name;
-						transferKfArray("positions", channel->positions);
-						transferKfArray("rotations", channel->rotations);
-						transferKfArray("scalings", channel->scalings);
-						ar.LeaveObject();
-					}
-					m_Channels.push_back(channel);
-				}
-				else
-				{
-					ar.EnterObject();
-					std::string name = m_Channels[i]->name;
-					ar << Required("name", name);
-					transferKfArray("positions", m_Channels[i]->positions);
-					transferKfArray("rotations", m_Channels[i]->rotations);
-					transferKfArray("scalings", m_Channels[i]->scalings);
-					ar.LeaveObject();
-				}
-			}
-			ar.LeaveArray();
-		}
+		ar << Optional("channels", m_Channels);
 	}
 
 	void AnimationClip::CalculateDuration()

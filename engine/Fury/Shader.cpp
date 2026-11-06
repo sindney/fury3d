@@ -132,7 +132,7 @@ namespace fury
 		Entity::SerializeFields(ar);
 
 		std::string type = EnumUtil::ShaderTypeToString(m_Type);
-		ar << Optional("type", type, std::string("OTHER"));
+		ar << Optional("type", type);
 
 		// Texture flags travel as their string names; absent array = 0.
 		std::vector<std::string> textureFlags;
@@ -149,7 +149,7 @@ namespace fury
 		ar << Required("path", m_FilePath);
 		ar << Conditional("geom", m_UseGeomShader, m_UseGeomShader);
 		std::string stage = m_ComputeShader ? "compute" : "graphics";
-		ar << Optional("stage", stage, std::string("graphics"));
+		ar << Optional("stage", stage);
 
 		if (ar.IsLoading())
 		{

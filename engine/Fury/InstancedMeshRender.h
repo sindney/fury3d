@@ -38,6 +38,8 @@ namespace fury
 			Vector4 Position = Vector4(0.0f, 0.0f, 0.0f);
 			Quaternion Rotation;
 			Vector4 Scale = Vector4(1.0f, 1.0f, 1.0f);
+
+			void Serialize(Archive& ar);
 		};
 
 		// One LOD tier's visible instance stream for the current frame.

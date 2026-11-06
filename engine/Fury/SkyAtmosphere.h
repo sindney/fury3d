@@ -514,7 +514,7 @@ namespace fury
 		int m_CloudTargetH = 0;
 		int m_CloudTargetQuality = -1;
 		Vector4 m_LastCloudCamPos;
-		float m_LastCloudFwd[3] = { 0.0f, 0.0f, 0.0f };
+		float m_LastCloudFwd[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		float m_LastCloudFov = -1.0f;
 		float m_LastCloudSunY = -999.0f;
 		bool m_CloudParamsDirty = true;
