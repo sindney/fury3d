@@ -51,9 +51,18 @@ namespace fury
 			VkDescriptorSetLayout SetLayouts[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 		};
 
+		struct ComputePipelineEntry
+		{
+			VulkanShaderModuleRef Module;
+			VkPipeline Pipeline = VK_NULL_HANDLE;
+			VkPipelineLayout Layout = VK_NULL_HANDLE;
+			VkDescriptorSetLayout SetLayout = VK_NULL_HANDLE;
+		};
+
 		RHIVulkanDevice *m_Device = nullptr;
 		VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 		std::map<PipelineKey, PipelineEntry> m_Pipelines;
+		std::map<const VulkanShaderModule *, ComputePipelineEntry> m_ComputePipelines;
 		VulkanRenderTargetSetRef m_Targets;
 		bool m_Backbuffer = false;
 		bool m_Rendering = false;
@@ -138,6 +147,7 @@ namespace fury
 		void SetInstanceMatrixStream(const RHIBufferRef &buffer, const char *const attrNames[4]) override;
 		void SetStorageBuffer(unsigned int binding, const RHIBufferRef &buffer) override;
 		void SetStorageBufferNamed(const char *name, unsigned int binding, const RHIBufferRef &buffer) override;
+		void ClearStorageBuffer(const RHIBufferRef &buffer) override;
 		RHIUniformHandle ResolveUniform(const std::string &name) override;
 		void SetUniformFloat(const std::string &name, float v0) override;
 		void SetUniformFloat(const std::string &name, float v0, float v1) override;
@@ -186,6 +196,8 @@ namespace fury
 		bool BeginRendering(ClearMode clear, const Color &color, bool clearUInt = false, unsigned int uintValue = 0, bool allLayers = false);
 		void SetTargetFormats();
 		bool EnsurePipeline();
+		bool EnsureComputePipeline(ComputePipelineEntry *&out);
+		void WriteSetDescriptors(const VulkanShaderModuleRef &module, VkDescriptorSet set, unsigned int setIndex);
 		const std::vector<RHIVertexAttribute> *CurrentVertexLayout();
 		void BuildMeshLayout(std::vector<RHIVertexAttribute> &out);
 		static RHIVertexFormat MeshChannelFormat(int components, bool integer);

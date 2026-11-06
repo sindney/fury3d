@@ -90,7 +90,7 @@ if kind == "feature" then
         local animator = require_node(name):GetAnimator()
         if not animator or animator:GetStateCount() < 1 then fail("Animator missing: " .. name) end
     end
-    if rs:GetPipelinePath() ~= "Resource/Pipeline/DefferedLightingPBR.json" then
+    if rs:GetPipelinePath() ~= "Resource/Pipeline/DeferredLightingPBR.json" then
         fail("feature pipeline path changed")
     end
     if texture_count == 0 then fail("feature textures missing") end

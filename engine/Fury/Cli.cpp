@@ -46,7 +46,7 @@
 #include "Fury/PakFile.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PostProcessRegistry.h"
-#include "Fury/PrelightPipeline.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/RenderThread.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -1570,7 +1570,7 @@ namespace fury
 					return 1;
 				}
 				auto scene = Scene::Create("shaderc", "", OcTree::Create());
-				scene->GetRenderSettings()->SetPipelinePath("Resource/Pipeline/DefferedLightingPBR.json");
+				scene->GetRenderSettings()->SetPipelinePath("Resource/Pipeline/DeferredLightingPBR.json");
 				ActiveSceneGuard active_guard(scene);
 				CookResult result = ValidateSceneShaders(scene, rhi);
 				if (!result.error.empty())
@@ -1584,16 +1584,28 @@ namespace fury
 			}
 			if (argc < 3)
 			{
-				std::cerr << "furye-cli shaderc: expected --all [--rhi list] or <file.glsl> [-I dir]... [-D name[=value]]...\n";
+				std::cerr << "furye-cli shaderc: expected --all [--rhi list] or <file.glsl> [--stage compute] [-I dir]... [-D name[=value]]...\n";
 				return 1;
 			}
 
 			ShaderCompileInput in;
 			std::string source;
+			bool compute = false;
 			in.name = argv[2];
 			for (int i = 3; i < argc; ++i)
 			{
 				const std::string a = argv[i];
+				if (a == "--stage" && i + 1 < argc)
+				{
+					const std::string stage = argv[++i];
+					if (stage != "compute" && stage != "graphics")
+					{
+						std::cerr << "furye-cli shaderc: unknown stage '" << stage << "'\n";
+						return 1;
+					}
+					compute = stage == "compute";
+					continue;
+				}
 				if (a == "-I" && i + 1 < argc) { in.searchPaths.push_back(argv[++i]); continue; }
 				if (a == "-D" && i + 1 < argc)
 				{
@@ -1612,8 +1624,13 @@ namespace fury
 			}
 			if (in.searchPaths.empty())
 				in.searchPaths.push_back(DirOf(in.name));
-			in.vertexSource = source;
-			in.fragmentSource = source;
+			if (compute)
+				in.computeSource = source;
+			else
+			{
+				in.vertexSource = source;
+				in.fragmentSource = source;
+			}
 
 			ShaderModuleCompile out;
 			if (!CompileGlslToMSL(in, out))
@@ -1630,11 +1647,21 @@ namespace fury
 					std::cout << "  member " << m.name << " offset=" << m.offset << " size=" << m.size << "\n";
 				for (const auto &si : s.stageInputs)
 					std::cout << "  input " << si.name << " -> attribute " << si.location << "\n";
+				for (const auto &buffer : s.storageBuffers)
+					std::cout << "  storage " << buffer.name << " -> binding " << buffer.binding << "\n";
 			};
+			const std::string stem = in.name.substr(0, in.name.find_last_of('.'));
+			if (compute)
+			{
+				report("compute", out.compute);
+				std::ofstream computeOut(stem + ".comp.metal");
+				computeOut << out.compute.msl;
+				std::cout << "furye-cli shaderc OK: wrote " << stem << ".comp.metal\n";
+				return 0;
+			}
 			report("vertex", out.vertex);
 			report("fragment", out.fragment);
 
-			const std::string stem = in.name.substr(0, in.name.find_last_of('.'));
 			{
 				std::ofstream vertOut(stem + ".vert.metal");
 				vertOut << out.vertex.msl;
@@ -2219,12 +2246,12 @@ if not Scene.LoadActive(scene_path) then
 	error("failed to load scene " .. scene_path)
 end
 local scene = Scene.GetActive()
-Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
 local pl = Pipeline.GetActive()
 local rs = scene:GetRenderSettings()
 local pipe_path = rs and rs:GetPipelinePath() or ""
 if pipe_path == "" then
-	pipe_path = "Resource/Pipeline/DefferedLightingLambert.json"
+	pipe_path = "Resource/Pipeline/DeferredLightingLambert.json"
 end
 local full_pipe = FileUtil.GetAbsPath(pipe_path)
 if FileUtil.FileExist(full_pipe) then

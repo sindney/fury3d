@@ -24,6 +24,8 @@
 //   core GL rejects glDrawElements when a sampler's texture target
 //   mismatches (unbound samplerCube defaults to unit 0's 2D texture).
 
+#include "../GBufferCommon.glsl"
+
 uniform mat4 world_matrix;
 uniform mat4 invert_view_matrix;
 uniform mat4 projection_matrix;
@@ -162,7 +164,7 @@ float ShadowFactor()
 void main()
 {
 	// Linear depth — see the header comment.
-	gl_FragDepth = -v_view_z / camera_far;
+	gl_FragDepth = GBufferLinearDepth(-v_view_z, camera_far);
 	vec4 tex = texture(diffuse, v_uv);
 #ifdef SHADOW
 	// no source covering this emitter (type 0) -> unlit floor;

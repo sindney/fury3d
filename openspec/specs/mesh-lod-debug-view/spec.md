@@ -8,7 +8,7 @@ Editor visualization for the runtime LOD selection: tints each mesh draw with a 
 
 ### Requirement: `PipelineSwitch::LOD_DEBUG_COLORS` SHALL drive a per-instance LOD color overlay
 
-The engine SHALL add `LOD_DEBUG_COLORS` to the `PipelineSwitch` enum (placed before `LENGTH` so the existing enum values keep their numeric position). When the switch is on, every mesh draw in `PrelightPipeline::DrawUnit` SHALL be tinted with the LOD→color for that instance's active LOD (`MeshRender::GetActiveLod()`). When the switch is off, the mesh draws unchanged.
+The engine SHALL add `LOD_DEBUG_COLORS` to the `PipelineSwitch` enum (placed before `LENGTH` so the existing enum values keep their numeric position). When the switch is on, every mesh draw in `DeferredPipeline::DrawUnit` SHALL be tinted with the LOD→color for that instance's active LOD (`MeshRender::GetActiveLod()`). When the switch is off, the mesh draws unchanged.
 
 #### Scenario: Switch off preserves the unaltered draw
 
@@ -61,9 +61,9 @@ A helper `Color GetLodDebugColor(unsigned int lodIndex)` SHALL return `kLodColor
 - **WHEN** `GetLodDebugColor(6)` is called
 - **THEN** the returned color equals the LOD-0 color (green) — palette index 6 % 6 == 0
 
-### Requirement: `PrelightPipeline::DrawUnit` SHALL apply the LOD color when the switch is on
+### Requirement: `DeferredPipeline::DrawUnit` SHALL apply the LOD color when the switch is on
 
-In `PrelightPipeline::DrawUnit` (after `shader->BindMaterial(material)`, before `glDrawElements`), when `IsSwitchOn(PipelineSwitch::LOD_DEBUG_COLORS)` is true, the pipeline SHALL:
+In `DeferredPipeline::DrawUnit` (after `shader->BindMaterial(material)`, before `glDrawElements`), when `IsSwitchOn(PipelineSwitch::LOD_DEBUG_COLORS)` is true, the pipeline SHALL:
 
 1. Resolve the active LOD for the `MeshRender` (the same call already used to pick `active` mesh).
 2. Compute the color via `GetLodDebugColor(activeLod)`.

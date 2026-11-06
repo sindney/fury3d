@@ -123,6 +123,12 @@ def check_meta(text, args, cfg, backend):
     if meta.get("backend") != backend:
         return meta, "requested backend %s, engine ran %s" % (
             backend, meta.get("backend"))
+    expected_clustered = os.environ.get("FURY_EXPECT_CLUSTERED")
+    if expected_clustered is not None and meta.get("clustered_effective") != expected_clustered:
+        return meta, "expected clustered_effective=%s, got %s" % (
+            expected_clustered, meta.get("clustered_effective"))
+    if backend == "opengl" and expected_clustered == "0" and "cluster_assign_shader" in text:
+        return meta, "OpenGL fallback performed clustered assignment work"
     return meta, None
 
 

@@ -38,6 +38,8 @@ namespace fury
 		const std::vector<std::string> &defines, bool withEditor, bool withDebugOverlay);
 	ShaderCompileInput BuildShaderCompileInput(const std::string &name, const std::string &source,
 		const std::vector<std::string> &defines, bool withEditor, bool withDebugOverlay);
+	ShaderCompileInput BuildComputeShaderCompileInput(const std::string &name, const std::string &source,
+		const std::vector<std::string> &defines, bool withEditor, bool withDebugOverlay);
 
 	std::string MakeShaderDdcKey(const ShaderCompileInput &input, ShaderTarget target);
 	std::vector<ShaderArtifact> MakeShaderArtifacts(const ShaderCompileInput &input,
@@ -46,7 +48,7 @@ namespace fury
 
 	bool StoreShaderArtifacts(DdcStore &ddc, const std::vector<ShaderArtifact> &artifacts, std::string &error);
 	bool LoadShaderArtifacts(const DdcStore &ddc, const std::string &key, ShaderTarget target,
-		std::vector<ShaderArtifact> &artifacts);
+		std::vector<ShaderArtifact> &artifacts, bool compute = false);
 
 	// Vulkan descriptor-set contract: one set per stage, rewritten into the
 	// SPIR-V (vertex 0, fragment 1, compute 0). Idempotent; fails when a

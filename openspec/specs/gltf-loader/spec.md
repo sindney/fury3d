@@ -66,7 +66,7 @@ The partial in-tree glTF 2.0 DOM (`engine/Fury/GLTFDom.{h,cpp}`) SHALL be delete
 
 ### Requirement: Demo SHALL load scene.bin via the existing JSON/LZ4 path
 
-`examples/Demo.cpp` SHALL continue to load `Resource/Scene/scene.bin` via `FileUtil::LoadCompressedFile` and execute the existing `PrelightPipeline` deferred renderer. The runtime behavior at the asset-loading layer SHALL be observably identical to the pre-change baseline (same scene visible, no new log errors originating from FBX or `GLTFDom` paths). The demo SHALL NOT call any `tinygltf` APIs in this change — that is reserved for the follow-up `GltfImporter` change. (Note: `Demo.cpp` source itself IS modified in this change for SFML 3 API differences — this requirement scopes the demo's *runtime asset path*, not its source-level invariance.)
+`examples/Demo.cpp` SHALL continue to load `Resource/Scene/scene.bin` via `FileUtil::LoadCompressedFile` and execute the existing `DeferredPipeline` deferred renderer. The runtime behavior at the asset-loading layer SHALL be observably identical to the pre-change baseline (same scene visible, no new log errors originating from FBX or `GLTFDom` paths). The demo SHALL NOT call any `tinygltf` APIs in this change — that is reserved for the follow-up `GltfImporter` change. (Note: `Demo.cpp` source itself IS modified in this change for SFML 3 API differences — this requirement scopes the demo's *runtime asset path*, not its source-level invariance.)
 
 #### Scenario: Demo loads scene.bin via FileUtil::LoadCompressedFile
 - **WHEN** the built `demo` binary is launched from `examples/bin/`

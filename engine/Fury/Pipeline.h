@@ -1,6 +1,7 @@
 #ifndef _FURY_PIPELINE_H_
 #define _FURY_PIPELINE_H_
 
+#include <atomic>
 #include <memory>
 #include <unordered_map>
 #include <string>
@@ -69,6 +70,9 @@ namespace fury
 		// Vegetation pre-z: PreZ-flagged materials get a depth-only
 		// pre-phase inside the gbuffer pass, then an EQUAL-reuse draw.
 		VEGETATION_PREZ,
+		CLUSTERED_LIGHTING,
+		CLUSTER_GRID_VIEW,
+		CLUSTER_LIGHT_COUNT_VIEW,
 		LENGTH
 	};
 
@@ -93,6 +97,12 @@ namespace fury
 		// HDR mode: float lighting targets; the chain is forced to
 		// include a tonemap. Defaults to false.
 		bool m_HDRMode = false;
+
+		std::atomic<int> m_ClusteredLightingState = 0;
+
+		std::atomic<int> m_ClusterMaxLightCount = 0;
+
+		std::atomic<int> m_ClusterOverflowCount = 0;
 
 		// Resolved postprocess chain, rebuilt per-frame from the
 		// scene's renderSettings. Empty = legacy final-pass path.
@@ -125,7 +135,7 @@ namespace fury
 		RenderTarget* m_RenderTarget = nullptr;
 
 		// Buffer debug-view output (SSAO_VIEW / SSR_VIEW switches).
-		// Allocated on demand by PrelightPipeline::DrawEffectDebugView,
+		// Allocated on demand by DeferredPipeline::DrawEffectDebugView,
 		// registered as the "debug_view" texture; the editor presents it
 		// in place of the scene RT while a debug view is active.
 		std::shared_ptr<Texture> m_DebugViewTexture;
@@ -188,7 +198,7 @@ namespace fury
 		virtual void Execute(const std::shared_ptr<SceneManager> &sceneManager) = 0;
 
 		// GL thread: execute a gathered frame packet. Default no-op lets
-		// non-prelight pipelines skip the packet path.
+		// non-deferred pipelines skip the packet path.
 		virtual void ExecutePacket(FramePacket &packet);
 		
 		// basiclly saves all pipeline && pass's textures, shaders
@@ -204,6 +214,14 @@ namespace fury
 		void SetHDRMode(bool value);
 
 		bool IsHDRMode() const;
+
+		bool IsClusteredLightingEffective() const;
+
+		const char *GetClusteredLightingDiagnostic() const;
+
+		int GetClusterMaxLightCount() const { return m_ClusterMaxLightCount.load(); }
+
+		int GetClusterOverflowCount() const { return m_ClusterOverflowCount.load(); }
 
 		// Set the active postprocess chain (editor edits, or the
 		// per-frame rebuild from renderSettings).

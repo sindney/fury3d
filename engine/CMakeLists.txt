@@ -556,7 +556,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/PlayerController.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessEffect.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessRegistry.cpp
-	${PROJECT_SOURCE_DIR}/Fury/PrelightPipeline.cpp
+	${PROJECT_SOURCE_DIR}/Fury/DeferredPipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ProfilerGpu.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Quaternion.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderQuery.cpp
@@ -685,7 +685,7 @@ set(FURY_COMMON_SRC ${FURY_CORE_SRC} ${IMGUI_SRC} ${LZ4_SRC} ${SHA1_SRC} ${TINYG
 # pick up the file would be no-ops. See platform-window-dpi spec.
 if(OS_MACOSX)
 	list(APPEND FURY_COMMON_SRC "${PROJECT_SOURCE_DIR}/Fury/Engine_dpi_mac.mm")
-	if(FURY_RHI_METAL)
+	if(FURY_RHI_METAL OR FURY_RHI_VULKAN)
 		# ObjC++ bridge: attaches a CAMetalLayer to the SFML window's NSView.
 		list(APPEND FURY_COMMON_SRC "${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalWindowBridge.mm")
 	endif()
@@ -705,7 +705,7 @@ if(OS_WINDOWS)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System opengl32 ws2_32 comctl32 lua meshoptimizer Jolt rmlui_core rmlui_debugger rmlui_lua)
 elseif(OS_MACOSX)
 	set(FURY_PLATFORM_LIBS SFML::Window SFML::System ${OPENGL_LIBRARIES} ${COREFOUNDATION_LIB} lua meshoptimizer Jolt rmlui_core rmlui_debugger rmlui_lua)
-	if(FURY_RHI_METAL)
+	if(FURY_RHI_METAL OR FURY_RHI_VULKAN)
 		# Metal RHI backend: system frameworks + header-only metal-cpp include.
 		list(APPEND FURY_PLATFORM_LIBS "-framework Metal" "-framework Foundation" "-framework QuartzCore" "-framework AppKit")
 	endif()

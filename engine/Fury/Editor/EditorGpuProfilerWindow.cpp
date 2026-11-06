@@ -98,11 +98,15 @@ namespace fury
 
 				Texture::Ptr previewDisplay;
 
+				Texture::Ptr previewNormal;
+
 				int previewSlice = 0;
 
 				// The preview shows the dumped values unless the display
 				// view is picked.
 				bool displayView = false;
+
+				bool normalView = true;
 
 				// The dumped values are already display values (an sRGB
 				// target), so the display view is the raw one.
@@ -681,6 +685,45 @@ namespace fury
 				return tex;
 			}
 
+			Texture::Ptr LoadNormalPreview(const std::string &dir, const std::string &relPath, const std::string &name)
+			{
+				std::vector<unsigned char> file;
+				if (!ReadCaptureFile(CapturePath(dir, relPath), file))
+					return nullptr;
+				int width = 0, height = 0, channels = 0;
+				unsigned char *pixels = stbi_load_from_memory(file.data(), static_cast<int>(file.size()),
+					&width, &height, &channels, 4);
+				if (pixels == nullptr || width <= 0 || height <= 0)
+				{
+					if (pixels != nullptr) stbi_image_free(pixels);
+					return nullptr;
+				}
+				auto toByte = [](float v) {
+					return static_cast<unsigned char>(std::clamp(v * 255.0f + 0.5f, 0.0f, 255.0f));
+				};
+				std::vector<unsigned char> decoded(static_cast<size_t>(width) * height * 4);
+				for (size_t i = 0; i < decoded.size(); i += 4)
+				{
+					const float x = pixels[i] / 255.0f * 2.0f - 1.0f;
+					const float y = pixels[i + 1] / 255.0f * 2.0f - 1.0f;
+					float nx = x, ny = y, nz = 1.0f - std::abs(x) - std::abs(y);
+					const float t = std::max(-nz, 0.0f);
+					nx += nx >= 0.0f ? -t : t;
+					ny += ny >= 0.0f ? -t : t;
+					const float length = std::max(std::sqrt(nx * nx + ny * ny + nz * nz), 1e-6f);
+					decoded[i] = SrgbEncodeByte(toByte(nx / length * 0.5f + 0.5f));
+					decoded[i + 1] = SrgbEncodeByte(toByte(ny / length * 0.5f + 0.5f));
+					decoded[i + 2] = SrgbEncodeByte(toByte(nz / length * 0.5f + 0.5f));
+					decoded[i + 3] = 255;
+				}
+				stbi_image_free(pixels);
+				std::vector<unsigned char> png;
+				stbi_write_png_to_func(AppendBytes, &png, width, height, 4, decoded.data(), width * 4);
+				Texture::Ptr tex = Texture::Create(name);
+				tex->CreateFromMemory(png.data(), png.size(), false, false);
+				return tex;
+			}
+
 			// The width a preview can use without overflowing the panel.
 			float PreviewWidth()
 			{
@@ -757,24 +800,40 @@ namespace fury
 						{
 							tex.preview.reset();
 							tex.previewDisplay.reset();
+							tex.previewNormal.reset();
 						}
 					}
 					const int slice = std::min(tex.previewSlice, static_cast<int>(tex.pngs.size()) - 1);
 					const bool display = tex.displayView && !tex.srgbEncoded;
-					Texture::Ptr &preview = display ? tex.previewDisplay : tex.preview;
+					const bool normal = tex.name == "gbuffer_normal" && tex.normalView;
+					Texture::Ptr &preview = normal ? tex.previewNormal : display ? tex.previewDisplay : tex.preview;
 					if (!preview)
 					{
 						const std::string rel = tex.pngs[static_cast<size_t>(slice)];
-						preview = display ? LoadDisplayPreview(cap.dir, rel, "GpuProfiler_display_" + tex.name)
-							: LoadPreview(cap.dir, rel, "GpuProfiler_" + tex.name);
+						if (normal)
+							preview = LoadNormalPreview(cap.dir, rel, "GpuProfiler_normal_" + tex.name);
+						else
+							preview = display ? LoadDisplayPreview(cap.dir, rel, "GpuProfiler_display_" + tex.name)
+								: LoadPreview(cap.dir, rel, "GpuProfiler_" + tex.name);
 					}
 					DrawPreview(preview, PreviewWidth(), PreviewHeight);
 					if (!tex.srgbEncoded && ImGui::BeginPopupContextItem("gpu_profiler_preview"))
 					{
-						if (ImGui::MenuItem("Raw", nullptr, !tex.displayView))
+						if (ImGui::MenuItem("Raw", nullptr, !tex.displayView && (tex.name != "gbuffer_normal" || !tex.normalView)))
+						{
 							tex.displayView = false;
-						if (ImGui::MenuItem("Display", nullptr, tex.displayView))
+							tex.normalView = false;
+						}
+						if (ImGui::MenuItem("Display", nullptr, tex.displayView && (tex.name != "gbuffer_normal" || !tex.normalView)))
+						{
 							tex.displayView = true;
+							tex.normalView = false;
+						}
+						if (tex.name == "gbuffer_normal" && ImGui::MenuItem("Decoded Normal", nullptr, tex.normalView))
+						{
+							tex.displayView = false;
+							tex.normalView = true;
+						}
 						ImGui::EndPopup();
 					}
 				}

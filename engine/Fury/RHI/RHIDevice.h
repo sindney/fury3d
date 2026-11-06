@@ -48,6 +48,8 @@ namespace fury
 
 		virtual const RHICapabilities &GetCapabilities() const = 0;
 
+		virtual void SetClusteredLightingSupported(bool supported) { (void)supported; }
+
 		virtual RHITextureRef CreateTexture(const RHITextureDesc &desc) = 0;
 
 		// Full upload of one mip level (or one layer/slice when layer >= 0);

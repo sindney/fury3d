@@ -55,6 +55,15 @@ namespace fury
 
 		// Vertex stage only: name -> MSL attribute index for stage_in inputs.
 		std::vector<StageInput> stageInputs;
+
+		struct StorageBuffer
+		{
+			std::string name;
+
+			int binding = -1;
+		};
+
+		std::vector<StorageBuffer> storageBuffers;
 	};
 
 	struct ShaderModuleCompile
@@ -66,6 +75,8 @@ namespace fury
 		ShaderStageCompile vertex;
 
 		ShaderStageCompile fragment;
+
+		ShaderStageCompile compute;
 	};
 
 	struct ShaderCompileInput
@@ -79,6 +90,8 @@ namespace fury
 		std::string vertexSource;
 
 		std::string fragmentSource;
+
+		std::string computeSource;
 
 		// Search paths for #include resolution (engine shader dirs).
 		std::vector<std::string> searchPaths;

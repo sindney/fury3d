@@ -1,0 +1,25 @@
+{
+  "scenario": "clustered_materials_hdr",
+  "backend": "vulkan",
+  "approved_by": "render_baseline.py --update",
+  "meta": {
+    "name": "clustered_materials_hdr",
+    "backend": "vulkan",
+    "size": "1280x720",
+    "hdr": "true",
+    "cam": "GridCamera",
+    "time": "12.500",
+    "anim": "0.000",
+    "temporal": "0",
+    "particles": "0",
+    "pipeline": "Resource/Pipeline/DeferredLightingPBR.json",
+    "clustered": "0",
+    "clustered_effective": "0"
+  },
+  "tolerances": {
+    "mean_abs_diff": 1.0,
+    "max_abs_diff": 96,
+    "frac_gt_8": 0.001
+  },
+  "masks": []
+}

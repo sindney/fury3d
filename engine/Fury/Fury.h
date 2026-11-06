@@ -35,7 +35,7 @@
 #include "Fury/Quaternion.h"
 #include "Fury/Pass.h"
 #include "Fury/Pipeline.h"
-#include "Fury/PrelightPipeline.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/RenderQuery.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"

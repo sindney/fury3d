@@ -19,6 +19,12 @@
 #include "Fury/RHI/Vulkan/VulkanResources.h"
 #include "Fury/RHI/Vulkan/VulkanShaderModule.h"
 
+#if PLATFORM_MACOS
+#include <CoreFoundation/CoreFoundation.h>
+#include <vulkan/vulkan_metal.h>
+#include "Fury/RHI/Metal/MetalWindowBridge.h"
+#endif
+
 namespace fury
 {
 	namespace
@@ -145,6 +151,9 @@ namespace fury
 		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
 		vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableExtensions.data());
 		std::vector<const char *> extensions = sf::Vulkan::getGraphicsRequiredInstanceExtensions();
+#if PLATFORM_MACOS
+		extensions = { VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME };
+#endif
 		const bool debugUtils = HasInstanceExtension(availableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 		if (debugUtils) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 		if (HasInstanceExtension(availableExtensions, "VK_KHR_portability_enumeration")) extensions.push_back("VK_KHR_portability_enumeration");
@@ -184,9 +193,20 @@ namespace fury
 		volkLoadInstance(m_Instance);
 		if (debugUtils && vkCreateDebugUtilsMessengerEXT != nullptr)
 			vkCreateDebugUtilsMessengerEXT(m_Instance, &debugInfo, nullptr, &m_DebugMessenger);
-		if (!m_Window->createVulkanSurface(m_Instance, m_Surface))
+#if PLATFORM_MACOS
+		void *layer = MetalAttachLayer(m_Window);
+		VkMetalSurfaceCreateInfoEXT surfaceInfo = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
+		surfaceInfo.pLayer = static_cast<const CAMetalLayer *>(layer);
+		auto createMetalSurface = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(vkGetInstanceProcAddr(m_Instance, "vkCreateMetalSurfaceEXT"));
+		const bool surfaceCreated = layer != nullptr && createMetalSurface != nullptr &&
+			createMetalSurface(m_Instance, &surfaceInfo, nullptr, &m_Surface) == VK_SUCCESS;
+		if (layer != nullptr) CFRelease(layer);
+#else
+		const bool surfaceCreated = m_Window->createVulkanSurface(m_Instance, m_Surface);
+#endif
+		if (!surfaceCreated)
 		{
-			FURYE << "SFML Vulkan surface creation failed";
+			FURYE << "Vulkan surface creation failed";
 			return;
 		}
 		unsigned int deviceCount = 0;

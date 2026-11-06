@@ -215,6 +215,21 @@ namespace fury
 		return m_HDRMode;
 	}
 
+	bool Pipeline::IsClusteredLightingEffective() const
+	{
+		return m_ClusteredLightingState.load() == 1;
+	}
+
+	const char *Pipeline::GetClusteredLightingDiagnostic() const
+	{
+		switch (m_ClusteredLightingState.load())
+		{
+		case 2: return "the active backend lacks the required clustered feature set";
+		case 3: return "required clustered shaders or resources are unavailable";
+		default: return "";
+		}
+	}
+
 	void Pipeline::SetActiveChain(const std::vector<std::shared_ptr<PostProcessEffect>> &chain)
 	{
 		m_ActiveChain = chain;
@@ -228,6 +243,7 @@ namespace fury
 	void Pipeline::ApplyRenderSettings(const RenderSettings &settings)
 	{
 		m_HDRMode = settings.IsHDR();
+		SetSwitch(PipelineSwitch::CLUSTERED_LIGHTING, settings.IsClusteredLighting());
 		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, settings.IsCascadedShadowMap());
 		SetSwitch(PipelineSwitch::VEGETATION_PREZ, settings.IsVegetationPreZ());
 
@@ -1071,7 +1087,7 @@ namespace fury
 
 	void Pipeline::ExecutePacket(FramePacket &)
 	{
-		// Non-prelight pipelines have no packet path.
+		// Non-deferred pipelines have no packet path.
 	}
 
 	void Pipeline::DrawDebug(FramePacket &packet)

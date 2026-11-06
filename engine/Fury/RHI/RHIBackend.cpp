@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "Fury/Log.h"
+#include "Fury/ShaderCache.h"
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/RHI/RHIDevice.h"
 
@@ -288,6 +289,123 @@ namespace fury
 					<< static_cast<int>(readback.Pixels[center + 1]) << "," << static_cast<int>(readback.Pixels[center + 2])
 					<< "," << static_cast<int>(readback.Pixels[center + 3]);
 			}
+			return true;
+		}
+
+		bool ProbeClusteredCompute()
+		{
+			if (GRHIDevice == nullptr)
+				return false;
+			GRHIDevice->SetClusteredLightingSupported(false);
+			auto fail = [&](const char *message) {
+				FURYW << "RHI clustered compute probe: " << message;
+				return false;
+			};
+			const auto &caps = GRHIDevice->GetCapabilities();
+			if (!caps.SupportsCompute || !caps.SupportsSSBO)
+				return fail("SKIP (compute or storage buffers unavailable)");
+
+			static const char *source = R"GLSL(#version 430 core
+layout(std430, binding = 0) buffer CounterBuffer { uint counter; };
+#if defined(VERTEX_SHADER)
+void main()
+{
+	vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+#elif defined(FRAGMENT_SHADER)
+layout(location = 0) out vec4 outColor;
+void main()
+{
+	outColor = vec4(counter == 64u ? 1.0 : 0.0, 0.0, 0.0, 1.0);
+}
+#elif defined(COMPUTE_SHADER)
+layout(local_size_x = 64) in;
+void main()
+{
+	atomicAdd(counter, 1u);
+}
+#endif
+)GLSL";
+			const std::string sourceString(source);
+			ShaderCompileInput computeInput = BuildComputeShaderCompileInput(
+				"RHIClusteredComputeProbe", sourceString, {}, false, false);
+			ShaderCompileInput graphicsInput = BuildShaderCompileInput(
+				"RHIClusteredGraphicsProbe", sourceString, {}, false, false);
+			auto sourceBlob = [](const std::string &text) {
+				RHIShaderBlob blob;
+				blob.Data.assign(text.begin(), text.end());
+				blob.IsSource = true;
+				return blob;
+			};
+			auto computeModule = GRHIDevice->CreateComputeModule(
+				"RHIClusteredComputeProbe", sourceBlob(computeInput.computeSource));
+			if (computeModule == nullptr || !computeModule->IsValid())
+				return fail("compute module creation failed");
+			auto graphicsModule = GRHIDevice->CreateShaderModule("RHIClusteredGraphicsProbe",
+				sourceBlob(graphicsInput.vertexSource), sourceBlob(graphicsInput.fragmentSource), RHIShaderBlob{});
+			if (graphicsModule == nullptr || !graphicsModule->IsValid())
+				return fail("graphics module creation failed");
+
+			RHIGraphicsPipelineDesc pipelineDesc;
+			pipelineDesc.Name = "RHIClusteredGraphicsProbe";
+			pipelineDesc.DepthTest = false;
+			pipelineDesc.DepthWrite = false;
+			auto pipeline = GRHIDevice->CreateGraphicsPipeline(pipelineDesc, graphicsModule);
+			if (pipeline == nullptr)
+				return fail("graphics pipeline creation failed");
+			RHIBufferDesc bufferDesc;
+			bufferDesc.Name = "RHIClusteredCounter";
+			bufferDesc.Type = RHIBufferType::STORAGE;
+			bufferDesc.Usage = RHIBufferUsage::DYNAMIC;
+			bufferDesc.Size = sizeof(unsigned int);
+			bufferDesc.Stride = sizeof(unsigned int);
+			auto counter = GRHIDevice->CreateBuffer(bufferDesc);
+			if (counter == nullptr)
+				return fail("counter creation failed");
+			RHITextureDesc textureDesc;
+			textureDesc.Name = "RHIClusteredReadback";
+			textureDesc.Width = 1;
+			textureDesc.Height = 1;
+			textureDesc.RenderTarget = true;
+			auto texture = GRHIDevice->CreateTexture(textureDesc);
+			if (texture == nullptr)
+				return fail("readback target creation failed");
+			RHIRenderTargetSetDesc targetDesc;
+			targetDesc.Colors.resize(1);
+			targetDesc.Colors[0].Texture = texture;
+			auto targets = GRHIDevice->CreateRenderTargetSet(targetDesc);
+			if (targets == nullptr)
+				return fail("render target creation failed");
+
+			GRHIDevice->BeginFrame();
+			auto *cmd = GRHIDevice->GetCommandList();
+			cmd->ClearStorageBuffer(counter);
+			cmd->Barrier();
+			cmd->BindShaderModule(computeModule);
+			cmd->SetStorageBufferNamed("CounterBuffer", 0, counter);
+			cmd->Dispatch(1, 1, 1);
+			cmd->Barrier();
+			cmd->BeginRenderTargets(targets, ClearMode::NONE, Color(0, 0, 0, 1));
+			cmd->SetPipeline(pipeline);
+			cmd->SetStorageBufferNamed("CounterBuffer", 0, counter);
+			cmd->Draw(3);
+			cmd->EndRenderTargets();
+			GRHIDevice->EndFrame();
+			GRHIDevice->Present();
+
+			RHIPixelData readback;
+			if (!GRHIDevice->Readback(texture, readback) || readback.Pixels.size() < 4)
+				return fail("readback failed");
+			if (readback.Pixels[0] != 255 || readback.Pixels[1] != 0)
+			{
+				FURYW << "RHI clustered compute probe RGBA: " << static_cast<int>(readback.Pixels[0]) << ","
+					<< static_cast<int>(readback.Pixels[1]) << "," << static_cast<int>(readback.Pixels[2])
+					<< "," << static_cast<int>(readback.Pixels[3]);
+				return fail("compute-to-graphics counter mismatch");
+			}
+			GRHIDevice->SetClusteredLightingSupported(true);
+			FURYI << "RHI clustered compute probe: PASS";
 			return true;
 		}
 

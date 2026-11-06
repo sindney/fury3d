@@ -179,14 +179,53 @@ namespace fury
 		if (device == nullptr || compute.Data.empty() || !compute.IsSource)
 			return nullptr;
 
-		MTL::Library *library = CompileSource(device, name,
-			std::string((const char *)compute.Data.data(), compute.Data.size()));
-		if (library == nullptr)
-			return nullptr;
+		const std::string source((const char *)compute.Data.data(), compute.Data.size());
 
 		auto out = std::make_shared<MetalShaderModule>();
-		out->m_Library = library;
-		out->m_Compute = GetFunction(library, "computeMain", name, "compute");
+		out->m_Name = name;
+
+		if (IsGlslSource(source))
+		{
+			// Engine GLSL: same cross-compile + DDC/pak path as graphics.
+			ShaderCompileInput input;
+			input.name = name;
+			input.computeSource = source;
+
+			ShaderModuleCompile compiled;
+			bool cacheHit = false;
+			std::string cacheError;
+			if (!CompileOrLoadMetalShader(input, compiled, &cacheHit, cacheError))
+			{
+				FURYE << name << ": GLSL compute cross-compile failed:\n" << cacheError;
+				return nullptr;
+			}
+			FURYD << name << ": Metal compute shader " << (cacheHit ? "DDC hit" : "compiled");
+
+			if (getenv("FURY_METAL_DUMP_MSL") != nullptr)
+			{
+				const std::string base = std::string("/tmp/msl_") + (name.find_last_of('/') != std::string::npos ? name.substr(name.find_last_of('/') + 1) : name);
+				if (FILE *f = fopen((base + ".comp.metal").c_str(), "wb"))
+				{
+					fwrite(compiled.compute.msl.data(), 1, compiled.compute.msl.size(), f);
+					fclose(f);
+				}
+			}
+
+			out->m_Library = CompileSource(device, name, compiled.compute.msl);
+			if (out->m_Library == nullptr)
+				return nullptr;
+			out->m_CrossCompiled = true;
+			out->m_Compute = GetFunction(out->m_Library, "computeMain", name, "compute");
+			AdoptStageGlobals(compiled.compute, out->m_Globals[2]);
+		}
+		else
+		{
+			out->m_Library = CompileSource(device, name, source);
+			if (out->m_Library == nullptr)
+				return nullptr;
+			out->m_Compute = GetFunction(out->m_Library, "computeMain", name, "compute");
+		}
+
 		if (out->m_Compute == nullptr)
 			return nullptr;
 		return out;

@@ -2,18 +2,18 @@
 
 ## Purpose
 
-HDR rendering in the prelight pipeline: float (`rgba16f`) lighting/composite targets, PBR lighting shaders with sensible defaults for non-PBR meshes, and a mandatory tonemap before the final sRGB composite. Ships as a separate pipeline JSON (`DefferedLightingPBR.json`); the LDR Lambert pipeline is untouched.
+HDR rendering in the deferred pipeline: float (`rgba16f`) lighting/composite targets, PBR lighting shaders with sensible defaults for non-PBR meshes, and a mandatory tonemap before the final sRGB composite. Ships as a separate pipeline JSON (`DeferredLightingPBR.json`); the LDR Lambert pipeline is untouched.
 
 ## Requirements
 
-### Requirement: Prelight pipeline supports HDR rendering
+### Requirement: Deferred pipeline supports HDR rendering
 
-The prelight pipeline SHALL support an HDR mode that renders lighting into floating-point render targets (`rgba16f`) rather than 8-bit targets, preserving values above 1.0 through the lighting stage.
+The deferred pipeline SHALL support an HDR mode that renders lighting and composite output into floating-point render targets (`rgba16f`) rather than 8-bit targets, preserving values above 1.0 through the lighting stage. HDR mode SHALL use the compact G-buffer's channel-appropriate formats; only targets that carry HDR luminance are required to be floating-point. Optional clustered local-light evaluation SHALL write the same HDR lighting output and obey the same PBR and tonemapping contracts as the fallback deferred path.
 
 #### Scenario: Rendering lit scene in HDR
 
-- **WHEN** the pipeline is in HDR mode
-- **THEN** the lighting/G-buffer targets use a floating-point format and retain HDR luminance until tonemapping
+- **WHEN** the pipeline is in HDR mode with clustered lighting either enabled or disabled
+- **THEN** the lighting/composite targets use floating-point formats, retain HDR luminance until tonemapping, and receive equivalent local-light contributions within image-comparison tolerance
 
 ### Requirement: HDR requires PBR materials and shaders
 
@@ -39,7 +39,7 @@ HDR mode MAY be toggled without any camera-component ceremony; the editor always
 
 ### Requirement: The PBR pipeline SHALL include a sky pass between combine and transparent
 
-`DefferedLightingPBR.json` SHALL declare a `pass_sky` pass ordered after
+`DeferredLightingPBR.json` SHALL declare a `pass_sky` pass ordered after
 `pass_combine` and before `pass_transparent`, writing into `hdr_composite`
 with the sky-mask convention (gbuffer depth at far value). The pass SHALL be
 driven by a dedicated `SKY` draw mode so atmosphere LUTs and uniforms are
@@ -71,7 +71,7 @@ on every combine draw, using dummy textures when no sky is active.
 
 ### Requirement: The LDR Lambert pipeline SHALL be unaffected
 
-`DefferedLightingLambert.json` and its shaders SHALL gain no sky pass and no
+`DeferredLightingLambert.json` and its shaders SHALL gain no sky pass and no
 aerial-perspective behavior; sky atmosphere is an HDR-only feature.
 
 #### Scenario: Lambert scene unchanged

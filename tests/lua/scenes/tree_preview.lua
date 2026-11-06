@@ -47,9 +47,9 @@ local function on_init()
     scene = Scene.GetActive()
     local root = scene:GetRootNode()
 
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     pl = Pipeline.GetActive()
-    local full_pipe = FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingPBR.json")
+    local full_pipe = FileUtil.GetAbsPath("Resource/Pipeline/DeferredLightingPBR.json")
     FileUtil.LoadPipelineFromFile(pl, full_pipe)
     PostProcess.LoadFromDirectory("Resource/PostProcess")
 

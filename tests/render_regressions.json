@@ -120,6 +120,61 @@
         {"name": "gl_repeat", "backend": "opengl"},
         {"name": "metal", "backend": "metal"}
       ]
+    },
+    "clustered_materials_metal_960x540": {
+      "kind": "image_ab",
+      "script": "{tests}/lua/render_scenario.lua",
+      "scenario": "clustered_materials_hdr",
+      "max_mean": 1.0,
+      "max_frac": 0.005,
+      "captures": [
+        {"name": "fallback", "backend": "metal", "expect_clustered": 0, "env": {"FURY_RESOLUTION": "960x540", "FURY_CLUSTERED": "0"}},
+        {"name": "active", "backend": "metal", "expect_clustered": 1, "env": {"FURY_RESOLUTION": "960x540", "FURY_CLUSTERED": "1"}}
+      ]
+    },
+    "clustered_materials_metal_1600x900": {
+      "kind": "image_ab",
+      "script": "{tests}/lua/render_scenario.lua",
+      "scenario": "clustered_materials_hdr",
+      "max_mean": 1.0,
+      "max_frac": 0.005,
+      "captures": [
+        {"name": "fallback", "backend": "metal", "expect_clustered": 0, "env": {"FURY_RESOLUTION": "1600x900", "FURY_CLUSTERED": "0"}},
+        {"name": "active", "backend": "metal", "expect_clustered": 1, "env": {"FURY_RESOLUTION": "1600x900", "FURY_CLUSTERED": "1"}}
+      ]
+    },
+    "clustered_materials_metal_depth_range": {
+      "kind": "image_ab",
+      "script": "{tests}/lua/render_scenario.lua",
+      "scenario": "clustered_materials_hdr",
+      "max_mean": 1.0,
+      "max_frac": 0.005,
+      "captures": [
+        {"name": "fallback", "backend": "metal", "expect_clustered": 0, "env": {"FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000", "FURY_CLUSTERED": "0"}},
+        {"name": "active", "backend": "metal", "expect_clustered": 1, "env": {"FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000", "FURY_CLUSTERED": "1"}}
+      ]
+    },
+    "clustered_materials_vulkan_depth_range": {
+      "kind": "image_ab",
+      "script": "{tests}/lua/render_scenario.lua",
+      "scenario": "clustered_materials_hdr",
+      "max_mean": 1.0,
+      "max_frac": 0.005,
+      "captures": [
+        {"name": "fallback", "backend": "vulkan", "expect_clustered": 0, "env": {"FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000", "FURY_CLUSTERED": "0"}},
+        {"name": "active", "backend": "vulkan", "expect_clustered": 1, "env": {"FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000", "FURY_CLUSTERED": "1"}}
+      ]
+    },
+    "clustered_debug_return_metal": {
+      "kind": "image_ab",
+      "script": "{tests}/lua/render_scenario.lua",
+      "scenario": "clustered_materials_hdr",
+      "max_mean": 1.0,
+      "max_frac": 0.005,
+      "captures": [
+        {"name": "off", "backend": "metal", "expect_clustered": 1, "env": {"FURY_CLUSTERED": "1", "FURY_CAMERA_DRIFT": "1", "FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000"}},
+        {"name": "cycle", "backend": "metal", "expect_clustered": 1, "env": {"FURY_CLUSTERED": "1", "FURY_CLUSTER_DEBUG_CYCLE": "1", "FURY_CAMERA_DRIFT": "1", "FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000"}}
+      ]
     }
   }
 }

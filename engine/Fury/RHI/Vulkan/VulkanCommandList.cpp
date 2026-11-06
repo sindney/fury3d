@@ -78,6 +78,12 @@ namespace fury
 			for (VkDescriptorSetLayout layout : kv.second.SetLayouts)
 				if (layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, layout, nullptr);
 		}
+		for (auto &kv : m_ComputePipelines)
+		{
+			if (kv.second.Pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, kv.second.Pipeline, nullptr);
+			if (kv.second.Layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, kv.second.Layout, nullptr);
+			if (kv.second.SetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, kv.second.SetLayout, nullptr);
+		}
 		if (m_DescriptorPool != VK_NULL_HANDLE)
 			vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
 	}
@@ -452,7 +458,9 @@ namespace fury
 			if (globals.HasBlock())
 			{
 				RHIBufferDesc desc;
-				desc.Name = module->GetName() + (stage == 0 ? " vertex globals" : " fragment globals");
+				const bool computeOnly = module->GetVertexModule() == VK_NULL_HANDLE;
+				desc.Name = module->GetName() + (computeOnly ? " compute globals"
+					: stage == 0 ? " vertex globals" : " fragment globals");
 				desc.Type = RHIBufferType::UNIFORM;
 				desc.Usage = RHIBufferUsage::DYNAMIC;
 				desc.Size = globals.blockSize;
@@ -976,39 +984,15 @@ namespace fury
 		return m_ConstantsBuffer.get();
 	}
 
-	bool VulkanCommandList::FlushDrawState()
+	void VulkanCommandList::WriteSetDescriptors(const VulkanShaderModuleRef &module, VkDescriptorSet set, unsigned int setIndex)
 	{
-		if (!BeginRendering(ClearMode::NONE, Color(0, 0, 0, 1)) || !EnsurePipeline() || !m_Rendering)
+		for (size_t i = 0; i < module->ResourceCount(); ++i)
 		{
-			static unsigned int rejectionLogs = 0;
-			if (rejectionLogs++ < 8)
-				FURYE << "Vulkan draw rejected: pipeline=" << (m_NativePipeline != nullptr) << " rendering=" << m_Rendering;
-			return false;
-		}
-		VkCommandBuffer cmd = m_Device->GetCommandBuffer();
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_NativePipeline->Pipeline);
-		vkCmdSetFrontFace(cmd, m_Backbuffer ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE);
-		for (int stage = 0; stage < 2; ++stage)
-			if (m_GlobalsBuffers[stage] != nullptr && !m_GlobalsShadow[stage].empty())
-				m_GlobalsBuffers[stage]->Update(m_GlobalsShadow[stage].data(), m_GlobalsShadow[stage].size(), 0);
-
-		VkDescriptorSet sets[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
-		VkDescriptorSetAllocateInfo allocate = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-		allocate.descriptorPool = m_DescriptorPool;
-		allocate.descriptorSetCount = 2;
-		allocate.pSetLayouts = m_NativePipeline->SetLayouts;
-		if (vkAllocateDescriptorSets(m_Device->GetDevice(), &allocate, sets) != VK_SUCCESS)
-		{
-			FURYE << "Vulkan descriptor set allocation failed";
-			return false;
-		}
-		for (size_t i = 0; i < m_CurrentModule->ResourceCount(); ++i)
-		{
-			const auto &resource = m_CurrentModule->GetResource(i);
-			if (resource.set > 1)
+			const auto &resource = module->GetResource(i);
+			if (resource.set != setIndex)
 				continue;
 			VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-			write.dstSet = sets[resource.set];
+			write.dstSet = set;
 			write.dstBinding = resource.binding;
 			write.descriptorType = DescriptorType(resource.type);
 			write.descriptorCount = std::max(1u, resource.arraySize);
@@ -1016,16 +1000,23 @@ namespace fury
 			std::vector<VkDescriptorImageInfo> images;
 			if (resource.type == VulkanShaderResourceType::SampledImage)
 			{
-				auto found = m_Textures.find(resource.name);
-				if (found == m_Textures.end() || found->second == nullptr)
-					continue;
 				images.resize(write.descriptorCount);
-				for (auto &image : images)
+				bool complete = true;
+				for (unsigned int element = 0; element < write.descriptorCount; ++element)
 				{
+					auto found = m_Textures.find(resource.name + "[" + std::to_string(element) + "]");
+					if (found == m_Textures.end()) found = m_Textures.find(resource.name);
+					if (found == m_Textures.end() || found->second == nullptr)
+					{
+						complete = false;
+						break;
+					}
+					auto &image = images[element];
 					image.sampler = found->second->GetSampler();
 					image.imageView = found->second->GetView();
 					image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 				}
+				if (!complete) continue;
 				write.pImageInfo = images.data();
 			}
 			else
@@ -1060,6 +1051,94 @@ namespace fury
 			}
 			vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &write, 0, nullptr);
 		}
+	}
+
+	bool VulkanCommandList::EnsureComputePipeline(ComputePipelineEntry *&out)
+	{
+		const VulkanShaderModule *module = m_CurrentModule.get();
+		auto existing = m_ComputePipelines.find(module);
+		if (existing != m_ComputePipelines.end())
+		{
+			out = &existing->second;
+			return true;
+		}
+
+		ComputePipelineEntry entry;
+		entry.Module = m_CurrentModule;
+		VkDevice device = m_Device->GetDevice();
+		std::vector<VkDescriptorSetLayoutBinding> bindings;
+		for (size_t i = 0; i < module->ResourceCount(); ++i)
+		{
+			const auto &resource = module->GetResource(i);
+			if (resource.set != 0)
+				continue;
+			VkDescriptorSetLayoutBinding binding = {};
+			binding.binding = resource.binding;
+			binding.descriptorType = DescriptorType(resource.type);
+			binding.descriptorCount = std::max(1u, resource.arraySize);
+			binding.stageFlags = resource.stages;
+			bindings.push_back(binding);
+		}
+		VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+		layoutInfo.bindingCount = static_cast<unsigned int>(bindings.size());
+		layoutInfo.pBindings = bindings.data();
+		if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &entry.SetLayout) != VK_SUCCESS)
+			return false;
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+		pipelineLayoutInfo.setLayoutCount = 1;
+		pipelineLayoutInfo.pSetLayouts = &entry.SetLayout;
+		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &entry.Layout) != VK_SUCCESS)
+		{
+			vkDestroyDescriptorSetLayout(device, entry.SetLayout, nullptr);
+			entry.SetLayout = VK_NULL_HANDLE;
+			return false;
+		}
+		VkComputePipelineCreateInfo info = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+		info.stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+		info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		info.stage.module = module->GetComputeModule();
+		info.stage.pName = "main";
+		info.layout = entry.Layout;
+		if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &info, nullptr, &entry.Pipeline) != VK_SUCCESS)
+		{
+			FURYE << "Vulkan compute pipeline creation failed: " << module->GetName();
+			vkDestroyPipelineLayout(device, entry.Layout, nullptr);
+			vkDestroyDescriptorSetLayout(device, entry.SetLayout, nullptr);
+			return false;
+		}
+		auto inserted = m_ComputePipelines.emplace(module, std::move(entry));
+		out = &inserted.first->second;
+		return true;
+	}
+
+	bool VulkanCommandList::FlushDrawState()
+	{
+		if (!BeginRendering(ClearMode::NONE, Color(0, 0, 0, 1)) || !EnsurePipeline() || !m_Rendering)
+		{
+			static unsigned int rejectionLogs = 0;
+			if (rejectionLogs++ < 8)
+				FURYE << "Vulkan draw rejected: pipeline=" << (m_NativePipeline != nullptr) << " rendering=" << m_Rendering;
+			return false;
+		}
+		VkCommandBuffer cmd = m_Device->GetCommandBuffer();
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_NativePipeline->Pipeline);
+		vkCmdSetFrontFace(cmd, m_Backbuffer ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE);
+		for (int stage = 0; stage < 2; ++stage)
+			if (m_GlobalsBuffers[stage] != nullptr && !m_GlobalsShadow[stage].empty())
+				m_GlobalsBuffers[stage]->Update(m_GlobalsShadow[stage].data(), m_GlobalsShadow[stage].size(), 0);
+
+		VkDescriptorSet sets[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+		VkDescriptorSetAllocateInfo allocate = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+		allocate.descriptorPool = m_DescriptorPool;
+		allocate.descriptorSetCount = 2;
+		allocate.pSetLayouts = m_NativePipeline->SetLayouts;
+		if (vkAllocateDescriptorSets(m_Device->GetDevice(), &allocate, sets) != VK_SUCCESS)
+		{
+			FURYE << "Vulkan descriptor set allocation failed";
+			return false;
+		}
+		for (int set = 0; set < 2; ++set)
+			WriteSetDescriptors(m_CurrentModule, sets[set], set);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_NativePipeline->Layout, 0, 2, sets, 0, nullptr);
 
 		const auto *layout = CurrentVertexLayout();
@@ -1106,9 +1185,58 @@ namespace fury
 		vkCmdDrawIndexed(m_Device->GetCommandBuffer(), indexCount, instanceCount, firstIndex, vertexOffset, 0);
 	}
 
-	void VulkanCommandList::Dispatch(unsigned int, unsigned int, unsigned int)
+	void VulkanCommandList::Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)
 	{
-		FURYW << "Vulkan compute dispatch requires a bound compute pipeline";
+		if (m_CurrentModule == nullptr || m_CurrentModule->GetComputeModule() == VK_NULL_HANDLE)
+		{
+			FURYW << "Vulkan compute dispatch requires a bound compute shader module";
+			return;
+		}
+		ComputePipelineEntry *entry = nullptr;
+		if (!EnsureComputePipeline(entry))
+			return;
+		EndRendering();
+		VkCommandBuffer cmd = m_Device->GetCommandBuffer();
+		if (cmd == VK_NULL_HANDLE)
+			return;
+		Retain(m_CurrentModule);
+		if (m_GlobalsBuffers[0] != nullptr && !m_GlobalsShadow[0].empty())
+		{
+			m_GlobalsBuffers[0]->Update(m_GlobalsShadow[0].data(), m_GlobalsShadow[0].size(), 0);
+			Retain(m_GlobalsBuffers[0]);
+		}
+		VkDescriptorSet set = VK_NULL_HANDLE;
+		VkDescriptorSetAllocateInfo allocate = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+		allocate.descriptorPool = m_DescriptorPool;
+		allocate.descriptorSetCount = 1;
+		allocate.pSetLayouts = &entry->SetLayout;
+		if (vkAllocateDescriptorSets(m_Device->GetDevice(), &allocate, &set) != VK_SUCCESS)
+		{
+			FURYE << "Vulkan compute descriptor set allocation failed";
+			return;
+		}
+		WriteSetDescriptors(m_CurrentModule, set, 0);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, entry->Pipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, entry->Layout, 0, 1, &set, 0, nullptr);
+		vkCmdDispatch(cmd, groupsX, groupsY, groupsZ);
+	}
+
+	void VulkanCommandList::ClearStorageBuffer(const RHIBufferRef &buffer)
+	{
+		VulkanBufferRef native = std::static_pointer_cast<VulkanBuffer>(buffer);
+		if (native == nullptr || native->Get() == VK_NULL_HANDLE)
+			return;
+		EndRendering();
+		Retain(buffer);
+		VkCommandBuffer cmd = m_Device->GetCommandBuffer();
+		if (cmd == VK_NULL_HANDLE)
+			return;
+		vkCmdFillBuffer(cmd, native->Get(), 0, VK_WHOLE_SIZE, 0);
+		VkMemoryBarrier barrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+			0, 1, &barrier, 0, nullptr, 0, nullptr);
 	}
 
 	void VulkanCommandList::Barrier()

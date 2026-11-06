@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -73,11 +75,11 @@ void main()
 	float ao = 1.0;
 
 	// Sky: no occlusion.
-	if (depth < 1.0)
+	if (!GBufferIsFarDepth(depth))
 	{
 		vec3 pos = view_pos_from_depth(out_uv, depth);
 		vec4 nrm = texture(gbuffer_normal, out_uv);
-		vec3 normal = normalize(nrm.xyz * 2.0 - 1.0);
+		vec3 normal = normalize(GBufferDecodeNormal(nrm));
 
 	// Random per-pixel kernel rotation around the normal.
 	float angle = hash12(gl_FragCoord.xy) * 6.2831853;
@@ -117,7 +119,7 @@ void main()
 		// gbuffer_normal.a): wave detail normals self-occlude and read as
 		// dirt patches. Mirrors SSR's roughFade convention so both effects
 		// agree on "smooth = water".
-		ao = mix(1.0, ao, smoothstep(0.05, 0.3, nrm.a));
+		ao = mix(1.0, ao, smoothstep(0.05, 0.3, GBufferDecodeRoughness(nrm)));
 	}
 
 #ifdef DEBUG_VIEW

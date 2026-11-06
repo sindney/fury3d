@@ -117,7 +117,7 @@ These accessors SHALL be `const` and safe to call from the editor's per-frame Pr
 
 `PipelineSwitch` SHALL gain a new value `OCTREE_BOUNDS` before `LENGTH`. When `IsSwitchOn(PipelineSwitch::OCTREE_BOUNDS)` is `true` AND `Scene::Active->GetSceneManager()` is an `OcTree`, `Pipeline::DrawDebug` SHALL render one wireframe AABB per occupied tree-node in the active octree, with color picked from a depth-indexed palette.
 
-`PrelightPipeline.cpp`'s `DrawDebug` gate (the `IsSwitchOn({...}, true)` call at line 159–161) SHALL include `PipelineSwitch::OCTREE_BOUNDS` so that toggling the switch on its own enables the debug draw.
+`DeferredPipeline.cpp`'s `DrawDebug` gate (the `IsSwitchOn({...}, true)` call at line 159–161) SHALL include `PipelineSwitch::OCTREE_BOUNDS` so that toggling the switch on its own enables the debug draw.
 
 The OcTree-bounds overlay SHALL skip tree-nodes whose `m_TotalSceneNodeCount == 0` to avoid cluttering the view with empty subtrees.
 

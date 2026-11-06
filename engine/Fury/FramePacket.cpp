@@ -29,6 +29,7 @@ namespace fury
 		opaqueUnits.clear();
 		transparentUnits.clear();
 		lights.clear();
+		localLightIndices.clear();
 		instanced.clear();
 		particles.clear();
 		oceans.clear();
@@ -36,6 +37,8 @@ namespace fury
 		debug = PacketDebug();
 		switches.reset();
 		hdrMode = false;
+		clusteredLighting = false;
+		clusterAssignmentValid = false;
 		chain.clear();
 		chainOverrides.clear();
 		windParams = Vector4(1.0f, 0.0f, 1.0f, 1.0f);
@@ -43,6 +46,7 @@ namespace fury
 		csmMapSize = 1024;
 		engineTime = 0.0f;
 		windowW = windowH = 0;
+		viewportW = viewportH = 0;
 		renderTarget = nullptr;
 		overlayJobs.clear();
 		guiFrame.reset();

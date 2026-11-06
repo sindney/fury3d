@@ -18,6 +18,7 @@ void main()
 #ifdef FRAGMENT_SHADER
 
 #include "AtmosphereCommon.glsl"
+#include "../GBufferCommon.glsl"
 
 in vec2 out_uv;
 

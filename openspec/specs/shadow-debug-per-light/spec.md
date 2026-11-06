@@ -27,7 +27,7 @@ Editor visualization for per-light shadow maps. The Profiler window's Shadows ta
 
 ### Requirement: Each `Draw*LightShadowMap` method SHALL publish its result into `m_LastShadowTextures`
 
-The four `Pipeline::Draw{Dir,Point,Spot,Cascaded}LightShadowMap` methods SHALL each record their returned texture into `m_LastShadowTextures[&lightNode]` before returning. The `lightNode` raw pointer SHALL be captured from the `SceneNode& node` parameter; `node->GetComponent<Light>()` is already non-null in those call sites (`PrelightPipeline.cpp:285, 363, 453`).
+The four `Pipeline::Draw{Dir,Point,Spot,Cascaded}LightShadowMap` methods SHALL each record their returned texture into `m_LastShadowTextures[&lightNode]` before returning. The `lightNode` raw pointer SHALL be captured from the `SceneNode& node` parameter; `node->GetComponent<Light>()` is already non-null in those call sites (`DeferredPipeline.cpp:285, 363, 453`).
 
 #### Scenario: DrawDirLightShadowMap records the 2D shadow texture
 
@@ -117,7 +117,7 @@ When more than one shadow-casting light exists, the Shadows tab SHALL render an 
 
 ### Requirement: The Profiler Shadows tab SHALL host the Cascaded Shadow Maps toggle
 
-The Shadows tab SHALL render an `ImGui::Checkbox("Use Cascaded Shadow Maps", &use_csm)` at the top of the tab. The checkbox's static state SHALL default to `true` (matching `PrelightPipeline`'s ctor default). Toggling the checkbox calls `Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm)`. The toggle lives on the Shadows tab (not the FPS tab) because it is a shadow-rendering decision, not a scene-debug overlay.
+The Shadows tab SHALL render an `ImGui::Checkbox("Use Cascaded Shadow Maps", &use_csm)` at the top of the tab. The checkbox's static state SHALL default to `true` (matching `DeferredPipeline`'s ctor default). Toggling the checkbox calls `Pipeline::Active->SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, use_csm)`. The toggle lives on the Shadows tab (not the FPS tab) because it is a shadow-rendering decision, not a scene-debug overlay.
 
 #### Scenario: Toggling CSM flips the engine switch
 

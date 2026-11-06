@@ -69,7 +69,12 @@ def run_capture(args, defaults, case, capture, out_dir, ctx):
     frame = capture.get("capture_frame", case.get(
         "capture_frame", defaults.get("capture_frame", 40)))
     screenshot = capture.get("screenshot", True)
-    cmd = [args.binary, resolve(defaults["script"], ctx), "--rhi=" + backend]
+    script = capture.get("script", case.get("script", defaults["script"]))
+    scenario = capture.get("scenario", case.get("scenario"))
+    cmd = [args.binary, resolve(script, ctx)]
+    if scenario:
+        cmd.append(scenario)
+    cmd += ["--rhi=" + backend]
     if screenshot:
         cmd += ["--screenshot", str(output), "--screenshot-frame", str(frame)]
     timeout = capture.get("timeout", case.get("timeout", defaults.get("timeout", 240)))
@@ -90,6 +95,10 @@ def run_capture(args, defaults, case, capture, out_dir, ctx):
         raise RuntimeError("%s did not report completion (see %s)" % (name, log_path))
     if screenshot and not output.is_file():
         raise RuntimeError("%s produced no screenshot (see %s)" % (name, log_path))
+    expected_clustered = capture.get("expect_clustered")
+    if expected_clustered is not None and "clustered_effective=%d" % expected_clustered not in text:
+        raise RuntimeError("%s did not reach clustered_effective=%s (see %s)" % (
+            name, expected_clustered, log_path))
     return output if screenshot else None
 
 

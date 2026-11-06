@@ -1089,6 +1089,132 @@
    ]
   },
   {
+   "id": "render_feature_lambert_opengl",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_lambert",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "feature",
+    "lambert",
+    "baseline"
+   ],
+   "notes": "Feature showcase on the Lambert pipeline (LDR), proving the clustered-off Lambert reference before G-buffer compaction.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_feature_lambert_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_lambert",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "feature",
+    "lambert",
+    "baseline"
+   ],
+   "notes": "Feature showcase on the Lambert pipeline, Metal variant with its own baseline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_clustered_materials_hdr_opengl",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "clustered_materials_hdr",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "pbr",
+    "hdr",
+    "baseline"
+   ],
+   "notes": "Procedural HDR/PBR material grid (metallic x roughness, emissive, shadowed/unshadowed point/spot) built at runtime by tests/lua/render_scenario.lua; OpenGL baseline.",
+   "requires": [
+    "{examples}/fury"
+   ]
+  },
+  {
+   "id": "render_clustered_materials_hdr_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "clustered_materials_hdr",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/render",
+    "--baselines",
+    "{tests}/baselines"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "pbr",
+    "hdr",
+    "baseline"
+   ],
+   "notes": "Procedural HDR/PBR material grid, Metal variant with its own baseline.",
+   "requires": [
+    "{examples}/fury"
+   ]
+  },
+  {
    "id": "render_island_opengl",
    "lane": "render",
    "command": [
@@ -1148,6 +1274,376 @@
    "requires": [
     "{examples}/fury",
     "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_clustered_materials_hdr_active_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "clustered_materials_hdr",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/clustered_materials_active",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "1",
+    "FURY_EXPECT_CLUSTERED": "1"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "clustered",
+    "pbr",
+    "hdr"
+   ],
+   "notes": "Active Metal clustered/fallback A/B for the procedural material grid; effective mode is asserted.",
+   "requires": [
+    "{examples}/fury"
+   ]
+  },
+  {
+   "id": "render_feature_hdr_on_clustered_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_hdr_on",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/clustered_feature_hdr",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "1",
+    "FURY_EXPECT_CLUSTERED": "1"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "clustered",
+    "feature",
+    "hdr"
+   ],
+   "notes": "Active Metal clustered/fallback A/B for mixed feature lights in HDR.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_feature_lambert_clustered_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_lambert",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/clustered_feature_lambert",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "1",
+    "FURY_EXPECT_CLUSTERED": "1"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "clustered",
+    "feature",
+    "lambert"
+   ],
+   "notes": "Active Metal clustered/fallback A/B for the true Lambert pipeline.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_feature_lambert_clustered_opengl_fallback",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "feature_lambert",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/clustered_opengl_fallback",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "1",
+    "FURY_EXPECT_CLUSTERED": "0"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "clustered",
+    "fallback",
+    "lambert"
+   ],
+   "notes": "Requested clustering on OpenGL must use fallback and perform no clustered assignment work.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_clustered_normal_mapped_hdr_opengl",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "clustered_normal_mapped_hdr",
+    "--backend",
+    "opengl",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/normal_mapped",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "pbr",
+    "normalmap"
+   ],
+   "notes": "Diffuse plus tangent-space normal material on the OpenGL fallback path.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/normal_wave.png"
+   ]
+  },
+  {
+   "id": "render_clustered_normal_mapped_hdr_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "clustered_normal_mapped_hdr",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/normal_mapped",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "pbr",
+    "normalmap"
+   ],
+   "notes": "Diffuse plus tangent-space normal material on the Metal fallback path.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/normal_wave.png"
+   ]
+  },
+  {
+   "id": "render_clustered_normal_mapped_hdr_active_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_baseline.py",
+    "--scenario",
+    "clustered_normal_mapped_hdr",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/normal_mapped_active",
+    "--baselines",
+    "{tests}/baselines",
+    "--no-temporal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "1",
+    "FURY_EXPECT_CLUSTERED": "1"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "visual",
+    "clustered",
+    "pbr",
+    "normalmap"
+   ],
+   "notes": "Active Metal clustered/fallback A/B for tangent-space normal mapping.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/normal_wave.png"
+   ]
+  },
+  {
+   "id": "render_clustered_overflow_metal",
+   "lane": "render",
+   "command": [
+    "{examples}/fury",
+    "{tests}/lua/render_scenario.lua",
+    "clustered_overflow_hdr",
+    "--rhi=metal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "1"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "clustered",
+    "stress"
+   ],
+   "notes": "134 local lights stress deterministic 128-light saturation and overflow diagnostics.",
+   "requires": [
+    "{examples}/fury"
+   ]
+  },
+  {
+   "id": "render_clustered_overflow_fallback_metal",
+   "lane": "render",
+   "command": [
+    "{examples}/fury",
+    "{tests}/lua/render_scenario.lua",
+    "clustered_overflow_hdr",
+    "--rhi=metal"
+   ],
+   "env": {
+    "FURY_CLUSTERED": "0"
+   },
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "clustered",
+    "fallback",
+    "stress"
+   ],
+   "notes": "The same overflow scene remains valid when switching back to legacy accumulation.",
+   "requires": [
+    "{examples}/fury"
+   ]
+  },
+  {
+   "id": "render_clustered_multiresolution",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "clustered_materials_metal_960x540",
+    "--case",
+    "clustered_materials_metal_1600x900",
+    "--case",
+    "clustered_materials_metal_depth_range",
+    "--case",
+    "clustered_materials_vulkan_depth_range",
+    "--case",
+    "clustered_debug_return_metal",
+    "--artifacts",
+    "{artifacts}/clustered_multiresolution"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "clustered",
+    "visual"
+   ],
+   "notes": "Metal/Vulkan clustered parity across resolution, aspect, depth range, camera drift, and debug-view return.",
+   "requires": [
+    "{examples}/fury"
+   ]
+  },
+  {
+   "id": "render_clustered_soak_metal",
+   "lane": "render",
+   "command": [
+    "{examples}/fury",
+    "{tests}/lua/clustered_soak.lua",
+    "--rhi=metal"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "clustered",
+    "soak"
+   ],
+   "notes": "120 frames of clustered toggles, scene reloads, viewport resizes, and depth changes on Metal.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_clustered_soak_vulkan",
+   "lane": "render",
+   "command": [
+    "{examples}/fury",
+    "{tests}/lua/clustered_soak.lua",
+    "--rhi=vulkan"
+   ],
+   "display": true,
+   "timeout": 600,
+   "tags": [
+    "render",
+    "clustered",
+    "soak"
+   ],
+   "notes": "120 frames of clustered toggles, scene reloads, viewport resizes, and depth changes on Vulkan.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
    ]
   }
  ]

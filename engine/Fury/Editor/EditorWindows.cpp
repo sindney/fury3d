@@ -246,8 +246,8 @@ void RenderSettingsWindow(bool* open) {
 			if (ImGui::Checkbox("HDR (rgba16f + ACES tonemap)", &hdr)) {
 				settings->SetHDR(hdr);
 				Pipeline::Active->SetHDRMode(hdr);
-				static const char* kLdrPipeline = "Resource/Pipeline/DefferedLightingLambert.json";
-				static const char* kHdrPipeline = "Resource/Pipeline/DefferedLightingPBR.json";
+				static const char* kLdrPipeline = "Resource/Pipeline/DeferredLightingLambert.json";
+				static const char* kHdrPipeline = "Resource/Pipeline/DeferredLightingPBR.json";
 				const std::string &cur = settings->GetPipelinePath();
 				if (cur.empty() || cur == kLdrPipeline || cur == kHdrPipeline) {
 					const char* next = hdr ? kHdrPipeline : kLdrPipeline;
@@ -260,6 +260,19 @@ void RenderSettingsWindow(bool* open) {
 				}
 				Editor::MarkSceneDirty();
 			}
+
+			bool clustered = settings->IsClusteredLighting();
+			if (ImGui::Checkbox("Clustered Lighting", &clustered)) {
+				settings->SetClusteredLighting(clustered);
+				Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTERED_LIGHTING, clustered);
+				Editor::MarkSceneDirty();
+			}
+			ImGui::TextDisabled("Clustered requested: %s; effective: %s",
+				clustered ? "on" : "off",
+				Pipeline::Active->IsClusteredLightingEffective() ? "on" : "off");
+			const char *clusteredDiagnostic = Pipeline::Active->GetClusteredLightingDiagnostic();
+			if (clustered && !Pipeline::Active->IsClusteredLightingEffective() && clusteredDiagnostic[0] != '\0')
+				ImGui::TextDisabled("Unavailable: %s", clusteredDiagnostic);
 
 			bool csm = settings->IsCascadedShadowMap();
 			if (ImGui::Checkbox("Cascaded Shadow Map (CSM)", &csm)) {
@@ -658,7 +671,7 @@ void RenderProfilerGBufferTab() {
 	float img_w = content_w > 0.0f ? content_w : 256.0f;
 	if (img_w > 320.0f) img_w = 320.0f;
 
-	auto show = [&](const char* label, const char* tex_name, bool is_depth) {
+	auto show = [&](const char* label, const char* tex_name, bool is_depth, bool decode_normal = false) {
 		ImGui::Text("%s", label);
 		auto t = Pipeline::Active->GetTextureByName(tex_name);
 		if (!t) {
@@ -675,36 +688,27 @@ void RenderProfilerGBufferTab() {
 		const int ph = (int)(pw * aspect);
 		const std::string key = std::string("GBufferPreview:") + tex_name;
 		ImGui::PushID(key.c_str());
-		Editor::QueueOverlayJob([key, t, is_depth, pw, ph]() {
+		Editor::QueueOverlayJob([key, t, is_depth, decode_normal, pw, ph]() {
 			auto &surface = AcquireSurface(key, pw, ph);
 			if (surface.targetSet == nullptr)
 				return;
 			static RHIShaderModuleRef blitModule;
 			if (!blitModule && GRHIDevice != nullptr)
 			{
-				const char* blit_vs =
-					"#version 330\n"
-					"in vec3 vertex_position;\n"
-					"out vec2 out_uv;\n"
-					"void main() { out_uv = vertex_position.xy * 0.5 + 0.5; gl_Position = vec4(vertex_position.xy, 0.0, 1.0); }\n";
-				const char* blit_fs =
-					"#version 330\n"
-					"in vec2 out_uv;\n"
-					"out vec4 fragment_output;\n"
-					"uniform sampler2D src;\n"
-					"uniform int u_depth;\n"
-					"void main() {\n"
-					"    vec4 t = texture(src, out_uv);\n"
-					"    fragment_output = u_depth != 0 ? vec4(vec3(t.r), 1.0) : vec4(t.rgb, 1.0);\n"
-					"}\n";
-				blitModule = GRHIDevice->CreateShaderModule("GBufferPreviewBlitShader",
-					RenderUtil::MakeSourceBlob(blit_vs), RenderUtil::MakeSourceBlob(blit_fs), RHIShaderBlob());
+				auto shader = Shader::Create("GBufferPreviewBlitShader", ShaderType::OTHER);
+				if (!shader->LoadAndCompile(FileUtil::GetAbsPath("Resource/Shader/GBufferPreview.glsl")))
+					FURYE << "GBufferPreviewBlitShader: compilation failed";
+				blitModule = shader->GetRHIModule();
 				if (blitModule == nullptr)
 					FURYE << "GBufferPreviewBlitShader: module creation failed";
 			}
 			const int depthFlag = is_depth ? 1 : 0;
+			const int normalFlag = decode_normal ? 1 : 0;
 			RenderUtil::Instance()->Blit(t, surface.color, blitModule,
-				[depthFlag](RHICommandList *cmd) { cmd->SetUniformInt("u_depth", depthFlag); });
+				[depthFlag, normalFlag](RHICommandList *cmd) {
+					cmd->SetUniformInt("u_depth", depthFlag);
+					cmd->SetUniformInt("u_normal", normalFlag);
+				});
 			PublishSurface(key, surface.color);
 		});
 		ImGui::Image((ImTextureID)(intptr_t)DisplayTextureId(key),
@@ -713,7 +717,7 @@ void RenderProfilerGBufferTab() {
 		ImGui::PopID();
 	};
 
-	// LDR/HDR auto-switch: the HDR pipeline (DefferedLightingPBR)
+	// LDR/HDR auto-switch: the HDR pipeline (DeferredLightingPBR)
 	// names its lighting targets hdr_light / hdr_composite (rgba16f)
 	// and has no gbuffer_light at all -- key the list off what the
 	// active pipeline declares rather than the LDR layout, so the
@@ -721,7 +725,7 @@ void RenderProfilerGBufferTab() {
 	// float sources clamp to white where >1 ("hot" -- acceptable
 	// for debug).
 	show("Depth Buffer:", "gbuffer_depth", true);
-	show("Normal Buffer:", "gbuffer_normal", false);
+	show("Normal Buffer:", "gbuffer_normal", false, true);
 	show("Diffuse Buffer:", "gbuffer_diffuse", false);
 	if (Pipeline::Active->GetTextureByName("hdr_light")) {
 		show("Light Buffer (HDR rgba16f):", "hdr_light", false);
@@ -2736,6 +2740,7 @@ void RenderViewportToolbar() {
 	// debugView in the scene; PostProcess replaces the viewport image
 	// with a buffer view (pipeline DrawEffectDebugView).
 	static int postfx_view = 0; // 0=none, 1=SSAO, 2=SSR
+	static int cluster_view = 0; // 0=none, 1=grid, 2=light count
 	static bool draw_light_bounds = false;
 	static bool draw_mesh_bounds = false;
 	static bool draw_custom_bounds = false;
@@ -2803,6 +2808,7 @@ void RenderViewportToolbar() {
 		"Off", "Foam Mask", "Displacement Heatmap", "Ring Wireframe"
 	};
 	static const char* kPostFxViews[] = { "Off", "SSAO View", "SSR View" };
+	static const char* kClusterViews[] = { "Off", "Cluster Grid", "Cluster Light Count" };
 	static const char* kSkyViews[] = { "Off", "Cloud Step Count", "Cloud Transmittance" };
 
 	// Preview: the active pieces joined, or "(none)".
@@ -2827,6 +2833,8 @@ void RenderViewportToolbar() {
 			parts.push_back(std::string("Ocean: ") + kOceanViews[ocean_debug]);
 		if (postfx_view != 0)
 			parts.push_back(kPostFxViews[postfx_view]);
+		if (cluster_view != 0)
+			parts.push_back(kClusterViews[cluster_view]);
 		if (parts.empty()) preview = "(none)";
 		for (size_t i = 0; i < parts.size(); ++i) {
 			if (i > 0) preview += " + ";
@@ -2863,6 +2871,14 @@ void RenderViewportToolbar() {
 				if (ImGui::Selectable(kPostFxViews[i], postfx_view == i,
 									  ImGuiSelectableFlags_DontClosePopups))
 					postfx_view = i;
+			}
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Clusters")) {
+			for (int i = 0; i < 3; ++i) {
+				if (ImGui::Selectable(kClusterViews[i], cluster_view == i,
+									  ImGuiSelectableFlags_DontClosePopups))
+					cluster_view = i;
 			}
 			ImGui::EndMenu();
 		}
@@ -2910,6 +2926,16 @@ void RenderViewportToolbar() {
 		Pipeline::Active->SetSwitch(PipelineSwitch::BUOYANCY_DEBUG, buoyancy_debug);
 		Pipeline::Active->SetSwitch(PipelineSwitch::SSAO_VIEW, postfx_view == 1);
 		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, postfx_view == 2);
+		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_GRID_VIEW, cluster_view == 1);
+		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW, cluster_view == 2);
+		if (cluster_view != 0) {
+			const char *diagnostic = Pipeline::Active->GetClusteredLightingDiagnostic();
+			if (diagnostic[0] != '\0')
+				ImGui::TextDisabled("Clusters unavailable: %s", diagnostic);
+			if (cluster_view == 2)
+				ImGui::TextDisabled("Max lights/cluster: %d; overflow: %d",
+					Pipeline::Active->GetClusterMaxLightCount(), Pipeline::Active->GetClusterOverflowCount());
+		}
 	}
 }
 

@@ -352,8 +352,8 @@ namespace fury
 		std::vector<BuoyMark> buoyMarks;        // BUOYANCY_DEBUG
 	};
 
-	// The frame. Produced by PrelightPipeline::GatherFrame on the game
-	// thread; consumed by PrelightPipeline::ExecutePacket on the GL thread.
+	// The frame. Produced by DeferredPipeline::GatherFrame on the game
+	// thread; consumed by DeferredPipeline::ExecutePacket on the GL thread.
 	struct FramePacket
 	{
 		std::uint64_t frameIndex = 0;
@@ -372,6 +372,8 @@ namespace fury
 
 		std::vector<PacketLight> lights;
 
+		std::vector<unsigned int> localLightIndices;
+
 		std::vector<PacketInstanced> instanced;
 
 		std::vector<PacketParticles> particles;
@@ -385,6 +387,10 @@ namespace fury
 		std::bitset<32> switches;
 
 		bool hdrMode = false;
+
+		bool clusteredLighting = false;
+
+		bool clusterAssignmentValid = false;
 
 		// Resolved postprocess chain snapshot (ApplyRenderSettings output).
 		std::vector<std::shared_ptr<PostProcessEffect>> chain;
@@ -403,6 +409,10 @@ namespace fury
 		int windowW = 0;
 
 		int windowH = 0;
+
+		int viewportW = 0;
+
+		int viewportH = 0;
 
 		// Editor viewport target (null in the player / when rendering to
 		// the default framebuffer). Non-owning: the editor owns it and

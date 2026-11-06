@@ -1,0 +1,23 @@
+{
+  "scenario": "clustered_materials_hdr",
+  "backend": "metal",
+  "approved_by": "render_baseline.py --update",
+  "meta": {
+    "name": "clustered_materials_hdr",
+    "backend": "metal",
+    "size": "1280x720",
+    "hdr": "true",
+    "cam": "GridCamera",
+    "time": "12.500",
+    "anim": "0.000",
+    "temporal": "0",
+    "particles": "0",
+    "pipeline": "Resource/Pipeline/DeferredLightingPBR.json"
+  },
+  "tolerances": {
+    "mean_abs_diff": 1.0,
+    "max_abs_diff": 48,
+    "frac_gt_8": 0.004
+  },
+  "masks": []
+}

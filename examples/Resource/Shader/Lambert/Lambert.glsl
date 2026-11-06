@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -36,10 +38,10 @@ uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
 
 void main()
 {
-	vec4 diffuse = texture(gbuffer_diffuse, out_uv);
 	vec4 lighting = texture(gbuffer_light, out_uv);
+	vec3 diffuse = GBufferDecodeDiffuse(texture(gbuffer_diffuse, out_uv));
 
-	vec3 col = lighting.rgb * diffuse.rgb;
+	vec3 col = lighting.rgb * diffuse;
 #ifdef WITH_EDITOR
 	if (lod_debug_color.a > 0.0)
 		col *= lod_debug_color.rgb;

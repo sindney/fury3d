@@ -204,7 +204,30 @@ end
 
 local legacy = load_case("legacy_optional.json", document({ version = "", textures = "" }), true)
 if legacy:GetRenderSettings():IsHDR() then fail("legacy optional render settings defaulted to HDR") end
+if legacy:GetRenderSettings():IsClusteredLighting() then fail("missing clustered_lighting did not default to false") end
 if #legacy:GetRenderSettings():GetChain() ~= 0 then fail("legacy optional chain is not empty") end
+
+local clustered_enabled = load_case("clustered_enabled.json", document({
+    render = ',"renderSettings": {"clustered_lighting": true}',
+}), true)
+if not clustered_enabled:GetRenderSettings():IsClusteredLighting() then
+    fail("clustered_lighting=true was not loaded")
+end
+local clustered_enabled_json = save_and_load(clustered_enabled, compat_dir .. "/clustered_enabled_roundtrip.json")
+if not clustered_enabled_json:GetRenderSettings():IsClusteredLighting() then
+    fail("headless JSON save rewrote the clustered lighting request")
+end
+local clustered_enabled_bin = save_and_load(clustered_enabled_json, compat_dir .. "/clustered_enabled_roundtrip.bin")
+if not clustered_enabled_bin:GetRenderSettings():IsClusteredLighting() then
+    fail("headless BIN save rewrote the clustered lighting request")
+end
+local clustered_disabled = load_case("clustered_disabled.json", document({
+    render = ',"renderSettings": {"clustered_lighting": false}',
+}), true)
+if clustered_disabled:GetRenderSettings():IsClusteredLighting() then
+    fail("clustered_lighting=false was not loaded")
+end
+compare_fingerprints(fingerprint(clustered_enabled_bin), fingerprint(clustered_enabled_json), "clustered JSON/BIN")
 
 load_case("invalid_required.json", document({ name = "42" }), false)
 load_case("future_version.json", document({ version = '"version": 999,' }), false)

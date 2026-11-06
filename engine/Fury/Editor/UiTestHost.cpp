@@ -21,8 +21,12 @@
 #include "Fury/Gui.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
+#include "Fury/Material.h"
 #include "Fury/Mesh.h"
+#include "Fury/MeshRender.h"
 #include "Fury/MeshUtil.h"
+#include "Fury/Pipeline.h"
+#include "Fury/RenderSettings.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -443,6 +447,76 @@ namespace fury
 				IM_CHECK(node->GetLocalPosition().y == 25.0f);
 			}
 
+			// Drives the clustered setting and debug selector through real editor widgets.
+			void TestClusterSettingsDebug(ImGuiTestContext *ctx)
+			{
+				IM_CHECK(Pipeline::Active != nullptr);
+				auto settings = Scene::Active ? Scene::Active->GetRenderSettings() : nullptr;
+				IM_CHECK(settings != nullptr);
+				auto mesh = Scene::Active->GetEntityManager()->Get<Mesh>(kMeshPath);
+				IM_CHECK(mesh != nullptr);
+				auto material = Material::Create("uitest_cluster_surface.mat");
+				Scene::Active->GetEntityManager()->Add(material);
+				auto surface = SceneNode::Create("UiTestClusterSurface");
+				surface->SetEditorOnly(true);
+				surface->SetLocalScale(Vector4(100.0f, 100.0f, 100.0f, 1.0f));
+				surface->AddComponent(Transform::Create());
+				surface->AddComponent(MeshRender::Create(material, mesh));
+				Scene::Active->GetRootNode()->AddChild(surface);
+				surface->Recompose(true);
+				RegisterWithSceneManager(surface);
+				ctx->Yield(4);
+				settings->SetClusteredLighting(false);
+				Pipeline::Active->ApplyRenderSettings(*settings);
+				Editor::ClearSceneDirty();
+
+				Editor::SetWindowVisible("Settings", true);
+				ctx->Yield(2);
+				ctx->WindowFocus("//Settings");
+				ctx->SetRef("Settings");
+				ctx->ItemOpen("Engine");
+				ctx->ItemClick("Clustered Lighting");
+				ctx->Yield(2);
+				IM_CHECK(settings->IsClusteredLighting());
+				IM_CHECK(Editor::IsSceneDirty());
+				if (GRHIDevice && GRHIDevice->GetBackend() == RHIBackend::OPENGL)
+				{
+					ctx->Yield(4);
+					IM_CHECK(!Pipeline::Active->IsClusteredLightingEffective());
+					IM_CHECK(Pipeline::Active->GetClusteredLightingDiagnostic()[0] != '\0');
+				}
+
+				Editor::ClearSceneDirty();
+				ctx->WindowFocus("//Viewport");
+				ctx->SetRef("Viewport");
+				ctx->ItemClick("##debug_views");
+				ctx->MenuClick("//$FOCUSED/Clusters/Cluster Grid");
+				ctx->Yield(4);
+				IM_CHECK(Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_GRID_VIEW));
+				IM_CHECK(!Editor::IsSceneDirty());
+				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+				ctx->CaptureScreenshotWindow("//Viewport", ImGuiCaptureFlags_HideMouseCursor);
+
+				ctx->ItemClick("##debug_views");
+				ctx->MenuClick("//$FOCUSED/Clusters/Cluster Light Count");
+				ctx->Yield(4);
+				IM_CHECK(Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW));
+				IM_CHECK(!Editor::IsSceneDirty());
+				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+				ctx->CaptureScreenshotWindow("//Viewport", ImGuiCaptureFlags_HideMouseCursor);
+
+				ctx->ItemClick("##debug_views");
+				ctx->MenuClick("//$FOCUSED/Clusters/Off");
+				ctx->Yield(2);
+				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_GRID_VIEW));
+				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW));
+				IM_CHECK(!Editor::IsSceneDirty());
+				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+			}
+
 			// Drives Content Browser filtering into the mesh editor: metadata,
 			// LOD selection, and orbit-camera controls.
 			void TestContentBrowserMeshPreview(ImGuiTestContext *ctx)
@@ -849,6 +923,8 @@ namespace fury
 			test->TestFunc = TestHierarchySelection;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "inspector_edit_dirty_undo");
 			test->TestFunc = TestInspectorEditDirtyUndo;
+			test = IM_REGISTER_TEST(s_Engine, "editor", "cluster_settings_debug");
+			test->TestFunc = TestClusterSettingsDebug;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "content_browser_mesh_preview");
 			test->TestFunc = TestContentBrowserMeshPreview;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "profiler_tabs");

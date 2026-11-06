@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -103,11 +105,11 @@ void main()
 		discard;
 #endif
 
-	rt0.rgb = (out_normal.rgb + 1) * 0.5;
+	vec3 nrm = out_normal;
 #ifdef TWO_SIDED
-	// Back faces: flip the packed normal (see GBuffer.glsl).
+	// Back faces: flip the normal before packing (see GBuffer.glsl).
 	if (!gl_FrontFacing)
-		rt0.rgb = ((-out_normal.rgb) + 1) * 0.5;
+		nrm = -nrm;
 #endif
 
 	vec3 finalDiffuse = diffuse_color.rgb * diffuse_factor + ambient_color * ambient_factor;
@@ -115,20 +117,19 @@ void main()
 	if (lod_debug_color.a > 0.0)
 		finalDiffuse *= lod_debug_color.rgb;
 #endif
-	rt1.rgb = finalDiffuse;
 
 #ifdef PBR
 	float rough = roughness_factor >= 0.0
 		? roughness_factor
 		: clamp(pow(2.0 / (shininess + 2.0), 0.25), 0.0, 1.0);
-	rt0.a = rough;
-	rt1.a = metallic_factor;
+	rt0 = GBufferPackNormal(nrm, rough);
+	rt1 = GBufferPackDiffuse(finalDiffuse, metallic_factor);
 #else
-	rt0.a = 1.0;
-	rt1.a = 1.0;
+	rt0 = GBufferPackNormal(nrm, 1.0);
+	rt1 = GBufferPackDiffuse(finalDiffuse, 1.0);
 #endif
 
-	gl_FragDepth = out_depth / camera_far;
+	gl_FragDepth = GBufferLinearDepth(out_depth, camera_far);
 }
 
 #endif

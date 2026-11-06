@@ -40,9 +40,9 @@ local function on_init()
     end)
     if not mesh then fail("no grass mesh found") end
 
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     pl = Pipeline.GetActive()
-    FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingPBR.json"))
+    FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath("Resource/Pipeline/DeferredLightingPBR.json"))
     PostProcess.LoadFromDirectory("Resource/PostProcess")
 
     local sun_node = SceneNode.Create("Sun")

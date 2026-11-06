@@ -5,6 +5,7 @@
 #include "ImGui/backends/imgui_impl_metal.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "Fury/Log.h"
@@ -35,6 +36,31 @@ namespace fury
 				att->setDepthPlane(slice);
 			else
 				att->setSlice(slice);
+		}
+
+		bool ResolveTextureIndex(const std::unordered_map<std::string, MetalBindingEntry> &bindings,
+			const std::string &name, int &index)
+		{
+			const auto exact = bindings.find(name);
+			if (exact != bindings.end())
+			{
+				index = exact->second.Index;
+				return true;
+			}
+			const size_t open = name.rfind('[');
+			const size_t close = name.rfind(']');
+			if (open == std::string::npos || close != name.size() - 1 || close <= open + 1)
+				return false;
+			const std::string base = name.substr(0, open);
+			const int element = std::atoi(name.substr(open + 1, close - open - 1).c_str());
+			for (const std::string candidate : { base, base + "[0]" })
+			{
+				const auto found = bindings.find(candidate);
+				if (found == bindings.end()) continue;
+				index = found->second.Index + element;
+				return true;
+			}
+			return false;
 		}
 	}
 
@@ -71,6 +97,7 @@ namespace fury
 	void MetalCommandList::OnBeginFrame()
 	{
 		m_Encoder = nullptr;
+		m_ComputeEncoder = nullptr;
 		m_Targets = nullptr;
 		m_TargetStack.clear();
 		m_PSO = nullptr;
@@ -95,6 +122,22 @@ namespace fury
 			m_Encoder->endEncoding();
 			m_Encoder = nullptr;
 		}
+		if (m_ComputeEncoder != nullptr)
+		{
+			m_ComputeEncoder->endEncoding();
+			m_ComputeEncoder = nullptr;
+		}
+	}
+
+	MTL::ComputeCommandEncoder *MetalCommandList::EnsureComputeEncoder()
+	{
+		if (m_ComputeEncoder != nullptr)
+			return m_ComputeEncoder;
+		MTL::CommandBuffer *commandBuffer = m_Device->GetCommandBuffer();
+		if (commandBuffer == nullptr)
+			return nullptr;
+		m_ComputeEncoder = commandBuffer->computeCommandEncoder();
+		return m_ComputeEncoder;
 	}
 
 	void MetalCommandList::DrawUiOverlay(void *drawData, unsigned int width, unsigned int height)
@@ -463,7 +506,7 @@ namespace fury
 		m_CurrentModule = module;
 		m_UniformShadow.clear();
 		m_PendingTextures.clear();
-		for (int stage = 0; stage < 2; ++stage)
+		for (int stage = 0; stage < 3; ++stage)
 		{
 			const MetalStageGlobals emptyGlobals;
 			const MetalStageGlobals &globals = module != nullptr ? module->GetStageGlobals(stage) : emptyGlobals;
@@ -661,10 +704,8 @@ namespace fury
 			}
 			else if (channel.Empty)
 			{
-				// GL's disabled attribute reads constant (0,0,0,1): the
-				// stride-0 constants stream (bound at CONSTANTS_STREAM).
 				attr.Stream = CONSTANTS_STREAM;
-				attr.Stride = 0;
+				attr.Stride = 16;
 				attr.ConstantFill = true;
 			}
 			else
@@ -756,11 +797,12 @@ namespace fury
 	void MetalCommandList::WriteShadow(const std::string &name, const void *data, size_t size)
 	{
 		// Cross-compiled GLSL: loose uniforms are globals-block members;
-		// write into every stage's shadow that declares the member.
+		// write into every stage's shadow that declares the member (stage 2 =
+		// compute).
 		if (m_CurrentModule != nullptr)
 		{
 			bool hit = false;
-			for (int stage = 0; stage < 2; ++stage)
+			for (int stage = 0; stage < 3; ++stage)
 			{
 				if (!m_GlobalsActive[stage])
 					continue;
@@ -784,6 +826,21 @@ namespace fury
 		// here can hit a transiently stale mesh layout and fail creation.
 		if (m_CurrentModule != nullptr && m_CurrentModule->IsCrossCompiled())
 			return;
+		// Compute-only module: resolve direct arguments against the compute
+		// pipeline's reflection (a render PSO has nothing to reflect here).
+		if (m_CurrentModule != nullptr && m_CurrentModule->GetCompute() != nullptr
+			&& m_CurrentModule->GetVertex() == nullptr)
+		{
+			const auto *entry = m_Device->GetOrCreateComputePSO(m_CurrentModule.get());
+			if (entry == nullptr)
+				return;
+			const auto ct = entry->Uniforms.find(name);
+			if (ct == entry->Uniforms.end())
+				return;
+			m_UniformShadow[ShadowKey(2, ct->second)].assign(
+				static_cast<const unsigned char *>(data), static_cast<const unsigned char *>(data) + size);
+			return;
+		}
 		EnsurePSO();
 		const auto it = m_UniformBindings.find(name);
 		if (it == m_UniformBindings.end())
@@ -814,7 +871,7 @@ namespace fury
 			if (m_CurrentModule == nullptr)
 				return;
 			const auto &member = m_CurrentModule->GetMember(static_cast<size_t>(index));
-			for (int s = 0; s < 2; ++s)
+			for (int s = 0; s < 3; ++s)
 			{
 				if (!m_GlobalsActive[s] || member.offset[s] < 0)
 					continue;
@@ -880,10 +937,10 @@ namespace fury
 			bool bound = false;
 			for (int stage = 0; stage < 2; ++stage)
 			{
-				const auto it = m_TexturesByStage[stage].find(name);
-				if (it == m_TexturesByStage[stage].end())
+				int index = -1;
+				if (!ResolveTextureIndex(m_TexturesByStage[stage], name, index))
 					continue;
-				m_Textures[ShadowKey(stage, it->second.Index)].Texture = std::static_pointer_cast<MetalTexture>(texture);
+				m_Textures[ShadowKey(stage, index)].Texture = std::static_pointer_cast<MetalTexture>(texture);
 				bound = true;
 			}
 			if (bound)
@@ -1027,10 +1084,10 @@ namespace fury
 			bool bound = false;
 			for (int stage = 0; stage < 2; ++stage)
 			{
-				const auto bind = m_TexturesByStage[stage].find(it->first);
-				if (bind == m_TexturesByStage[stage].end())
+				int index = -1;
+				if (!ResolveTextureIndex(m_TexturesByStage[stage], it->first, index))
 					continue;
-				m_Textures[ShadowKey(stage, bind->second.Index)].Texture = it->second;
+				m_Textures[ShadowKey(stage, index)].Texture = it->second;
 				bound = true;
 			}
 			if (bound)
@@ -1095,18 +1152,92 @@ namespace fury
 
 	void MetalCommandList::Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)
 	{
-		// No engine compute shaders exist yet; arrives with its first user.
-		static bool warned = false;
-		if (!warned)
+		if (m_CurrentModule == nullptr || m_CurrentModule->GetCompute() == nullptr
+			|| groupsX == 0 || groupsY == 0 || groupsZ == 0)
 		{
-			FURYW << "MetalCommandList::Dispatch: compute path not implemented yet";
-			warned = true;
+			static bool warned = false;
+			if (!warned)
+			{
+				FURYW << "MetalCommandList::Dispatch: no compute module bound";
+				warned = true;
+			}
+			return;
 		}
+
+		// Compute is a distinct encoder: close the live render/blit encoders
+		// first. A still-open compute encoder is reused across dispatches.
+		if (m_Encoder != nullptr)
+		{
+			m_Encoder->endEncoding();
+			m_Encoder = nullptr;
+		}
+		m_Device->EndBlitEncoder();
+
+		const auto *entry = m_Device->GetOrCreateComputePSO(m_CurrentModule.get());
+		if (entry == nullptr || entry->PSO == nullptr)
+			return;
+		MTL::ComputeCommandEncoder *enc = EnsureComputeEncoder();
+		if (enc == nullptr)
+			return;
+		enc->setComputePipelineState(entry->PSO);
+
+		// Numeric storage buffers bind at explicit MSL argument indices (the
+		// direct-MSL convention); named SSBOs resolve through the compute
+		// pipeline's native reflection, never the SPIR-V binding.
+		for (const auto &kv : m_StorageBuffers)
+			enc->setBuffer(kv.second->Get(), 0, kv.first);
+		for (const auto &kv : m_NamedStorageBuffers)
+		{
+			const auto it = entry->Uniforms.find(kv.first);
+			if (it != entry->Uniforms.end() && it->second >= 0)
+				enc->setBuffer(kv.second->Get(), 0, static_cast<NS::UInteger>(it->second));
+		}
+		// Loose uniforms: direct-MSL shadow slots (stage 2) and the
+		// cross-compiled globals block, both keyed by compute reflection.
+		for (const auto &kv : m_UniformShadow)
+		{
+			if (static_cast<int>(kv.first >> 32) != 2 || kv.second.empty())
+				continue;
+			enc->setBytes(kv.second.data(), kv.second.size(),
+				static_cast<NS::UInteger>(static_cast<int>(kv.first & 0xFFFFFFFF)));
+		}
+		if (m_GlobalsActive[2] && !m_GlobalsShadow[2].empty())
+		{
+			const auto &globals = m_CurrentModule->GetStageGlobals(2);
+			const auto it = entry->Uniforms.find(globals.blockName);
+			const int index = it != entry->Uniforms.end() ? it->second : globals.blockIndex;
+			if (index >= 0)
+				enc->setBytes(m_GlobalsShadow[2].data(), m_GlobalsShadow[2].size(), static_cast<NS::UInteger>(index));
+		}
+
+		// One thread per cluster at 64 threads per threadgroup (the cluster
+		// count is a multiple of 64); clamp to the device's threadgroup limit.
+		const NS::UInteger threads = std::min<NS::UInteger>(64, entry->PSO->maxTotalThreadsPerThreadgroup());
+		enc->dispatchThreadgroups(MTL::Size::Make(groupsX, groupsY, groupsZ), MTL::Size::Make(threads, 1, 1));
+	}
+
+	void MetalCommandList::ClearStorageBuffer(const RHIBufferRef &buffer)
+	{
+		MetalBuffer *buf = static_cast<MetalBuffer *>(buffer.get());
+		if (buf == nullptr || buf->Get() == nullptr)
+			return;
+		EndEncoder();
+		MTL::BlitCommandEncoder *blit = m_Device->GetBlitEncoder();
+		if (blit == nullptr)
+			return;
+		blit->fillBuffer(buf->Get(), NS::Range::Make(0, buf->Get()->length()), 0);
+		m_Device->EndBlitEncoder();
 	}
 
 	void MetalCommandList::Barrier()
 	{
-		// Encoders serialize within a command buffer; nothing to emit.
+		// One command buffer serializes encoder work; still close any open
+		// compute encoder so later graphics encoders are ordered after it.
+		if (m_ComputeEncoder != nullptr)
+		{
+			m_ComputeEncoder->endEncoding();
+			m_ComputeEncoder = nullptr;
+		}
 	}
 
 	void MetalCommandList::Blit(const RHITextureRef &src, const RHITextureRef &dst, int srcWidth, int srcHeight, int dstWidth, int dstHeight, bool linearFilter)

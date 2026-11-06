@@ -115,6 +115,8 @@ namespace fury
 			SetStorageBuffer(binding, buffer);
 		}
 
+		virtual void ClearStorageBuffer(const RHIBufferRef &buffer) = 0;
+
 		virtual RHIUniformHandle ResolveUniform(const std::string &name) = 0;
 
 		virtual void SetUniformFloat(const std::string &name, float v0) = 0;

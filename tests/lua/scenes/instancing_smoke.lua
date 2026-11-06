@@ -29,9 +29,9 @@ local function on_init()
     Scene.SetActive(scene)
     local root = scene:GetRootNode()
 
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     pl = Pipeline.GetActive()
-    local full_pipe = FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingPBR.json")
+    local full_pipe = FileUtil.GetAbsPath("Resource/Pipeline/DeferredLightingPBR.json")
     if not FileUtil.FileExist(full_pipe) then
         fail("pipeline not found: " .. full_pipe)
     end

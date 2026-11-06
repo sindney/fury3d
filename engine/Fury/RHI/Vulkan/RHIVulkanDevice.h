@@ -87,6 +87,8 @@ namespace fury
 		bool IsUsable() const { return m_Device != VK_NULL_HANDLE && m_Surface != VK_NULL_HANDLE && m_CommandList != nullptr; }
 		RHIBackend GetBackend() const override { return RHIBackend::VULKAN; }
 		const RHICapabilities &GetCapabilities() const override { return m_Caps; }
+
+		void SetClusteredLightingSupported(bool supported) override { m_Caps.SupportsClusteredLighting = supported; }
 		RHITextureRef CreateTexture(const RHITextureDesc &desc) override;
 		void UpdateTexture(const RHITextureRef &texture, const void *data, size_t size, int mipLevel = 0, int layer = -1) override;
 		void UpdateTextureFloat32(const RHITextureRef &texture, const float *data, size_t componentCount, int mipLevel = 0, int layer = -1) override;

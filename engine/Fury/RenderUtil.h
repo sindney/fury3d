@@ -172,6 +172,7 @@ namespace fury
 	// if a declared sampler's texture target is unbound/mismatched.
 	std::shared_ptr<Texture> GetDummyCubeTexture();
 	std::shared_ptr<Texture> GetDummyTexture2D();
+	std::shared_ptr<Texture> GetDummyNormalTexture();
 
 	// 1x1x4 sampler2DArray dummy (same target-mismatch rule).
 	std::shared_ptr<Texture> GetDummyTexture2DArray();

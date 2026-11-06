@@ -26,19 +26,21 @@ if not rs then
 end
 
 -- Apply a known config so we can verify all fields survive.
-rs:SetPipelinePath("Resource/Pipeline/DefferedLightingLambert.json")
+rs:SetPipelinePath("Resource/Pipeline/DeferredLightingLambert.json")
 rs:SetHDR(false)
+rs:SetClusteredLighting(true)
 rs:SetCascadedShadowMap(true)
 rs:ClearChain()
 rs:AddEffect("ACES", true)
 rs:AddEffect("FXAA", true)
 rs:AddEffect("CRT", false) -- disabled entry — should still round-trip
 
-local function dump(label)
-    io.stderr:write(string.format("[%s] pipeline=%q hdr=%s csm=%s chain:",
-        label, rs:GetPipelinePath(),
-        tostring(rs:IsHDR()), tostring(rs:IsCascadedShadowMap())))
-    local chain = rs:GetChain()
+local function dump(label, settings)
+    io.stderr:write(string.format("[%s] pipeline=%q hdr=%s clustered=%s csm=%s chain:",
+        label, settings:GetPipelinePath(),
+        tostring(settings:IsHDR()), tostring(settings:IsClusteredLighting()),
+        tostring(settings:IsCascadedShadowMap())))
+    local chain = settings:GetChain()
     for i = 1, #chain do
         local e = chain[i]
         io.stderr:write(string.format(" %s%s",
@@ -47,7 +49,7 @@ local function dump(label)
     io.stderr:write("\n")
 end
 
-dump("before")
+dump("before", rs)
 
 local out_path = os.tmpname() .. ".json"
 local ok = Scene.SaveActive(out_path)
@@ -65,15 +67,19 @@ if not reload_ok then
 end
 
 local rs2 = Scene.GetActive():GetRenderSettings()
-dump("after")
+dump("after", rs2)
 
 -- Verify each field.
-if rs2:GetPipelinePath() ~= "Resource/Pipeline/DefferedLightingLambert.json" then
+if rs2:GetPipelinePath() ~= "Resource/Pipeline/DeferredLightingLambert.json" then
     io.stderr:write("FAIL: pipeline path mismatch\n")
     os.exit(1)
 end
 if rs2:IsHDR() ~= false then
     io.stderr:write("FAIL: HDR mismatch\n")
+    os.exit(1)
+end
+if rs2:IsClusteredLighting() ~= true then
+    io.stderr:write("FAIL: clustered lighting request mismatch\n")
     os.exit(1)
 end
 if rs2:IsCascadedShadowMap() ~= true then
@@ -98,8 +104,25 @@ if chain2[3].effectName ~= "CRT" or chain2[3].enabled then
     os.exit(1)
 end
 
+rs2:SetClusteredLighting(false)
+local disabled_path = os.tmpname() .. ".json"
+if not Scene.SaveActive(disabled_path) then
+    io.stderr:write("smoke_render_settings_roundtrip: disabled save failed\n")
+    os.exit(1)
+end
+Scene.GetActive():Clear()
+if not Scene.LoadActive(disabled_path) then
+    io.stderr:write("smoke_render_settings_roundtrip: disabled reload failed\n")
+    os.exit(1)
+end
+if Scene.GetActive():GetRenderSettings():IsClusteredLighting() then
+    io.stderr:write("FAIL: disabled clustered lighting request did not round-trip\n")
+    os.exit(1)
+end
+
 -- Cleanup
 os.remove(out_path)
+os.remove(disabled_path)
 
 print("OK: renderSettings round-trip preserved all fields")
 os.exit(0)

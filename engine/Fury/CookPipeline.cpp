@@ -542,7 +542,7 @@ namespace fury
 		bool CollectShaderWork(const std::shared_ptr<Scene> &scene, std::vector<ShaderWork> &work,
 			std::vector<std::string> &pipelineSources, std::string &error)
 		{
-			std::vector<std::string> pipelines{ "Resource/Pipeline/DefferedLightingLambert.json" };
+			std::vector<std::string> pipelines{ "Resource/Pipeline/DeferredLightingLambert.json" };
 			const std::string scenePipeline = scene->GetRenderSettings()->GetPipelinePath();
 			if (!scenePipeline.empty() && scenePipeline != pipelines.front())
 				pipelines.push_back(scenePipeline);
@@ -553,22 +553,27 @@ namespace fury
 			constexpr bool debugOverlay = false;
 #endif
 			auto addShader = [&](const std::string &path, const std::vector<std::string> &defines,
-				const std::string &label) -> bool {
+				const std::string &label, bool compute = false) -> bool {
 				const std::string resolved = ResolveCookAsset(path);
 				std::string signature = resolved;
 				for (const auto &define : defines)
 					signature += "|" + define;
+				if (compute)
+					signature += "|stage=compute";
 				if (!seen.insert(signature).second)
 					return true;
 				std::string source;
 				if (!LoadShaderSource(resolved, source, error))
 					return false;
 				ShaderWork item;
-				item.input = BuildShaderCompileInput(label, source, defines, false, debugOverlay);
+				item.input = compute ? BuildComputeShaderCompileInput(label, source, defines, false, debugOverlay)
+					: BuildShaderCompileInput(label, source, defines, false, debugOverlay);
 				item.shader = path;
 				item.resolvedPath = resolved;
 				for (size_t i = 0; i < defines.size(); ++i)
 					item.permutation += (i == 0 ? "" : ",") + defines[i];
+				if (compute)
+					item.permutation += (item.permutation.empty() ? "" : ",") + std::string("stage=compute");
 				work.push_back(std::move(item));
 				return true;
 			};
@@ -603,7 +608,9 @@ namespace fury
 					}
 					const std::string label = entry.HasMember("name") && entry["name"].IsString()
 						? entry["name"].GetString() : entry["path"].GetString();
-					if (!addShader(entry["path"].GetString(), defines, label))
+					const bool compute = entry.HasMember("stage") && entry["stage"].IsString()
+						&& std::string(entry["stage"].GetString()) == "compute";
+					if (!addShader(entry["path"].GetString(), defines, label, compute))
 						return false;
 				}
 			}
@@ -617,11 +624,16 @@ namespace fury
 				{ "Resource/Shader/Atmosphere/SkyViewLut.glsl", {} },
 				{ "Resource/Shader/Atmosphere/CameraVolume.glsl", {} },
 				{ "Resource/Shader/Atmosphere/VolumetricClouds.glsl", {} },
-				{ "Resource/Shader/Atmosphere/CloudNoiseGen.glsl", {} }
+				{ "Resource/Shader/Atmosphere/CloudNoiseGen.glsl", {} },
+				{ "Resource/Shader/GBufferPreview.glsl", {} },
+				{ "Resource/Shader/ClusterGridDebug.glsl", {} },
+				{ "Resource/Shader/ClusterLightCountDebug.glsl", {} }
 			};
 			for (const auto &item : dynamicShaders)
 				if (!addShader(item.first, item.second, item.first))
 					return false;
+			if (!addShader("Resource/Shader/ClusterAssign.glsl", {}, "Resource/Shader/ClusterAssign.glsl", true))
+				return false;
 
 			const std::string postDir = ResolveCookAsset("Resource/PostProcess");
 			std::error_code ec;
@@ -1089,7 +1101,7 @@ namespace fury
 			{
 				const std::string key = MakeShaderDdcKey(item.input, target);
 				std::vector<ShaderArtifact> artifacts;
-				if (LoadShaderArtifacts(ddc, key, target, artifacts))
+				if (LoadShaderArtifacts(ddc, key, target, artifacts, !item.input.computeSource.empty()))
 				{
 					++result.shadersDdcHits;
 				}
