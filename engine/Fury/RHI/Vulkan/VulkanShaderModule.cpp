@@ -144,6 +144,26 @@ namespace fury
 		}
 	}
 
+	void VulkanShaderModule::MergeStageMembers(const VulkanStageGlobals &globals, int stage,
+		std::vector<GlobalMember> &members, std::unordered_map<std::string, int> &memberIndex)
+	{
+		for (const auto &m : globals.members)
+		{
+			const auto it = memberIndex.find(m.name);
+			if (it == memberIndex.end())
+			{
+				GlobalMember member;
+				member.name = m.name;
+				member.size = m.size;
+				member.offset[stage] = static_cast<long>(m.offset);
+				memberIndex[m.name] = static_cast<int>(members.size());
+				members.push_back(std::move(member));
+				continue;
+			}
+			members[it->second].offset[stage] = static_cast<long>(m.offset);
+		}
+	}
+
 	std::shared_ptr<VulkanShaderModule> VulkanShaderModule::Create(VkDevice device, const std::string &name,
 		const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry)
 	{
@@ -249,23 +269,7 @@ namespace fury
 
 		// Merge both stages' member maps into the combined index.
 		for (int stage = 0; stage < 2; ++stage)
-		{
-			for (const auto &m : out->m_Globals[stage].members)
-			{
-				auto it = out->m_MemberIndex.find(m.name);
-				if (it == out->m_MemberIndex.end())
-				{
-					GlobalMember member;
-					member.name = m.name;
-					member.size = m.size;
-					member.offset[stage] = static_cast<long>(m.offset);
-					out->m_MemberIndex[m.name] = static_cast<int>(out->m_Members.size());
-					out->m_Members.push_back(std::move(member));
-					continue;
-				}
-				out->m_Members[it->second].offset[stage] = static_cast<long>(m.offset);
-			}
-		}
+			MergeStageMembers(out->m_Globals[stage], stage, out->m_Members, out->m_MemberIndex);
 
 		return out;
 	}
@@ -275,16 +279,42 @@ namespace fury
 	{
 		if (device == VK_NULL_HANDLE || compute.Data.empty())
 			return nullptr;
-		if (compute.IsSource)
-		{
-			FURYE << name << ": Vulkan compute takes SPIR-V blobs (GLSL compute has no cross-compile path)";
-			return nullptr;
-		}
 
 		auto out = std::make_shared<VulkanShaderModule>();
 		out->m_Device = device;
 		out->m_Name = name;
-		std::vector<unsigned char> computeSpv = compute.Data;
+
+		std::vector<unsigned char> computeSpv;
+		if (compute.IsSource)
+		{
+			if (!IsGlslSource(compute.Data))
+			{
+				FURYE << name << ": VulkanShaderModule takes GLSL source or SPIR-V blobs";
+				return nullptr;
+			}
+
+			// Engine GLSL: cross-compiled, DDC/pak-cached as .spv + .refl
+			// through the same route as the graphics stages.
+			ShaderCompileInput input;
+			input.name = name;
+			input.computeSource.assign(reinterpret_cast<const char *>(compute.Data.data()), compute.Data.size());
+
+			ShaderModuleCompile compiled;
+			bool cacheHit = false;
+			std::string cacheError;
+			if (!CompileOrLoadVulkanShader(input, compiled, &cacheHit, cacheError))
+			{
+				FURYE << name << ": GLSL compute cross-compile failed:\n" << cacheError;
+				return nullptr;
+			}
+			FURYD << name << ": Vulkan compute shader " << (cacheHit ? "DDC hit" : "compiled");
+			AdoptStageGlobals(compiled.compute, out->m_Globals[0]);
+			computeSpv = std::move(compiled.compute.spirv);
+		}
+		else
+			computeSpv = compute.Data;
+
+		// Idempotent backstop: enforce the compute set-0 contract.
 		std::string setError;
 		if (!RewriteVulkanDescriptorSets(computeSpv, 0, "compute", setError))
 		{
@@ -303,6 +333,7 @@ namespace fury
 			return nullptr;
 		}
 		MergeResources(reflected, out->m_Resources, out->m_ResourceIndex);
+		MergeStageMembers(out->m_Globals[0], 0, out->m_Members, out->m_MemberIndex);
 		return out;
 	}
 

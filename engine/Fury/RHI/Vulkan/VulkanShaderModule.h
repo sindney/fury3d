@@ -162,6 +162,10 @@ namespace fury
 		// -1 when absent from both stages' globals blocks.
 		long FindMemberIndex(const std::string &name) const;
 
+		// Fold one stage's globals members into the combined member map.
+		static void MergeStageMembers(const VulkanStageGlobals &globals, int stage,
+			std::vector<GlobalMember> &members, std::unordered_map<std::string, int> &memberIndex);
+
 		const GlobalMember &GetMember(size_t index) const { return m_Members[index]; }
 
 		// Merged (name -> set/binding/stage/type) descriptor reflection.

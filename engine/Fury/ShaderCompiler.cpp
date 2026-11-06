@@ -231,7 +231,8 @@ namespace fury
 			const std::string stageSource = InjectDefines(source, stageDefine, in.defines);
 			const int unit = request->addTranslationUnit(SLANG_SOURCE_LANGUAGE_GLSL, Sanitize(in.name).c_str());
 			request->addTranslationUnitSourceString(unit, (stem + ".glsl").c_str(), stageSource.c_str());
-			const SlangStage stage = std::strcmp(stageName, "vertex") == 0 ? SLANG_STAGE_VERTEX : SLANG_STAGE_FRAGMENT;
+			const SlangStage stage = std::strcmp(stageName, "vertex") == 0 ? SLANG_STAGE_VERTEX
+				: std::strcmp(stageName, "compute") == 0 ? SLANG_STAGE_COMPUTE : SLANG_STAGE_FRAGMENT;
 			request->addEntryPoint(unit, "main", stage);
 			SlangResult rc = request->compile();
 			if (SLANG_FAILED(rc))
@@ -343,6 +344,13 @@ namespace fury
 					si.location = static_cast<int>(compiler.get_decoration(input.id, spv::DecorationLocation));
 					out.stageInputs.push_back(std::move(si));
 				}
+				for (const auto &buffer : resources.storage_buffers)
+				{
+					ShaderStageCompile::StorageBuffer storage;
+					storage.name = compiler.get_name(buffer.id);
+					storage.binding = static_cast<int>(compiler.get_decoration(buffer.id, spv::DecorationBinding));
+					out.storageBuffers.push_back(std::move(storage));
+				}
 			}
 			catch (const std::exception &e)
 			{
@@ -372,6 +380,13 @@ namespace fury
 				{
 					out.error = in.name + ": cannot initialize Slang";
 					return false;
+				}
+				if (!in.computeSource.empty())
+				{
+					if (!CompileStage(m_Global.get(), in, in.computeSource, "COMPUTE_SHADER", "compute", "computeMain", out.compute, out.error))
+						return false;
+					out.ok = true;
+					return true;
 				}
 				if (!CompileStage(m_Global.get(), in, in.vertexSource, "VERTEX_SHADER", "vertex", "vertexMain", out.vertex, out.error))
 					return false;

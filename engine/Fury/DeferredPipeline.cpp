@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -19,10 +20,12 @@
 #include "Fury/BuoyancyComponent.h"
 #include "Fury/Archive.h"
 #include "Fury/Camera.h"
+#include "Fury/ClusterGrid.h"
 #include "Fury/Engine.h"
 #include "Fury/Log.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/EntityManager.h"
+#include "Fury/FileUtil.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RHI/RHICommandList.h"
 #include "Fury/FramePacket.h"
@@ -45,7 +48,7 @@
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
 #include "Fury/ProfilerGpu.h"
-#include "Fury/PrelightPipeline.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/RenderThread.h"
 #include "Fury/RenderTarget.h"
@@ -70,6 +73,8 @@ namespace
 	// FURY_DRAWCMD_CACHE=0 disables the draw-command cache (debug A/B).
 	const bool kDrawCmdCache = std::getenv("FURY_DRAWCMD_CACHE") == nullptr
 		|| std::getenv("FURY_DRAWCMD_CACHE")[0] != '0';
+
+	const bool kClusterBench = std::getenv("FURY_CLUSTER_BENCH") != nullptr;
 
 	// FURY_VEG_PREZ=0/1 overrides the vegetation_prez render setting (A/B).
 	const char *kVegPreZEnv = std::getenv("FURY_VEG_PREZ");
@@ -214,19 +219,37 @@ namespace
 		return s;
 	}
 
-	PrelightPipeline::Ptr PrelightPipeline::Create(const std::string &name)
+	DeferredPipeline::Ptr DeferredPipeline::Create(const std::string &name)
 	{
-		return std::make_shared<PrelightPipeline>(name);
+		return std::make_shared<DeferredPipeline>(name);
 	}
 
-	PrelightPipeline::PrelightPipeline(const std::string &name)
+	DeferredPipeline::DeferredPipeline(const std::string &name)
 		: Pipeline(name)
 	{
-		m_TypeIndex = typeid(PrelightPipeline);
+		m_TypeIndex = typeid(DeferredPipeline);
 		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, true);
 	}
 
-	void PrelightPipeline::Serialize(Archive& ar)
+	DeferredPipeline::~DeferredPipeline()
+	{
+		auto shader = std::move(m_ClusterAssignShader);
+		auto lights = std::move(m_ClusterLightBuffer);
+		auto counts = std::move(m_ClusterCountBuffer);
+		auto indices = std::move(m_ClusterIndexBuffer);
+		auto overflow = std::move(m_ClusterOverflowBuffer);
+		if (shader == nullptr && lights == nullptr && counts == nullptr && indices == nullptr && overflow == nullptr)
+			return;
+		RenderThread::Get().EnqueueJob([shader, lights, counts, indices, overflow]() mutable {
+			shader.reset();
+			lights.reset();
+			counts.reset();
+			indices.reset();
+			overflow.reset();
+		});
+	}
+
+	void DeferredPipeline::Serialize(Archive& ar)
 	{
 		Pipeline::Serialize(ar);
 		bool cascaded = ar.IsLoading() ? true : IsSwitchOn(PipelineSwitch::CASCADED_SHADOW_MAP);
@@ -235,7 +258,7 @@ namespace
 	}
 
 
-	void PrelightPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
+	void DeferredPipeline::Execute(const std::shared_ptr<SceneManager> &sceneManager)
 	{
 		// Game thread: gather + stage. Execution (this same code path) runs
 		// at the loop tail -- on the render thread when threaded, inline
@@ -247,7 +270,7 @@ namespace
 		rt.StagePacket(packet);
 	}
 
-	PacketUnit PrelightPipeline::ResolveUnit(const RenderUnit &unit)
+	PacketUnit DeferredPipeline::ResolveUnit(const RenderUnit &unit)
 	{
 		PacketUnit out;
 		auto &node = unit.node;
@@ -297,7 +320,7 @@ namespace
 		return out;
 	}
 
-	void PrelightPipeline::GatherLightShadowPlan(const std::shared_ptr<SceneManager> &sceneManager,
+	void DeferredPipeline::GatherLightShadowPlan(const std::shared_ptr<SceneManager> &sceneManager,
 		const std::shared_ptr<SceneNode> &lightNode, PacketLight &out, FramePacket &packet)
 	{
 		auto light = lightNode->GetComponent<Light>();
@@ -472,10 +495,10 @@ namespace
 		}
 	}
 
-	void PrelightPipeline::GatherFrame(const std::shared_ptr<SceneManager> &sceneManager, FramePacket &packet)
+	void DeferredPipeline::GatherFrame(const std::shared_ptr<SceneManager> &sceneManager, FramePacket &packet)
 	{
 		FURY_ZONE_NAMED("GatherFrame");
-		ASSERT_MSG(m_CurrentCamera != nullptr, "PrelightPipeline.m_CurrentCamera not found!");
+		ASSERT_MSG(m_CurrentCamera != nullptr, "DeferredPipeline.m_CurrentCamera not found!");
 
 		packet.Reset();
 		packet.pipeline = Pipeline::Active;
@@ -516,6 +539,13 @@ namespace
 		packet.engineTime = Engine::GetTime();
 		InputUtil::Instance()->GetWindowSize(packet.windowW, packet.windowH);
 		packet.renderTarget = m_RenderTarget;
+		packet.viewportW = packet.windowW;
+		packet.viewportH = packet.windowH;
+		if (packet.renderTarget != nullptr && packet.renderTarget->IsAllocated())
+		{
+			packet.viewportW = packet.renderTarget->GetWidth();
+			packet.viewportH = packet.renderTarget->GetHeight();
+		}
 
 		// find visible nodes
 		auto query = RenderQuery::Create();
@@ -565,6 +595,8 @@ namespace
 				pl.csmSplits = packet.csmSplits;
 				if (pl.castShadows)
 					GatherLightShadowPlan(sceneManager, node, pl, packet);
+				if (pl.type != LightType::DIRECTIONAL)
+					packet.localLightIndices.push_back(static_cast<unsigned int>(packet.lights.size()));
 				packet.lights.push_back(std::move(pl));
 			}
 		}
@@ -720,10 +752,328 @@ namespace
 		}
 	}
 
-	void PrelightPipeline::ExecutePacket(FramePacket &packet)
+	bool DeferredPipeline::EnsureClusterResources(const FramePacket &packet)
+	{
+		FURY_RHI_THREAD_GUARD();
+		int pointShadows = 0;
+		int spotShadows = 0;
+		for (unsigned int lightIndex : packet.localLightIndices)
+		{
+			const auto &light = packet.lights[lightIndex];
+			if (!light.castShadows) continue;
+			if (light.type == LightType::POINT) ++pointShadows;
+			else if (light.type == LightType::SPOT) ++spotShadows;
+		}
+		if (pointShadows > ClusterGrid::MAX_POINT_SHADOWS || spotShadows > ClusterGrid::MAX_SPOT_SHADOWS)
+			return false;
+		const size_t lightBytes = std::max<size_t>(packet.localLightIndices.size(), 1) * sizeof(ClusterLightUpload);
+		auto clusteredShader = GetShaderByName("clustered_lighting_shader");
+		if (m_ClusterResourcesValid && clusteredShader != nullptr && !clusteredShader->GetDirty()
+			&& m_ClusterLightBuffer != nullptr && m_ClusterLightBuffer->GetDesc().Size >= lightBytes)
+			return true;
+		if (GRHIDevice == nullptr)
+			return false;
+		if (m_ClusterAssignShader == nullptr)
+		{
+			m_ClusterAssignShader = Shader::Create("cluster_assign_shader", ShaderType::OTHER);
+			if (!m_ClusterAssignShader->LoadAndCompileCompute(
+				FileUtil::GetAbsPath("Resource/Shader/ClusterAssign.glsl")) || m_ClusterAssignShader->GetDirty())
+				return false;
+		}
+		auto createBuffer = [](const char *name, size_t size, RHIBufferUsage usage) {
+			RHIBufferDesc desc;
+			desc.Name = name;
+			desc.Type = RHIBufferType::STORAGE;
+			desc.Usage = usage;
+			desc.Size = size;
+			desc.Stride = sizeof(std::uint32_t);
+			return GRHIDevice->CreateBuffer(desc);
+		};
+		if (m_ClusterCountBuffer == nullptr)
+			m_ClusterCountBuffer = createBuffer("cluster_counts", ClusterGrid::COUNT * sizeof(std::uint32_t), RHIBufferUsage::DYNAMIC);
+		if (m_ClusterIndexBuffer == nullptr)
+			m_ClusterIndexBuffer = createBuffer("cluster_indices", ClusterGrid::COUNT * ClusterGrid::MAX_LIGHTS * sizeof(std::uint32_t), RHIBufferUsage::STATIC);
+		if (m_ClusterOverflowBuffer == nullptr)
+			m_ClusterOverflowBuffer = createBuffer("cluster_overflow", sizeof(std::uint32_t), RHIBufferUsage::DYNAMIC);
+		if (m_ClusterLightBuffer == nullptr || m_ClusterLightBuffer->GetDesc().Size < lightBytes)
+			m_ClusterLightBuffer = createBuffer("cluster_lights", lightBytes, RHIBufferUsage::DYNAMIC);
+		m_ClusterResourcesValid = m_ClusterAssignShader != nullptr && !m_ClusterAssignShader->GetDirty()
+			&& clusteredShader != nullptr && !clusteredShader->GetDirty()
+			&& m_ClusterLightBuffer != nullptr && m_ClusterCountBuffer != nullptr
+			&& m_ClusterIndexBuffer != nullptr && m_ClusterOverflowBuffer != nullptr;
+		return m_ClusterResourcesValid;
+	}
+
+	void DeferredPipeline::AssignClusters(FramePacket &packet)
+	{
+		FURY_ZONE_NAMED("AssignClusters");
+		const auto benchStart = std::chrono::steady_clock::now();
+		m_LastClusterAssignMs = 0.0;
+		m_ClusterLights.clear();
+		m_ClusterLights.reserve(packet.localLightIndices.size());
+		constexpr float pi = 3.141592653f;
+		int pointShadowSlot = 0;
+		int spotShadowSlot = 0;
+		for (unsigned int lightIndex : packet.localLightIndices)
+		{
+			const auto &light = packet.lights[lightIndex];
+			const Vector4 viewPos = packet.camera.invertWorldMatrix.Multiply(light.worldPos);
+			Vector4 viewDir = packet.camera.invertWorldMatrix.Multiply(Vector4(light.worldDir, 0.0f));
+			if (viewDir.SquareLength() == 0.0f) viewDir = Vector4(0.0f, -1.0f, 0.0f, 0.0f);
+			viewDir.Normalize();
+			ClusterLightUpload upload;
+			// Vector4 assignment resets w, so packed scalar fields are set explicitly.
+			upload.positionRange = Vector4(viewPos, light.effectiveRadius);
+			upload.positionRange.w = light.effectiveRadius;
+			upload.directionCosOuter = Vector4(viewDir, std::cos(light.outterAngle * 0.5f));
+			upload.directionCosOuter.w = std::cos(light.outterAngle * 0.5f);
+			upload.colorIntensity = Vector4(light.color.r / pi, light.color.g / pi, light.color.b / pi, light.intensity);
+			upload.colorIntensity.w = light.intensity;
+			upload.params = Vector4(std::cos(light.innerAngle * 0.5f), light.falloff, -1.0f,
+				static_cast<float>(light.type));
+			upload.params.w = static_cast<float>(light.type);
+			if (light.castShadows && light.type == LightType::POINT)
+				upload.params.z = static_cast<float>(pointShadowSlot++);
+			else if (light.castShadows && light.type == LightType::SPOT)
+				upload.params.z = static_cast<float>(spotShadowSlot++);
+			m_ClusterLights.push_back(upload);
+		}
+		if (!m_ClusterLights.empty())
+			GRHIDevice->UpdateBuffer(m_ClusterLightBuffer, m_ClusterLights.data(),
+				m_ClusterLights.size() * sizeof(ClusterLightUpload));
+
+		auto *cmd = Cmd();
+		cmd->ClearStorageBuffer(m_ClusterCountBuffer);
+		cmd->ClearStorageBuffer(m_ClusterOverflowBuffer);
+		cmd->Barrier();
+		m_ClusterAssignShader->Bind();
+		cmd->SetStorageBufferNamed("ClusterLightBuffer", 0, m_ClusterLightBuffer);
+		cmd->SetStorageBufferNamed("ClusterCountBuffer", 1, m_ClusterCountBuffer);
+		cmd->SetStorageBufferNamed("ClusterIndexBuffer", 2, m_ClusterIndexBuffer);
+		cmd->SetStorageBufferNamed("ClusterOverflowBuffer", 3, m_ClusterOverflowBuffer);
+		m_ClusterAssignShader->BindInt("u_cluster_light_count", static_cast<int>(m_ClusterLights.size()));
+		m_ClusterAssignShader->BindFloat("u_cluster_near_far", packet.camera.nearClip, packet.camera.farClip);
+		const float tanY = std::tan(packet.camera.fov * 0.5f);
+		const float aspect = packet.viewportH > 0 ? static_cast<float>(packet.viewportW) / packet.viewportH : 1.0f;
+		m_ClusterAssignShader->BindFloat("u_cluster_tan_half_fov", tanY * aspect, tanY);
+		m_ClusterAssignShader->DispatchCompute((ClusterGrid::COUNT + 63) / 64, 1, 1);
+		m_ClusterAssignShader->ComputeBarrier();
+		if (kClusterBench)
+			m_LastClusterAssignMs = std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - benchStart).count();
+	}
+
+	void DeferredPipeline::DrawLocalLightShadows(FramePacket &packet)
+	{
+		for (auto &texture : m_ClusterPointShadows) texture.reset();
+		for (auto &texture : m_ClusterSpotShadows) texture.reset();
+		for (auto &matrix : m_ClusterSpotShadowMatrices) matrix = Matrix4();
+		int pointSlot = 0;
+		int spotSlot = 0;
+		for (unsigned int lightIndex : packet.localLightIndices)
+		{
+			const auto &light = packet.lights[lightIndex];
+			if (!light.castShadows) continue;
+			if (light.type == LightType::POINT)
+			{
+				auto shadowData = DrawPointLightShadowMap(packet, lightIndex);
+				packet.frameShadowTemps.push_back(shadowData.first);
+				packet.shadowResults[lightIndex].texture = shadowData.first;
+				packet.shadowResults[lightIndex].single = shadowData.second;
+				m_ClusterPointShadows[pointSlot++] = shadowData.first;
+			}
+			else if (light.type == LightType::SPOT)
+			{
+				auto shadowData = DrawSpotLightShadowMap(packet, lightIndex);
+				packet.frameShadowTemps.push_back(shadowData.first);
+				packet.shadowResults[lightIndex].texture = shadowData.first;
+				packet.shadowResults[lightIndex].single = shadowData.second;
+				m_ClusterSpotShadows[spotSlot] = shadowData.first;
+				m_ClusterSpotShadowMatrices[spotSlot] = shadowData.second;
+				++spotSlot;
+			}
+		}
+	}
+
+	void DeferredPipeline::DrawClusteredLights(const std::shared_ptr<Pass> &pass, FramePacket &packet)
+	{
+		auto shader = GetShaderByName("clustered_lighting_shader");
+		if (shader == nullptr || shader->GetDirty()) return;
+		pass->Bind(false);
+		shader->Bind();
+		shader->BindCameraData(packet.camera);
+		shader->BindMatrix("camera_world", &packet.camera.worldMatrix.Raw[0]);
+		shader->BindFloat("u_cluster_viewport", static_cast<float>(packet.viewportW), static_cast<float>(packet.viewportH));
+		shader->BindFloat("u_cluster_near_far", packet.camera.nearClip, packet.camera.farClip);
+		for (unsigned int i = 0; i < pass->GetTextureCount(true); ++i)
+		{
+			auto texture = pass->GetTextureAt(i, true);
+			shader->BindTexture(texture->GetName(), texture);
+		}
+		auto *cmd = Cmd();
+		cmd->SetStorageBufferNamed("ClusterLightBuffer", 0, m_ClusterLightBuffer);
+		cmd->SetStorageBufferNamed("ClusterCountBuffer", 1, m_ClusterCountBuffer);
+		cmd->SetStorageBufferNamed("ClusterIndexBuffer", 2, m_ClusterIndexBuffer);
+		for (int i = 0; i < ClusterGrid::MAX_POINT_SHADOWS; ++i)
+		{
+			const std::string name = "u_point_shadow[" + std::to_string(i) + "]";
+			shader->BindTexture(name, m_ClusterPointShadows[i] != nullptr ? m_ClusterPointShadows[i] : GetDummyCubeTexture());
+		}
+		for (int i = 0; i < ClusterGrid::MAX_SPOT_SHADOWS; ++i)
+		{
+			const std::string name = "u_spot_shadow[" + std::to_string(i) + "]";
+			shader->BindTexture(name, m_ClusterSpotShadows[i] != nullptr ? m_ClusterSpotShadows[i] : GetDummyTexture2D());
+		}
+		shader->BindMatrices("u_spot_shadow_matrix", ClusterGrid::MAX_SPOT_SHADOWS, m_ClusterSpotShadowMatrices.data());
+		auto mesh = MeshUtil::GetUnitQuad();
+		shader->BindMesh(mesh);
+		cmd->DrawIndexed(static_cast<unsigned int>(mesh->Indices.Data.size()));
+		shader->UnBind();
+		RenderUtil::Instance()->IncreaseDrawCall();
+		for (size_t i = 0; i < packet.localLightIndices.size(); ++i)
+			RenderUtil::Instance()->IncreaseLightCount();
+	}
+
+	void DeferredPipeline::UpdateClusterStats(FramePacket &packet)
+	{
+		std::vector<ClusterGrid::ReferenceLight> lights;
+		lights.reserve(m_ClusterLights.size());
+		for (const auto &upload : m_ClusterLights)
+		{
+			ClusterGrid::ReferenceLight light;
+			light.position = upload.positionRange;
+			light.direction = upload.directionCosOuter;
+			light.range = upload.positionRange.w;
+			light.cosOuter = upload.directionCosOuter.w;
+			light.spot = upload.params.w >= 1.5f;
+			lights.push_back(light);
+		}
+		const float tanY = std::tan(packet.camera.fov * 0.5f);
+		const float aspect = packet.viewportH > 0 ? static_cast<float>(packet.viewportW) / packet.viewportH : 1.0f;
+		int maxCount = 0;
+		int overflowCount = 0;
+		for (int z = 0; z < ClusterGrid::SLICES_Z; ++z)
+			for (int y = 0; y < ClusterGrid::TILES_Y; ++y)
+				for (int x = 0; x < ClusterGrid::TILES_X; ++x)
+				{
+					Vector4 boxMin;
+					Vector4 boxMax;
+					ClusterGrid::Bounds(x, y, z, packet.camera.nearClip, packet.camera.farClip,
+						tanY * aspect, tanY, boxMin, boxMax);
+					int overflow = 0;
+					const int count = ClusterGrid::AssignLights(lights, boxMin, boxMax, nullptr, overflow);
+					maxCount = std::max(maxCount, count);
+					overflowCount += overflow;
+				}
+		m_ClusterMaxLightCount = maxCount;
+		m_ClusterOverflowCount = overflowCount;
+		static int lastOverflow = 0;
+		if (overflowCount > 0 && overflowCount != lastOverflow)
+			FURYW << "Cluster light assignment overflow: " << overflowCount << " entries dropped (cap "
+				<< ClusterGrid::MAX_LIGHTS << " per cluster)";
+		lastOverflow = overflowCount;
+	}
+
+	void DeferredPipeline::DrawClusterDebugView(bool countView, FramePacket &packet)
+	{
+		if (!packet.clusterAssignmentValid)
+		{
+			m_ClusterMaxLightCount = 0;
+			m_ClusterOverflowCount = 0;
+			SetDebugViewTexture(nullptr);
+			return;
+		}
+		if (countView)
+			UpdateClusterStats(packet);
+		const int width = packet.viewportW > 0 ? packet.viewportW : 1280;
+		const int height = packet.viewportH > 0 ? packet.viewportH : 720;
+		auto debugTex = GetTextureByName("debug_view");
+		if (!debugTex || debugTex->GetWidth() != width || debugTex->GetHeight() != height)
+		{
+			debugTex = Texture::Create("debug_view");
+			debugTex->CreateEmpty(width, height, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D);
+			m_EntityManager->Add(debugTex);
+		}
+		const char *shaderName = countView ? "cluster_count_debug_shader" : "cluster_grid_debug_shader";
+		const char *shaderPath = countView ? "Resource/Shader/ClusterLightCountDebug.glsl" : "Resource/Shader/ClusterGridDebug.glsl";
+		auto shader = GetShaderByName(shaderName);
+		if (!shader)
+		{
+			shader = Shader::Create(shaderName, ShaderType::OTHER);
+			if (!shader->LoadAndCompile(FileUtil::GetAbsPath(shaderPath)))
+			{
+				SetDebugViewTexture(nullptr);
+				return;
+			}
+			m_EntityManager->Add(shader);
+		}
+		auto depth = GetTextureByName("gbuffer_depth");
+		if (!depth)
+		{
+			SetDebugViewTexture(nullptr);
+			return;
+		}
+
+		auto *cmd = Cmd();
+		cmd->SetPrimitiveMode(RHIPrimitiveMode::TRIANGLES);
+		cmd->PushRenderTarget();
+		auto debugPass = Pass::Create("ClusterDebugViewFBO");
+		debugPass->SetBlendMode(BlendMode::REPLACE);
+		debugPass->SetClearMode(ClearMode::COLOR);
+		debugPass->AddTexture(debugTex, false);
+		debugPass->Bind(false);
+		auto quad = MeshUtil::GetUnitQuad();
+		shader->Bind();
+		shader->BindMesh(quad);
+		shader->BindTexture("gbuffer_depth", depth);
+		shader->BindFloat("u_cluster_viewport", static_cast<float>(width), static_cast<float>(height));
+		shader->BindFloat("u_cluster_near_far", packet.camera.nearClip, packet.camera.farClip);
+		if (countView)
+			cmd->SetStorageBufferNamed("ClusterCountBuffer", 1, m_ClusterCountBuffer);
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, false, false, CullMode::NONE);
+		cmd->DrawIndexed(static_cast<unsigned int>(quad->Indices.Data.size()));
+		shader->UnBind();
+		debugPass->UnBind();
+		cmd->PopRenderTarget();
+		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
+		SetDebugViewTexture(debugTex);
+	}
+
+	void DeferredPipeline::ResolveClusteredLighting(FramePacket &packet)
+	{
+		const bool requested = packet.switches.test(static_cast<size_t>(PipelineSwitch::CLUSTERED_LIGHTING));
+		const bool debugRequested = packet.switches.test(static_cast<size_t>(PipelineSwitch::CLUSTER_GRID_VIEW))
+			|| packet.switches.test(static_cast<size_t>(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW));
+		int state = 0;
+		if (requested || debugRequested)
+		{
+			state = 2;
+			if (GRHIDevice != nullptr && GRHIDevice->GetCapabilities().SupportsClusteredLighting)
+			{
+				state = 3;
+				if (packet.camera.nearClip > 0.0f && packet.camera.farClip > packet.camera.nearClip
+					&& EnsureClusterResources(packet))
+					state = requested ? 1 : 4;
+			}
+		}
+		int previous = m_ClusteredLightingState.exchange(state);
+		if (state == 2 && previous != 2)
+			FURYW << "Clustered lighting requested but the active backend lacks the required feature set; using deferred fallback";
+		if (state == 3 && previous != 3)
+			FURYW << "Clustered lighting shaders or resources are unavailable; using deferred fallback";
+		packet.clusteredLighting = state == 1;
+		packet.clusterAssignmentValid = state == 1 || state == 4;
+		if (packet.clusterAssignmentValid)
+			AssignClusters(packet);
+	}
+
+	void DeferredPipeline::ExecutePacket(FramePacket &packet)
 	{
 		FURY_ZONE_NAMED("ExecutePacket");
 		ASSERT_MSG(packet.camera.valid, "FramePacket.camera not valid!");
+
+		const auto benchFrameStart = std::chrono::steady_clock::now();
+		ResolveClusteredLighting(packet);
 
 		// pre
 		m_CurrentShader = nullptr;
@@ -1104,15 +1454,26 @@ namespace
 			{
 				pass->Bind(true);
 
-				for (int li = 0; li < (int)packet.lights.size(); ++li)
+				if (packet.clusteredLighting)
 				{
-					const auto &pl = packet.lights[li];
-					if (pl.type == LightType::DIRECTIONAL)
-						DrawDirLight(pass, packet, li);
-					else if (pl.type == LightType::POINT)
-						DrawPointLight(pass, packet, li);
-					else
-						DrawSpotLight(pass, packet, li);
+					DrawLocalLightShadows(packet);
+					for (int li = 0; li < (int)packet.lights.size(); ++li)
+						if (packet.lights[li].type == LightType::DIRECTIONAL)
+							DrawDirLight(pass, packet, li);
+					DrawClusteredLights(pass, packet);
+				}
+				else
+				{
+					for (int li = 0; li < (int)packet.lights.size(); ++li)
+					{
+						const auto &pl = packet.lights[li];
+						if (pl.type == LightType::DIRECTIONAL)
+							DrawDirLight(pass, packet, li);
+						else if (pl.type == LightType::POINT)
+							DrawPointLight(pass, packet, li);
+						else
+							DrawSpotLight(pass, packet, li);
+					}
 				}
 			}
 
@@ -1167,12 +1528,20 @@ namespace
 		// Buffer debug view (viewport toolbar "View SSAO/SSR"): runs
 		// the effect's DEBUG_VIEW variant into the "debug_view"
 		// texture; the editor presents it in place of the scene.
-		if (packet.switches.test((size_t)PipelineSwitch::SSAO_VIEW))
+		if (packet.switches.test((size_t)PipelineSwitch::CLUSTER_GRID_VIEW))
+			DrawClusterDebugView(false, packet);
+		else if (packet.switches.test((size_t)PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW))
+			DrawClusterDebugView(true, packet);
+		else if (packet.switches.test((size_t)PipelineSwitch::SSAO_VIEW))
 			DrawEffectDebugView("SSAO", packet);
 		else if (packet.switches.test((size_t)PipelineSwitch::SSR_VIEW))
 			DrawEffectDebugView("SSR", packet);
 		else
+		{
+			m_ClusterMaxLightCount = 0;
+			m_ClusterOverflowCount = 0;
 			SetDebugViewTexture(nullptr);
+		}
 
 		// post
 		m_CurrentShader = nullptr;
@@ -1189,9 +1558,31 @@ namespace
 		FURY_PLOT("drawcmd_hits", (double)m_CacheHits);
 		FURY_PLOT("drawcmd_rebuilds", (double)m_CacheRebuilds);
 		FURY_PLOT("draw_calls", (double)RenderUtil::Instance()->GetDrawCall());
+		if (kClusterBench)
+		{
+			const double frameMs = std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - benchFrameStart).count();
+			static double frameTotal = 0.0;
+			static double assignTotal = 0.0;
+			static int samples = 0;
+			frameTotal += frameMs;
+			assignTotal += m_LastClusterAssignMs;
+			++samples;
+			if (packet.frameIndex % 120 == 0)
+			{
+				UpdateClusterStats(packet);
+				FURYI << "Cluster bench frame_ms=" << frameTotal / samples
+					<< " last_frame_ms=" << frameMs
+					<< " assign_ms=" << assignTotal / samples
+					<< " draw_calls=" << RenderUtil::Instance()->GetDrawCall()
+					<< " local_lights=" << packet.localLightIndices.size()
+					<< " max_count=" << m_ClusterMaxLightCount.load()
+					<< " overflow=" << m_ClusterOverflowCount.load();
+			}
+		}
 	}
 
-	void PrelightPipeline::ReplayDrawCommand(DrawCommand &cmd, const std::shared_ptr<Pass> &pass,
+	void DeferredPipeline::ReplayDrawCommand(DrawCommand &cmd, const std::shared_ptr<Pass> &pass,
 		const Matrix4 *worldMatrix, FramePacket &packet)
 	{
 		auto shader = cmd.shader;
@@ -1243,7 +1634,7 @@ namespace
 
 	}
 
-	void PrelightPipeline::DrawUnitCached(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+	void DeferredPipeline::DrawUnitCached(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
 		FramePacket &packet, const PreZDepthShaders *preZShaders)
 	{
 		auto material = unit.material;
@@ -1389,7 +1780,7 @@ namespace
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+	void DeferredPipeline::DrawUnit(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
 		FramePacket &packet, int lightIndex, const PreZDepthShaders *preZShaders)
 	{
 		auto material = unit.material;
@@ -1631,7 +2022,7 @@ namespace
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawUnitPreZ(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
+	void DeferredPipeline::DrawUnitPreZ(const std::shared_ptr<Pass> &pass, const PacketUnit &unit,
 		FramePacket &packet, const PreZDepthShaders &shaders)
 	{
 		auto material = unit.material;
@@ -1684,7 +2075,7 @@ namespace
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet,
+	void DeferredPipeline::DrawInstancedUnits(const std::shared_ptr<Pass> &pass, FramePacket &packet,
 		PreZFilter filter, const PreZDepthShaders *preZShaders)
 	{
 		if (packet.instanced.empty())
@@ -1912,7 +2303,7 @@ namespace
 		}
 	}
 
-	void PrelightPipeline::DrawPointLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
+	void DeferredPipeline::DrawPointLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
 		const auto &pl = packet.lights[lightIndex];
@@ -1999,7 +2390,7 @@ namespace
 		}
 	}
 
-	void PrelightPipeline::DrawDirLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
+	void DeferredPipeline::DrawDirLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
 		const auto &pl = packet.lights[lightIndex];
@@ -2109,7 +2500,7 @@ namespace
 		}
 	}
 
-	void PrelightPipeline::DrawSpotLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
+	void DeferredPipeline::DrawSpotLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex)
 	{
 		FURY_ZONE;
 		const auto &pl = packet.lights[lightIndex];
@@ -2206,7 +2597,7 @@ namespace
 		}
 	}
 
-	void PrelightPipeline::DrawQuad(const std::shared_ptr<Pass> &pass, const FramePacket &packet)
+	void DeferredPipeline::DrawQuad(const std::shared_ptr<Pass> &pass, const FramePacket &packet)
 	{
 		auto shader = m_CurrentShader;
 		auto mesh = MeshUtil::GetUnitQuad();
@@ -2281,7 +2672,7 @@ namespace
 		RenderUtil::Instance()->IncreaseTriangleCount(static_cast<unsigned int>(mesh->Indices.Data.size()));
 	}
 
-	void PrelightPipeline::DrawSky(const std::shared_ptr<Pass> &pass, FramePacket &packet)
+	void DeferredPipeline::DrawSky(const std::shared_ptr<Pass> &pass, FramePacket &packet)
 	{
 		FURY_ZONE;
 		// HDR-only feature; no sky -> no draw, hdr_composite untouched.
@@ -2350,7 +2741,7 @@ namespace
 		RenderUtil::Instance()->IncreaseDrawCall();
 	}
 
-	void PrelightPipeline::DrawOcean(const std::shared_ptr<Pass> &pass, FramePacket &packet)
+	void DeferredPipeline::DrawOcean(const std::shared_ptr<Pass> &pass, FramePacket &packet)
 	{
 		FURY_ZONE;
 		// HDR-only feature (same constraint as the sky pass).
@@ -2617,7 +3008,7 @@ namespace
 			Texture::ReleaseTemporary(depthCopy);
 	}
 
-	std::shared_ptr<Texture> PrelightPipeline::GetLightingOutputTexture(bool hdrMode) const
+	std::shared_ptr<Texture> DeferredPipeline::GetLightingOutputTexture(bool hdrMode) const
 	{
 		// hdr_composite (HDR) or ldr_composite (LDR), with fallbacks
 		// for legacy pipelines that predate the composite textures.
@@ -2638,7 +3029,7 @@ namespace
 		return sourceTex;
 	}
 
-	void PrelightPipeline::RunPostProcessChain(FramePacket &packet)
+	void DeferredPipeline::RunPostProcessChain(FramePacket &packet)
 	{
 		FURY_ZONE;
 		if (packet.chain.empty()) return;
@@ -2864,7 +3255,7 @@ namespace
 		cmd->SetRasterState(BlendMode::REPLACE, CompareMode::LESS, true, true, CullMode::NONE);
 	}
 
-	void PrelightPipeline::DrawEffectDebugView(const std::string &effectName, FramePacket &packet)
+	void DeferredPipeline::DrawEffectDebugView(const std::string &effectName, FramePacket &packet)
 	{
 		if (!packet.camera.valid) return;
 

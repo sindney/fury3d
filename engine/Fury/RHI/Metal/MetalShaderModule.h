@@ -65,7 +65,7 @@ namespace fury
 
 		MTL::Function *m_Compute = nullptr;
 
-		MetalStageGlobals m_Globals[2];   // [0] = vertex, [1] = fragment
+		MetalStageGlobals m_Globals[3];   // [0] = vertex, [1] = fragment, [2] = compute
 
 		std::unordered_map<std::string, int> m_StageInputs;
 

@@ -567,7 +567,7 @@ local function on_init()
     cam_node:AddComponent(camera)
     cam_node:Recompose(true)
 
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     Pipeline.GetActive():SetCurrentCamera(cam_node)
 
     -- Settings -> Camera section: live far-plane control (see
@@ -590,8 +590,8 @@ local function on_init()
     })
     FileUtil.LoadPipelineFromFile(
         Pipeline.GetActive(),
-        FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
-    g_LoadedPipelinePath = "Resource/Pipeline/DefferedLightingLambert.json"
+        FileUtil.GetAbsPath("Resource/Pipeline/DeferredLightingLambert.json"))
+    g_LoadedPipelinePath = "Resource/Pipeline/DeferredLightingLambert.json"
 
     -- Load postprocess effects from the project's registry BEFORE
     -- opening the startup scene. ApplyRenderSettings (called from

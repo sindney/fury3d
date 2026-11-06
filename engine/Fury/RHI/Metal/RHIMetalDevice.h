@@ -39,6 +39,15 @@ namespace fury
 			MetalBindingMaps Maps;
 		};
 
+		// Compute pipeline + argument-name reflection, cached per module
+		// (no render-target variants: compute PSOs carry no pixel formats).
+		struct ComputePSOEntry
+		{
+			MTL::ComputePipelineState *PSO = nullptr;
+
+			std::unordered_map<std::string, int> Uniforms;
+		};
+
 	protected:
 
 		sf::WindowBase *m_Window = nullptr;
@@ -59,6 +68,8 @@ namespace fury
 
 		MTL::CommandBuffer *m_CommandBuffer = nullptr;
 
+		MTL::CommandBuffer *m_LastCommandBuffer = nullptr;
+
 		CA::MetalDrawable *m_Drawable = nullptr;
 
 		// The most recently presented drawable, retained across the frame
@@ -78,6 +89,8 @@ namespace fury
 
 		std::map<PSOKey, PSOEntry> m_PSOCache;
 
+		std::map<const MetalShaderModule *, ComputePSOEntry> m_ComputePSOCache;
+
 		std::map<uint32_t, MTL::DepthStencilState *> m_DepthCache;
 
 	public:
@@ -93,6 +106,8 @@ namespace fury
 		RHIBackend GetBackend() const override { return RHIBackend::METAL; }
 
 		const RHICapabilities &GetCapabilities() const override { return m_Caps; }
+
+		void SetClusteredLightingSupported(bool supported) override { m_Caps.SupportsClusteredLighting = supported; }
 
 		RHITextureRef CreateTexture(const RHITextureDesc &desc) override;
 
@@ -160,6 +175,10 @@ namespace fury
 		// nullptr on creation failure; Maps are built once at creation.
 		const PSOEntry *GetOrCreatePSO(const PSOKey &key,
 			const std::vector<RHIVertexAttribute> *vertexLayout);
+
+		// nullptr when the module has no compute function or PSO creation
+		// fails; Uniforms maps argument names to native buffer indices.
+		const ComputePSOEntry *GetOrCreateComputePSO(const MetalShaderModule *module);
 
 		MTL::DepthStencilState *GetDepthState(CompareMode func, bool write);
 

@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -67,7 +69,7 @@ uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
 void main()
 {
 	vec3 lighting = texture(hdr_light, out_uv).rgb;
-	vec3 albedo = texture(gbuffer_diffuse, out_uv).rgb;
+	vec3 albedo = GBufferDecodeDiffuse(texture(gbuffer_diffuse, out_uv));
 
 	vec3 col = lighting + albedo * u_ambient;
 #ifdef WITH_EDITOR
@@ -81,7 +83,7 @@ void main()
 	if (u_atmosphere_enabled != 0)
 	{
 		float depth = texture(gbuffer_depth, out_uv).r;
-		if (depth < 1.0)
+		if (!GBufferIsFarDepth(depth))
 		{
 			float distKm = length(vs_pos) * depth * 0.00001;
 			float w = sqrt(clamp(distKm / u_ap_range, 0.0, 1.0));

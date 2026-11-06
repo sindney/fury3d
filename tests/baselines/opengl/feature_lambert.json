@@ -1,0 +1,23 @@
+{
+  "scenario": "feature_lambert",
+  "backend": "opengl",
+  "approved_by": "render_baseline.py --update",
+  "meta": {
+    "name": "feature_lambert",
+    "backend": "opengl",
+    "size": "1280x720",
+    "hdr": "false",
+    "cam": "MainCamera",
+    "time": "12.500",
+    "anim": "0.800",
+    "temporal": "0",
+    "particles": "37",
+    "pipeline": "Resource/Pipeline/DeferredLightingLambert.json"
+  },
+  "tolerances": {
+    "mean_abs_diff": 1.0,
+    "max_abs_diff": 24,
+    "frac_gt_8": 0.001
+  },
+  "masks": []
+}

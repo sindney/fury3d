@@ -62,7 +62,7 @@
 #include "Fury/PhysicsWorld.h"
 #include "Fury/Pipeline.h"
 #include "Fury/PlayerController.h"
-#include "Fury/PrelightPipeline.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/Quaternion.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
@@ -1436,22 +1436,22 @@ namespace fury
 			// explicit getter/setter functions because sol::property on the
 			// usertype's class table doesn't reliably round-trip in sol2 v3.5.
 			lua["Pipeline"]["GetActive"] = []() -> Pipeline::Ptr { return Pipeline::Active; };
-			// Take the concrete `PrelightPipeline::Ptr` (the only Pipeline
+			// Take the concrete `DeferredPipeline::Ptr` (the only Pipeline
 			// derivative lua produces) and upcast in C++ -- sol2 fails to
-			// unwrap `shared_ptr<PrelightPipeline>` into `shared_ptr<Pipeline>`
+			// unwrap `shared_ptr<DeferredPipeline>` into `shared_ptr<Pipeline>`
 			// even with `sol::bases<Pipeline>` declared. Same workaround as
 			// Scene.Create / SceneNode.AddComponent above.
 			lua["Pipeline"]["SetActive"] = sol::overload(
 				[](Pipeline::Ptr p) { Pipeline::Active = p; },
-				[](PrelightPipeline::Ptr p) {
+				[](DeferredPipeline::Ptr p) {
 					Pipeline::Active = std::static_pointer_cast<Pipeline>(p);
 				});
 
-			// --- PrelightPipeline ---------------------------------------------
-			lua.new_usertype<PrelightPipeline>("PrelightPipeline",
+			// --- DeferredPipeline ---------------------------------------------
+			lua.new_usertype<DeferredPipeline>("DeferredPipeline",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Pipeline, Entity, Serializable>(),
-				"Create", &PrelightPipeline::Create);
+				"Create", &DeferredPipeline::Create);
 
 			// Pipeline HDR / chain bindings. The editor toggles HDR
 			// via Scene::RenderSettings; these Lua hooks let a
@@ -1466,6 +1466,18 @@ namespace fury
 			};
 			lua["Pipeline"]["ApplyRenderSettings"] = [](Pipeline::Ptr p, RenderSettings &rs) {
 				if (p) p->ApplyRenderSettings(rs);
+			};
+			lua["Pipeline"]["IsClusteredLightingEffective"] = [](Pipeline::Ptr p) -> bool {
+				return p && p->IsClusteredLightingEffective();
+			};
+			lua["Pipeline"]["GetClusteredLightingDiagnostic"] = [](Pipeline::Ptr p) -> std::string {
+				return p ? p->GetClusteredLightingDiagnostic() : "no active pipeline";
+			};
+			lua["Pipeline"]["GetClusterMaxLightCount"] = [](Pipeline::Ptr p) -> int {
+				return p ? p->GetClusterMaxLightCount() : 0;
+			};
+			lua["Pipeline"]["GetClusterOverflowCount"] = [](Pipeline::Ptr p) -> int {
+				return p ? p->GetClusterOverflowCount() : 0;
 			};
 
 			// --- PostProcessEffect (usertype for chain editor / scripts) -----
@@ -1486,6 +1498,8 @@ namespace fury
 				"SetPipelinePath", &RenderSettings::SetPipelinePath,
 				"IsHDR", &RenderSettings::IsHDR,
 				"SetHDR", &RenderSettings::SetHDR,
+				"IsClusteredLighting", &RenderSettings::IsClusteredLighting,
+				"SetClusteredLighting", &RenderSettings::SetClusteredLighting,
 				"IsCascadedShadowMap", &RenderSettings::IsCascadedShadowMap,
 				"SetCascadedShadowMap", &RenderSettings::SetCascadedShadowMap,
 				"GetCsmMapSize", &RenderSettings::GetCsmMapSize,

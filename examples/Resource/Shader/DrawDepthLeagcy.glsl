@@ -1,6 +1,7 @@
 #version 330
 
 #include "Lambert/VegetationCommon.glsl"
+#include "GBufferCommon.glsl"
 
 #ifdef VERTEX_SHADER
 
@@ -98,7 +99,7 @@ void main()
 		discard;
 #endif
 #ifdef LINEAR_DEPTH
-	gl_FragDepth = out_depth / camera_far;
+	gl_FragDepth = GBufferLinearDepth(out_depth, camera_far);
 #endif
 	// gl_FragDepth = gl_FragCoord.z;
 }

@@ -40,12 +40,12 @@ local function on_init()
 
     -- Pipeline from the scene's renderSettings (fall back to the default
     -- LDR pipeline when the scene doesn't name one).
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     local pl = Pipeline.GetActive()
     local rs = scene:GetRenderSettings()
     local pipe_path = rs and rs:GetPipelinePath() or ""
     if pipe_path == "" then
-        pipe_path = "Resource/Pipeline/DefferedLightingLambert.json"
+        pipe_path = "Resource/Pipeline/DeferredLightingLambert.json"
     end
     local full_pipe = FileUtil.GetAbsPath(pipe_path)
     if FileUtil.FileExist(full_pipe) then

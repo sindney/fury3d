@@ -26,11 +26,11 @@ local function on_init()
     end
     local scene = Scene.GetActive()
 
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     pl = Pipeline.GetActive()
     local rs = scene:GetRenderSettings()
     local pipe_path = rs and rs:GetPipelinePath() or ""
-    if pipe_path == "" then pipe_path = "Resource/Pipeline/DefferedLightingPBR.json" end
+    if pipe_path == "" then pipe_path = "Resource/Pipeline/DeferredLightingPBR.json" end
     FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath(pipe_path))
     PostProcess.LoadFromDirectory("Resource/PostProcess")
     if rs then Pipeline.ApplyRenderSettings(pl, rs) end

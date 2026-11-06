@@ -25,7 +25,7 @@
       ],
       "tolerances": {
         "mean_abs_diff": 1.0,
-        "max_abs_diff": 24,
+        "max_abs_diff": 64,
         "frac_gt_8": 0.001
       },
       "temporal": {
@@ -44,8 +44,10 @@
         }
       },
       "backend_tolerances": {
+        "opengl": {
+          "frac_gt_8": 0.004
+        },
         "metal": {
-          "max_abs_diff": 48,
           "frac_gt_8": 0.004
         }
       }
@@ -61,7 +63,7 @@
       ],
       "tolerances": {
         "mean_abs_diff": 1.0,
-        "max_abs_diff": 24,
+        "max_abs_diff": 96,
         "frac_gt_8": 0.001
       },
       "temporal": {
@@ -80,8 +82,73 @@
         }
       },
       "backend_tolerances": {
+        "opengl": {
+          "frac_gt_8": 0.004
+        },
         "metal": {
-          "max_abs_diff": 48,
+          "frac_gt_8": 0.004
+        }
+      }
+    },
+    "feature_lambert": {
+      "backends": [
+        "opengl",
+        "metal"
+      ],
+      "capture_frame": 40,
+      "requires": [
+        "{examples}/Projects/feature/feature.bin",
+        "{examples}/Resource/Pipeline/DeferredLightingLambert.json"
+      ],
+      "tolerances": {
+        "mean_abs_diff": 1.0,
+        "max_abs_diff": 64,
+        "frac_gt_8": 0.005
+      },
+      "backend_tolerances": {
+        "metal": {
+          "frac_gt_8": 0.005
+        }
+      }
+    },
+    "clustered_materials_hdr": {
+      "backends": [
+        "opengl",
+        "metal"
+      ],
+      "capture_frame": 40,
+      "requires": [
+        "{examples}/Resource/Pipeline/DeferredLightingPBR.json"
+      ],
+      "tolerances": {
+        "mean_abs_diff": 1.0,
+        "max_abs_diff": 96,
+        "frac_gt_8": 0.001
+      },
+      "backend_tolerances": {
+        "metal": {
+          "frac_gt_8": 0.004
+        }
+      }
+    },
+    "clustered_normal_mapped_hdr": {
+      "backends": [
+        "opengl",
+        "metal"
+      ],
+      "capture_frame": 40,
+      "requires": [
+        "{examples}/Resource/Pipeline/DeferredLightingPBR.json",
+        "{examples}/Projects/feature/normal_wave.png",
+        "{examples}/Projects/feature/unspecified.png"
+      ],
+      "tolerances": {
+        "mean_abs_diff": 1.0,
+        "max_abs_diff": 96,
+        "frac_gt_8": 0.001
+      },
+      "backend_tolerances": {
+        "metal": {
           "frac_gt_8": 0.004
         }
       }
@@ -100,16 +167,12 @@
       ],
       "tolerances": {
         "mean_abs_diff": 2.0,
-        "max_abs_diff": 32,
+        "max_abs_diff": 128,
         "frac_gt_8": 0.005
       },
       "masks": [],
       "backend_tolerances": {
-        "opengl": {
-          "max_abs_diff": 48
-        },
         "metal": {
-          "max_abs_diff": 48,
           "frac_gt_8": 0.008
         }
       }

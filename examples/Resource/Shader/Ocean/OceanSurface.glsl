@@ -10,6 +10,8 @@
 // gbuffer_normal (color1, replace) so SSR treats water as a smooth reflector
 // and SSAO gates off it via the roughness alpha.
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -251,13 +253,13 @@ void main()
 	// The gbuffer stores LINEAR view depth (gl_FragDepth = -viewZ / far);
 	// every pass that shares gbuffer_depth must write it (Forward/Particle
 	// precedent). Written before any early return: undefined otherwise.
-	gl_FragDepth = -v_view_pos.z / camera_far;
+	gl_FragDepth = GBufferLinearDepth(-v_view_pos.z, camera_far);
 
 	if (u_debug_view == 2) // displacement heatmap: R = crest, B = trough (full at 80 cm)
 	{
 		rt0 = vec4(clamp(v_height * 0.0125, 0.0, 1.0), 0.0,
 			clamp(-v_height * 0.0125, 0.0, 1.0), 1.0);
-		rt1 = vec4(0.5, 1.0, 0.5, 1.0);
+		rt1 = GBufferPackNormal(vec3(0.0, 1.0, 0.0), 1.0);
 		return;
 	}
 
@@ -475,19 +477,19 @@ void main()
 	if (u_debug_view == 1) // foam mask
 	{
 		rt0 = vec4(vec3(foam), 1.0);
-		rt1 = vec4(0.5, 1.0, 0.5, 1.0);
+		rt1 = GBufferPackNormal(vec3(0.0, 1.0, 0.0), 1.0);
 		return;
 	}
 	if (u_debug_view == 3) // ring wireframe (C++ draws with GL_LINE)
 	{
 		rt0 = vec4(u_debug_color, 1.0);
-		rt1 = vec4(0.5, 1.0, 0.5, 1.0);
+		rt1 = GBufferPackNormal(vec3(0.0, 1.0, 0.0), 1.0);
 		return;
 	}
 
 	vec3 nView = normalize((invert_view_matrix * vec4(n, 0.0)).xyz);
 	rt0 = vec4(col, alpha);
-	rt1 = vec4(nView * 0.5 + 0.5, u_ssr_roughness);
+	rt1 = GBufferPackNormal(nView, u_ssr_roughness);
 }
 
 #endif

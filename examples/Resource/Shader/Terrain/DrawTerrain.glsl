@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -80,12 +82,10 @@ void main()
 		albedo *= lod_debug_color.rgb;
 #endif
 
-	rt0.rgb = (out_normal + 1.0) * 0.5;
-	rt0.a = rough;
-	rt1.rgb = albedo;
-	rt1.a = 0.0;   // metallic: terrain is dielectric
+	rt0 = GBufferPackNormal(out_normal, rough);
+	rt1 = GBufferPackDiffuse(albedo, 0.0);   // metallic: terrain is dielectric
 
-	gl_FragDepth = out_depth / camera_far;
+	gl_FragDepth = GBufferLinearDepth(out_depth, camera_far);
 }
 
 #endif

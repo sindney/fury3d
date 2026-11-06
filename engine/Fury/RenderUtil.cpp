@@ -608,6 +608,8 @@ namespace fury
 
 		std::shared_ptr<Texture> s_Dummy2D;
 
+		std::shared_ptr<Texture> s_DummyNormal;
+
 		std::shared_ptr<Texture> s_Dummy2DArray;
 
 		std::shared_ptr<Texture> s_Dummy3D;
@@ -633,6 +635,13 @@ namespace fury
 				s_Dummy2DArray = Texture::Create("Dummy2DArray");
 				s_Dummy2DArray->CreateEmpty(1, 1, 4, TextureFormat::DEPTH24, TextureType::TEXTURE_2D_ARRAY, false);
 			}
+			if (!s_DummyNormal)
+			{
+				s_DummyNormal = Texture::Create("DummyNormal");
+				s_DummyNormal->CreateEmpty(1, 1, 0, TextureFormat::RGBA8, TextureType::TEXTURE_2D, false);
+				const unsigned char flat[] = { 128, 128, 255, 255 };
+				GRHIDevice->UpdateTexture(s_DummyNormal->GetRHITexture(), flat, sizeof(flat));
+			}
 			if (!s_Dummy3D)
 			{
 				// 1x1x1 RGBA8 -- the sampler-target match is what matters.
@@ -652,6 +661,12 @@ namespace fury
 	{
 		EnsureDummyTextures();
 		return s_Dummy2D;
+	}
+
+	std::shared_ptr<Texture> GetDummyNormalTexture()
+	{
+		EnsureDummyTextures();
+		return s_DummyNormal;
 	}
 
 	std::shared_ptr<Texture> GetDummyTexture2DArray()

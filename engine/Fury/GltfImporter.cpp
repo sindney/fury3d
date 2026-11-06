@@ -1099,7 +1099,7 @@ void WalkNode(
 				// scale on every node, including light-only nodes.
 				// The deferred-Lambert pipeline draws the point-light
 				// volume by `worldMatrix.AppendScale(light_radius)`
-				// (PrelightPipeline.cpp), so a parent scale of 100
+				// (DeferredPipeline.cpp), so a parent scale of 100
 				// produces a volume mesh thousands of units wide
 				// which gets z-clipped against the camera far plane
 				// and contributes no fragments. Light-only nodes

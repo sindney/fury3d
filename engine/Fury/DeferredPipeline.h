@@ -1,7 +1,8 @@
-#ifndef _FURY_PRELIGHT_PIPELINE_H_
-#define _FURY_PRELIGHT_PIPELINE_H_
+#ifndef _FURY_DEFERRED_PIPELINE_H_
+#define _FURY_DEFERRED_PIPELINE_H_
 
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <unordered_map>
 #include <string>
@@ -10,6 +11,8 @@
 
 #include "Fury/Pipeline.h"
 #include "Fury/Matrix4.h"
+#include "Fury/ClusterGrid.h"
+#include "Fury/RHI/RHITypes.h"
 
 namespace fury
 {
@@ -109,15 +112,17 @@ namespace fury
 		int lightTypeLoc = -1;
 	};
 
-	class FURY_API PrelightPipeline : public Pipeline
+	class FURY_API DeferredPipeline : public Pipeline
 	{
 	public:
 
-		typedef std::shared_ptr<PrelightPipeline> Ptr;
+		typedef std::shared_ptr<DeferredPipeline> Ptr;
 
 		static Ptr Create(const std::string &name);
 
-		PrelightPipeline(const std::string &name);
+		DeferredPipeline(const std::string &name);
+
+		~DeferredPipeline() override;
 
 		void Serialize(Archive& ar) override;
 
@@ -149,6 +154,20 @@ namespace fury
 		void DrawDirLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex);
 
 		void DrawSpotLight(const std::shared_ptr<Pass> &pass, FramePacket &packet, int lightIndex);
+
+		void ResolveClusteredLighting(FramePacket &packet);
+
+		bool EnsureClusterResources(const FramePacket &packet);
+
+		void AssignClusters(FramePacket &packet);
+
+		void DrawLocalLightShadows(FramePacket &packet);
+
+		void DrawClusteredLights(const std::shared_ptr<Pass> &pass, FramePacket &packet);
+
+		void DrawClusterDebugView(bool countView, FramePacket &packet);
+
+		void UpdateClusterStats(FramePacket &packet);
 
 		void DrawQuad(const std::shared_ptr<Pass> &pass, const FramePacket &packet);
 
@@ -208,6 +227,36 @@ namespace fury
 		void ReplayDrawCommand(DrawCommand &cmd, const std::shared_ptr<Pass> &pass,
 			const Matrix4 *worldMatrix, FramePacket &packet);
 
+		struct ClusterLightUpload
+		{
+			Vector4 positionRange;
+			Vector4 directionCosOuter;
+			Vector4 colorIntensity;
+			Vector4 params;
+		};
+
+		std::shared_ptr<Shader> m_ClusterAssignShader;
+
+		RHIBufferRef m_ClusterLightBuffer;
+
+		RHIBufferRef m_ClusterCountBuffer;
+
+		RHIBufferRef m_ClusterIndexBuffer;
+
+		RHIBufferRef m_ClusterOverflowBuffer;
+
+		std::vector<ClusterLightUpload> m_ClusterLights;
+
+		std::array<std::shared_ptr<Texture>, ClusterGrid::MAX_POINT_SHADOWS> m_ClusterPointShadows;
+
+		std::array<std::shared_ptr<Texture>, ClusterGrid::MAX_SPOT_SHADOWS> m_ClusterSpotShadows;
+
+		std::array<Matrix4, ClusterGrid::MAX_SPOT_SHADOWS> m_ClusterSpotShadowMatrices;
+
+		bool m_ClusterResourcesValid = false;
+
+		double m_LastClusterAssignMs = 0.0;
+
 		std::unordered_map<std::uint64_t, DrawCommand> m_DrawCommandCache;
 
 		std::unordered_map<std::uint64_t, DrawCommand> m_PreZDrawCommandCache;
@@ -218,4 +267,4 @@ namespace fury
 	};
 }
 
-#endif // _FURY_PRELIGHT_PIPELINE_H_
+#endif // _FURY_DEFERRED_PIPELINE_H_

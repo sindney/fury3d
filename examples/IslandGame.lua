@@ -380,12 +380,12 @@ local function on_init()
 		terrain = terrain_node and terrain_node:GetTerrain()
 	end
 
-	Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+	Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
 	pl = Pipeline.GetActive()
 	local rs = scene:GetRenderSettings()
 	local pipe_path = rs and rs:GetPipelinePath() or ""
 	if pipe_path == "" then
-		pipe_path = "Resource/Pipeline/DefferedLightingLambert.json"
+		pipe_path = "Resource/Pipeline/DeferredLightingLambert.json"
 	end
 	local full_pipe = FileUtil.GetAbsPath(pipe_path)
 	-- The pipeline file instantiates GL textures/shaders; headless tests

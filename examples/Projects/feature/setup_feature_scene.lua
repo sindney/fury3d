@@ -310,7 +310,7 @@ aim_at(cam_node, { 0.0, 1.5, 0.0 })
 
 -- ---- 7. render settings -----------------------------------------------------
 local rs = scene:GetRenderSettings()
-rs:SetPipelinePath("Resource/Pipeline/DefferedLightingPBR.json")
+rs:SetPipelinePath("Resource/Pipeline/DeferredLightingPBR.json")
 rs:SetHDR(true)
 rs:SetCascadedShadowMap(true)
 rs:SetCsmMapSize(2048)

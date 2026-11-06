@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -145,7 +147,7 @@ void main()
 	// black so the additive accumulate leaves the ambient floor
 	// (PbrCombine) as the only contribution. Without this the sun
 	// would light the sky (normals there are clear-color garbage).
-	if (texture(gbuffer_depth, screenUV).r >= 1.0)
+	if (GBufferIsFarDepth(texture(gbuffer_depth, screenUV).r))
 	{
 		fragment_output = vec4(0.0);
 		return;
@@ -155,12 +157,13 @@ void main()
 	vec3 vs_surface_pos = pos_from_depth(screenUV);
 
 	vec4 raw_normal = texture(gbuffer_normal, screenUV);
-	vec3 vs_normal = raw_normal.xyz * 2.0 - 1.0;
+	vec3 vs_normal = GBufferDecodeNormal(raw_normal);
 
 #ifdef PBR
 	vec4 diffuse = texture(gbuffer_diffuse, screenUV);
 	fragment_output = apply_lighting_pbr(vs_normal, vs_surface_pos,
-		diffuse.rgb, diffuse.a, raw_normal.a);
+		GBufferDecodeDiffuse(diffuse), GBufferDecodeMetallic(diffuse),
+		GBufferDecodeRoughness(raw_normal));
 #else
 	fragment_output = apply_lighting(vs_normal, vs_surface_pos);
 #endif

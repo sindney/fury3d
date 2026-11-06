@@ -110,8 +110,17 @@ namespace fury
 			return out;
 		}
 
-		std::vector<std::string> ArtifactExtensions(ShaderTarget target)
+		std::vector<std::string> ArtifactExtensions(ShaderTarget target, bool compute)
 		{
+			if (compute)
+			{
+				switch (target)
+				{
+				case ShaderTarget::OpenGL: return { ".comp.glsl", ".refl" };
+				case ShaderTarget::Vulkan: return { ".comp.spv", ".refl" };
+				case ShaderTarget::Metal: return { ".comp.metal", ".refl" };
+				}
+			}
 			switch (target)
 			{
 			case ShaderTarget::OpenGL:
@@ -184,6 +193,15 @@ namespace fury
 				inputs.PushBack(item, allocator);
 			}
 			out.AddMember("stageInputs", inputs, allocator);
+			rapidjson::Value storageBuffers(rapidjson::kArrayType);
+			for (const auto &buffer : stage.storageBuffers)
+			{
+				rapidjson::Value item(rapidjson::kObjectType);
+				AddString(item, "name", buffer.name, allocator);
+				item.AddMember("binding", buffer.binding, allocator);
+				storageBuffers.PushBack(item, allocator);
+			}
+			out.AddMember("storageBuffers", storageBuffers, allocator);
 			return out;
 		}
 
@@ -195,6 +213,12 @@ namespace fury
 			doc.AddMember("version", 2, allocator);
 			doc.AddMember("vertex", SerializeStage(compiled.vertex, allocator), allocator);
 			doc.AddMember("fragment", SerializeStage(compiled.fragment, allocator), allocator);
+			if (!compiled.compute.spirv.empty() || !compiled.compute.msl.empty())
+			{
+				doc.RemoveMember("version");
+				doc.AddMember("version", 3, allocator);
+				doc.AddMember("compute", SerializeStage(compiled.compute, allocator), allocator);
+			}
 			rapidjson::StringBuffer buffer;
 			rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 			doc.Accept(writer);
@@ -251,15 +275,33 @@ namespace fury
 				input.location = item["location"].GetInt();
 				out.stageInputs.push_back(std::move(input));
 			}
+			if (value.HasMember("storageBuffers"))
+			{
+				if (!value["storageBuffers"].IsArray())
+					return false;
+				for (const auto &item : value["storageBuffers"].GetArray())
+				{
+					ShaderStageCompile::StorageBuffer buffer;
+					if (!item.IsObject() || !ReadString(item, "name", buffer.name)
+						|| !item.HasMember("binding") || !item["binding"].IsInt())
+						return false;
+					buffer.binding = item["binding"].GetInt();
+					out.storageBuffers.push_back(std::move(buffer));
+				}
+			}
 			return true;
 		}
 
-		bool DeserializeReflection(const std::vector<unsigned char> &bytes, ShaderModuleCompile &out)
+		bool DeserializeReflection(const std::vector<unsigned char> &bytes, ShaderModuleCompile &out, bool compute)
 		{
 			rapidjson::Document doc;
 			doc.Parse(reinterpret_cast<const char *>(bytes.data()), bytes.size());
-			return !doc.HasParseError() && doc.IsObject() && doc.HasMember("version")
-				&& doc["version"].IsInt() && doc["version"].GetInt() == 2
+			if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("version") || !doc["version"].IsInt())
+				return false;
+			if (compute)
+				return doc["version"].GetInt() == 3 && doc.HasMember("compute")
+					&& DeserializeStage(doc["compute"], out.compute);
+			return doc["version"].GetInt() == 2
 				&& doc.HasMember("vertex") && doc.HasMember("fragment")
 				&& DeserializeStage(doc["vertex"], out.vertex)
 				&& DeserializeStage(doc["fragment"], out.fragment);
@@ -313,7 +355,8 @@ namespace fury
 		const std::vector<std::string> &defines, bool withEditor, bool withDebugOverlay)
 	{
 		VersionedSource split = SplitVersion(source);
-		if (std::find(defines.begin(), defines.end(), "INSTANCE_SSBO") != defines.end())
+		if (std::find(defines.begin(), defines.end(), "INSTANCE_SSBO") != defines.end()
+			|| stageDefine == "COMPUTE_SHADER")
 			split.version = "#version 430 core\n";
 		std::string out = split.version + "\n#define " + stageDefine + "\n";
 		if (withEditor)
@@ -335,6 +378,15 @@ namespace fury
 		return input;
 	}
 
+	ShaderCompileInput BuildComputeShaderCompileInput(const std::string &name, const std::string &source,
+		const std::vector<std::string> &defines, bool withEditor, bool withDebugOverlay)
+	{
+		ShaderCompileInput input;
+		input.name = name;
+		input.computeSource = BuildShaderStageSource(source, "COMPUTE_SHADER", defines, withEditor, withDebugOverlay);
+		return input;
+	}
+
 	std::string MakeShaderDdcKey(const ShaderCompileInput &input, ShaderTarget target)
 	{
 		std::string settings = std::string("backend=") + ShaderTargetName(target)
@@ -347,6 +399,11 @@ namespace fury
 		std::string source = input.vertexSource;
 		source.push_back('\0');
 		source += input.fragmentSource;
+		if (!input.computeSource.empty())
+		{
+			settings += "|stage=compute";
+			source = input.computeSource;
+		}
 		return DdcStore::MakeKey("SHADER_", settings, HashUtil::Sha1Hex(source));
 	}
 
@@ -355,6 +412,23 @@ namespace fury
 	{
 		const std::string key = MakeShaderDdcKey(input, target);
 		std::vector<ShaderArtifact> out;
+		if (!input.computeSource.empty())
+		{
+			if (target == ShaderTarget::OpenGL)
+				out.push_back(TextArtifact(key, ".comp.glsl", input.computeSource));
+			else if (target == ShaderTarget::Vulkan)
+			{
+				std::vector<unsigned char> computeSpv = compiled.compute.spirv;
+				std::string setError;
+				if (!RewriteVulkanDescriptorSets(computeSpv, 0, "compute", setError))
+					FURYW << input.name << ": " << setError;
+				out.push_back({ key, ".comp.spv", computeSpv });
+			}
+			else
+				out.push_back(TextArtifact(key, ".comp.metal", compiled.compute.msl));
+			out.push_back({ key, ".refl", SerializeReflection(compiled) });
+			return out;
+		}
 		if (target == ShaderTarget::OpenGL)
 		{
 			out.push_back(TextArtifact(key, ".vert.glsl", input.vertexSource));
@@ -425,10 +499,10 @@ namespace fury
 	}
 
 	bool LoadShaderArtifacts(const DdcStore &ddc, const std::string &key, ShaderTarget target,
-		std::vector<ShaderArtifact> &artifacts)
+		std::vector<ShaderArtifact> &artifacts, bool compute)
 	{
 		artifacts.clear();
-		for (const auto &ext : ArtifactExtensions(target))
+		for (const auto &ext : ArtifactExtensions(target, compute))
 		{
 			ShaderArtifact artifact{ key, ext, {} };
 			if (!ReadArtifact(ddc, artifact))
@@ -496,12 +570,20 @@ namespace fury
 		ShaderModuleCompile &out, bool *cacheHit, std::string &error)
 	{
 		DdcStore ddc(DdcStore::ResolveRoot());
+		const bool compute = !input.computeSource.empty();
 		const std::string key = MakeShaderDdcKey(input, target);
 		std::vector<ShaderArtifact> artifacts;
 		std::string setError;
-		if (LoadShaderArtifacts(ddc, key, target, artifacts))
+		if (LoadShaderArtifacts(ddc, key, target, artifacts, compute))
 		{
-			if (target == ShaderTarget::Metal)
+			if (compute)
+			{
+				if (target == ShaderTarget::Metal)
+					out.compute.msl.assign(artifacts[0].bytes.begin(), artifacts[0].bytes.end());
+				else
+					out.compute.spirv = artifacts[0].bytes;
+			}
+			else if (target == ShaderTarget::Metal)
 			{
 				out.vertex.msl.assign(artifacts[0].bytes.begin(), artifacts[0].bytes.end());
 				out.fragment.msl.assign(artifacts[1].bytes.begin(), artifacts[1].bytes.end());
@@ -511,10 +593,16 @@ namespace fury
 				out.vertex.spirv = artifacts[0].bytes;
 				out.fragment.spirv = artifacts[1].bytes;
 			}
-			if (DeserializeReflection(artifacts[2].bytes, out)
-				&& (target != ShaderTarget::Vulkan
-					|| (RewriteVulkanDescriptorSets(out.vertex.spirv, 0, "vertex", setError)
-						&& RewriteVulkanDescriptorSets(out.fragment.spirv, 1, "fragment", setError))))
+			bool descriptorSetsValid = true;
+			if (target == ShaderTarget::Vulkan)
+			{
+				if (compute)
+					descriptorSetsValid = RewriteVulkanDescriptorSets(out.compute.spirv, 0, "compute", setError);
+				else
+					descriptorSetsValid = RewriteVulkanDescriptorSets(out.vertex.spirv, 0, "vertex", setError)
+						&& RewriteVulkanDescriptorSets(out.fragment.spirv, 1, "fragment", setError);
+			}
+			if (DeserializeReflection(artifacts[compute ? 1 : 2].bytes, out, compute) && descriptorSetsValid)
 			{
 				out.ok = true;
 				if (cacheHit) *cacheHit = true;
@@ -532,8 +620,11 @@ namespace fury
 		}
 		if (target == ShaderTarget::Vulkan)
 		{
-			if (!RewriteVulkanDescriptorSets(out.vertex.spirv, 0, "vertex", setError)
-				|| !RewriteVulkanDescriptorSets(out.fragment.spirv, 1, "fragment", setError))
+			bool valid = compute
+				? RewriteVulkanDescriptorSets(out.compute.spirv, 0, "compute", setError)
+				: RewriteVulkanDescriptorSets(out.vertex.spirv, 0, "vertex", setError)
+					&& RewriteVulkanDescriptorSets(out.fragment.spirv, 1, "fragment", setError);
+			if (!valid)
 			{
 				error = setError;
 				return false;

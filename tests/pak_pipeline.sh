@@ -82,6 +82,11 @@ end
 local scene = Scene.Create("paktest", "")
 Scene.SetActive(scene)
 local root = scene:GetRootNode()
+local render_settings = scene:GetRenderSettings()
+render_settings:SetPipelinePath("Resource/Pipeline/DeferredLightingPBR.json")
+render_settings:SetHDR(true)
+render_settings:SetClusteredLighting(true)
+render_settings:AddEffect("ACES", true)
 
 local cube = MeshUtil.CreateCube()
 scene:AddMesh(cube)
@@ -167,7 +172,13 @@ for e in shaders:
     assert os.path.isfile(path), "missing shader artifact " + path
     if e["ddc"].endswith(".refl"):
         r = json.load(open(path))
-        assert r["version"] == 2 and "vertex" in r and "fragment" in r
+        if e["shader"].endswith("/ClusterAssign.glsl"):
+            assert r["version"] == 3 and "compute" in r
+            assert "storageBuffers" in r["compute"]
+            names = {b["name"] for b in r["compute"]["storageBuffers"]}
+            assert {"ClusterLightBuffer", "ClusterCountBuffer", "ClusterIndexBuffer", "ClusterOverflowBuffer"} <= names
+        else:
+            assert r["version"] == 2 and "vertex" in r and "fragment" in r
 print("shader manifest OK: %d artifacts across opengl/vulkan/metal" % len(shaders))
 found_default = False
 for e in shaders:
@@ -520,5 +531,31 @@ set -e
 grep -q "index SHA-1 mismatch" "$LOGS/i_bad_index.log" \
     || { cat "$LOGS/i_bad_index.log" >&2; die "stage i: wrong mount failure reason"; }
 stage "i3" "corrupt index byte: mount rejected (rc=$rc)"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    if ! (cd "$EXAMPLES" && "$FURY" "$PROJ/scene.pak" --rhi=metal \
+            --screenshot "$TMP/pak_metal.png" --screenshot-frame 12 > "$LOGS/j_metal.log" 2>&1); then
+        cat "$LOGS/j_metal.log" >&2; die "stage j: packaged Metal scene failed"
+    fi
+    grep -q "cluster_assign_shader: Metal compute shader DDC hit" "$LOGS/j_metal.log" \
+        || die "stage j: packaged compute shader was not used"
+    if grep -q "GLSL cross-compile failed\|Clustered lighting shaders or resources are unavailable" "$LOGS/j_metal.log"; then
+        grep "GLSL cross-compile failed\|Clustered lighting shaders or resources are unavailable" "$LOGS/j_metal.log" >&2
+        die "stage j: packaged Metal clustering fell back or compiled at runtime"
+    fi
+    stage "j" "packaged Metal scene loads compute shader without runtime GLSL compilation"
+
+    if ! (cd "$EXAMPLES" && "$FURY" "$PROJ/scene.pak" --rhi=vulkan \
+            --screenshot "$TMP/pak_vulkan.png" --screenshot-frame 12 > "$LOGS/k_vulkan.log" 2>&1); then
+        cat "$LOGS/k_vulkan.log" >&2; die "stage k: packaged Vulkan scene failed"
+    fi
+    grep -q "cluster_assign_shader: Vulkan compute shader DDC hit" "$LOGS/k_vulkan.log" \
+        || die "stage k: packaged compute shader was not used"
+    if grep -q "GLSL cross-compile failed\|Clustered lighting shaders or resources are unavailable" "$LOGS/k_vulkan.log"; then
+        grep "GLSL cross-compile failed\|Clustered lighting shaders or resources are unavailable" "$LOGS/k_vulkan.log" >&2
+        die "stage k: packaged Vulkan clustering fell back or compiled at runtime"
+    fi
+    stage "k" "packaged Vulkan scene loads compute shader without runtime GLSL compilation"
+fi
 
 echo "pak_pipeline: PASS"

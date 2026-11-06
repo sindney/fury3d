@@ -800,6 +800,18 @@ namespace fury
 		m_CommandList->SetSRGBWriteEnabled(true);
 	}
 
+	void RHIVulkanDevice::WarmUpUiFontAtlas()
+	{
+		if (!m_UiReady || ImGui::GetCurrentContext() == nullptr)
+			return;
+		// UpdateTexture creates, uploads, and waits on the queue itself; the
+		// render thread is not started yet, so this runs unsynchronized.
+		ImGuiIO &io = ImGui::GetIO();
+		for (ImTextureData *tex : io.Fonts->TexList)
+			if (tex->Status != ImTextureStatus_OK)
+				ImGui_ImplVulkan_UpdateTexture(tex);
+	}
+
 	bool RHIVulkanDevice::TransitionTexture(const RHITextureRef &ref)
 	{
 		auto *texture = static_cast<VulkanTexture *>(ref.get());

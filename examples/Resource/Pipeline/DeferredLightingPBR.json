@@ -1,5 +1,5 @@
 {
- "name": "deffered_lighting_pipeline_pbr",
+ "name": "deferred_lighting_pipeline_pbr",
  "shaders": [
   {
    "name": "gbuffer_shader",
@@ -66,6 +66,13 @@
   {
    "name": "spotlight_shader",
    "path": "Resource/Shader/Lambert/SpotLight.glsl",
+   "defines": [
+    "PBR"
+   ]
+  },
+  {
+   "name": "clustered_lighting_shader",
+   "path": "Resource/Shader/Lambert/ClusteredLight.glsl",
    "defines": [
     "PBR"
    ]
@@ -894,7 +901,7 @@
   },
   {
    "name": "gbuffer_normal",
-   "format": "rgba16",
+   "format": "rgba8",
    "width": 1280,
    "height": 720
   },

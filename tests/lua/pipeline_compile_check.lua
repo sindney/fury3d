@@ -39,9 +39,9 @@ local function on_init()
     octree:AddSceneNodeRecursively(root)
 
     -- pipeline under test: PBR first, Lambert on the second pass
-    Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+    Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
     pl = Pipeline.GetActive()
-    FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingPBR.json"))
+    FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath("Resource/Pipeline/DeferredLightingPBR.json"))
     PostProcess.LoadFromDirectory("Resource/PostProcess")
     pl:SetCurrentCamera(cam_node)
 end
@@ -51,7 +51,7 @@ local function on_update(dt)
     pl:Execute(octree)
     if frame == 3 then
         -- swap to the Lambert pipeline (recompiles all its variants)
-        FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath("Resource/Pipeline/DefferedLightingLambert.json"))
+        FileUtil.LoadPipelineFromFile(pl, FileUtil.GetAbsPath("Resource/Pipeline/DeferredLightingLambert.json"))
         print("pipeline_compile_check: swapped to Lambert")
     end
     if frame == 6 then

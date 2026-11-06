@@ -1,5 +1,8 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+#include "LocalLightCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -68,26 +71,16 @@ vec3 pos_from_depth(const in vec2 screenUV)
 
 vec4 apply_lighting(const in vec3 normal, const in vec3 surface_pos)
 {
-	float halfInner = light_innerangle * 0.5f;
-	float halfOutter = light_outterangle * 0.5f;
-
 	vec3 vs_light_pos = (invert_view_matrix * vec4(light_pos, 1)).xyz;
 
 	vec3 L = vs_light_pos - surface_pos;
 
 	float dist = length(L);
-	float attenuation = pow(max(0.0, 1.0 - dist / light_radius), light_falloff + 1.0);
+	float attenuation = LocalLightAttenuation(dist, light_radius, light_falloff);
 
 	L = normalize(L);
 
-	float theta = acos(dot(vs_dir, L));
-
-	if(theta < halfInner)
-		attenuation *= 1;
-	else if(theta < halfOutter)
-		attenuation *= (halfOutter - theta) / (halfOutter - halfInner);
-	else
-		attenuation = 0; 
+	attenuation *= LocalSpotAttenuation(vs_dir, L, light_innerangle, light_outterangle);
 
 	vec3 N = normalize(normal);
 
@@ -105,61 +98,26 @@ vec4 apply_lighting(const in vec3 normal, const in vec3 surface_pos)
 vec4 apply_lighting_pbr(const in vec3 normal, const in vec3 surface_pos,
 	const in vec3 albedo, const in float metallic, const in float roughness)
 {
-	float halfInner = light_innerangle * 0.5f;
-	float halfOutter = light_outterangle * 0.5f;
-
 	vec3 vs_light_pos = (invert_view_matrix * vec4(light_pos, 1)).xyz;
 
 	vec3 L = vs_light_pos - surface_pos;
 
 	float dist = length(L);
-	float attenuation = pow(max(0.0, 1.0 - dist / light_radius), light_falloff + 1.0);
+	float attenuation = LocalLightAttenuation(dist, light_radius, light_falloff);
 
 	L = normalize(L);
 
-	float theta = acos(dot(vs_dir, L));
-
-	if(theta < halfInner)
-		attenuation *= 1;
-	else if(theta < halfOutter)
-		attenuation *= (halfOutter - theta) / (halfOutter - halfInner);
-	else
-		attenuation = 0;
+	attenuation *= LocalSpotAttenuation(vs_dir, L, light_innerangle, light_outterangle);
 
 	vec3 N = normalize(normal);
 	vec3 V = normalize(-surface_pos); // view space: camera at origin
 
 	float NdotL = max(0.0, dot(N, L));
 
-	// GGX (Cook-Torrance) specular — see SunLight.glsl for the units
-	// rationale. a = roughness^2 (Disney reparam).
-	float a = max(roughness * roughness, 1e-3);
-	float a2 = a * a;
-
-	vec3 F0 = mix(vec3(0.04), albedo, metallic);
-	vec3 H = normalize(L + V);
-	float NdotH = max(0.0, dot(N, H));
-	float NdotV = max(1e-4, dot(N, V));
-	float VdotH = max(0.0, dot(V, H));
-
-	// Trowbridge-Reitz NDF (pi-less — light_color carries 1/pi).
-	float ndfDenom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-	float D = a2 / (ndfDenom * ndfDenom);
-
-	// Smith height-correlated visibility, Schlick-GGX k = (a+1)^2/8.
-	float k = (a + 1.0) * (a + 1.0) / 8.0;
-	float visL = NdotL / (NdotL * (1.0 - k) + k);
-	float visV = NdotV / (NdotV * (1.0 - k) + k);
-
-	// Schlick Fresnel.
-	vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotH, 5.0);
-
-	vec3 spec = F * (D * visL * visV) / max(4.0 * NdotL * NdotV, 1e-3);
-
-	vec3 diffuse = albedo * (1.0 - metallic);
+	vec3 brdf = LocalLightGGX(N, V, L, albedo, metallic, roughness);
 
 	return vec4(
-		light_color * NdotL * attenuation * light_intensity * (diffuse + spec), 1.0
+		light_color * NdotL * attenuation * light_intensity * brdf, 1.0
 	);
 }
 #endif
@@ -170,7 +128,7 @@ void main()
 
 #ifdef PBR
 	// Sky mask — see SunLight.glsl.
-	if (texture(gbuffer_depth, screenUV).r >= 1.0)
+	if (GBufferIsFarDepth(texture(gbuffer_depth, screenUV).r))
 	{
 		fragment_output = vec4(0.0);
 		return;
@@ -180,20 +138,19 @@ void main()
 	vec3 vs_surface_pos = pos_from_depth(screenUV);
 
 	vec4 raw_normal = texture(gbuffer_normal, screenUV);
-	vec3 vs_normal = raw_normal.xyz * 2.0 - 1.0;
+	vec3 vs_normal = GBufferDecodeNormal(raw_normal);
 
 #ifdef PBR
 	vec4 diffuse = texture(gbuffer_diffuse, screenUV);
 	fragment_output = apply_lighting_pbr(vs_normal, vs_surface_pos,
-		diffuse.rgb, diffuse.a, raw_normal.a);
+		GBufferDecodeDiffuse(diffuse), GBufferDecodeMetallic(diffuse),
+		GBufferDecodeRoughness(raw_normal));
 #else
 	fragment_output = apply_lighting(vs_normal, vs_surface_pos);
 #endif
 
 #ifdef SHADOW
-	vec4 shadowCoord = shadow_matrix * vec4(vs_surface_pos, 1.0);
-	shadowCoord = shadowCoord / shadowCoord.w;
-	fragment_output *= float(shadowCoord.z < texture(shadow_buffer, shadowCoord.xy).x);
+	fragment_output *= LocalSpotShadow(shadow_buffer, shadow_matrix, vs_surface_pos);
 #endif
 }
 

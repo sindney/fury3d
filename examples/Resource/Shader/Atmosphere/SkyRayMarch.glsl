@@ -18,6 +18,7 @@ void main()
 #ifdef FRAGMENT_SHADER
 
 #include "AtmosphereCommon.glsl"
+#include "../GBufferCommon.glsl"
 
 in vec2 out_uv;
 
@@ -45,7 +46,7 @@ uniform int   u_clouds_enabled;
 void main()
 {
 	// geometry pixels are combine's job (aerial perspective lives there)
-	if (texture(gbuffer_depth, out_uv).r < 1.0)
+	if (!GBufferIsFarDepth(texture(gbuffer_depth, out_uv).r))
 		discard;
 
 	vec2 ndc = out_uv * 2.0 - 1.0;

@@ -270,6 +270,8 @@ namespace fury
 
 		bool SupportsCompute = false;
 
+		bool SupportsClusteredLighting = false;
+
 		bool SupportsTexture3D = false;
 
 		bool SupportsCompressedBC = false;

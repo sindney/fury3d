@@ -48,6 +48,8 @@ namespace fury
 		// trivial pipeline, one cleared+presented frame. Logs the failing step.
 		FURY_API bool ProbeActiveDevice(int width, int height);
 
+		FURY_API bool ProbeClusteredCompute();
+
 		// Creates the device, runs the init probe, and sets GRHIDevice on
 		// success. Returns nullptr (device unusable / not compiled / probe
 		// failed) without touching GRHIDevice on failure.

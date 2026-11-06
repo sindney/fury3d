@@ -80,7 +80,7 @@ root:AddChild(camNode)
 -- -- 5. Render settings + save ---------------------------------------------
 local rs = scene:GetRenderSettings()
 if rs then
-    rs:SetPipelinePath("Resource/Pipeline/DefferedLightingPBR.json")
+    rs:SetPipelinePath("Resource/Pipeline/DeferredLightingPBR.json")
     rs:SetHDR(true)
     rs:SetCascadedShadowMap(true)
     rs:SetShadowFar(20000.0)

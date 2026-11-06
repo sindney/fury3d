@@ -81,6 +81,11 @@ namespace fury
 
 		MTL::RenderCommandEncoder *m_Encoder = nullptr;
 
+		// Live compute encoder (Dispatch). Kept open across consecutive
+		// dispatches; every graphics/blit/present transition goes through
+		// EndEncoder, which closes it.
+		MTL::ComputeCommandEncoder *m_ComputeEncoder = nullptr;
+
 		// Descriptor of the live encoder's render pass; the UI overlay
 		// hands it to the ImGui Metal backend (it derives the drawable's
 		// size and format from it).
@@ -154,10 +159,11 @@ namespace fury
 
 		// Per-stage loose-uniform shadow for the cross-compiled GLSL set:
 		// contiguous bytes in the globals block's layout, bound at the
-		// "globalParams" argument index. [0] = vertex, [1] = fragment.
-		std::vector<unsigned char> m_GlobalsShadow[2];
+		// "globalParams" argument index. [0] = vertex, [1] = fragment,
+		// [2] = compute.
+		std::vector<unsigned char> m_GlobalsShadow[3];
 
-		bool m_GlobalsActive[2] = { false, false };
+		bool m_GlobalsActive[3] = { false, false, false };
 
 		struct TextureSlot
 		{
@@ -268,6 +274,8 @@ namespace fury
 
 		void SetStorageBufferNamed(const char *name, unsigned int binding, const RHIBufferRef &buffer) override;
 
+		void ClearStorageBuffer(const RHIBufferRef &buffer) override;
+
 		RHIUniformHandle ResolveUniform(const std::string &name) override;
 
 		void SetUniformFloat(const std::string &name, float v0) override;
@@ -355,8 +363,14 @@ namespace fury
 
 	public:
 
-		// Ends the live render encoder (device frame boundaries).
+		// Ends the live render encoder (device frame boundaries). Also ends
+		// the compute encoder: all transition callers (target switches, blit
+		// acquisition, present) route here, and one command buffer already
+		// orders compute writes before later encoders.
 		void EndEncoder();
+
+		// Creates (or reuses) the frame command buffer's compute encoder.
+		MTL::ComputeCommandEncoder *EnsureComputeEncoder();
 
 		// Clears every slice of one attachment whose state names the whole
 		// texture (loadAction=Clear covers only the attached slice).

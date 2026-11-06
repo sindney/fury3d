@@ -129,11 +129,15 @@ namespace fury
 		for (auto &kv : m_PSOCache)
 			kv.second.PSO->release();
 		m_PSOCache.clear();
+		for (auto &kv : m_ComputePSOCache)
+			kv.second.PSO->release();
+		m_ComputePSOCache.clear();
 		for (auto &kv : m_DepthCache)
 			kv.second->release();
 		m_DepthCache.clear();
 
 		if (m_LastPresented != nullptr) m_LastPresented->release();
+		if (m_LastCommandBuffer != nullptr) m_LastCommandBuffer->release();
 		if (m_FramePool != nullptr) m_FramePool->release();
 		if (m_Layer != nullptr) m_Layer->release();
 		if (m_Queue != nullptr) m_Queue->release();
@@ -202,6 +206,9 @@ namespace fury
 				m_LastPresented->retain();
 			}
 			m_CommandBuffer->commit();
+			if (m_LastCommandBuffer != nullptr) m_LastCommandBuffer->release();
+			m_LastCommandBuffer = m_CommandBuffer;
+			m_LastCommandBuffer->retain();
 			m_CommandBuffer = nullptr;
 			m_Drawable = nullptr;
 		}
@@ -478,6 +485,41 @@ namespace fury
 		return &m_PSOCache.emplace(key, entry).first->second;
 	}
 
+	const RHIMetalDevice::ComputePSOEntry *RHIMetalDevice::GetOrCreateComputePSO(const MetalShaderModule *module)
+	{
+		if (module == nullptr || module->GetCompute() == nullptr)
+			return nullptr;
+		const auto it = m_ComputePSOCache.find(module);
+		if (it != m_ComputePSOCache.end())
+			return &it->second;
+
+		NS::Error *error = nullptr;
+		MTL::ComputePipelineReflection *reflection = nullptr;
+		MTL::ComputePipelineState *pso = m_Device->newComputePipelineState(
+			const_cast<MTL::Function *>(module->GetCompute()), MTL::PipelineOptionArgumentInfo, &reflection, &error);
+		if (pso == nullptr)
+		{
+			FURYE << "RHIMetalDevice: compute PSO creation failed for '" << module->GetName() << "': "
+				<< (error != nullptr ? error->localizedDescription()->utf8String() : "unknown");
+			return nullptr;
+		}
+
+		ComputePSOEntry entry;
+		entry.PSO = pso;
+		if (reflection != nullptr && reflection->arguments() != nullptr)
+		{
+			NS::Array *args = reflection->arguments();
+			for (NS::UInteger i = 0; i < args->count(); ++i)
+			{
+				MTL::Argument *arg = static_cast<MTL::Argument *>(args->object(i));
+				if (arg == nullptr || !arg->active() || arg->type() != MTL::ArgumentTypeBuffer)
+					continue;
+				entry.Uniforms[arg->name()->utf8String()] = static_cast<int>(arg->index());
+			}
+		}
+		return &m_ComputePSOCache.emplace(module, entry).first->second;
+	}
+
 	MTL::DepthStencilState *RHIMetalDevice::GetDepthState(CompareMode func, bool write)
 	{
 		const uint32_t key = (static_cast<uint32_t>(func) << 1) | (write ? 1u : 0u);
@@ -495,6 +537,8 @@ namespace fury
 
 	bool RHIMetalDevice::Readback(const RHITextureRef &texture, RHIPixelData &out)
 	{
+		if (m_LastCommandBuffer != nullptr)
+			m_LastCommandBuffer->waitUntilCompleted();
 		MetalTexture *tex = static_cast<MetalTexture *>(texture.get());
 		if (tex == nullptr || tex->Get() == nullptr)
 			return false;

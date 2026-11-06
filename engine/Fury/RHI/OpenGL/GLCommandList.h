@@ -94,6 +94,8 @@ namespace fury
 
 		void SetStorageBuffer(unsigned int binding, const RHIBufferRef &buffer) override;
 
+		void ClearStorageBuffer(const RHIBufferRef &buffer) override;
+
 		RHIUniformHandle ResolveUniform(const std::string &name) override;
 
 		void SetUniformFloat(const std::string &name, float v0) override;

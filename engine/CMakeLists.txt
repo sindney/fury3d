@@ -564,7 +564,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/PlayerController.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessEffect.cpp
 	${PROJECT_SOURCE_DIR}/Fury/PostProcessRegistry.cpp
-	${PROJECT_SOURCE_DIR}/Fury/PrelightPipeline.cpp
+	${PROJECT_SOURCE_DIR}/Fury/DeferredPipeline.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ProfilerGpu.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Quaternion.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RenderQuery.cpp

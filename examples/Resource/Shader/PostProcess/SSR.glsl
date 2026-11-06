@@ -1,5 +1,7 @@
 #version 330
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -67,17 +69,17 @@ void main()
 #ifdef LDR
 	float roughness = u_ldr_roughness;
 #else
-	float roughness = nrm.a;
+	float roughness = GBufferDecodeRoughness(nrm);
 #endif
 
 	// Reflection weight + color; w = 0 means passthrough.
 	float w = 0.0;
 	vec3 reflected = vec3(0.0);
 
-	if (depth < 1.0 && roughness < 0.95)
+	if (!GBufferIsFarDepth(depth) && roughness < 0.95)
 	{
 		vec3 pos = view_pos_from_depth(out_uv, depth);
-		vec3 normal = normalize(nrm.xyz * 2.0 - 1.0);
+		vec3 normal = normalize(GBufferDecodeNormal(nrm));
 		vec3 viewDir = normalize(pos);
 		vec3 rayDir = normalize(reflect(viewDir, normal));
 
@@ -143,7 +145,7 @@ void main()
 
 		// Reject hits on sky (depth=1): the ray left the scene —
 		// blending in the black sky just darkens everything.
-		if (hit && texture(gbuffer_depth, hitUV).r < 1.0)
+		if (hit && !GBufferIsFarDepth(texture(gbuffer_depth, hitUV).r))
 		{
 			reflected = texture(scene, hitUV).rgb;
 

@@ -33,7 +33,7 @@ namespace fury
 	// Per-scene render configuration. Owned by Scene; serialized as
 	// the `renderSettings` block in scene JSON. Holds:
 	//   * pipelinePath - which pipeline JSON to load (the LDR
-	//     DefferedLightingLambert.json or the HDR PBR variant).
+	//     DeferredLightingLambert.json or the HDR PBR variant).
 	//   * hdr          - true -> PBR + float targets + mandatory ACES
 	//     tonemap; false -> legacy LDR Lambert.
 	//   * cascadedShadowMap - per-scene CSM override (drives the
@@ -65,6 +65,9 @@ namespace fury
 
 		bool IsHDR() const;
 		void SetHDR(bool value);
+
+		bool IsClusteredLighting() const;
+		void SetClusteredLighting(bool value);
 
 		bool IsCascadedShadowMap() const;
 		void SetCascadedShadowMap(bool value);
@@ -123,6 +126,7 @@ namespace fury
 
 		std::string m_PipelinePath;
 		bool m_HDR = false;
+		bool m_ClusteredLighting = false;
 		bool m_CascadedShadowMap = true;
 		bool m_VegetationPreZ = true;
 		int m_CsmMapSize = 2048;

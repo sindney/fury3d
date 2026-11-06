@@ -40,12 +40,12 @@ local function on_init()
 	end
 	scene = Scene.GetActive()
 
-	Pipeline.SetActive(PrelightPipeline.Create("pipeline"))
+	Pipeline.SetActive(DeferredPipeline.Create("pipeline"))
 	pl = Pipeline.GetActive()
 	local rs = scene:GetRenderSettings()
 	local pipe_path = rs and rs:GetPipelinePath() or ""
 	if pipe_path == "" then
-		pipe_path = "Resource/Pipeline/DefferedLightingPBR.json"
+		pipe_path = "Resource/Pipeline/DeferredLightingPBR.json"
 	end
 	local full_pipe = FileUtil.GetAbsPath(pipe_path)
 	-- The pipeline file needs a GL context; headless tests (FEATUREGAME_NO_RUN) skip it.

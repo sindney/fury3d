@@ -69,7 +69,7 @@ The engine SHALL name the main thread (`main`) at startup and each ThreadUtil wo
 
 ### Requirement: Heavy per-frame functions SHALL carry CPU zones
 
-Zone macros SHALL cover at minimum: the fixed-update block and `PhysicsWorld::TickFixed` (with an inner zone around the Jolt step), `PhysicsWorld::TickUpdate`/`SyncNodes`, `Animator::TickFixed`/`TickUpdate`, the `cb.OnUpdate` Lua callback, the frame gather (octree render query, sort, shadow-caster gather, FramePacket build, SubmitFrame wait), pipeline execution (`PrelightPipeline::Execute` with inner zones for culling/batching, shadow passes, gbuffer/opaque pass, transparent pass, `DrawSky`, `DrawOcean`, and `RunPostProcessChain`), plus `Gui::NewFrame`/`Gui::Render` and `Editor::Tick` in the editor. When render threading is enabled, gather zones SHALL appear on the game thread and pipeline execution zones SHALL appear on the render thread.
+Zone macros SHALL cover at minimum: the fixed-update block and `PhysicsWorld::TickFixed` (with an inner zone around the Jolt step), `PhysicsWorld::TickUpdate`/`SyncNodes`, `Animator::TickFixed`/`TickUpdate`, the `cb.OnUpdate` Lua callback, the frame gather (octree render query, sort, shadow-caster gather, FramePacket build, SubmitFrame wait), pipeline execution (`DeferredPipeline::Execute` with inner zones for culling/batching, shadow passes, gbuffer/opaque pass, transparent pass, `DrawSky`, `DrawOcean`, and `RunPostProcessChain`), plus `Gui::NewFrame`/`Gui::Render` and `Editor::Tick` in the editor. When render threading is enabled, gather zones SHALL appear on the game thread and pipeline execution zones SHALL appear on the render thread.
 
 #### Scenario: Capture shows the frame breakdown
 

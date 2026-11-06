@@ -48,6 +48,8 @@ namespace fury
 
 		virtual const RHICapabilities &GetCapabilities() const = 0;
 
+		virtual void SetClusteredLightingSupported(bool supported) { (void)supported; }
+
 		virtual RHITextureRef CreateTexture(const RHITextureDesc &desc) = 0;
 
 		// Full upload of one mip level (or one layer/slice when layer >= 0);
@@ -126,6 +128,12 @@ namespace fury
 
 		// Backends defer native destruction until the GPU is done; called per frame.
 		virtual void RetireDeletedResources() = 0;
+
+		// Create the ImGui font-atlas backend textures synchronously. Must
+		// run on the game thread before the render thread starts: the
+		// backend publishes TexID/Status into the atlas, which the game
+		// thread reads in ImGui::NewFrame.
+		virtual void WarmUpUiFontAtlas() {}
 
 	protected:
 

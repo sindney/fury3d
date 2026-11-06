@@ -304,7 +304,7 @@ namespace fury
 		float GetOzoneCenterKm() const { return m_OzoneCenterKm; }
 		float GetOzoneWidthKm() const { return m_OzoneWidthKm; }
 
-		// --- render hooks (PrelightPipeline) ---
+		// --- render hooks (DeferredPipeline) ---
 		// Render-thread entry: LUT refresh from a params/camera snapshot (no
 		// scene reads, no EvaluateSunAndLight -- the game thread owns sun
 		// state via GatherSkyFrame). rtW/rtH size the cloud target; depthTex

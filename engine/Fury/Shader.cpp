@@ -13,6 +13,7 @@
 
 #include "Fury/FramePacket.h"
 #include "Fury/RenderThread.h"
+#include "Fury/RenderUtil.h"
 #include "Fury/Texture.h"
 #include "Fury/Uniform.h"
 
@@ -147,6 +148,8 @@ namespace fury
 		ar << Optional("defines", m_Defines);
 		ar << Required("path", m_FilePath);
 		ar << Conditional("geom", m_UseGeomShader, m_UseGeomShader);
+		std::string stage = m_ComputeShader ? "compute" : "graphics";
+		ar << Optional("stage", stage);
 
 		if (ar.IsLoading())
 		{
@@ -154,7 +157,11 @@ namespace fury
 			m_TextureFlags = 0;
 			for (auto &flag : textureFlags)
 				m_TextureFlags |= (unsigned int)EnumUtil::ShaderTextureFromString(flag);
-			LoadAndCompile(FileUtil::GetAbsPath() + m_FilePath, m_UseGeomShader);
+			m_ComputeShader = stage == "compute";
+			if (m_ComputeShader)
+				LoadAndCompileCompute(FileUtil::GetAbsPath() + m_FilePath);
+			else
+				LoadAndCompile(FileUtil::GetAbsPath() + m_FilePath, m_UseGeomShader);
 		}
 	}
 
@@ -190,6 +197,7 @@ namespace fury
 
 	bool Shader::LoadAndCompile(const std::string &shaderPath, bool useGeomShader)
 	{
+		m_ComputeShader = false;
 		if (!RenderThread::Get().MayUseGL())
 		{
 			// Deferred compile: report success optimistically; failure
@@ -232,6 +240,7 @@ namespace fury
 	{
 		DeleteProgram();
 
+		m_ComputeShader = false;
 		m_UseGeomShader = gsData.size() > 0;
 
 #if WITH_EDITOR
@@ -264,6 +273,7 @@ namespace fury
 
 	bool Shader::LoadAndCompileCompute(const std::string &shaderPath)
 	{
+		m_ComputeShader = true;
 		if (!RenderThread::Get().MayUseGL())
 		{
 			DispatchRHI(this, [this, shaderPath]() {
@@ -299,22 +309,19 @@ namespace fury
 	{
 		DeleteProgram();
 
-		std::stringstream defineStream;
+		m_ComputeShader = true;
 #if WITH_EDITOR
-		defineStream << "#define WITH_EDITOR\n";
+		constexpr bool withEditor = true;
+#else
+		constexpr bool withEditor = false;
 #endif
 #if WITH_DBG_OVERLAY
-		defineStream << "#define WITH_DBG_OVERLAY\n";
+		constexpr bool withDebugOverlay = true;
+#else
+		constexpr bool withDebugOverlay = false;
 #endif
-		for (auto define : m_Defines)
-			defineStream << "#define " << define << "\n";
-
-		std::string version, mainStr;
-		GetVersionInfo(source, version, mainStr);
-		if (source.find("#version") == std::string::npos)
-			version = "#version 430 core\n"; // compute needs 4.3; default 330 won't do
-
-		std::string src = version + "\n#define COMPUTE_SHADER\n" + defineStream.str() + mainStr;
+		const std::string src = BuildShaderStageSource(source, "COMPUTE_SHADER", m_Defines,
+			withEditor, withDebugOverlay);
 
 		if (GRHIDevice)
 			m_Module = GRHIDevice->CreateComputeModule(m_Name, MakeSourceBlob(src));
@@ -459,6 +466,9 @@ namespace fury
 		{
 			BindTexture(it->first, it->second);
 		}
+		if (material->m_Textures.find(Material::NORMAL_TEXTURE) == material->m_Textures.end())
+			BindTexture(Material::NORMAL_TEXTURE, GetDummyNormalTexture());
+		BindInt("normal_texture_valid", material->m_Textures.find(Material::NORMAL_TEXTURE) != material->m_Textures.end() ? 1 : 0);
 
 		for (auto it = material->m_Uniforms.begin(); it != material->m_Uniforms.end(); ++it)
 		{

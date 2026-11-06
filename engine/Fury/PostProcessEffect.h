@@ -44,7 +44,7 @@ namespace fury
 	protected:
 
 		// Path to the .glsl file (relative to working dir, like Shader
-		// shaders do in DefferedLightingLambert.json).
+		// shaders do in DeferredLightingLambert.json).
 		std::string m_ShaderPath;
 
 		// Optional #defines passed to the shader compiler (mirrors

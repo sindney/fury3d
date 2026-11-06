@@ -1,12 +1,14 @@
 #version 330
 
 #include "VegetationCommon.glsl"
+#include "../GBufferCommon.glsl"
 
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
 in vec2 vertex_uv;
 in vec3 vertex_normal;
+in vec3 vertex_tangent;
 
 #ifdef SKINNED_MESH
 in ivec4 bone_ids;
@@ -42,6 +44,7 @@ uniform float u_billboard_up_bias = 0.28;
 #endif
 
 out vec3 out_normal;
+out vec3 out_tangent;
 out vec2 out_uv;
 out float out_depth;
 
@@ -58,6 +61,7 @@ void main()
 	bone_matrix += bone_matrices[bone_ids[3]] * (1.0f - bone_weights[0] - bone_weights[1] - bone_weights[2]);
 	vec4 worldPos = world_matrix * bone_matrix * vec4(vertex_position, 1.0);
 	out_normal = normalize(invert_view_matrix * world_matrix * bone_matrix * vec4(vertex_normal, 0.0)).xyz;
+	out_tangent = normalize(invert_view_matrix * world_matrix * bone_matrix * vec4(vertex_tangent, 0.0)).xyz;
 	out_uv = vertex_uv;
 #else
 
@@ -76,6 +80,7 @@ void main()
 	VegetationBillboard(worldMat, camera_pos, vertex_position, vertex_uv, u_billboard_atlas, u_billboard_up_bias, bbPos, bbNormal, bbUV);
 	vec4 worldPos = vec4(bbPos, 1.0);
 	out_normal = normalize(invert_view_matrix * vec4(bbNormal, 0.0)).xyz;
+	out_tangent = vec3(0.0);
 	out_uv = bbUV;
 #else
 	vec4 worldPos = worldMat * vec4(vertex_position, 1.0);
@@ -83,6 +88,7 @@ void main()
 	worldPos.xyz += VegetationWindOffset(vertex_color, worldPos.xyz, u_time, u_wind_params);
 #endif
 	out_normal = normalize(invert_view_matrix * worldMat * vec4(vertex_normal, 0.0)).xyz;
+	out_tangent = normalize(invert_view_matrix * worldMat * vec4(vertex_tangent, 0.0)).xyz;
 	out_uv = vertex_uv;
 #endif
 #endif
@@ -98,6 +104,7 @@ void main()
 #ifdef FRAGMENT_SHADER
 
 in vec3 out_normal;
+in vec3 out_tangent;
 in vec2 out_uv;
 in float out_depth;
 
@@ -106,6 +113,8 @@ uniform float camera_far = 10000;
 uniform vec3 ambient_color;
 
 uniform sampler2D diffuse_texture;
+uniform sampler2D normal_texture;
+uniform int normal_texture_valid = 0;
 
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
@@ -131,7 +140,7 @@ uniform float shininess = 32.0;
 
 #ifdef WITH_DBG_OVERLAY
 // LOD-debug tint. Reset to vec4(0) each frame the toggle is off
-// (PrelightPipeline::DrawUnit) so prior state doesn't leak.
+// (DeferredPipeline::DrawUnit) so prior state doesn't leak.
 uniform vec4 lod_debug_color = vec4(0.0, 0.0, 0.0, 0.0);
 #endif
 
@@ -150,32 +159,38 @@ void main()
 
 	// Two-sided foliage: keep the card's geometric normal for BOTH faces
 	// (culling is disabled per-draw for these materials in
-	// PrelightPipeline::DrawUnit). Flipping to face the camera reads flat
+	// DeferredPipeline::DrawUnit). Flipping to face the camera reads flat
 	// at low sun -- every visible leaf lights uniformly and the canopy
 	// loses all depth. The unflipped normal gives dark undersides from
 	// below and sun-lit undersides (thin-leaf translucency) when backlit.
-	vec3 nrm = out_normal;
-	rt0.rgb = (nrm + 1) * 0.5;
+	vec3 nrm = normalize(out_normal);
+	vec3 tangent = out_tangent - nrm * dot(nrm, out_tangent);
+	if (normal_texture_valid != 0 && dot(tangent, tangent) > 1e-6)
+	{
+		tangent = normalize(tangent);
+		vec3 bitangent = cross(nrm, tangent);
+		vec3 mapNormal = texture(normal_texture, out_uv).xyz * 2.0 - 1.0;
+		nrm = normalize(mat3(tangent, bitangent, nrm) * mapNormal);
+	}
 
 	vec3 finalDiffuse = texel.rgb * diffuse_factor + ambient_color * ambient_factor;
 #ifdef WITH_DBG_OVERLAY
 	if (lod_debug_color.a > 0.0)
 		finalDiffuse *= lod_debug_color.rgb;
 #endif
-	rt1.rgb = finalDiffuse;
 
 #ifdef PBR
 	float rough = roughness_factor >= 0.0
 		? roughness_factor
 		: clamp(pow(2.0 / (shininess + 2.0), 0.25), 0.0, 1.0);
-	rt0.a = rough;
-	rt1.a = metallic_factor;
+	rt0 = GBufferPackNormal(nrm, rough);
+	rt1 = GBufferPackDiffuse(finalDiffuse, metallic_factor);
 #else
-	rt0.a = 1.0;
-	rt1.a = 1.0;
+	rt0 = GBufferPackNormal(nrm, 1.0);
+	rt1 = GBufferPackDiffuse(finalDiffuse, 1.0);
 #endif
 
-	gl_FragDepth = out_depth / camera_far;
+	gl_FragDepth = GBufferLinearDepth(out_depth, camera_far);
 }
 
 #endif

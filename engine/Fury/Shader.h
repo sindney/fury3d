@@ -47,6 +47,8 @@ namespace fury
 
 		bool m_UseGeomShader = false;
 
+		bool m_ComputeShader = false;
+
 	public:
 
 		Shader(const std::string &name = "", ShaderType type = ShaderType::OTHER,

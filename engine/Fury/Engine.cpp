@@ -293,9 +293,13 @@ namespace fury
 		rhiWindow.Window = &window;
 
 		const auto createAndProbe = [&](RHIBackend b) {
-			return RHI::CreateDevice(b, rhiWindow) != nullptr
-				&& RHI::ProbeActiveDevice(static_cast<int>(window.getSize().x),
-					static_cast<int>(window.getSize().y));
+			if (RHI::CreateDevice(b, rhiWindow) == nullptr
+				|| !RHI::ProbeActiveDevice(static_cast<int>(window.getSize().x),
+					static_cast<int>(window.getSize().y)))
+				return false;
+			if (b != RHIBackend::OPENGL)
+				(void)RHI::ProbeClusteredCompute();
+			return true;
 		};
 
 		if (!createAndProbe(backend))

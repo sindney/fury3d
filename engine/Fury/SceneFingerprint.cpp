@@ -1403,6 +1403,7 @@ namespace fury
 			if (!rs) return n;
 			n.Set("pipeline", rs->GetPipelinePath());
 			n.Set("hdr", rs->IsHDR());
+			n.Set("clustered_lighting", rs->IsClusteredLighting());
 			n.Set("cascaded_shadow_map", rs->IsCascadedShadowMap());
 			n.Set("vegetation_prez", rs->IsVegetationPreZ());
 			n.Set("csm_map_size", rs->GetCsmMapSize());

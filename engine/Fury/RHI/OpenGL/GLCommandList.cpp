@@ -1,5 +1,7 @@
 #include "Fury/RHI/OpenGL/GLCommandList.h"
 
+#include <vector>
+
 #include "Fury/RHI/OpenGL/GLInputAssembler.h"
 
 #include "Fury/GLLoader.h"
@@ -429,6 +431,18 @@ namespace fury
 			buffer != nullptr ? (GLuint)buffer->GetNativeHandle() : 0);
 	}
 
+	void GLCommandList::ClearStorageBuffer(const RHIBufferRef &buffer)
+	{
+		if (buffer == nullptr)
+			return;
+		std::vector<unsigned char> zeros(buffer->GetDesc().Size, 0);
+		GLint previous = 0;
+		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previous);
+		glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(buffer->GetNativeHandle()));
+		glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(zeros.size()), zeros.data());
+		glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(previous));
+	}
+
 	void GLCommandList::SetPrimitiveMode(RHIPrimitiveMode mode)
 	{
 		switch (mode)
@@ -496,7 +510,8 @@ namespace fury
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
 			| GL_TEXTURE_FETCH_BARRIER_BIT
 			| GL_SHADER_STORAGE_BARRIER_BIT
-			| GL_TEXTURE_UPDATE_BARRIER_BIT);
+			| GL_TEXTURE_UPDATE_BARRIER_BIT
+			| GL_BUFFER_UPDATE_BARRIER_BIT);
 	}
 
 	void GLCommandList::Blit(const RHITextureRef &src, const RHITextureRef &dst, int srcWidth, int srcHeight, int dstWidth, int dstHeight, bool linearFilter)

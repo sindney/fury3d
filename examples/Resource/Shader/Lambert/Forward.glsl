@@ -8,6 +8,8 @@
 // deferred light shaders. Defines: PBR (HDR pipeline), COLOR_ONLY
 // (no diffuse texture), SKINNED_MESH.
 
+#include "../GBufferCommon.glsl"
+
 #ifdef VERTEX_SHADER
 
 in vec3 vertex_position;
@@ -135,7 +137,7 @@ void main()
 	// or the depth test against gbuffer_depth compares unlike spaces.
 	// Written before any early return — gl_FragDepth is undefined on
 	// paths that don't write it.
-	gl_FragDepth = -vs_pos.z / camera_far;
+	gl_FragDepth = GBufferLinearDepth(-vs_pos.z, camera_far);
 
 	vec3 albedo = base.rgb * diffuse_factor + ambient_color * ambient_factor;
 	vec3 N = normalize(out_normal);

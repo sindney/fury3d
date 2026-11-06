@@ -32,6 +32,7 @@ namespace fury
 	{
 		ar << Optional("pipeline", m_PipelinePath);
 		ar << Optional("hdr", m_HDR);
+		ar << Optional("clustered_lighting", m_ClusteredLighting);
 		ar << Optional("cascaded_shadow_map", m_CascadedShadowMap);
 		ar << Optional("vegetation_prez", m_VegetationPreZ);
 		ar << Optional("csm_map_size", m_CsmMapSize);
@@ -147,6 +148,16 @@ namespace fury
 	void RenderSettings::SetHDR(bool value)
 	{
 		m_HDR = value;
+	}
+
+	bool RenderSettings::IsClusteredLighting() const
+	{
+		return m_ClusteredLighting;
+	}
+
+	void RenderSettings::SetClusteredLighting(bool value)
+	{
+		m_ClusteredLighting = value;
 	}
 
 	bool RenderSettings::IsCascadedShadowMap() const

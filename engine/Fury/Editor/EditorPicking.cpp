@@ -343,7 +343,7 @@ namespace fury
 						}
 
 						// Build the request on the game thread: the same
-						// renderable set PrelightPipeline::Execute drew, so
+						// renderable set DeferredPipeline::Execute drew, so
 						// the picked surfaces match what the user sees.
 						auto sceneMgr = Scene::Active->GetSceneManager();
 						auto camera = cameraNode->GetComponent<Camera>();
