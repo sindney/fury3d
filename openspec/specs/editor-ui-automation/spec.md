@@ -91,7 +91,7 @@ Editor UI tests SHALL exercise scene open/save commands against known temporary 
 
 - **WHEN** an editor UI test modifies a loaded fixture and saves it to a temporary path
 - **AND** the headless round-trip runner loads and re-saves that output
-- **THEN** the semantic scene fingerprint matches the expected modified state
+- **THEN** the saved scene document matches the expected modified state
 
 #### Scenario: Test does not alter the source fixture
 

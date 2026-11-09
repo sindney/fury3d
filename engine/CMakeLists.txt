@@ -579,7 +579,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/BuoyancyComponent.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Terrain.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Scene.cpp
-	${PROJECT_SOURCE_DIR}/Fury/SceneFingerprint.cpp
+	${PROJECT_SOURCE_DIR}/Fury/SceneCompare.cpp
 	${PROJECT_SOURCE_DIR}/Fury/SceneNode.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Shader.cpp
 	${PROJECT_SOURCE_DIR}/Fury/ShaderCompiler.cpp

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 #include "Fury/Archive.h"
 #include "Fury/Log.h"
@@ -110,7 +111,11 @@ namespace fury
 					{
 						if (ar.EnterArray("uniforms", ArchiveFieldPolicy::Required))
 						{
-							for (const auto &kv : e.uniformOverrides)
+							// Sorted by name so the document does not depend on
+							// the map's hash order.
+							std::map<std::string, UniformBase::Ptr> sorted(
+								e.uniformOverrides.begin(), e.uniformOverrides.end());
+							for (const auto &kv : sorted)
 							{
 								auto floats = UniformFloats(kv.second);
 								if (floats.empty()) continue;

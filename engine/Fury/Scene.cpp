@@ -2,10 +2,12 @@
 
 #include <rapidjson/document.h>
 
+#include <algorithm>
 #include <cstring>
 #include <functional>
 #include <set>
 #include <unordered_map>
+#include <vector>
 
 #include "Fury/AnimationClip.h"
 #include "Fury/Archive.h"
@@ -51,15 +53,32 @@ void SerializeSceneAssets(Archive& ar, const char* name, ArchiveFieldPolicy poli
 		return;
 	}
 	if (!ar.EnterArray(name, policy)) return;
+	// The EntityManager keeps assets in hash-ordered maps; sort them so the
+	// saved document does not depend on registration order.
+	std::vector<std::shared_ptr<T>> assets;
 	manager->ForEach<T>([&](const std::shared_ptr<T>& ptr) -> bool
 	{
+		assets.push_back(ptr);
+		return true;
+	});
+	std::sort(assets.begin(), assets.end(),
+		[](const std::shared_ptr<T>& a, const std::shared_ptr<T>& b)
+		{
+			const int pathCmp = a->GetPath().compare(b->GetPath());
+			if (pathCmp != 0) return pathCmp < 0;
+			const int nameCmp = a->GetName().compare(b->GetName());
+			if (nameCmp != 0) return nameCmp < 0;
+			return a->GetUUID() < b->GetUUID();
+		});
+	for (const auto& ptr : assets)
+	{
+		if (!ar.IsValid()) break;
 		if (ar.EnterObject())
 		{
 			ptr->Serialize(ar);
 			ar.LeaveObject();
 		}
-		return ar.IsValid();
-	});
+	}
 	ar.LeaveArray();
 }
 
