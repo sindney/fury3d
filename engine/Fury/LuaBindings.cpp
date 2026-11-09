@@ -68,7 +68,7 @@
 #include "Fury/RenderThread.h"
 #include "Fury/RHI/RHIBackend.h"
 #include "Fury/Scene.h"
-#include "Fury/SceneFingerprint.h"
+#include "Fury/SceneCompare.h"
 #include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Serializable.h"
@@ -136,6 +136,25 @@ namespace fury
 					FURYE << "Lua callback error: " << err.what();
 				}
 			};
+		}
+
+		// Convert a document diff into the Lua array shape the round-trip
+		// harness reports: one table per differing field.
+		static sol::table DiffToTable(sol::state_view lua, const SceneDiff &diff)
+		{
+			sol::table out = lua.create_table();
+			int i = 1;
+			for (const auto &e : diff.entries)
+			{
+				out[i] = lua.create_table_with(
+					"path", e.path,
+					"first", e.first,
+					"second", e.second,
+					"firstRaw", e.firstRaw,
+					"secondRaw", e.secondRaw);
+				++i;
+			}
+			return out;
 		}
 
 		void Register(sol::state_view lua)
@@ -412,33 +431,17 @@ namespace fury
 				return FileUtil::LoadByExtension(Scene::Active, path);
 			};
 
-			// Read-only persistent-state fingerprints for the round-trip
-			// harness: canonical string, structured diff, structural counts.
-			lua["Scene"]["GetPersistentFingerprint"] = [](const Scene::Ptr &s) -> std::string {
-				if (!s) return std::string();
-				return SceneFingerprint::Canonicalize(SceneFingerprint::Build(s));
-			};
-			lua["Scene"]["DiffPersistentFingerprints"] = [](const std::string &first,
+			// Saved-document comparison for the round-trip harness: a
+			// structured diff of two documents, and the live scene's
+			// structural counts.
+			lua["Scene"]["DiffPersistentState"] = [](const std::string &first,
 				const std::string &second, sol::this_state ts) -> sol::table {
 				sol::state_view lua(ts);
-				sol::table out = lua.create_table();
-				const FingerprintDiff diff = SceneFingerprint::DiffStrings(first, second);
-				int i = 1;
-				for (const auto &e : diff.entries)
-				{
-					out[i] = lua.create_table_with(
-						"path", e.path,
-						"first", e.first,
-						"second", e.second,
-						"firstRaw", e.firstRaw,
-						"secondRaw", e.secondRaw);
-					++i;
-				}
-				return out;
+				return DiffToTable(lua, SceneCompare::DiffJson(first, second));
 			};
-			lua["Scene"]["GetFingerprintCounts"] = [](const Scene::Ptr &s, sol::this_state ts) -> sol::table {
+			lua["Scene"]["GetStateCounts"] = [](const Scene::Ptr &s, sol::this_state ts) -> sol::table {
 				sol::state_view lua(ts);
-				const SceneFingerprintCounts c = SceneFingerprint::Counts(s);
+				const SceneCounts c = SceneCompare::Counts(s);
 				return lua.create_table_with(
 					"nodes", c.nodes,
 					"meshes_static", c.meshes_static,
@@ -1602,6 +1605,14 @@ namespace fury
 			};
 			fu_tbl["DeserializeSceneFromString"] = [](const std::shared_ptr<Scene> &s, const std::string &json) {
 				return FileUtil::DeserializeFromString(s, json);
+			};
+			// Compare two saved scene documents and report the differing
+			// fields. Reads .json directly and decompresses .bin, so the
+			// two formats compare against each other.
+			fu_tbl["CompareSceneFiles"] = [](const std::string &a, const std::string &b,
+				sol::this_state ts) -> sol::table {
+				sol::state_view lua(ts);
+				return DiffToTable(lua, SceneCompare::DiffFiles(a, b));
 			};
 			// Enumerate a directory, with an optional case-insensitive extension
 			// filter (a Lua array of strings like {".gltf", ".fbx"}). Hidden

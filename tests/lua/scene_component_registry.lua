@@ -3,7 +3,7 @@
 -- union of the canonical fixtures plus the gap components this script
 -- attaches (FreeFlyController, CharacterController, Transform, and
 -- BodySetup on the island fixture), and that migrated components
--- round-trip through Serialize(Archive&) with identical fingerprints
+-- round-trip through Serialize(Archive&) with identical saved documents
 -- while unmigrated ones keep riding the Load/Save adapter.
 --
 -- Usage:
@@ -108,8 +108,6 @@ local tf_scl = tf_node:GetLocalScale()
 tf_node:AddComponent(Transform.Create(Vector4(11.0, 22.0, 33.0), tf_rot, Vector4(2.5)))
 root:AddChild(tf_node)
 
-local before = Scene.GetPersistentFingerprint(scene)
-
 local function mkdir(path)
     os.execute("mkdir -p '" .. path:gsub("'", "'\\''") .. "'")
 end
@@ -118,11 +116,14 @@ mkdir(artifact_dir)
 local function check_roundtrip(extension)
     local path = artifact_dir .. "/registry_scene." .. extension
     if not FileUtil.SaveByExtension(scene, path) then fail("save failed: " .. path) end
+    -- The save extracts memory-backed textures and rewrites their paths,
+    -- so the baseline is captured after it to describe the same state.
+    local before = FileUtil.SerializeSceneToString(scene)
     local loaded = Importer.LoadScene(path)
     if not loaded then fail("load failed: " .. path) end
     Scene.SetActive(loaded)
-    local differences = Scene.DiffPersistentFingerprints(before,
-        Scene.GetPersistentFingerprint(loaded))
+    local differences = Scene.DiffPersistentState(before,
+        FileUtil.SerializeSceneToString(loaded))
     if #differences ~= 0 then
         for i, entry in ipairs(differences) do
             if i <= 8 then
@@ -130,7 +131,7 @@ local function check_roundtrip(extension)
                     entry.path, entry.first, entry.second))
             end
         end
-        fail(extension .. " fingerprint diff has " .. #differences .. " entries")
+        fail(extension .. " document diff has " .. #differences .. " entries")
     end
     return path, loaded
 end

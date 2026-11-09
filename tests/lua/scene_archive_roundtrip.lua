@@ -94,8 +94,7 @@ local function compare_counts(first, second, label)
     end
 end
 
-local function compare_fingerprints(first, second, label)
-    local differences = Scene.DiffPersistentFingerprints(first, second)
+local function report_differences(differences, label)
     if #differences == 0 then return end
     for _, entry in ipairs(differences) do
         if _ <= 12 then
@@ -103,20 +102,26 @@ local function compare_fingerprints(first, second, label)
                 entry.path, entry.first, entry.firstRaw, entry.second, entry.secondRaw))
         end
     end
-    fail(string.format("%s semantic diff has %d entr%s", label, #differences,
+    fail(string.format("%s document diff has %d entr%s", label, #differences,
         #differences == 1 and "y" or "ies"))
 end
 
-local function fingerprint(scene)
-    return Scene.GetPersistentFingerprint(scene)
+-- Compare two saved scene documents given as paths.
+local function compare_files(first, second, label)
+    report_differences(FileUtil.CompareSceneFiles(first, second), label)
+end
+
+-- Compare two saved scene documents given as JSON text.
+local function compare_documents(first, second, label)
+    report_differences(Scene.DiffPersistentState(first, second), label)
 end
 
 local function counts(scene)
-    return Scene.GetFingerprintCounts(scene)
+    return Scene.GetStateCounts(scene)
 end
 
 mkdir(output_root)
-local final_fingerprints = {}
+local final_documents = {}
 for _, extension in ipairs({ "json", "bin" }) do
     local source = Importer.LoadScene(source_path)
     if not source then fail("cannot load source: " .. source_path) end
@@ -127,11 +132,12 @@ for _, extension in ipairs({ "json", "bin" }) do
     compare_counts(source_counts, counts(first), extension .. " source/gen1")
     local second = save_and_load(first, base .. "/gen2/scene." .. extension)
     compare_counts(counts(first), counts(second), extension .. " gen1/gen2")
-    compare_fingerprints(fingerprint(first), fingerprint(second), extension .. " gen1/gen2")
-    final_fingerprints[extension] = fingerprint(second)
+    compare_files(base .. "/gen1/scene." .. extension, base .. "/gen2/scene." .. extension,
+        extension .. " gen1/gen2")
+    final_documents[extension] = base .. "/gen2/scene." .. extension
     print("scene_archive_roundtrip: " .. extension .. " semantic round trip OK")
 end
-compare_fingerprints(final_fingerprints.json, final_fingerprints.bin, "JSON/BIN")
+compare_files(final_documents.json, final_documents.bin, "JSON/BIN")
 
 local string_source = Importer.LoadScene(source_path)
 if not string_source then fail("cannot reload source for string serialization") end
@@ -150,12 +156,12 @@ local string_scene = Scene.Create("string_roundtrip", string_source:GetWorkingDi
 if not FileUtil.DeserializeSceneFromString(string_scene, json) then fail("string deserialization failed") end
 Scene.SetActive(string_scene)
 compare_counts(counts(string_source), counts(string_scene), "string")
-compare_fingerprints(fingerprint(string_source), fingerprint(string_scene), "string")
+compare_documents(json, FileUtil.SerializeSceneToString(string_scene), "string")
 if not string_source:GetRootNode():CloneTree("StringClone") then fail("root CloneTree failed") end
 if texture_paths(string_source) ~= source_paths then fail("CloneTree relocated textures") end
-local before_cook = fingerprint(string_source)
+local before_cook = FileUtil.SerializeSceneToString(string_source)
 local cook_references = Scene.CollectCookReferences(string_source)
-compare_fingerprints(before_cook, fingerprint(string_source), "cook traversal")
+compare_documents(before_cook, FileUtil.SerializeSceneToString(string_source), "cook traversal")
 print("scene_archive_roundtrip: string, clone and cook texture identity OK (" .. #cook_references .. " typed refs)")
 
 local compat_dir = output_root .. "/compat"
@@ -227,7 +233,8 @@ local clustered_disabled = load_case("clustered_disabled.json", document({
 if clustered_disabled:GetRenderSettings():IsClusteredLighting() then
     fail("clustered_lighting=false was not loaded")
 end
-compare_fingerprints(fingerprint(clustered_enabled_bin), fingerprint(clustered_enabled_json), "clustered JSON/BIN")
+compare_files(compat_dir .. "/clustered_enabled_roundtrip.bin",
+    compat_dir .. "/clustered_enabled_roundtrip.json", "clustered JSON/BIN")
 
 load_case("invalid_required.json", document({ name = "42" }), false)
 load_case("future_version.json", document({ version = '"version": 999,' }), false)
@@ -273,9 +280,9 @@ local truncated = compat_dir .. "/truncated.bin"
 write_file(truncated, string.char(0, 0, 0, 20))
 if Importer.LoadScene(truncated) then fail("truncated LZ4 loaded successfully") end
 
-local minimal_json = save_and_load(legacy, compat_dir .. "/minimal.json")
-local minimal_bin = save_and_load(legacy, compat_dir .. "/minimal.bin")
-compare_fingerprints(fingerprint(minimal_json), fingerprint(minimal_bin), "minimal JSON/BIN")
+save_and_load(legacy, compat_dir .. "/minimal.json")
+save_and_load(legacy, compat_dir .. "/minimal.bin")
+compare_files(compat_dir .. "/minimal.json", compat_dir .. "/minimal.bin", "minimal JSON/BIN")
 
 print("scene_archive_roundtrip: compatibility cases OK")
 print("scene_archive_roundtrip: OK")
