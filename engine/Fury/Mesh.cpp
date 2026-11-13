@@ -344,7 +344,7 @@ namespace fury
 
 	std::shared_ptr<Joint> Mesh::GetJointAt(unsigned int index) const
 	{
-		if (index > m_Joints.size() - 1)
+		if (index >= m_Joints.size())
 			return nullptr;
 		return m_Joints[index];
 	}
@@ -428,41 +428,11 @@ namespace fury
 	{
 		m_AABB.SetDirty(true);
 
-		if (IsSkinnedMesh())
-		{
-			unsigned int numTriangles = static_cast<unsigned int>(Indices.Data.size() / 3);
-
-			for (unsigned int i = 0; i < numTriangles; i++)
-			{
-				unsigned int triIndex = i * 3;
-				for (unsigned int j = 0; j < 3; j++)
-				{
-					unsigned int current = Indices.Data[triIndex + j];
-					unsigned int current3 = current * 3;
-					unsigned int current4 = current * 4;
-
-					Vector4 pos = Vector4(Positions.Data[current3], Positions.Data[current3 + 1],
-						Positions.Data[current3 + 2], 1.0f);
-
-					unsigned int ids[] = { IDs.Data[current4], IDs.Data[current4 + 1],
-						IDs.Data[current4 + 2], IDs.Data[current4 + 3] };
-
-					float weights[] = { Weights.Data[current3], Weights.Data[current3 + 1],
-						Weights.Data[current3 + 2], 0.0f };
-					weights[3] = 1.0f - weights[0] - weights[1] - weights[2];
-
-					Vector4 blended = m_Joints[ids[0]]->GetFinalMatrix().Multiply(pos) * weights[0] +
-						m_Joints[ids[1]]->GetFinalMatrix().Multiply(pos) * weights[1] +
-						m_Joints[ids[2]]->GetFinalMatrix().Multiply(pos) * weights[2] +
-						m_Joints[ids[3]]->GetFinalMatrix().Multiply(pos) * weights[3];
-
-					m_AABB.Encapsulate(blended);
-				}
-			}
-		}
 		// Walk per-submesh for static meshes (LOD chain puts indices in submeshes,
 		// leaving the parent Indices empty); fall back to the parent buffer
-		// when there are no submeshes.
+		// when there are no submeshes. A skinned mesh is bounded by its
+		// bind-pose geometry here; the posed box comes from
+		// CalculateSkinnedWorldAABB().
 		const unsigned int sub_count = GetSubMeshCount();
 		if (sub_count > 0)
 		{
@@ -501,6 +471,65 @@ namespace fury
 				}
 			}
 		}
+	}
+
+	BoxBounds Mesh::CalculateSkinnedWorldAABB() const
+	{
+		BoxBounds bounds;
+		if (!IsSkinnedMesh())
+			return bounds;
+
+		// An unlinked joint has no world matrix, so the pose is undefined
+		// until every joint is linked to a scene node.
+		for (const auto &joint : m_Joints)
+		{
+			if (!joint || !joint->GetSceneNode())
+				return bounds;
+		}
+
+		// The first Encapsulate replaces the box instead of growing it.
+		bounds.SetDirty(true);
+
+		// The joint matrices are world-space (Joint::GetFinalMatrix), so
+		// the blended vertices land in world space too.
+		const unsigned int numTriangles = static_cast<unsigned int>(Indices.Data.size() / 3);
+
+		for (unsigned int i = 0; i < numTriangles; i++)
+		{
+			unsigned int triIndex = i * 3;
+			for (unsigned int j = 0; j < 3; j++)
+			{
+				unsigned int current = Indices.Data[triIndex + j];
+				unsigned int current3 = current * 3;
+				unsigned int current4 = current * 4;
+
+				Vector4 pos = Vector4(Positions.Data[current3], Positions.Data[current3 + 1],
+					Positions.Data[current3 + 2], 1.0f);
+
+				unsigned int ids[] = { IDs.Data[current4], IDs.Data[current4 + 1],
+					IDs.Data[current4 + 2], IDs.Data[current4 + 3] };
+
+				float weights[] = { Weights.Data[current3], Weights.Data[current3 + 1],
+					Weights.Data[current3 + 2], 0.0f };
+				weights[3] = 1.0f - weights[0] - weights[1] - weights[2];
+
+				Vector4 blended(0.0f, 0.0f, 0.0f, 0.0f);
+				for (int k = 0; k < 4; ++k)
+				{
+					// A joint slot may be missing mid-reimport -- use identity
+					// so the vertex still contributes to the box.
+					const Matrix4 matrix =
+						(ids[k] < m_Joints.size() && m_Joints[ids[k]])
+							? m_Joints[ids[k]]->GetFinalMatrix()
+							: Matrix4();
+					blended = blended + matrix.Multiply(pos) * weights[k];
+				}
+
+				bounds.Encapsulate(blended);
+			}
+		}
+
+		return bounds;
 	}
 
 	BoxBounds Mesh::GetAABB() const

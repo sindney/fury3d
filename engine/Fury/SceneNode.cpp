@@ -218,6 +218,13 @@ namespace fury
 		}
 	}
 
+	void SceneNode::UpdateOcTreeBounds()
+	{
+		if (m_OcTreeNode.expired())
+			return;
+		m_OcTreeNode.lock()->GetManager().UpdateSceneNode(shared_from_this());
+	}
+
 	void SceneNode::SetModelAABB(const BoxBounds &aabb)
 	{
 		if (aabb.GetInfinite())
@@ -288,8 +295,7 @@ namespace fury
 		SetModelAABB(m_ModelAABB);
 
 		// update octree info
-		if (!m_OcTreeNode.expired())
-			m_OcTreeNode.lock()->GetManager().UpdateSceneNode(shared_from_this());
+		UpdateOcTreeBounds();
 
 		// trigger event
 		OnTransformChange->Emit(shared_from_this());

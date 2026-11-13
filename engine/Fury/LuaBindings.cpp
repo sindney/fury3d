@@ -1096,6 +1096,7 @@ namespace fury
 				"GetParent",        &Joint::GetParent,
 				"GetFirstChild",    &Joint::GetFirstChild,
 				"GetSibling",       &Joint::GetSibling,
+				"GetSceneNode",     &Joint::GetSceneNode,
 			"GetLocalMatrix",   &Joint::GetLocalMatrix,
 			"GetFinalMatrix",   &Joint::GetFinalMatrix,
 			"GetOffsetMatrix",  &Joint::GetOffsetMatrix);
@@ -1131,7 +1132,11 @@ namespace fury
 				"SetAnimatePhysics",  &Animator::SetAnimatePhysics,
 				"GetClip",            &Animator::GetClip,
 				"GetDefaultWrapMode", &Animator::GetDefaultWrapMode,
-				"SetDefaultWrapMode", [](Animator &a, int m) { a.SetDefaultWrapMode(static_cast<AnimWrapMode>(m)); });
+				"SetDefaultWrapMode", [](Animator &a, int m) { a.SetDefaultWrapMode(static_cast<AnimWrapMode>(m)); },
+				// Manual tick phases -- let headless scripts drive a pose
+				// deterministically instead of waiting on the engine loop.
+				"AdvanceTime", &Animator::AdvanceTime,
+				"Display", &Animator::Display);
 
 			// --- ParticleSystem ----------------------------------------------
 			lua.new_usertype<ParticleSystem>("ParticleSystem",
@@ -2722,6 +2727,12 @@ namespace fury
 				"SetName", [](Mesh &m, const std::string &name) { m.SetName(name); },
 				"GetAABB", &Mesh::GetAABB,
 				"IsSkinnedMesh", &Mesh::IsSkinnedMesh,
+				"GetJointCount", &Mesh::GetJointCount,
+				"GetJointAt", &Mesh::GetJointAt,
+				"CalculateAABB", sol::overload(
+					static_cast<void(Mesh::*)()>(&Mesh::CalculateAABB),
+					static_cast<void(Mesh::*)(const Vector4 &, const Vector4 &)>(&Mesh::CalculateAABB)),
+				"CalculateSkinnedWorldAABB", &Mesh::CalculateSkinnedWorldAABB,
 				"GetCastShadows", &Mesh::GetCastShadows,
 				"SetCastShadows", &Mesh::SetCastShadows,
 				// Submesh accessors.
