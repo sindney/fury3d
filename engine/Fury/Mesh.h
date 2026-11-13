@@ -193,7 +193,11 @@ namespace fury
 
 		void CalculateAABB(const Vector4& min, const Vector4& max);
 
+		// Reference bounds of the mesh's own geometry, in mesh space.
 		void CalculateAABB();
+
+		// Bounds of the currently posed skinned mesh, in world space.
+		BoxBounds CalculateSkinnedWorldAABB() const;
 
 		BoxBounds GetAABB() const;
 

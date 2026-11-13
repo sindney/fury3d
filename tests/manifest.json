@@ -437,6 +437,22 @@
    ]
   },
   {
+   "id": "skinned_bounds",
+   "lane": "headless",
+   "script": "{tests}/lua/skinned_bounds.lua",
+   "scene": "Projects/feature/feature.bin",
+   "timeout": 180,
+   "tags": [
+    "skinned",
+    "bounds",
+    "animation"
+   ],
+   "notes": "Skinned mesh world bounds track the animated pose and never reach the world origin; the mesh asset's stored model-space bounds survive posing.",
+   "requires": [
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
    "id": "scene_archive_roundtrip_feature",
    "lane": "headless",
    "script": "{tests}/lua/scene_archive_roundtrip.lua",
