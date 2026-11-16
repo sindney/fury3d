@@ -34,6 +34,10 @@ namespace fury
 		// globals block), which the merged maps above cannot represent.
 		std::unordered_map<std::string, MetalBindingEntry> UniformsByStage[2];
 		std::unordered_map<std::string, MetalBindingEntry> TexturesByStage[2];
+
+		int ArgumentBufferIndex = -1;
+		std::unordered_map<std::string, int> ArgumentBufferTextures;
+		std::unordered_map<std::string, int> ArgumentBufferSamplers;
 	};
 
 	// Records one frame of work as MTL command-buffer encoders. Render-pass
@@ -63,6 +67,8 @@ namespace fury
 		static const int INSTANCE_STREAM = 24;
 
 		static const int CONSTANTS_STREAM = 25;
+
+		static const int INDIRECT_STREAM_BASE = 26;
 
 	protected:
 
@@ -154,6 +160,10 @@ namespace fury
 
 		std::unordered_map<std::string, MetalBindingEntry> m_TexturesByStage[2];
 
+		int m_ArgumentBufferIndex = -1;
+		std::unordered_map<std::string, int> m_ArgumentBufferTextures;
+		std::unordered_map<std::string, int> m_ArgumentBufferSamplers;
+
 		// Uniform shadow store: (stage,index) -> bytes, flushed via set*Bytes.
 		std::map<uint64_t, std::vector<unsigned char>> m_UniformShadow;
 
@@ -194,6 +204,8 @@ namespace fury
 		std::string m_InstanceAttrNames[4];
 
 		bool m_HasInstanceStream = false;
+
+		bool m_IndirectBindings = false;
 
 		MetalBufferRef m_ConstantsBuffer;
 
@@ -336,6 +348,10 @@ namespace fury
 
 		void DrawIndexedInstanced(unsigned int indexCount, unsigned int instanceCount, unsigned int firstIndex = 0, int vertexOffset = 0) override;
 
+		bool PrepareIndirectBatch(const RHIIndirectBatchRef &batch) override;
+
+		bool DrawIndexedIndirect(const RHIIndirectBatchRef &batch) override;
+
 		void Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ) override;
 
 		void Barrier() override;
@@ -414,6 +430,8 @@ namespace fury
 
 		// Vertex layout built on demand by CurrentVertexLayout (mesh draws).
 		std::vector<RHIVertexAttribute> m_MeshLayout;
+
+		std::vector<RHIVertexAttribute> m_IndirectLayout;
 
 		// Handle bits: [0..23] payload+1, [24..25] stage (0=v, 1=f, 2=both),
 		// [26..28] kind (0 = direct-arg uniform, 1 = texture, 2 = globals member).

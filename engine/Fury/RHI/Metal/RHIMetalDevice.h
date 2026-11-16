@@ -30,6 +30,8 @@ namespace fury
 			uint8_t DepthFormat = 0;
 			uint32_t VertexHash = 0;
 
+			bool Indirect = false;
+
 			bool operator<(const PSOKey &o) const;
 		};
 
@@ -93,6 +95,10 @@ namespace fury
 
 		std::map<uint32_t, MTL::DepthStencilState *> m_DepthCache;
 
+		MTL::ComputePipelineState *m_IndirectEncoderPSO = nullptr;
+
+		std::vector<RHIIndirectBatchRef> m_FrameIndirectBatches;
+
 	public:
 
 		RHIMetalDevice(const RHIWindowInfo &window);
@@ -102,6 +108,8 @@ namespace fury
 		// False when device/queue/layer creation failed (factory returns
 		// nullptr then so the fallback chain can run).
 		bool IsUsable() const { return m_Device != nullptr && m_Queue != nullptr && m_Layer != nullptr; }
+
+		bool InitializeIndirectEncoding();
 
 		RHIBackend GetBackend() const override { return RHIBackend::METAL; }
 
@@ -122,6 +130,10 @@ namespace fury
 		RHIBufferRef CreateBuffer(const RHIBufferDesc &desc, const void *initialData = nullptr) override;
 
 		void UpdateBuffer(const RHIBufferRef &buffer, const void *data, size_t size, size_t offset = 0) override;
+
+		RHIIndirectBatchRef CreateIndirectBatch(const RHIIndirectBatchDesc &desc) override;
+
+		bool ReadbackBuffer(const RHIBufferReadbackRequest &request, RHIBufferReadbackResult &out) override;
 
 		RHIShaderModuleRef CreateShaderModule(const std::string &name, const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry) override;
 
@@ -181,6 +193,10 @@ namespace fury
 		const ComputePSOEntry *GetOrCreateComputePSO(const MetalShaderModule *module);
 
 		MTL::DepthStencilState *GetDepthState(CompareMode func, bool write);
+
+		MTL::ComputePipelineState *GetIndirectEncoderPSO() const { return m_IndirectEncoderPSO; }
+
+		void RetainIndirectBatch(const RHIIndirectBatchRef &batch);
 
 		void EndEncoders();
 

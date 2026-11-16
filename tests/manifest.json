@@ -396,6 +396,24 @@
    ]
   },
   {
+   "id": "cluster_lod_import",
+   "lane": "headless",
+   "script": "{tests}/lua/cluster_lod_import.lua",
+   "scene": "Resource/Trees/Grass/GrassClump.glb",
+   "timeout": 180,
+   "env": {
+    "FURY_DDC": "{artifacts}/cluster-lod-import-ddc"
+   },
+   "tags": [
+    "cluster-lod",
+    "assets",
+    "serialization"
+   ],
+   "requires": [
+    "{examples}/Resource/Trees/Grass/GrassClump.glb"
+   ]
+  },
+  {
    "id": "scene_sample_scenes_feature",
    "lane": "headless",
    "script": "{tests}/lua/scene_sample_scenes.lua",
@@ -960,6 +978,58 @@
    "requires": [
     "{examples}/fury",
     "{examples}/Projects/ocean/ocean_island.bin"
+   ]
+  },
+  {
+   "id": "render_cluster_lod_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/cluster_lod_render.py",
+    "--backend",
+    "metal",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cluster_lod_metal"
+   ],
+   "display": true,
+   "timeout": 900,
+   "tags": [
+    "render",
+    "cluster-lod",
+    "metal"
+   ],
+   "notes": "Metal leaf/adaptive/root selected sets, image parity, transforms, and budget fallback.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "render_cluster_lod_vulkan",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/cluster_lod_render.py",
+    "--backend",
+    "vulkan",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/cluster_lod_vulkan"
+   ],
+   "display": true,
+   "timeout": 900,
+   "tags": [
+    "render",
+    "cluster-lod",
+    "vulkan"
+   ],
+   "notes": "Vulkan/MoltenVK leaf/adaptive/root selected sets, image parity, transforms, and budget fallback; native MDI is a separate hardware lane.",
+   "requires": [
+    "{examples}/fury",
+    "{examples}/Projects/feature/feature.bin"
    ]
   },
   {

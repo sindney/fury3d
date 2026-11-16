@@ -48,6 +48,7 @@
 #include "Fury/PostProcessEffect.h"
 #include "Fury/PostProcessRegistry.h"
 #include "Fury/ProfilerGpu.h"
+#include "Fury/ClusterRenderer.h"
 #include "Fury/DeferredPipeline.h"
 #include "Fury/RenderSettings.h"
 #include "Fury/RenderThread.h"
@@ -65,6 +66,8 @@
 #include "Fury/Shader.h"
 #include "Fury/SphereBounds.h"
 #include "Fury/Texture.h"
+
+#include <unordered_map>
 
 namespace fury
 {
@@ -142,6 +145,52 @@ namespace
 			}
 		}
 		return false;
+	}
+
+	bool ClusterLodBackendActive()
+	{
+		if (GRHIDevice == nullptr)
+			return false;
+		const auto &caps = GRHIDevice->GetCapabilities();
+		return caps.SupportsCompute && caps.SupportsSSBO && caps.SupportsMultiDrawIndirect
+			&& caps.SupportsIndirectFirstInstance && caps.SupportsIndirectCount && caps.MaxDrawIndirectCount > 0;
+	}
+
+	const char *ClusterLodBackendUnavailableReason()
+	{
+		if (!GRHIDevice)
+			return "no RHI device";
+		const auto &caps = GRHIDevice->GetCapabilities();
+		if (!caps.SupportsCompute || !caps.SupportsSSBO)
+			return "compute or storage buffers are unsupported";
+		if (!caps.SupportsMultiDrawIndirect || !caps.SupportsIndirectFirstInstance)
+			return "multi-draw indirect or per-draw IDs are unsupported";
+		if (!caps.SupportsIndirectCount)
+			return "GPU-written indirect counts are unsupported";
+		if (caps.MaxDrawIndirectCount == 0)
+			return "indirect draw capacity is zero";
+		return nullptr;
+	}
+
+	bool GatherClusterEligible(const std::shared_ptr<SceneNode> &node, bool enabled, bool perspective)
+	{
+		if (!enabled || !perspective || !ClusterLodBackendActive())
+			return false;
+		auto render = node->GetComponent<MeshRender>();
+		auto mesh = render ? render->GetMesh() : nullptr;
+		if (!mesh || mesh->IsSkinnedMesh() || mesh->GetSubMeshCount() == 0
+			|| !mesh->GetClusterLodDescriptor() || !mesh->GetClusterLodDescriptor()->enabled
+			|| !mesh->GetClusterLodAsset() || render->GetMaterialCount() < mesh->GetSubMeshCount())
+			return false;
+		if (render->GetActiveLod() != 0 && mesh->IsLodBillboard(render->GetActiveLod()))
+			return false;
+		for (unsigned int i = 0; i < render->GetMaterialCount(); ++i)
+		{
+			auto material = render->GetMaterial(i);
+			if (!material || !material->GetOpaque() || material->GetWindEnabled())
+				return false;
+		}
+		return true;
 	}
 
 	// Shared shader-variant resolution for DrawUnit / the draw-command
@@ -228,6 +277,7 @@ namespace
 		: Pipeline(name)
 	{
 		m_TypeIndex = typeid(DeferredPipeline);
+		m_GeometryClusters = std::make_unique<ClusterRenderer>();
 		SetSwitch(PipelineSwitch::CASCADED_SHADOW_MAP, true);
 	}
 
@@ -247,6 +297,22 @@ namespace
 			indices.reset();
 			overflow.reset();
 		});
+	}
+
+	void DeferredPipeline::LogClusterDiagnostics(std::uint64_t frameIndex, const FramePacket &packet) const
+	{
+		m_GeometryClusters->LogDiagnostics(frameIndex, packet);
+	}
+
+	void DeferredPipeline::ReadClusterLodStats(ClusterLodStats &out) const
+	{
+		m_GeometryClusters->ReadStats(out);
+		if (out.unavailableReason.empty())
+			return;
+		if (const char *reason = ClusterLodBackendUnavailableReason())
+			out.unavailableReason = reason;
+		else if (out.fallbackInstances > 0 && out.instances == 0)
+			out.unavailableReason = "all eligible instances used legacy fallback";
 	}
 
 	void DeferredPipeline::Serialize(Archive& ar)
@@ -523,6 +589,8 @@ namespace
 			auto &rs = *Scene::Active->GetRenderSettings();
 			ApplyRenderSettings(rs);
 			packet.windParams = rs.GetWindParams();
+			packet.clusterLodEnabled = rs.IsClusterLodEnabled();
+			packet.clusterLodError = rs.GetClusterLodScreenError();
 			packet.csmMapSize = rs.GetCsmMapSize();
 			rs.ComputeCsmSplits(packet.camera.nearClip, packet.camera.farClip, packet.csmSplits.data());
 		}
@@ -533,6 +601,14 @@ namespace
 					(packet.camera.farClip - packet.camera.nearClip) * (i + 1) / 4.0f;
 		}
 		packet.hdrMode = m_HDRMode;
+		if (const char *enabled = std::getenv("FURY_CLUSTER_LOD"))
+			packet.clusterLodEnabled = enabled[0] != '0';
+		if (const char *error = std::getenv("FURY_CLUSTER_LOD_ERROR"))
+		{
+			const float value = std::strtof(error, nullptr);
+			if (value >= 0.0f)
+				packet.clusterLodError = value;
+		}
 		packet.chain = m_ActiveChain;
 		packet.chainOverrides = m_ActiveChainOverrides;
 		packet.switches = std::bitset<32>(static_cast<unsigned long>(m_Switches.to_ulong()));
@@ -559,8 +635,32 @@ namespace
 		{
 			FURY_ZONE_NAMED("ResolveUnits");
 			packet.opaqueUnits.reserve(query->opaqueUnits.size());
+			std::unordered_map<std::uint64_t, std::size_t> clusterIndices;
 			for (const auto &unit : query->opaqueUnits)
-				packet.opaqueUnits.push_back(ResolveUnit(unit));
+			{
+				PacketUnit resolved = ResolveUnit(unit);
+				const bool perspective = m_CurrentCamera->GetComponent<Camera>()->IsPerspective();
+				if (GatherClusterEligible(unit.node, packet.clusterLodEnabled, perspective))
+				{
+					auto render = unit.node->GetComponent<MeshRender>();
+					const std::uint64_t key = static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(unit.node.get()));
+					if (clusterIndices.find(key) == clusterIndices.end())
+					{
+						clusterIndices.emplace(key, packet.clusterInstances.size());
+						PacketClusterInstance instance;
+						instance.nodeKey = key;
+						instance.nodeUuid = unit.node->GetUUID();
+						instance.mesh = render->GetMesh();
+						instance.worldMatrix = resolved.worldMatrix;
+						instance.worldBounds = resolved.worldBounds;
+						for (unsigned int i = 0; i < render->GetMaterialCount(); ++i)
+							instance.materials.push_back(render->GetMaterial(i));
+						packet.clusterInstances.push_back(std::move(instance));
+					}
+					continue;
+				}
+				packet.opaqueUnits.push_back(std::move(resolved));
+			}
 			packet.transparentUnits.reserve(query->transparentUnits.size());
 			for (const auto &unit : query->transparentUnits)
 				packet.transparentUnits.push_back(ResolveUnit(unit));
@@ -1114,6 +1214,7 @@ namespace
 			!packet.chain.empty() &&
 			(!packet.hdrMode || HasHDRComposite());
 
+		double gbufferMs = 0.0;
 		for (unsigned int i = 0; i < passCount; i++)
 		{
 			auto &pass = packet.sortedPasses[i];
@@ -1143,7 +1244,10 @@ namespace
 
 			if (drawMode == DrawMode::OPAQUE)
 			{
+				const auto gbufferStart = std::chrono::steady_clock::now();
 				pass->Bind();
+				m_GeometryClusters->Prepare(packet, pass);
+				const size_t opaqueCount = packet.opaqueUnits.size();
 
 				// Veg pre-z (inline pre-phase, not a separate pass):
 				// flagged units seed depth depth-only, then shade once
@@ -1182,6 +1286,9 @@ namespace
 				}
 				DrawInstancedUnits(pass, packet,
 					vegPreZ ? PreZFilter::Unflagged : PreZFilter::None, nullptr);
+				m_GeometryClusters->Execute(packet, pass);
+				for (size_t i = opaqueCount; i < packet.opaqueUnits.size(); ++i)
+					DrawUnit(pass, packet.opaqueUnits[i], packet);
 
 				// EQUAL reuse: shade the front-most foliage layer only.
 				if (vegPreZ)
@@ -1196,6 +1303,8 @@ namespace
 					DrawInstancedUnits(pass, packet, PreZFilter::Flagged, nullptr);
 					cmd->SetDepthState(CompareMode::LESS, true, true);
 				}
+				gbufferMs = std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - gbufferStart).count();
 			}
 			else if (drawMode == DrawMode::TRANSPARENT)
 			{
@@ -1563,16 +1672,19 @@ namespace
 			const double frameMs = std::chrono::duration<double, std::milli>(
 				std::chrono::steady_clock::now() - benchFrameStart).count();
 			static double frameTotal = 0.0;
+			static double gbufferTotal = 0.0;
 			static double assignTotal = 0.0;
 			static int samples = 0;
 			frameTotal += frameMs;
+			gbufferTotal += gbufferMs;
 			assignTotal += m_LastClusterAssignMs;
 			++samples;
 			if (packet.frameIndex % 120 == 0)
 			{
 				UpdateClusterStats(packet);
-				FURYI << "Cluster bench frame_ms=" << frameTotal / samples
-					<< " last_frame_ms=" << frameMs
+				FURYI << "Cluster bench frame_cpu_ms=" << frameTotal / samples
+					<< " gbuffer_cpu_ms=" << gbufferTotal / samples
+					<< " last_frame_cpu_ms=" << frameMs
 					<< " assign_ms=" << assignTotal / samples
 					<< " draw_calls=" << RenderUtil::Instance()->GetDrawCall()
 					<< " local_lights=" << packet.localLightIndices.size()

@@ -268,16 +268,33 @@ namespace fury
 			deviceExtensions.push_back(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME);
 		if (HasDeviceExtension(m_PhysicalDevice, "VK_KHR_portability_subset"))
 			deviceExtensions.push_back("VK_KHR_portability_subset");
+		if (HasDeviceExtension(m_PhysicalDevice, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME))
+			deviceExtensions.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+		VkPhysicalDeviceVulkan11Features supported11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+		VkPhysicalDeviceVulkan12Features supported12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+		VkPhysicalDeviceVulkan13Features supported13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+		supported11.pNext = &supported12;
+		supported12.pNext = &supported13;
+		VkPhysicalDeviceFeatures2 supported2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+		supported2.pNext = &supported11;
+		vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supported2);
+		VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+		features11.shaderDrawParameters = supported11.shaderDrawParameters;
+		VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+		features12.drawIndirectCount = supported12.drawIndirectCount;
 		VkPhysicalDeviceVulkan13Features features13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		features13.dynamicRendering = VK_TRUE;
-		VkPhysicalDeviceFeatures supportedFeatures;
-		vkGetPhysicalDeviceFeatures(m_PhysicalDevice, &supportedFeatures);
+		features11.pNext = &features12;
+		features12.pNext = &features13;
+		VkPhysicalDeviceFeatures supportedFeatures = supported2.features;
 		VkPhysicalDeviceFeatures enabledFeatures = {};
 		enabledFeatures.fillModeNonSolid = supportedFeatures.fillModeNonSolid;
 		enabledFeatures.samplerAnisotropy = supportedFeatures.samplerAnisotropy;
 		enabledFeatures.textureCompressionBC = supportedFeatures.textureCompressionBC;
+		enabledFeatures.multiDrawIndirect = supportedFeatures.multiDrawIndirect;
+		enabledFeatures.drawIndirectFirstInstance = supportedFeatures.drawIndirectFirstInstance;
 		VkDeviceCreateInfo deviceInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-		deviceInfo.pNext = &features13;
+		deviceInfo.pNext = &features11;
 		deviceInfo.queueCreateInfoCount = 1;
 		deviceInfo.pQueueCreateInfos = &queueInfo;
 		deviceInfo.enabledExtensionCount = static_cast<unsigned int>(deviceExtensions.size());
@@ -331,7 +348,33 @@ namespace fury
 		m_Caps.SupportsCompressedBC = supportedFeatures.textureCompressionBC == VK_TRUE;
 		m_Caps.MaxTextureSize = properties.limits.maxImageDimension2D;
 		m_Caps.MaxTextureArrayLayers = properties.limits.maxImageArrayLayers;
+		m_Caps.SupportsMultiDrawIndirect = enabledFeatures.multiDrawIndirect == VK_TRUE;
+		m_Caps.SupportsIndirectFirstInstance = enabledFeatures.drawIndirectFirstInstance == VK_TRUE;
+		m_Caps.SupportsShaderDrawID = features11.shaderDrawParameters == VK_TRUE;
+		m_Caps.SupportsIndirectCount = features12.drawIndirectCount == VK_TRUE
+			&& (vkCmdDrawIndexedIndirectCount != nullptr || vkCmdDrawIndexedIndirectCountKHR != nullptr);
+		m_Caps.MaxDrawIndirectCount = properties.limits.maxDrawIndirectCount;
+		m_Caps.IndirectArgumentStride = sizeof(VkDrawIndexedIndirectCommand);
+		m_Caps.IndirectCountOffsetAlignment = 4;
+		m_Caps.MaxStorageBufferRange = properties.limits.maxStorageBufferRange;
+		m_Caps.MaxPerStageDescriptorStorageBuffers = properties.limits.maxPerStageDescriptorStorageBuffers;
+		m_Caps.MaxDescriptorSetStorageBuffers = properties.limits.maxDescriptorSetStorageBuffers;
+		m_Caps.MaxPerStageResources = properties.limits.maxPerStageResources;
 		FURYI << "Vulkan device: " << properties.deviceName;
+		FURYI << "Vulkan indirect supported: multiDraw=" << supportedFeatures.multiDrawIndirect
+			<< " firstInstance=" << supportedFeatures.drawIndirectFirstInstance
+			<< " drawParameters=" << supported11.shaderDrawParameters
+			<< " count=" << supported12.drawIndirectCount
+			<< "; enabled: multiDraw=" << m_Caps.SupportsMultiDrawIndirect
+			<< " firstInstance=" << m_Caps.SupportsIndirectFirstInstance
+			<< " drawID=" << m_Caps.SupportsShaderDrawID
+			<< " count=" << m_Caps.SupportsIndirectCount;
+		FURYI << "Vulkan indirect limits: maxDrawCount=" << m_Caps.MaxDrawIndirectCount
+			<< " stride=" << m_Caps.IndirectArgumentStride
+			<< " storageRange=" << m_Caps.MaxStorageBufferRange
+			<< " perStageStorage=" << m_Caps.MaxPerStageDescriptorStorageBuffers
+			<< " descriptorStorage=" << m_Caps.MaxDescriptorSetStorageBuffers
+			<< " perStageResources=" << m_Caps.MaxPerStageResources;
 	}
 
 	RHIVulkanDevice::~RHIVulkanDevice()
@@ -966,6 +1009,67 @@ namespace fury
 	void RHIVulkanDevice::UpdateBuffer(const RHIBufferRef &buffer, const void *data, size_t size, size_t offset)
 	{
 		if (buffer != nullptr) static_cast<VulkanBuffer *>(buffer.get())->Update(data, size, offset);
+	}
+
+	RHIIndirectBatchRef RHIVulkanDevice::CreateIndirectBatch(const RHIIndirectBatchDesc &desc)
+	{
+		return std::make_shared<VulkanIndirectBatch>(desc);
+	}
+
+	bool RHIVulkanDevice::ReadbackBuffer(const RHIBufferReadbackRequest &request, RHIBufferReadbackResult &out)
+	{
+		out = {};
+		out.FrameIndex = request.FrameIndex;
+		if (m_FrameActive)
+			return false;
+		auto source = std::static_pointer_cast<VulkanBuffer>(request.Buffer);
+		if (source == nullptr || source->Get() == VK_NULL_HANDLE || request.Size == 0
+			|| request.Offset > source->GetCapacity()
+			|| request.Size > source->GetCapacity() - request.Offset)
+			return false;
+		if (vkWaitForFences(m_Device, 1, &m_FrameFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+			return false;
+
+		VkBuffer staging = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		void *mapped = nullptr;
+		if (!CreateHostBuffer(request.Size, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			staging, stagingAllocation, &mapped))
+			return false;
+		const VkBuffer nativeSource = source->Get();
+		const VkDeviceSize sourceOffset = request.Offset;
+		const VkDeviceSize copySize = request.Size;
+		const bool copied = ImmediateCommands([&](VkCommandBuffer cmd)
+		{
+			VkBufferMemoryBarrier before = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			before.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+			before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			before.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			before.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			before.buffer = nativeSource;
+			before.offset = sourceOffset;
+			before.size = copySize;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &before, 0, nullptr);
+			VkBufferCopy region = { sourceOffset, 0, copySize };
+			vkCmdCopyBuffer(cmd, nativeSource, staging, 1, &region);
+			VkBufferMemoryBarrier after = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+			after.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			after.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			after.buffer = staging;
+			after.offset = 0;
+			after.size = copySize;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+				0, 0, nullptr, 1, &after, 0, nullptr);
+			return true;
+		});
+		if (copied)
+			out.Bytes.assign(static_cast<const unsigned char *>(mapped),
+				static_cast<const unsigned char *>(mapped) + request.Size);
+		DestroyHostBuffer(staging, stagingAllocation);
+		return copied;
 	}
 
 	RHIShaderModuleRef RHIVulkanDevice::CreateShaderModule(const std::string &name, const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry)

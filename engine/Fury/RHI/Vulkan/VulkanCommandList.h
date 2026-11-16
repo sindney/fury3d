@@ -178,6 +178,9 @@ namespace fury
 		void DrawIndexed(unsigned int indexCount, unsigned int firstIndex = 0, int vertexOffset = 0) override;
 		void DrawInstanced(unsigned int vertexCount, unsigned int instanceCount, unsigned int firstVertex = 0) override;
 		void DrawIndexedInstanced(unsigned int indexCount, unsigned int instanceCount, unsigned int firstIndex = 0, int vertexOffset = 0) override;
+		bool CopyBuffer(const RHIBufferRef &src, const RHIBufferRef &dst, size_t srcOffset, size_t dstOffset, size_t size) override;
+		bool PrepareIndirectBatch(const RHIIndirectBatchRef &batch) override;
+		bool DrawIndexedIndirect(const RHIIndirectBatchRef &batch) override;
 		void Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ) override;
 		void Barrier() override;
 		void Blit(const RHITextureRef &src, const RHITextureRef &dst, int srcWidth, int srcHeight, int dstWidth, int dstHeight, bool linearFilter = false) override;

@@ -23,7 +23,7 @@ namespace fury
 
 	namespace
 	{
-		const char *kCompilerVersion = "slang-2026.19+spirv-cross-1.4.363.0";
+		const char *kCompilerVersion = "slang-2026.19+spirv-cross-1.4.363.0-cluster-ab1";
 
 		bool ResolveIncludes(const std::string &src, const std::string &dir,
 			std::vector<std::string> &stack, int depth, std::string &out, std::string &error)
@@ -359,6 +359,9 @@ namespace fury
 			|| stageDefine == "COMPUTE_SHADER")
 			split.version = "#version 430 core\n";
 		std::string out = split.version + "\n#define " + stageDefine + "\n";
+		if (std::find(defines.begin(), defines.end(), "CLUSTER_BASE_INSTANCE") != defines.end()
+			|| std::find(defines.begin(), defines.end(), "CLUSTER_DRAW_ID") != defines.end())
+			out += "#extension GL_ARB_shader_draw_parameters : require\n";
 		if (withEditor)
 			out += "#define WITH_EDITOR\n";
 		if (withDebugOverlay)
@@ -375,6 +378,8 @@ namespace fury
 		input.name = name;
 		input.vertexSource = BuildShaderStageSource(source, "VERTEX_SHADER", defines, withEditor, withDebugOverlay);
 		input.fragmentSource = BuildShaderStageSource(source, "FRAGMENT_SHADER", defines, withEditor, withDebugOverlay);
+		for (const auto &define : defines)
+			input.defines.emplace_back(define, "");
 		return input;
 	}
 
@@ -384,6 +389,8 @@ namespace fury
 		ShaderCompileInput input;
 		input.name = name;
 		input.computeSource = BuildShaderStageSource(source, "COMPUTE_SHADER", defines, withEditor, withDebugOverlay);
+		for (const auto &define : defines)
+			input.defines.emplace_back(define, "");
 		return input;
 	}
 
@@ -392,7 +399,9 @@ namespace fury
 		std::string settings = std::string("backend=") + ShaderTargetName(target)
 			+ "|compiler=" + kCompilerVersion
 			+ "|master=" + std::to_string(FURY_SHADER_DDC_MASTER_VERSION);
-		for (const auto &define : input.defines)
+		auto sortedDefines = input.defines;
+		std::sort(sortedDefines.begin(), sortedDefines.end());
+		for (const auto &define : sortedDefines)
 			settings += "|define=" + define.first + "=" + define.second;
 		for (const auto &path : input.searchPaths)
 			settings += "|include=" + path;
@@ -495,6 +504,23 @@ namespace fury
 				return false;
 			}
 		}
+		return true;
+	}
+
+	bool LoadOrStoreTextShaderResource(const std::string &key, const std::string &extension,
+		const std::string &embedded, std::string &out, std::string &error)
+	{
+		DdcStore ddc(DdcStore::ResolveRoot());
+		ShaderArtifact artifact{ key, extension, {} };
+		if (ReadArtifact(ddc, artifact))
+		{
+			out.assign(artifact.bytes.begin(), artifact.bytes.end());
+			return true;
+		}
+		artifact.bytes.assign(embedded.begin(), embedded.end());
+		if (!StoreShaderArtifacts(ddc, { artifact }, error))
+			return false;
+		out = embedded;
 		return true;
 	}
 

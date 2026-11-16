@@ -69,6 +69,12 @@ namespace fury
 		bool IsClusteredLighting() const;
 		void SetClusteredLighting(bool value);
 
+		bool IsClusterLodEnabled() const { return m_ClusterLodEnabled; }
+		void SetClusterLodEnabled(bool value) { m_ClusterLodEnabled = value; }
+
+		float GetClusterLodScreenError() const { return m_ClusterLodScreenError; }
+		void SetClusterLodScreenError(float value);
+
 		bool IsCascadedShadowMap() const;
 		void SetCascadedShadowMap(bool value);
 
@@ -127,6 +133,8 @@ namespace fury
 		std::string m_PipelinePath;
 		bool m_HDR = false;
 		bool m_ClusteredLighting = false;
+		bool m_ClusterLodEnabled = false;
+		float m_ClusterLodScreenError = 1.0f;
 		bool m_CascadedShadowMap = true;
 		bool m_VegetationPreZ = true;
 		int m_CsmMapSize = 2048;

@@ -1,0 +1,461 @@
+{
+  "task": "add-gpu-cluster-lod 5.6",
+  "host": "macOS Apple M4 Pro (Metal native; Vulkan via MoltenVK emulation)",
+  "bench_frame": 120,
+  "dump_frame": 30,
+  "gpu_time_policy": "Metal: unmeasured (no GPU zone wiring, Metal timestamps unavailable). Vulkan: Tracy pass_gbuffer, MoltenVK-emulated, not native GPU perf. No GPU time inferred from CPU timing.",
+  "backends": [
+    {
+      "backend": "metal",
+      "backend_note": "native Metal (Apple M4 Pro)",
+      "scenes": {
+        "feature": {
+          "scene": "Projects/feature/feature.bin",
+          "camera": "15,8,17,41.43,-15.82,5000",
+          "camera_note": "deterministic near tank pose (matches cluster_lod_render.py CAM_NEAR)",
+          "modes": {
+            "legacy": {
+              "bench_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/metal/frame120_feature_legacy.png",
+                "bench": {
+                  "frame_cpu_ms": 8.16911,
+                  "gbuffer_cpu_ms": 0.846549,
+                  "last_frame_cpu_ms": 9.01183,
+                  "assign_ms": 0.0,
+                  "draw_calls": 56,
+                  "local_lights": 2,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": null,
+                "cluster_note": "cluster path inactive in legacy mode (no diagnostics expected)"
+              },
+              "gpu_time_note": "Metal backend has no Tracy GPU zone wiring (GpuZoneScope covers Vulkan/GL only) and Metal GPU timestamps are unavailable on this host"
+            },
+            "cluster": {
+              "bench_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/metal/frame120_feature_cluster.png",
+                "bench": {
+                  "frame_cpu_ms": 8.28763,
+                  "gbuffer_cpu_ms": 2.98182,
+                  "last_frame_cpu_ms": 8.32938,
+                  "assign_ms": 0.0,
+                  "draw_calls": 36,
+                  "local_lights": 2,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": {
+                  "frame": 30,
+                  "instances": 8,
+                  "candidateInstances": 8,
+                  "fallbackInstances": 0,
+                  "batches": 5,
+                  "visibleInstances": 8,
+                  "selected": 1527,
+                  "visible": 1527,
+                  "commands": 1527,
+                  "drawnTriangles": 128880,
+                  "selectionOverflow": 0,
+                  "visibilityOverflow": 0
+                }
+              },
+              "gpu_time_note": "Metal backend has no Tracy GPU zone wiring (GpuZoneScope covers Vulkan/GL only) and Metal GPU timestamps are unavailable on this host"
+            }
+          },
+          "scene_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/feature/feature.bin --rhi=metal --screenshot frame120.png --screenshot-frame 120  (env: FURY_MAX_FPS=0 FURY_CLUSTER_BENCH=1 FURY_CLUSTER_LOD=<0|1> FURY_CAM=15,8,17,41.43,-15.82,5000)",
+          "dump_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/feature/feature.bin --rhi=metal --gpu-dump <dir> --gpu-dump-frame 30  (env: FURY_MAX_FPS=0 FURY_CLUSTER_LOD=<0|1> FURY_CAM=15,8,17,41.43,-15.82,5000)"
+        },
+        "sponza": {
+          "scene": "Projects/samples/sponza/Sponza.bin",
+          "camera": "-48,3000,300,0,-75",
+          "camera_note": "bird's-eye over the courtyard; scene has one dim sun (intensity 0.3), mesh Mesh_0 has 103 submeshes > MaxSubmeshes(8): full legacy fallback",
+          "modes": {
+            "legacy": {
+              "bench_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/metal/frame120_sponza_legacy.png",
+                "bench": {
+                  "frame_cpu_ms": 8.05293,
+                  "gbuffer_cpu_ms": 1.8381,
+                  "last_frame_cpu_ms": 8.00413,
+                  "assign_ms": 0.0,
+                  "draw_calls": 120,
+                  "local_lights": 0,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": null,
+                "cluster_note": "cluster path inactive in legacy mode (no diagnostics expected)"
+              },
+              "gpu_time_note": "Metal backend has no Tracy GPU zone wiring (GpuZoneScope covers Vulkan/GL only) and Metal GPU timestamps are unavailable on this host"
+            },
+            "cluster": {
+              "bench_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/metal/frame120_sponza_cluster.png",
+                "bench": {
+                  "frame_cpu_ms": 8.03171,
+                  "gbuffer_cpu_ms": 1.74319,
+                  "last_frame_cpu_ms": 8.51225,
+                  "assign_ms": 0.0,
+                  "draw_calls": 120,
+                  "local_lights": 0,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": null,
+                "cluster_note": "no accepted cluster instances: Sponza Mesh_0 has 103 submeshes > ClusterRenderer MaxSubmeshes(8), whole mesh uses legacy fallback"
+              },
+              "gpu_time_note": "Metal backend has no Tracy GPU zone wiring (GpuZoneScope covers Vulkan/GL only) and Metal GPU timestamps are unavailable on this host"
+            }
+          },
+          "scene_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/samples/sponza/Sponza.bin --rhi=metal --screenshot frame120.png --screenshot-frame 120  (env: FURY_MAX_FPS=0 FURY_CLUSTER_BENCH=1 FURY_CLUSTER_LOD=<0|1> FURY_CAM=-48,3000,300,0,-75)",
+          "dump_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/samples/sponza/Sponza.bin --rhi=metal --gpu-dump <dir> --gpu-dump-frame 30  (env: FURY_MAX_FPS=0 FURY_CLUSTER_LOD=<0|1> FURY_CAM=-48,3000,300,0,-75)"
+        }
+      }
+    },
+    {
+      "backend": "vulkan",
+      "backend_note": "MoltenVK emulation on Apple Silicon macOS - NOT native Vulkan hardware; indirect count unsupported (single-draw emulation path, not MDI)",
+      "scenes": {
+        "feature": {
+          "scene": "Projects/feature/feature.bin",
+          "camera": "15,8,17,41.43,-15.82,5000",
+          "camera_note": "deterministic near tank pose (matches cluster_lod_render.py CAM_NEAR)",
+          "modes": {
+            "legacy": {
+              "bench_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/frame120_feature_legacy.png",
+                "bench": {
+                  "frame_cpu_ms": 1.34104,
+                  "gbuffer_cpu_ms": 0.522784,
+                  "last_frame_cpu_ms": 1.262,
+                  "assign_ms": 0.0,
+                  "draw_calls": 56,
+                  "local_lights": 2,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": null,
+                "cluster_note": "cluster path inactive in legacy mode (no diagnostics expected)"
+              },
+              "tracy_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "trace": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/tracy_feature_legacy.tracy",
+                "gpu_time_ms": {
+                  "zone": "pass_gbuffer",
+                  "label": "MoltenVK-emulated Vulkan GPU timestamp (not native GPU perf)",
+                  "frames_averaged": 1779,
+                  "mean_ms": 0.5237941877459247,
+                  "median_ms": 0.497375,
+                  "all_zone_means_ms": {
+                    "pass_combine": 0.11008957560427206,
+                    "pass_final": 0.024922141090500283,
+                    "pass_gbuffer": 0.5237941877459247,
+                    "pass_light": 1.2293690916245081,
+                    "pass_ocean": 0.11534834963462619,
+                    "pass_sky": 0.0072699730185497476,
+                    "pass_transparent": 0.27571355424395727
+                  }
+                }
+              }
+            },
+            "cluster": {
+              "bench_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/frame120_feature_cluster.png",
+                "bench": {
+                  "frame_cpu_ms": 2.04211,
+                  "gbuffer_cpu_ms": 1.23618,
+                  "last_frame_cpu_ms": 1.79221,
+                  "assign_ms": 0.0,
+                  "draw_calls": 36,
+                  "local_lights": 2,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": {
+                  "frame": 30,
+                  "instances": 8,
+                  "candidateInstances": 8,
+                  "fallbackInstances": 0,
+                  "batches": 5,
+                  "visibleInstances": 8,
+                  "selected": 1527,
+                  "visible": 1527,
+                  "commands": 1527,
+                  "drawnTriangles": 128880,
+                  "selectionOverflow": 0,
+                  "visibilityOverflow": 0
+                }
+              },
+              "tracy_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "15,8,17,41.43,-15.82,5000"
+                },
+                "trace": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/tracy_feature_cluster.tracy",
+                "gpu_time_ms": {
+                  "zone": "pass_gbuffer",
+                  "label": "MoltenVK-emulated Vulkan GPU timestamp (not native GPU perf)",
+                  "frames_averaged": 1779,
+                  "mean_ms": 1.4840700505902193,
+                  "median_ms": 1.664041,
+                  "all_zone_means_ms": {
+                    "pass_combine": 0.08037892528089888,
+                    "pass_final": 0.009766062359550562,
+                    "pass_gbuffer": 1.4840700505902193,
+                    "pass_light": 0.9708321235955055,
+                    "pass_ocean": 0.046180384831460676,
+                    "pass_sky": 0.0052298960674157305,
+                    "pass_transparent": 0.1981823938202247
+                  }
+                }
+              }
+            }
+          },
+          "scene_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/feature/feature.bin --rhi=vulkan --screenshot frame120.png --screenshot-frame 120  (env: FURY_MAX_FPS=0 FURY_CLUSTER_BENCH=1 FURY_CLUSTER_LOD=<0|1> FURY_CAM=15,8,17,41.43,-15.82,5000)",
+          "dump_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/feature/feature.bin --rhi=vulkan --gpu-dump <dir> --gpu-dump-frame 30  (env: FURY_MAX_FPS=0 FURY_CLUSTER_LOD=<0|1> FURY_CAM=15,8,17,41.43,-15.82,5000)"
+        },
+        "sponza": {
+          "scene": "Projects/samples/sponza/Sponza.bin",
+          "camera": "-48,3000,300,0,-75",
+          "camera_note": "bird's-eye over the courtyard; scene has one dim sun (intensity 0.3), mesh Mesh_0 has 103 submeshes > MaxSubmeshes(8): full legacy fallback",
+          "modes": {
+            "legacy": {
+              "bench_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/frame120_sponza_legacy.png",
+                "bench": {
+                  "frame_cpu_ms": 4.99723,
+                  "gbuffer_cpu_ms": 2.3743,
+                  "last_frame_cpu_ms": 1.65738,
+                  "assign_ms": 0.0,
+                  "draw_calls": 120,
+                  "local_lights": 0,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": null,
+                "cluster_note": "cluster path inactive in legacy mode (no diagnostics expected)"
+              },
+              "tracy_run": {
+                "mode": "legacy",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "0",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "trace": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/tracy_sponza_legacy.tracy",
+                "gpu_time_ms": {
+                  "zone": "pass_gbuffer",
+                  "label": "MoltenVK-emulated Vulkan GPU timestamp (not native GPU perf)",
+                  "frames_averaged": 1415,
+                  "mean_ms": 0.8468933314487633,
+                  "median_ms": 0.802375,
+                  "all_zone_means_ms": {
+                    "pass_combine": 0.08739411731448762,
+                    "pass_final": 0.08922104876325088,
+                    "pass_gbuffer": 0.8468933314487633,
+                    "pass_light": 0.1417400664310954,
+                    "pass_transparent": 0.20716603038869258
+                  }
+                }
+              }
+            },
+            "cluster": {
+              "bench_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_CLUSTER_BENCH": "1",
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "screenshot": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/frame120_sponza_cluster.png",
+                "bench": {
+                  "frame_cpu_ms": 2.38901,
+                  "gbuffer_cpu_ms": 1.74354,
+                  "last_frame_cpu_ms": 4.67058,
+                  "assign_ms": 0.0,
+                  "draw_calls": 120,
+                  "local_lights": 0,
+                  "max_count": 0,
+                  "overflow": 0,
+                  "frames_averaged": 120
+                }
+              },
+              "dump_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "returncode": 0,
+                "cluster_diagnostics": null,
+                "cluster_note": "no accepted cluster instances: Sponza Mesh_0 has 103 submeshes > ClusterRenderer MaxSubmeshes(8), whole mesh uses legacy fallback"
+              },
+              "tracy_run": {
+                "mode": "cluster",
+                "env": {
+                  "FURY_MAX_FPS": "0",
+                  "FURY_CLUSTER_LOD": "1",
+                  "FURY_CAM": "-48,3000,300,0,-75"
+                },
+                "trace": "/Users/sindney/Documents/git/furyengine/fury3d/test-artifacts/cluster-lod-perf/vulkan/tracy_sponza_cluster.tracy",
+                "gpu_time_ms": {
+                  "zone": "pass_gbuffer",
+                  "label": "MoltenVK-emulated Vulkan GPU timestamp (not native GPU perf)",
+                  "frames_averaged": 1406,
+                  "mean_ms": 0.8701006223328591,
+                  "median_ms": 0.8041455,
+                  "all_zone_means_ms": {
+                    "pass_combine": 0.0891459679943101,
+                    "pass_final": 0.09011810810810811,
+                    "pass_gbuffer": 0.8701006223328591,
+                    "pass_light": 0.14620200355618776,
+                    "pass_transparent": 0.20299049075391182
+                  }
+                }
+              }
+            }
+          },
+          "scene_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/samples/sponza/Sponza.bin --rhi=vulkan --screenshot frame120.png --screenshot-frame 120  (env: FURY_MAX_FPS=0 FURY_CLUSTER_BENCH=1 FURY_CLUSTER_LOD=<0|1> FURY_CAM=-48,3000,300,0,-75)",
+          "dump_command": "/Users/sindney/Documents/git/furyengine/fury3d/examples/fury Player.lua Projects/samples/sponza/Sponza.bin --rhi=vulkan --gpu-dump <dir> --gpu-dump-frame 30  (env: FURY_MAX_FPS=0 FURY_CLUSTER_LOD=<0|1> FURY_CAM=-48,3000,300,0,-75)"
+        }
+      }
+    }
+  ]
+}

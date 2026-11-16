@@ -38,6 +38,20 @@ namespace fury
 		std::vector<unsigned char> Pixels;
 	};
 
+	struct RHIBufferReadbackRequest
+	{
+		RHIBufferRef Buffer;
+		size_t Offset = 0;
+		size_t Size = 0;
+		std::uint64_t FrameIndex = 0;
+	};
+
+	struct RHIBufferReadbackResult
+	{
+		std::uint64_t FrameIndex = 0;
+		std::vector<unsigned char> Bytes;
+	};
+
 	class FURY_API RHIDevice
 	{
 	public:
@@ -70,6 +84,10 @@ namespace fury
 		virtual RHIBufferRef CreateBuffer(const RHIBufferDesc &desc, const void *initialData = nullptr) = 0;
 
 		virtual void UpdateBuffer(const RHIBufferRef &buffer, const void *data, size_t size, size_t offset = 0) = 0;
+
+		virtual RHIIndirectBatchRef CreateIndirectBatch(const RHIIndirectBatchDesc &) { return nullptr; }
+
+		virtual bool ReadbackBuffer(const RHIBufferReadbackRequest &, RHIBufferReadbackResult &) { return false; }
 
 		// Programs link from stage blobs: source text for GL/Metal, SPIR-V
 		// binary for Vulkan. Empty geometry = no geometry stage.

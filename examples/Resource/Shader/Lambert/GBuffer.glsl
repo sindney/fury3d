@@ -35,6 +35,43 @@ in vec4 instance_row3;
 layout(std430, binding = 2) buffer InstanceBuffer { mat4 instance_matrices[]; };
 #endif
 
+#ifdef CLUSTER_BASE_INSTANCE
+#extension GL_ARB_shader_draw_parameters : require
+struct ClusterInstance
+{
+	mat4 world;
+	vec4 sphere;
+	vec4 camera;
+	vec4 scaleThreshold;
+	uvec4 offsets;
+};
+struct ClusterVisibleRecord
+{
+	uint instanceID;
+	uint clusterID;
+	uint meshID;
+	uint batchID;
+};
+struct Cluster
+{
+	vec3 center;
+	float radius;
+	vec3 coneAxis;
+	float coneCutoff;
+	float error;
+	float parentError;
+	uint groupIndex;
+	uint parentGroupIndex;
+	uint firstIndex;
+	uint indexCount;
+	uint materialIndex;
+	uint level;
+};
+layout(std430, binding = 0) buffer ClusterInstances { ClusterInstance instances[]; };
+layout(std430, binding = 1) buffer ClusterVisibleRecords { ClusterVisibleRecord records[]; };
+layout(std430, binding = 2) buffer Clusters { Cluster clusters[]; };
+#endif
+
 #ifdef BILLBOARD
 uniform vec3 camera_pos;
 uniform vec2 u_billboard_atlas = vec2(8.0, 1.0);
@@ -47,6 +84,10 @@ out vec3 out_normal;
 out vec3 out_tangent;
 out vec2 out_uv;
 out float out_depth;
+#ifdef CLUSTER_BASE_INSTANCE
+flat out uint out_cluster_id;
+flat out uint out_cluster_level;
+#endif
 
 uniform mat4 projection_matrix;
 uniform mat4 invert_view_matrix;
@@ -65,7 +106,12 @@ void main()
 	out_uv = vertex_uv;
 #else
 
-#if defined(INSTANCED) && defined(INSTANCE_SSBO)
+#if defined(CLUSTER_BASE_INSTANCE)
+	ClusterVisibleRecord clusterRecord = records[gl_BaseInstance];
+	out_cluster_id = clusterRecord.clusterID;
+	out_cluster_level = clusters[clusterRecord.clusterID].level;
+	mat4 worldMat = instances[clusterRecord.instanceID].world;
+#elif defined(INSTANCED) && defined(INSTANCE_SSBO)
 	mat4 worldMat = instance_matrices[gl_InstanceID];
 #elif defined(INSTANCED)
 	mat4 worldMat = mat4(instance_row0, instance_row1, instance_row2, instance_row3);
@@ -107,6 +153,25 @@ in vec3 out_normal;
 in vec3 out_tangent;
 in vec2 out_uv;
 in float out_depth;
+#ifdef CLUSTER_BASE_INSTANCE
+flat in uint out_cluster_id;
+flat in uint out_cluster_level;
+uniform int cluster_debug_view = 0;
+vec3 ClusterLodColor(uint level)
+{
+	if (level == 0u) return vec3(0.15, 0.85, 0.25);
+	if (level == 1u) return vec3(0.15, 0.45, 0.95);
+	if (level == 2u) return vec3(0.95, 0.75, 0.15);
+	if (level == 3u) return vec3(0.9, 0.25, 0.2);
+	return vec3(0.8, 0.2, 0.85);
+}
+vec3 ClusterIdColor(uint id)
+{
+	uint h = id * 1664525u + 1013904223u;
+	h ^= h >> 16u;
+	return vec3(float(h & 255u), float((h >> 8u) & 255u), float((h >> 16u) & 255u)) / 255.0;
+}
+#endif
 
 uniform float camera_far = 10000;
 
@@ -177,6 +242,12 @@ void main()
 #ifdef WITH_DBG_OVERLAY
 	if (lod_debug_color.a > 0.0)
 		finalDiffuse *= lod_debug_color.rgb;
+#endif
+#ifdef CLUSTER_BASE_INSTANCE
+	if (cluster_debug_view == 1)
+		finalDiffuse = ClusterLodColor(out_cluster_level);
+	else if (cluster_debug_view == 2)
+		finalDiffuse = ClusterIdColor(out_cluster_id);
 #endif
 
 #ifdef PBR

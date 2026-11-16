@@ -1,0 +1,25 @@
+Tank scene on Mesa KosmicKrisp (non-MoltenVK Vulkan driver): crash evidence
+
+Command (cwd = examples):
+  VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/libkosmickrisp_icd.json \
+  FURY_CLUSTER_LOD=1 FURY_CAM="15,8,17,41.43,-15.82,5000" \
+  ./fury Player.lua Projects/feature/feature.bin --rhi=vulkan \
+  --screenshot /tmp/tank-kk.png --screenshot-frame 30
+Exit code: 139 (SIGSEGV). Same command without VK_ICD_FILENAMES (MoltenVK): exit 0.
+
+lldb --batch backtrace (thread #1, com.apple.main-thread):
+  stop reason = EXC_BAD_ACCESS (code=1, address=0x0)
+  frame #0: libvulkan_kosmickrisp.dylib`wsi_configure_image + 672
+      ldr w9, [x24], #0x8
+No app frames above the driver frame (driver tail-calls into it).
+VK_LAYER_LUNARG_api_dump last call before the crash (see tank-kosmickrisp-apidump.log):
+  vkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain)
+Crash is inside the driver's swapchain image configuration for the tank's
+1280x720 sRGB mutable-format swapchain. The 256x256 smoke-window swapchain on
+the same driver succeeds (vulkan-indirect-smoke passes, mode=mdi-count).
+
+Engine log before crash (tank-ref-near.log):
+  Vulkan device: Apple M4 Pro
+  Vulkan indirect supported: multiDraw=1 firstInstance=1 drawParameters=1 count=1;
+  enabled: multiDraw=1 firstInstance=1 drawID=1 count=1 singleEmulation=1
+  Vulkan indirect limits: maxDrawCount=65535 stride=20 ...

@@ -12,6 +12,8 @@
 // std::pair<Vector4, Vector4> members.
 #include "Fury/AnimationClip.h"
 #include "Fury/Component.h"
+#include "Fury/ClusterLodImport.h"
+#include "Fury/DdcStore.h"
 #include "Fury/EntityManager.h"
 #include "Fury/FileUtil.h"
 #include "Fury/Joint.h"
@@ -1840,6 +1842,23 @@ std::shared_ptr<Scene> GltfImporter::Import(
 	// billboard terminal tier, foliage material flags, meters -> cm.
 	KrautImportPostprocess(model, scene, meshes, materials,
 		submesh_to_gltf_material, gltf_node_to_scene_node);
+
+	DdcStore cluster_ddc(DdcStore::ResolveRoot());
+	for (const auto &mesh : meshes)
+	{
+		bool cache_hit = false;
+		std::string cluster_error;
+		if (!PrepareClusterLodForImport(mesh, cluster_ddc, cache_hit, cluster_error))
+		{
+			FURYE << "gltf-importer: cluster LOD generation failed: " << cluster_error;
+			return nullptr;
+		}
+		if (mesh->GetClusterLodDescriptor())
+		{
+			FURYI << "gltf-importer: mesh '" << mesh->GetName() << "' cluster LOD "
+				  << (cache_hit ? "DDC hit" : "built");
+		}
+	}
 
 	// Self-register the imported hierarchy with the scene's scene
 	// manager so the returned scene renders as-is (Scene.SetActive +

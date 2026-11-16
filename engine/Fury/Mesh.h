@@ -4,11 +4,13 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <optional>
 
 #include "Fury/Entity.h"
 #include "Fury/ArrayBuffers.h"
 #include "Fury/BoxBounds.h"
 #include "Fury/Buffer.h"
+#include "Fury/ClusterLodAsset.h"
 #include "Fury/Matrix4.h"
 
 namespace fury
@@ -139,6 +141,10 @@ namespace fury
 		// with the mesh. Serialized by name.
 		std::weak_ptr<Material> m_BillboardMaterial;
 
+		std::optional<ClusterLodDescriptor> m_ClusterLodDescriptor;
+
+		std::shared_ptr<ClusterLodAsset> m_ClusterLodAsset;
+
 	public:
 
 		ArrayBufferf Positions;
@@ -207,6 +213,15 @@ namespace fury
 		// Path and name are the same string for meshes.
 		void SetPath(const std::string &path) { m_Name = path; }
 
+		const ClusterLodDescriptor *GetClusterLodDescriptor() const
+		{
+			return m_ClusterLodDescriptor ? &*m_ClusterLodDescriptor : nullptr;
+		}
+		void SetClusterLodDescriptor(const ClusterLodDescriptor &descriptor) { m_ClusterLodDescriptor = descriptor; }
+		void ClearClusterLodDescriptor() { m_ClusterLodDescriptor.reset(); m_ClusterLodAsset.reset(); }
+		const std::shared_ptr<ClusterLodAsset> &GetClusterLodAsset() const { return m_ClusterLodAsset; }
+		void SetClusterLodAsset(const std::shared_ptr<ClusterLodAsset> &asset) { m_ClusterLodAsset = asset; }
+
 		// LOD chain. LOD 0 is this mesh itself (highest detail). LODs
 		// 1..N are additional Mesh objects owned by this mesh -- they
 		// are saved inline with this mesh's JSON (not as separate
@@ -248,14 +263,7 @@ namespace fury
 		void ClearLodChain();
 	};
 
-	// 64-bit FNV-1a content fingerprint over a mesh's Positions.Data
-	// (raw float bytes) + top-level Indices.Data (raw uint bytes) +
-	// each submesh's Indices.Data (in submesh order). Used by the
-	// editor's thumbnail disk cache to key cached PNGs on the actual
-	// vertex/index content, not on BufferId (which is identity-only --
-	// in-place vertex edits do not change it). No allocations beyond
-	// the 64-bit accumulator; safe to call from worker threads on a
-	// shared_ptr-stabilized mesh.
+	// 64-bit FNV-1a fingerprint over every source vertex/index stream and submesh boundary.
 	uint64_t FURY_API MeshContentHash(const class Mesh* mesh);
 
 	// 16-character lowercase hexadecimal representation of a 64-bit

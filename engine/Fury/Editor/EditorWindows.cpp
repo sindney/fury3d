@@ -8,6 +8,8 @@
 #include "Fury/ParticleRenderer.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/Camera.h"
+#include "Fury/ClusterRenderer.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorRenderJobs.h"
 #include "Fury/Editor/EditorAssetPicker.h"
@@ -60,9 +62,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <optional>
 #include <string>
@@ -273,6 +277,56 @@ void RenderSettingsWindow(bool* open) {
 			const char *clusteredDiagnostic = Pipeline::Active->GetClusteredLightingDiagnostic();
 			if (clustered && !Pipeline::Active->IsClusteredLightingEffective() && clusteredDiagnostic[0] != '\0')
 				ImGui::TextDisabled("Unavailable: %s", clusteredDiagnostic);
+
+			bool clusterLod = settings->IsClusterLodEnabled();
+			if (ImGui::Checkbox("Cluster LOD", &clusterLod)) {
+				settings->SetClusterLodEnabled(clusterLod);
+				Editor::MarkSceneDirty();
+			}
+			float clusterLodError = settings->GetClusterLodScreenError();
+			if (ImGui::DragFloat("Cluster Screen Error", &clusterLodError, 0.05f, 0.0001f, 64.0f, "%.4f")) {
+				settings->SetClusterLodScreenError(clusterLodError);
+				Editor::MarkSceneDirty();
+			}
+			static ClusterLodStats s_ClusterLodStats;
+			static std::future<ClusterLodStats> s_ClusterLodStatsWait;
+			if (s_ClusterLodStatsWait.valid()
+				&& s_ClusterLodStatsWait.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+				s_ClusterLodStats = s_ClusterLodStatsWait.get();
+			const bool statsPending = s_ClusterLodStatsWait.valid();
+			if (statsPending) ImGui::BeginDisabled();
+			if (ImGui::Button("Read Cluster Stats")) {
+				auto pipeline = Pipeline::Active;
+				const bool enabled = settings && settings->IsClusterLodEnabled();
+				auto done = std::make_shared<std::promise<ClusterLodStats>>();
+				s_ClusterLodStatsWait = done->get_future();
+				RenderThread::Get().EnqueueJob([pipeline, enabled, done]() {
+					ClusterLodStats result;
+					if (auto deferred = dynamic_cast<DeferredPipeline *>(pipeline.get()))
+						deferred->ReadClusterLodStats(result);
+					else
+						result.unavailableReason = "deferred pipeline is unavailable";
+					if (!enabled)
+						result.unavailableReason = "cluster rendering is disabled";
+					done->set_value(std::move(result));
+				});
+			}
+			if (statsPending) ImGui::EndDisabled();
+			if (s_ClusterLodStats.frameIndex != 0) {
+				if (!s_ClusterLodStats.unavailableReason.empty())
+					ImGui::TextDisabled("Cluster frame %llu: %s",
+						(unsigned long long)s_ClusterLodStats.frameIndex, s_ClusterLodStats.unavailableReason.c_str());
+				else {
+					ImGui::TextDisabled("Cluster frame %llu: candidates %u, accepted %u, fallback %u",
+						(unsigned long long)s_ClusterLodStats.frameIndex, s_ClusterLodStats.candidateInstances,
+						s_ClusterLodStats.instances, s_ClusterLodStats.fallbackInstances);
+					ImGui::TextDisabled("Selected %u, visible %u, commands %u, batches %u, triangles %u",
+						s_ClusterLodStats.selected, s_ClusterLodStats.visible, s_ClusterLodStats.commands,
+						s_ClusterLodStats.batches, s_ClusterLodStats.drawnTriangles);
+					ImGui::TextDisabled("Selection overflow %u, visibility overflow %u",
+						s_ClusterLodStats.selectionOverflow, s_ClusterLodStats.visibilityOverflow);
+				}
+			}
 
 			bool csm = settings->IsCascadedShadowMap();
 			if (ImGui::Checkbox("Cascaded Shadow Map (CSM)", &csm)) {
@@ -2741,6 +2795,7 @@ void RenderViewportToolbar() {
 	// with a buffer view (pipeline DrawEffectDebugView).
 	static int postfx_view = 0; // 0=none, 1=SSAO, 2=SSR
 	static int cluster_view = 0; // 0=none, 1=grid, 2=light count
+	static int geometry_cluster_view = 0; // 0=none, 1=LOD, 2=cluster ID
 	static bool draw_light_bounds = false;
 	static bool draw_mesh_bounds = false;
 	static bool draw_custom_bounds = false;
@@ -2809,6 +2864,7 @@ void RenderViewportToolbar() {
 	};
 	static const char* kPostFxViews[] = { "Off", "SSAO View", "SSR View" };
 	static const char* kClusterViews[] = { "Off", "Cluster Grid", "Cluster Light Count" };
+	static const char* kGeometryClusterViews[] = { "Off", "Cluster LOD", "Cluster ID" };
 	static const char* kSkyViews[] = { "Off", "Cloud Step Count", "Cloud Transmittance" };
 
 	// Preview: the active pieces joined, or "(none)".
@@ -2835,6 +2891,8 @@ void RenderViewportToolbar() {
 			parts.push_back(kPostFxViews[postfx_view]);
 		if (cluster_view != 0)
 			parts.push_back(kClusterViews[cluster_view]);
+		if (geometry_cluster_view != 0)
+			parts.push_back(kGeometryClusterViews[geometry_cluster_view]);
 		if (parts.empty()) preview = "(none)";
 		for (size_t i = 0; i < parts.size(); ++i) {
 			if (i > 0) preview += " + ";
@@ -2890,6 +2948,28 @@ void RenderViewportToolbar() {
 			}
 			ImGui::EndMenu();
 		}
+		if (ImGui::BeginMenu("Geometry Clusters")) {
+			for (int i = 0; i < 3; ++i) {
+				if (ImGui::Selectable(kGeometryClusterViews[i], geometry_cluster_view == i,
+									  ImGuiSelectableFlags_DontClosePopups)) {
+					if (i != 0 && geometry_cluster_view != i) {
+						auto settings = Scene::Active ? Scene::Active->GetRenderSettings() : nullptr;
+						if (!settings || !settings->IsClusterLodEnabled()) {
+							FURYW << "Cluster debug view unavailable: cluster rendering is disabled";
+						} else if (GRHIDevice && (!GRHIDevice->GetCapabilities().SupportsCompute
+							|| !GRHIDevice->GetCapabilities().SupportsSSBO)) {
+							FURYW << "Cluster debug view unavailable: compute or storage buffers are unsupported";
+						} else if (GRHIDevice && (!GRHIDevice->GetCapabilities().SupportsMultiDrawIndirect
+							|| !GRHIDevice->GetCapabilities().SupportsIndirectFirstInstance
+							|| !GRHIDevice->GetCapabilities().SupportsIndirectCount)) {
+							FURYW << "Cluster debug view unavailable: indirect execution or per-draw IDs are unsupported";
+						}
+					}
+					geometry_cluster_view = i;
+				}
+			}
+			ImGui::EndMenu();
+		}
 		if (ImGui::BeginMenu("Sky", !skyNodes.empty())) {
 			for (int i = 0; i < 3; ++i) {
 				if (ImGui::Selectable(kSkyViews[i], sky_debug == i,
@@ -2936,6 +3016,8 @@ void RenderViewportToolbar() {
 		Pipeline::Active->SetSwitch(PipelineSwitch::SSR_VIEW, postfx_view == 2);
 		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_GRID_VIEW, cluster_view == 1);
 		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW, cluster_view == 2);
+		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_LOD_VIEW, geometry_cluster_view == 1);
+		Pipeline::Active->SetSwitch(PipelineSwitch::CLUSTER_ID_VIEW, geometry_cluster_view == 2);
 		if (cluster_view == 2 && Pipeline::Active->GetClusteredLightingDiagnostic()[0] == '\0') {
 			ImGui::TextDisabled("Max lights/cluster: %d; overflow: %d",
 				Pipeline::Active->GetClusterMaxLightCount(), Pipeline::Active->GetClusterOverflowCount());

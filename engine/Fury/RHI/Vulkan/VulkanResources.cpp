@@ -199,6 +199,10 @@ namespace fury
 		VkBufferCreateInfo bci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 		bci.size = size;
 		bci.usage = VulkanEnumMap::BufferUsage(m_Desc.Type) | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		if ((m_Desc.UsageFlags & RHI_BUFFER_TRANSFER_SRC) != 0)
+			bci.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		if ((m_Desc.UsageFlags & RHI_BUFFER_INDIRECT) != 0)
+			bci.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 		bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 		// Host-visible coherent storage for bring-up: uploads and updates are

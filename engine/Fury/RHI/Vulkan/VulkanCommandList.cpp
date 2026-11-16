@@ -871,18 +871,19 @@ namespace fury
 		{
 			for (const auto &attr : *vertexLayout)
 			{
-				auto found = std::find_if(bindings.begin(), bindings.end(), [&](const auto &binding) { return binding.binding == attr.Stream; });
+				const unsigned int stream = attr.ConstantFill ? CONSTANTS_STREAM : attr.Stream;
+				auto found = std::find_if(bindings.begin(), bindings.end(), [&](const auto &binding) { return binding.binding == stream; });
 				if (found == bindings.end())
 				{
 					VkVertexInputBindingDescription binding = {};
-					binding.binding = attr.Stream;
-					binding.stride = attr.Stride;
+					binding.binding = stream;
+					binding.stride = attr.ConstantFill ? 0 : attr.Stride;
 					binding.inputRate = attr.Divisor > 0 ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
 					bindings.push_back(binding);
 				}
 				VkVertexInputAttributeDescription out = {};
 				out.location = attr.Location;
-				out.binding = attr.Stream;
+				out.binding = stream;
 				out.format = VulkanEnumMap::VertexFormat(attr.Format);
 				out.offset = attr.Offset;
 				attributes.push_back(out);
@@ -1147,15 +1148,16 @@ namespace fury
 			for (const auto &attr : *layout)
 			{
 				VulkanBuffer *buffer = nullptr;
-				if (attr.Stream < MAX_STREAMS) buffer = m_VertexStreams[attr.Stream].get();
+				if (attr.ConstantFill) buffer = GetConstantsBuffer();
+				else if (attr.Stream < MAX_STREAMS) buffer = m_VertexStreams[attr.Stream].get();
 				else if (attr.Stream >= MESH_STREAM_BASE && attr.Stream < MESH_STREAM_BASE + m_MeshChannelCount) buffer = static_cast<VulkanBuffer *>(m_MeshChannels[attr.Stream - MESH_STREAM_BASE].Buffer.get());
 				else if (attr.Stream == INSTANCE_STREAM) buffer = m_InstanceBuffer.get();
-				else if (attr.Stream == CONSTANTS_STREAM) buffer = GetConstantsBuffer();
 				if (buffer == nullptr)
 					continue;
 				const VkDeviceSize offset = 0;
 				const VkBuffer native = buffer->Get();
-				vkCmdBindVertexBuffers(cmd, attr.Stream, 1, &native, &offset);
+				const unsigned int stream = attr.ConstantFill ? CONSTANTS_STREAM : attr.Stream;
+				vkCmdBindVertexBuffers(cmd, stream, 1, &native, &offset);
 			}
 		}
 		return true;
@@ -1183,6 +1185,173 @@ namespace fury
 		const VkIndexType type = m_IndexBuffer->GetDesc().Index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
 		vkCmdBindIndexBuffer(m_Device->GetCommandBuffer(), m_IndexBuffer->Get(), 0, type);
 		vkCmdDrawIndexed(m_Device->GetCommandBuffer(), indexCount, instanceCount, firstIndex, vertexOffset, 0);
+	}
+
+	bool VulkanCommandList::CopyBuffer(const RHIBufferRef &src, const RHIBufferRef &dst,
+		size_t srcOffset, size_t dstOffset, size_t size)
+	{
+		auto source = std::static_pointer_cast<VulkanBuffer>(src);
+		auto target = std::static_pointer_cast<VulkanBuffer>(dst);
+		if (source == nullptr || target == nullptr || size == 0
+			|| srcOffset > source->GetCapacity() || size > source->GetCapacity() - srcOffset
+			|| dstOffset > target->GetCapacity() || size > target->GetCapacity() - dstOffset)
+			return false;
+		EndRendering();
+		Retain(src);
+		Retain(dst);
+		VkCommandBuffer cmd = m_Device->GetCommandBuffer();
+		if (cmd == VK_NULL_HANDLE)
+			return false;
+		VkBufferMemoryBarrier before[2] = {
+			{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER },
+			{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER }
+		};
+		before[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+		before[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		before[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		before[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		before[0].buffer = source->Get();
+		before[0].offset = srcOffset;
+		before[0].size = size;
+		before[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+			| VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+		before[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		before[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		before[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		before[1].buffer = target->Get();
+		before[1].offset = dstOffset;
+		before[1].size = size;
+		vkCmdPipelineBarrier(cmd,
+			VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+				| VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
+				| VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 2, before, 0, nullptr);
+		VkBufferCopy region = { srcOffset, dstOffset, size };
+		vkCmdCopyBuffer(cmd, source->Get(), target->Get(), 1, &region);
+		return true;
+	}
+
+	bool VulkanCommandList::PrepareIndirectBatch(const RHIIndirectBatchRef &batch)
+	{
+		if (batch == nullptr)
+			return false;
+		const RHIIndirectBatchDesc &desc = batch->GetDesc();
+		auto arguments = std::static_pointer_cast<VulkanBuffer>(desc.Arguments);
+		auto counts = std::static_pointer_cast<VulkanBuffer>(desc.Counts);
+		if (arguments == nullptr || arguments->Get() == VK_NULL_HANDLE || desc.Capacity == 0)
+			return false;
+		EndRendering();
+		Retain(batch);
+		Retain(desc.Pipeline);
+		Retain(desc.IndexBuffer);
+		for (const auto &binding : desc.VertexBuffers) Retain(binding.Buffer);
+		for (const auto &binding : desc.StorageBuffers) Retain(binding.Buffer);
+		for (const auto &binding : desc.Textures) Retain(binding.Texture);
+		VkCommandBuffer cmd = m_Device->GetCommandBuffer();
+		if (cmd == VK_NULL_HANDLE)
+			return false;
+		auto recordBarrier = [&](VkBuffer buffer)
+		{
+			VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.buffer = buffer;
+			barrier.offset = 0;
+			barrier.size = VK_WHOLE_SIZE;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+		};
+		recordBarrier(arguments->Get());
+		if (counts != nullptr && counts->Get() != VK_NULL_HANDLE)
+			recordBarrier(counts->Get());
+		for (const auto &binding : desc.StorageBuffers)
+		{
+			auto buffer = std::static_pointer_cast<VulkanBuffer>(binding.Buffer);
+			if (buffer == nullptr || buffer->Get() == VK_NULL_HANDLE)
+				continue;
+			VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.buffer = buffer->Get();
+			barrier.offset = 0;
+			barrier.size = VK_WHOLE_SIZE;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0, 0, nullptr, 1, &barrier, 0, nullptr);
+		}
+		return true;
+	}
+
+	bool VulkanCommandList::DrawIndexedIndirect(const RHIIndirectBatchRef &batch)
+	{
+		const auto &caps = m_Device->GetCapabilities();
+		if (batch == nullptr || !caps.SupportsIndirectCount || !caps.SupportsMultiDrawIndirect
+			|| !caps.SupportsIndirectFirstInstance || caps.MaxDrawIndirectCount == 0
+			|| caps.IndirectArgumentStride != sizeof(VkDrawIndexedIndirectCommand))
+			return false;
+		const RHIIndirectBatchDesc &desc = batch->GetDesc();
+		auto arguments = std::static_pointer_cast<VulkanBuffer>(desc.Arguments);
+		auto counts = std::static_pointer_cast<VulkanBuffer>(desc.Counts);
+		if (arguments == nullptr || counts == nullptr || desc.Pipeline == nullptr
+			|| desc.IndexBuffer == nullptr || desc.Capacity == 0
+			|| (desc.ArgumentOffset % 4) != 0 || (desc.CountOffset % caps.IndirectCountOffsetAlignment) != 0
+			|| (desc.CountStride % 4) != 0 || desc.CountStride < 4
+			|| desc.ArgumentOffset > arguments->GetCapacity()
+			|| desc.Capacity > (arguments->GetCapacity() - desc.ArgumentOffset) / sizeof(VkDrawIndexedIndirectCommand))
+			return false;
+
+		const std::uint32_t chunkLimit = std::min(desc.Capacity, caps.MaxDrawIndirectCount);
+		const std::uint32_t chunkCount = (desc.Capacity + chunkLimit - 1) / chunkLimit;
+		if (desc.CountOffset > counts->GetCapacity()
+			|| static_cast<size_t>(chunkCount - 1) * desc.CountStride + sizeof(std::uint32_t)
+				> counts->GetCapacity() - desc.CountOffset)
+			return false;
+
+		Retain(batch);
+		// Indirect batches own their vertex layout.
+		m_MeshChannelCount = 0;
+		m_HasInstanceStream = false;
+		SetPipeline(desc.Pipeline);
+		SetIndexBuffer(desc.IndexBuffer);
+		for (const auto &binding : desc.VertexBuffers)
+			SetVertexBuffer(binding.Buffer, binding.Stream);
+		for (const auto &binding : desc.StorageBuffers)
+		{
+			if (binding.Name.empty()) SetStorageBuffer(binding.Binding, binding.Buffer);
+			else SetStorageBufferNamed(binding.Name.c_str(), binding.Binding, binding.Buffer);
+		}
+		for (const auto &binding : desc.Textures)
+			SetTexture(binding.Name, binding.Texture);
+		if (!FlushDrawState() || m_IndexBuffer == nullptr)
+			return false;
+
+		const VkIndexType indexType = m_IndexBuffer->GetDesc().Index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+		vkCmdBindIndexBuffer(m_Device->GetCommandBuffer(), m_IndexBuffer->Get(), 0, indexType);
+		for (std::uint32_t chunk = 0; chunk < chunkCount; ++chunk)
+		{
+			const VkDeviceSize argumentOffset = desc.ArgumentOffset
+				+ static_cast<VkDeviceSize>(chunk) * chunkLimit * sizeof(VkDrawIndexedIndirectCommand);
+			const VkDeviceSize countOffset = desc.CountOffset + static_cast<VkDeviceSize>(chunk) * desc.CountStride;
+			if (vkCmdDrawIndexedIndirectCount != nullptr)
+			{
+				vkCmdDrawIndexedIndirectCount(m_Device->GetCommandBuffer(), arguments->Get(), argumentOffset,
+					counts->Get(), countOffset, chunkLimit, sizeof(VkDrawIndexedIndirectCommand));
+			}
+			else if (vkCmdDrawIndexedIndirectCountKHR != nullptr)
+			{
+				vkCmdDrawIndexedIndirectCountKHR(m_Device->GetCommandBuffer(), arguments->Get(), argumentOffset,
+					counts->Get(), countOffset, chunkLimit, sizeof(VkDrawIndexedIndirectCommand));
+			}
+			else
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	void VulkanCommandList::Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)

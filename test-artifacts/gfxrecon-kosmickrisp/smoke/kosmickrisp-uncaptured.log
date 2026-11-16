@@ -1,0 +1,9 @@
+Warning. Compatibility profile not supported on this platform.
+Error. Unable to create the context. Retrying without shared context.
+Warning. New context created without shared context.
+Warning: The created OpenGL context does not fully meet the settings that were requested
+Requested: version = 4.6 ; depth bits = 24 ; stencil bits = 8 ; AA level = 0 ; core = false ; debug = false ; sRGB = false
+Created: version = 4.1 ; depth bits = 24 ; stencil bits = 8 ; AA level = 0 ; core = true ; debug = false ; sRGB = false
+fury: GL context 4.1 (requested 4.6)
+vulkan_indirect_smoke: debug gpuCount=2 id0=0 id1=0 id3=3 id7=3 id11=0 positions=1 scale=6 tint=1 texture=1 capacity=3 chunks=1 range=0,2 rgba=17,34,51,255
+vulkan_indirect_smoke: frame=1 mode=mdi-count gpuCount=2 id3=3 id7=3 id11=0 PASS

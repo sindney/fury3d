@@ -97,6 +97,16 @@ namespace fury
 		std::vector<Matrix4> skinPalette;
 	};
 
+	struct PacketClusterInstance
+	{
+		std::uint64_t nodeKey = 0;
+		std::string nodeUuid;
+		std::shared_ptr<Mesh> mesh;
+		std::vector<std::shared_ptr<Material>> materials;
+		Matrix4 worldMatrix;
+		BoxBounds worldBounds;
+	};
+
 	// One shadow caster: static/skinned mesh form, or an indirection into
 	// the packet's instanced list (instancedIndex >= 0).
 	struct PacketCaster
@@ -369,6 +379,12 @@ namespace fury
 		std::vector<PacketUnit> opaqueUnits;
 
 		std::vector<PacketUnit> transparentUnits;
+
+		std::vector<PacketClusterInstance> clusterInstances;
+
+		bool clusterLodEnabled = false;
+
+		float clusterLodError = 1.0f;
 
 		std::vector<PacketLight> lights;
 

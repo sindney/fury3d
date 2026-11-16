@@ -45,10 +45,49 @@ if kind == "feature" then
 
     local tanks = require_node("TankGroup")
     local tank_meshes = 0
+    local tank_mesh_refs = {}
     for i = 0, tanks:GetChildCount() - 1 do
-        if tanks:GetChildAt(i):GetMeshRender() then tank_meshes = tank_meshes + 1 end
+        local render = tanks:GetChildAt(i):GetMeshRender()
+        if render then
+            tank_meshes = tank_meshes + 1
+            local mesh = render:GetMesh()
+            if not mesh or mesh:GetName() ~= "Tank.005" then fail("tank shared mesh identity changed") end
+            tank_mesh_refs[#tank_mesh_refs + 1] = mesh
+        end
     end
     if tank_meshes ~= 6 then fail("expected six tank meshes, got " .. tank_meshes) end
+    local cluster = ClusterLodTest.BuildShared(tank_mesh_refs)
+    if not cluster.ok then fail("tank cluster build failed: " .. tostring(cluster.error)) end
+    if cluster.reference_count ~= 6 or cluster.unique_mesh_count ~= 1 or cluster.build_count ~= 1 then
+        fail("tank cluster builder did not deduplicate the shared mesh")
+    end
+    if cluster.source_submesh_count ~= 3 or cluster.source_triangle_count ~= 22163 then
+        fail("tank source topology changed")
+    end
+    if cluster.lod0_triangle_count ~= 22163 then fail("tank LOD-zero coverage is incomplete") end
+    if cluster.cut_cluster_counts[1] ~= cluster.leaf_cluster_count or cluster.cut_triangles[1] ~= 22163 then
+        fail(string.format("tank zero-threshold cut is incomplete: %d/%d clusters, %d triangles",
+            cluster.cut_cluster_counts[1], cluster.leaf_cluster_count, cluster.cut_triangles[1]))
+    end
+    local expected_materials = { 368, 21729, 66 }
+    for i, expected in ipairs(expected_materials) do
+        if cluster.material_triangles[i] ~= expected then
+            fail("tank material triangle coverage changed at slot " .. i)
+        end
+    end
+    if not cluster.source_unchanged or not cluster.cuts_valid then fail("tank cluster validation failed") end
+    if cluster.group_count == 0 or cluster.max_level == 0 then fail("tank has no coarse cluster roots") end
+    local previous = cluster.lod0_triangle_count
+    for i, triangles in ipairs(cluster.cut_triangles) do
+        if triangles > previous then
+            fail(string.format("tank cut triangle count increased at threshold %s",
+                tostring(cluster.cut_thresholds[i])))
+        end
+        previous = triangles
+    end
+    if previous >= cluster.lod0_triangle_count then fail("tank coarse cuts do not reduce triangles") end
+    print(string.format("cluster_lod_tank: %d clusters, %d groups, %d -> %d triangles OK",
+        cluster.cluster_count, cluster.group_count, cluster.lod0_triangle_count, previous))
 
     local lights = {
         Sun = LightType.DIRECTIONAL,

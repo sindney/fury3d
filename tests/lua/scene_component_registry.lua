@@ -305,4 +305,99 @@ end
 load_case("unknown_component.json", document({
     components = '[{"type":"NotARegisteredComponent","value":1}]' }), true)
 
+load_case("cluster_lod_missing.json", document({
+    meshes = '"meshes": [{"name":"missing_cluster","positions":[0,0,0,1,0,0,0,1,0],"indices":[0,1,2],"submeshes":[[0,1,2]],"cast_shadows":true}],',
+}), false)
+
+local cluster_source = Scene.Create("cluster_lod_roundtrip", compat_dir .. "/")
+Scene.SetActive(cluster_source)
+local cluster_mesh = MeshUtil.CreateCube()
+local canonical = SubMesh.Create()
+canonical:SetIndices(cluster_mesh:GetIndices())
+cluster_mesh:AddSubMesh(canonical)
+cluster_source:AddMesh(cluster_mesh)
+local ddc_root = os.getenv("FURY_DDC") or "DDC"
+local stored = ClusterLodTest.BuildAndStore(cluster_mesh, ddc_root)
+if not stored.ok then fail("cluster DDC store failed: " .. tostring(stored.error)) end
+if not stored.key:match("^CLOD_") then fail("cluster DDC key is not namespaced") end
+local cluster_fingerprint = Scene.GetPersistentFingerprint(cluster_source)
+ClusterLodTest.ClearDescriptor(cluster_mesh)
+if #Scene.DiffPersistentFingerprints(cluster_fingerprint,
+    Scene.GetPersistentFingerprint(cluster_source)) == 0 then
+    fail("cluster descriptor loss was not fingerprinted")
+end
+stored = ClusterLodTest.BuildAndStore(cluster_mesh, ddc_root)
+if not stored.ok then fail("cluster descriptor restore failed") end
+for _, extension in ipairs({ "json", "bin" }) do
+    Scene.SetActive(cluster_source)
+    local path = compat_dir .. "/cluster_lod_roundtrip." .. extension
+    if not FileUtil.SaveByExtension(cluster_source, path) then fail("cluster descriptor save failed") end
+    local loaded = Importer.LoadScene(path)
+    if not loaded then fail("cluster descriptor load failed: " .. extension) end
+    Scene.SetActive(loaded)
+    if #Scene.DiffPersistentFingerprints(cluster_fingerprint,
+        Scene.GetPersistentFingerprint(loaded)) ~= 0 then
+        fail("cluster descriptor fingerprint changed: " .. extension)
+    end
+end
+local cluster_json = read_file(compat_dir .. "/cluster_lod_roundtrip.json")
+if not cluster_json:find('"cluster_lod"', 1, true) then fail("cluster descriptor missing from JSON") end
+if cluster_json:find('"gpu_clusters"', 1, true) or cluster_json:find('"merged_indices"', 1, true) then
+    fail("cluster payload arrays were embedded in scene JSON")
+end
+
+Scene.SetActive(cluster_source)
+local payload_fingerprint = Scene.GetPersistentFingerprint(cluster_source)
+ClusterLodTest.DetachPayload(cluster_mesh)
+if #Scene.DiffPersistentFingerprints(payload_fingerprint,
+    Scene.GetPersistentFingerprint(cluster_source)) == 0 then
+    fail("cluster payload loss was not fingerprinted")
+end
+local payload_path = ddc_root .. "/" .. stored.key:sub(1, 2) .. "/"
+    .. stored.key:sub(3, 4) .. "/" .. stored.key .. ".clod"
+local source_root = os.getenv("FURY_CLOD_ROOT")
+    or (os.getenv("FURY_DDC") and (ddc_root .. "/source") or "Resource/ClusterLOD")
+local source_payload_path = source_root .. "/" .. stored.key .. ".clod"
+local payload_bytes = read_file(payload_path)
+if read_file(source_payload_path) ~= payload_bytes then fail("durable and DDC payloads differ") end
+local loaded_payload = ClusterLodTest.Load(cluster_mesh, ddc_root)
+if not loaded_payload.ok then fail("cluster DDC load failed: " .. tostring(loaded_payload.error)) end
+if #Scene.DiffPersistentFingerprints(payload_fingerprint,
+    Scene.GetPersistentFingerprint(cluster_source)) ~= 0 then
+    fail("cluster payload did not reattach")
+end
+if not os.remove(payload_path) then fail("cannot remove cluster DDC payload") end
+if not os.remove(source_payload_path) then fail("cannot remove durable cluster payload") end
+local missing = ClusterLodTest.Load(cluster_mesh, ddc_root)
+if missing.ok or not tostring(missing.error):find(stored.key, 1, true) then
+    fail("missing cluster payload did not report its key")
+end
+local function write_payload(bytes)
+    local file = io.open(payload_path, "wb")
+    if not file then fail("cannot restore cluster DDC payload") end
+    file:write(bytes)
+    file:close()
+    file = io.open(source_payload_path, "wb")
+    if not file then fail("cannot restore durable cluster payload") end
+    file:write(bytes)
+    file:close()
+end
+write_payload(payload_bytes)
+local last_payload_byte = payload_bytes:byte(-1)
+local corrupt_bytes = payload_bytes:sub(1, -2)
+    .. string.char(last_payload_byte == 255 and 0 or last_payload_byte + 1)
+write_payload(corrupt_bytes)
+local corrupt = ClusterLodTest.Load(cluster_mesh, ddc_root)
+if corrupt.ok then fail("corrupt cluster payload loaded successfully") end
+write_payload(payload_bytes)
+local original_normals = cluster_mesh:GetNormals()
+cluster_mesh:SetNormals({ 0, 0, 1 })
+local stale = ClusterLodTest.Load(cluster_mesh, ddc_root)
+if stale.ok or not tostring(stale.error):find("stale", 1, true) then
+    fail("attribute-only mesh edit did not invalidate the cluster payload")
+end
+cluster_mesh:SetNormals(original_normals)
+local restored = ClusterLodTest.Load(cluster_mesh, ddc_root)
+if not restored.ok then fail("restored cluster payload did not load") end
+
 print("scene_component_registry: " .. which .. " OK")

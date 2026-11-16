@@ -6,6 +6,7 @@
 #include <fstream>
 
 #include "Fury/Engine.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/EntityManager.h"
 #include "Fury/EnumUtil.h"
 #include "Fury/FramePacket.h"
@@ -103,6 +104,8 @@ namespace fury
 			return false;
 		}
 		const auto &pipeline = Pipeline::Active;
+		if (auto deferred = dynamic_cast<DeferredPipeline *>(pipeline.get()))
+			deferred->LogClusterDiagnostics(packet.frameIndex, packet);
 
 		std::error_code ec;
 		std::filesystem::create_directories(std::filesystem::path(outDir) / "textures", ec);

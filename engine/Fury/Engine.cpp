@@ -1008,6 +1008,7 @@ namespace fury
 				bool ok = false;
 				if (renderThread)
 				{
+					renderThreadInst.Flush();
 					std::promise<bool> done;
 					std::future<bool> wait = done.get_future();
 					FramePacket *dumpPacket = packet;

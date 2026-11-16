@@ -42,6 +42,11 @@
 #include "Fury/Joint.h"
 #include "Fury/BodySetup.h"
 #include "Fury/CharacterController.h"
+#include "Fury/ClusterLodBuilder.h"
+#include "Fury/ClusterLodImport.h"
+#include "Fury/ClusterLodPayloadStore.h"
+#include "Fury/ClusterLodSelection.h"
+#include "Fury/ClusterLodValidation.h"
 #include "Fury/Light.h"
 #include "Fury/Log.h"
 #include "Fury/MathUtil.h"
@@ -63,6 +68,7 @@
 #include "Fury/Pipeline.h"
 #include "Fury/PlayerController.h"
 #include "Fury/DeferredPipeline.h"
+#include "Fury/DdcStore.h"
 #include "Fury/Quaternion.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/RenderThread.h"
@@ -90,6 +96,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <set>
 #include <vector>
 
 namespace fury
@@ -1415,6 +1422,10 @@ namespace fury
 				});
 
 			// --- Pipeline ------------------------------------------------------
+			lua.new_enum<PipelineSwitch>("PipelineSwitch", {
+				{ "CLUSTER_LOD_VIEW", PipelineSwitch::CLUSTER_LOD_VIEW },
+				{ "CLUSTER_ID_VIEW", PipelineSwitch::CLUSTER_ID_VIEW }});
+
 			// `Execute` takes `shared_ptr<SceneManager>`; lua passes the
 			// concrete `OcTree::Ptr`. Wrap to upcast in C++ -- same sol2
 			// upcast workaround as Scene.Create / SceneNode:AddComponent /
@@ -1500,6 +1511,10 @@ namespace fury
 				"SetHDR", &RenderSettings::SetHDR,
 				"IsClusteredLighting", &RenderSettings::IsClusteredLighting,
 				"SetClusteredLighting", &RenderSettings::SetClusteredLighting,
+				"IsClusterLodEnabled", &RenderSettings::IsClusterLodEnabled,
+				"SetClusterLodEnabled", &RenderSettings::SetClusterLodEnabled,
+				"GetClusterLodScreenError", &RenderSettings::GetClusterLodScreenError,
+				"SetClusterLodScreenError", &RenderSettings::SetClusterLodScreenError,
 				"IsCascadedShadowMap", &RenderSettings::IsCascadedShadowMap,
 				"SetCascadedShadowMap", &RenderSettings::SetCascadedShadowMap,
 				"GetCsmMapSize", &RenderSettings::GetCsmMapSize,
@@ -2695,6 +2710,205 @@ namespace fury
 #endif
 			};
 
+			lua["ClusterLodTest"] = lua.create_table();
+			lua["ClusterLodTest"]["BuildShared"] = [](sol::table meshes, sol::this_state s) {
+				sol::state_view lua(s);
+				sol::table report = lua.create_table();
+				report["reference_count"] = meshes.size();
+				report["unique_mesh_count"] = 0;
+				report["build_count"] = 0;
+				report["ok"] = false;
+				std::set<const Mesh *> unique;
+				std::shared_ptr<Mesh> source;
+				for (std::size_t i = 1; i <= meshes.size(); ++i)
+				{
+					std::shared_ptr<Mesh> mesh = meshes.get<std::shared_ptr<Mesh>>(i);
+					if (!mesh)
+					{
+						report["error"] = "null mesh reference";
+						return report;
+					}
+					unique.insert(mesh.get());
+					if (!source)
+						source = std::move(mesh);
+				}
+				report["unique_mesh_count"] = unique.size();
+				if (!source || unique.size() != 1)
+				{
+					report["error"] = "expected one shared mesh";
+					return report;
+				}
+
+				const uint64_t source_hash = MeshContentHash(source.get());
+				const ClusterLodBuildOptions options;
+				ClusterLodBuildResult built = BuildClusterLod(*source, options);
+				report["build_count"] = 1;
+				report["source_unchanged"] = source_hash == MeshContentHash(source.get());
+				report["source_vertex_count"] = source->Positions.Data.size() / 3;
+				report["source_submesh_count"] = source->GetSubMeshCount();
+				std::size_t source_triangles = 0;
+				for (unsigned int i = 0; i < source->GetSubMeshCount(); ++i)
+					source_triangles += source->GetSubMeshAt(i)->Indices.Data.size() / 3;
+				report["source_triangle_count"] = source_triangles;
+				if (!built)
+				{
+					report["error"] = built.error;
+					return report;
+				}
+
+				const ClusterLodAsset &asset = *built.asset;
+				report["cluster_count"] = asset.clusters.size();
+				report["group_count"] = asset.groups.size();
+				std::size_t lod0_triangles = 0;
+				std::uint32_t max_level = 0;
+				std::vector<std::size_t> material_triangles(source->GetSubMeshCount(), 0);
+				ClusterLodSphere root_bounds;
+				bool has_bounds = false;
+				for (const ClusterLodCluster &cluster : asset.clusters)
+				{
+					max_level = std::max(max_level, cluster.level);
+					if (cluster.level != 0)
+						continue;
+					lod0_triangles += cluster.index_count / 3;
+					material_triangles[cluster.material_index] += cluster.index_count / 3;
+					root_bounds = has_bounds ? ClusterLodMerge(root_bounds, cluster.bounds) : cluster.bounds;
+					has_bounds = true;
+				}
+				report["lod0_triangle_count"] = lod0_triangles;
+				report["leaf_cluster_count"] = std::count_if(asset.clusters.begin(), asset.clusters.end(),
+					[](const ClusterLodCluster &cluster) { return cluster.level == 0; });
+				report["max_level"] = max_level;
+				sol::table materials = lua.create_table();
+				for (std::size_t i = 0; i < material_triangles.size(); ++i)
+					materials[i + 1] = material_triangles[i];
+				report["material_triangles"] = materials;
+
+				ClusterLodSelectionParams params;
+				params.camera_position[0] = root_bounds.center[0];
+				params.camera_position[1] = root_bounds.center[1];
+				params.camera_position[2] = root_bounds.center[2] + root_bounds.radius * 3.0f + 1.0f;
+				params.projection_scale = 100.0f;
+				sol::table thresholds = lua.create_table();
+				sol::table cut_triangles = lua.create_table();
+				sol::table cut_cluster_counts = lua.create_table();
+				bool cuts_valid = true;
+				const float values[] = { 0.0f, 0.001f, 0.01f, 0.1f, 1.0f, 10.0f, 100.0f, 1e6f };
+				for (std::size_t i = 0; i < sizeof(values) / sizeof(values[0]); ++i)
+				{
+					params.error_threshold = values[i];
+					const auto selected = SelectClusterLodCut(asset, params);
+					std::string error;
+					cuts_valid = cuts_valid && ValidateClusterLodCut(asset, selected, error);
+					std::size_t triangles = 0;
+					for (std::uint32_t cluster : selected)
+						triangles += asset.clusters[cluster].index_count / 3;
+					thresholds[i + 1] = values[i];
+					cut_triangles[i + 1] = triangles;
+					cut_cluster_counts[i + 1] = selected.size();
+				}
+				report["cut_thresholds"] = thresholds;
+				report["cut_triangles"] = cut_triangles;
+				report["cut_cluster_counts"] = cut_cluster_counts;
+				report["cuts_valid"] = cuts_valid;
+				report["ok"] = true;
+				return report;
+			};
+			lua["ClusterLodTest"]["BuildAndStore"] = [](std::shared_ptr<Mesh> mesh,
+				const std::string &root, sol::this_state s) {
+				sol::state_view lua(s);
+				sol::table report = lua.create_table();
+				report["ok"] = false;
+				if (!mesh)
+				{
+					report["error"] = "null mesh";
+					return report;
+				}
+				ClusterLodBuildResult built = BuildClusterLod(*mesh, ClusterLodBuildOptions());
+				if (!built)
+				{
+					report["error"] = built.error;
+					return report;
+				}
+				ClusterLodDescriptor descriptor;
+				descriptor.content_hash = MeshContentHash(mesh.get());
+				descriptor.options = built.asset->options;
+				descriptor.enabled = true;
+				DdcStore ddc(root);
+				std::string error;
+				if (!StoreClusterLodPayload(ddc, *built.asset, descriptor,
+					mesh->Positions.Data.size() / 3, error))
+				{
+					report["error"] = error;
+					return report;
+				}
+				ClusterLodPayloadResult loaded = LoadClusterLodPayload(descriptor,
+					mesh->Positions.Data.size() / 3, ddc, error);
+				if (!loaded)
+				{
+					report["error"] = error;
+					return report;
+				}
+				mesh->SetClusterLodDescriptor(descriptor);
+				mesh->SetClusterLodAsset(loaded.asset);
+				report["key"] = MakeClusterLodPayloadKey(descriptor);
+				report["cluster_count"] = loaded.asset->clusters.size();
+				report["group_count"] = loaded.asset->groups.size();
+				report["ok"] = true;
+				return report;
+			};
+			lua["ClusterLodTest"]["Load"] = [](std::shared_ptr<Mesh> mesh,
+				const std::string &root, sol::this_state s) {
+				sol::state_view lua(s);
+				sol::table report = lua.create_table();
+				report["ok"] = false;
+				const ClusterLodDescriptor *descriptor = mesh ? mesh->GetClusterLodDescriptor() : nullptr;
+				if (!descriptor)
+				{
+					report["error"] = "mesh has no cluster descriptor";
+					return report;
+				}
+				if (descriptor->content_hash != MeshContentHash(mesh.get()))
+				{
+					report["error"] = "stale cluster descriptor source hash";
+					return report;
+				}
+				DdcStore ddc(root);
+				std::string error;
+				ClusterLodPayloadResult loaded = LoadClusterLodPayload(*descriptor,
+					mesh->Positions.Data.size() / 3, ddc, error);
+				if (!loaded)
+				{
+					report["error"] = error;
+					return report;
+				}
+				mesh->SetClusterLodAsset(loaded.asset);
+				report["cluster_count"] = loaded.asset->clusters.size();
+				report["group_count"] = loaded.asset->groups.size();
+				report["ok"] = true;
+				return report;
+			};
+			lua["ClusterLodTest"]["Prepare"] = [](std::shared_ptr<Mesh> mesh,
+				const std::string &root, sol::this_state s) {
+				sol::state_view lua(s);
+				sol::table report = lua.create_table();
+				bool cache_hit = false;
+				std::string error;
+				DdcStore ddc(root);
+				const bool ok = PrepareClusterLodForImport(mesh, ddc, cache_hit, error);
+				report["ok"] = ok;
+				report["cache_hit"] = cache_hit;
+				report["error"] = error;
+				if (mesh && mesh->GetClusterLodDescriptor())
+					report["key"] = MakeClusterLodPayloadKey(*mesh->GetClusterLodDescriptor());
+				return report;
+			};
+			lua["ClusterLodTest"]["DetachPayload"] = [](Mesh &mesh) {
+				mesh.SetClusterLodAsset(nullptr);
+			};
+			lua["ClusterLodTest"]["ClearDescriptor"] = [](Mesh &mesh) {
+				mesh.ClearClusterLodDescriptor();
+			};
+
 			// --- Mesh --------------------------------------------------------
 			// Buffer accessors round-trip through flat Lua tables
 			// (`{x0,y0,z0,x1,y1,z1,...}`) per design decision D6. The
@@ -2702,6 +2916,16 @@ namespace fury
 			// agent-facing API with ownership / lifetime semantics that an
 			// LLM is unlikely to write correctly on the first try. Plain
 			// tables round-trip cleanly and are easy to reason about.
+			lua.new_usertype<SubMesh>("SubMesh",
+				sol::no_constructor,
+				"Create", &SubMesh::Create);
+			lua["SubMesh"]["SetIndices"] = [](SubMesh &submesh, sol::table t) {
+				submesh.Indices.Data.clear();
+				submesh.Indices.Data.reserve(t.size());
+				for (std::size_t i = 1; i <= t.size(); ++i)
+					submesh.Indices.Data.push_back(t.get<unsigned int>(i));
+			};
+
 			lua.new_usertype<Mesh>("Mesh",
 				sol::no_constructor,
 				sol::base_classes, sol::bases<Entity, Serializable>(),
@@ -2713,6 +2937,7 @@ namespace fury
 				"IsSkinnedMesh", &Mesh::IsSkinnedMesh,
 				"GetCastShadows", &Mesh::GetCastShadows,
 				"SetCastShadows", &Mesh::SetCastShadows,
+				"AddSubMesh", &Mesh::AddSubMesh,
 				// Submesh accessors.
 				"GetSubmeshCount", &Mesh::GetSubMeshCount,
 				// LOD chain accessors -- direct mirror of Mesh.h:227-236.

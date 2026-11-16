@@ -10,6 +10,9 @@
 #include "Fury/AnimationClip.h"
 #include "Fury/Archive.h"
 #include "Fury/AssetLoader.h"
+#include "Fury/ClusterLodImport.h"
+#include "Fury/ClusterLodPayloadStore.h"
+#include "Fury/DdcStore.h"
 #include "Fury/FileUtil.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Heightmap.h"
@@ -221,6 +224,32 @@ void Scene::Serialize(Archive& ar) {
 		}
 		return true;
 	});
+
+	DdcStore cluster_ddc(DdcStore::ResolveRoot(m_ClusterDdcRoot));
+	m_EntityManager->ForEach<Mesh>([&](const Mesh::Ptr& mesh) -> bool {
+		const ClusterLodDescriptor *descriptor = mesh->GetClusterLodDescriptor();
+		if (!descriptor) {
+			if (IsClusterLodEligibleMesh(*mesh) && !m_AllowMissingClusterLodForMigration) {
+				ar.SetError("missing mandatory cluster descriptor for mesh '" + mesh->GetName() + "'");
+				return false;
+			}
+			return true;
+		}
+		if (descriptor->content_hash != MeshContentHash(mesh.get())) {
+			ar.SetError("stale cluster descriptor for mesh '" + mesh->GetName() + "'");
+			return false;
+		}
+		std::string error;
+		ClusterLodPayloadResult payload = LoadClusterLodPayload(*descriptor,
+			mesh->Positions.Data.size() / 3, cluster_ddc, error);
+		if (!payload) {
+			ar.SetError("mesh '" + mesh->GetName() + "': " + error);
+			return false;
+		}
+		mesh->SetClusterLodAsset(payload.asset);
+		return true;
+	});
+	if (!ar.IsValid()) return;
 
 	m_EntityManager->ForEach<Material>([&](const Material::Ptr& mat) -> bool {
 		for (const auto& kv : mat->GetTextures())

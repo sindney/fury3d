@@ -846,6 +846,25 @@ namespace fury
 			n.Set("key", AssetKey(*m));
 			n.Set("cast_shadows", m->GetCastShadows());
 			n.Set("skinned", m->IsSkinnedMesh());
+			if (const ClusterLodDescriptor *descriptor = m->GetClusterLodDescriptor())
+			{
+				FpNode cluster = FpNode::Obj();
+				cluster.Set("schema_version", descriptor->schema_version);
+				cluster.Set("content_hash", FormatHashHex(descriptor->content_hash));
+				cluster.Set("enabled", descriptor->enabled);
+				cluster.Set("cluster_triangle_limit", descriptor->options.cluster_triangle_limit);
+				cluster.Set("cluster_vertex_limit", descriptor->options.cluster_vertex_limit);
+				cluster.Set("group_cluster_limit", descriptor->options.group_cluster_limit);
+				cluster.Set("reduction_ratio", descriptor->options.reduction_ratio);
+				cluster.Set("target_error", descriptor->options.target_error);
+				if (const auto &payload = m->GetClusterLodAsset())
+				{
+					cluster.Set("payload_indices", payload->merged_indices->size());
+					cluster.Set("payload_clusters", payload->clusters.size());
+					cluster.Set("payload_groups", payload->groups.size());
+				}
+				n.Set("cluster_lod", cluster);
+			}
 			return n;
 		}
 

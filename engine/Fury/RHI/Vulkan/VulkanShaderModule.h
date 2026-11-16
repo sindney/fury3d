@@ -125,6 +125,10 @@ namespace fury
 
 		std::string m_Name;
 
+		bool m_UsesBaseInstance = false;
+
+		bool m_UsesDrawID = false;
+
 	public:
 
 		static std::shared_ptr<VulkanShaderModule> Create(VkDevice device, const std::string &name,
@@ -156,6 +160,10 @@ namespace fury
 		VkShaderModule GetFragmentModule() const { return m_Fragment; }
 
 		VkShaderModule GetComputeModule() const { return m_Compute; }
+
+		bool UsesBaseInstance() const { return m_UsesBaseInstance; }
+
+		bool UsesDrawID() const { return m_UsesDrawID; }
 
 		const VulkanStageGlobals &GetStageGlobals(int stage) const { return m_Globals[stage]; }
 

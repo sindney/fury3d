@@ -139,6 +139,17 @@ namespace fury
 
 	typedef std::shared_ptr<VulkanBuffer> VulkanBufferRef;
 
+	class FURY_API VulkanIndirectBatch : public RHIIndirectBatch
+	{
+	protected:
+		RHIIndirectBatchDesc m_Desc;
+
+	public:
+		explicit VulkanIndirectBatch(const RHIIndirectBatchDesc &desc) : m_Desc(desc) {}
+
+		const RHIIndirectBatchDesc &GetDesc() const override { return m_Desc; }
+	};
+
 	class FURY_API VulkanRenderTargetSet : public RHIRenderTargetSet
 	{
 	public:

@@ -96,6 +96,8 @@ namespace fury
 		void UpdateSampler(const RHITextureRef &texture, const RHISamplerDesc &sampler) override;
 		RHIBufferRef CreateBuffer(const RHIBufferDesc &desc, const void *initialData = nullptr) override;
 		void UpdateBuffer(const RHIBufferRef &buffer, const void *data, size_t size, size_t offset = 0) override;
+		RHIIndirectBatchRef CreateIndirectBatch(const RHIIndirectBatchDesc &desc) override;
+		bool ReadbackBuffer(const RHIBufferReadbackRequest &request, RHIBufferReadbackResult &out) override;
 		RHIShaderModuleRef CreateShaderModule(const std::string &name, const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry) override;
 		RHIShaderModuleRef CreateComputeModule(const std::string &name, const RHIShaderBlob &compute) override;
 		RHIGraphicsPipelineRef CreateGraphicsPipeline(const RHIGraphicsPipelineDesc &desc, const RHIShaderModuleRef &shaders) override;
