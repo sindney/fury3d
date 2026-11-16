@@ -1,0 +1,364 @@
+{
+  "block": 2119,
+  "call": {
+    "args": {
+      "buffer": 5647,
+      "commandBuffer": 8,
+      "countBuffer": 5648,
+      "countBufferOffset": 0,
+      "maxDrawCount": 27,
+      "offset": 0,
+      "stride": 20
+    },
+    "name": "vkCmdDrawIndexedIndirectCount"
+  },
+  "command_buffer": 8,
+  "descriptors": {
+    "bound_sets": {
+      "0": {
+        "dynamicOffsets": null,
+        "layout": 498,
+        "set": 5668
+      },
+      "1": {
+        "dynamicOffsets": null,
+        "layout": 498,
+        "set": 5669
+      }
+    },
+    "values": {
+      "0": {
+        "bindings": {
+          "0": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_STORAGE_BUFFER",
+              "value": {
+                "buffer": 5639,
+                "offset": 0,
+                "range": 1024
+              }
+            }
+          },
+          "1": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_STORAGE_BUFFER",
+              "value": {
+                "buffer": 5646,
+                "offset": 0,
+                "range": 24576
+              }
+            }
+          },
+          "2": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_STORAGE_BUFFER",
+              "value": {
+                "buffer": 5640,
+                "offset": 0,
+                "range": 37888
+              }
+            }
+          },
+          "3": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER",
+              "value": {
+                "buffer": 5666,
+                "offset": 0,
+                "range": 192
+              }
+            }
+          }
+        },
+        "exactGpuValueUnavailable": false,
+        "layout": 496,
+        "pool": 12,
+        "provenance": "CPU descriptor state at queue submission",
+        "version": 174
+      },
+      "1": {
+        "bindings": {
+          "0": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER",
+              "value": {
+                "buffer": 5667,
+                "offset": 0,
+                "range": 80
+              }
+            }
+          },
+          "1": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+              "value": {
+                "imageLayout": 1,
+                "imageView": 113,
+                "sampler": 114
+              }
+            }
+          },
+          "2": {
+            "0": {
+              "type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+              "value": {
+                "imageLayout": 1,
+                "imageView": 75,
+                "sampler": 76
+              }
+            }
+          }
+        },
+        "exactGpuValueUnavailable": false,
+        "layout": 497,
+        "pool": 12,
+        "provenance": "CPU descriptor state at queue submission",
+        "version": 177
+      }
+    }
+  },
+  "dynamic": {
+    "inputs": {
+      "reason": "static dump (--dynamic none)",
+      "status": "skipped"
+    },
+    "mesh": {
+      "reason": "static dump (--dynamic none)",
+      "status": "skipped"
+    },
+    "outputs": {
+      "reason": "static dump (--dynamic none)",
+      "status": "skipped"
+    }
+  },
+  "dynamic_state": {
+    "calls": {
+      "vkCmdSetDepthBias": {
+        "depthBiasClamp": 0.0,
+        "depthBiasConstantFactor": 0.0,
+        "depthBiasSlopeFactor": 0.0
+      },
+      "vkCmdSetFrontFace": {
+        "frontFace": "VK_FRONT_FACE_CLOCKWISE"
+      },
+      "vkCmdSetScissor": {
+        "firstScissor": 0,
+        "pScissors": [
+          {
+            "extent": {
+              "height": 720,
+              "width": 1280
+            },
+            "offset": {
+              "x": 0,
+              "y": 0
+            }
+          }
+        ],
+        "scissorCount": 1
+      },
+      "vkCmdSetViewport": {
+        "firstViewport": 0,
+        "pViewports": [
+          {
+            "height": 720.0,
+            "maxDepth": 1.0,
+            "minDepth": 0.0,
+            "width": 1280.0,
+            "x": 0.0,
+            "y": 0.0
+          }
+        ],
+        "viewportCount": 1
+      }
+    },
+    "scissors": {
+      "0": {
+        "extent": {
+          "height": 720,
+          "width": 1280
+        },
+        "offset": {
+          "x": 0,
+          "y": 0
+        }
+      }
+    },
+    "viewports": {
+      "0": {
+        "height": 720.0,
+        "maxDepth": 1.0,
+        "minDepth": 0.0,
+        "width": 1280.0,
+        "x": 0.0,
+        "y": 0.0
+      }
+    }
+  },
+  "execution": 4,
+  "frame": 1,
+  "index_buffer": {
+    "buffer": 5637,
+    "commandBuffer": 8,
+    "indexType": "VK_INDEX_TYPE_UINT32",
+    "offset": 0
+  },
+  "indirect": {
+    "buffer": 5647,
+    "contents": {
+      "reason": "indirect argument contents require replay readback",
+      "status": "unavailable"
+    },
+    "countBuffer": 5648,
+    "countBufferOffset": 0,
+    "maxDrawCount": 27,
+    "offset": 0,
+    "stride": 20
+  },
+  "invocation_path": {
+    "command_buffers": [
+      8
+    ],
+    "invocations": [
+      {
+        "command_buffer": 8,
+        "execute_block": 0,
+        "generation": 3,
+        "recording_begin": 1763,
+        "slot": 0
+      }
+    ],
+    "primary": true
+  },
+  "label": "",
+  "notes": [
+    "Indirect argument contents require replay readback; API arguments alone do not establish executed counts."
+  ],
+  "occurrence": 0,
+  "ordinal": 4,
+  "pass": 2,
+  "path": "frames/0001/passes/002-rendering-b2093/draws/0004-b2119-vkCmdDrawIndexedIndirectCount",
+  "pipeline": {
+    "id": 499,
+    "kind": "graphics",
+    "path": "pipelines/499.json"
+  },
+  "push_constants": {
+    "data_unavailable": false,
+    "ranges": []
+  },
+  "render_targets": {
+    "api": "rendering",
+    "attachments": [
+      {
+        "format": "VK_FORMAT_R8G8B8A8_UNORM",
+        "image": 185,
+        "index": 0,
+        "loadOp": "VK_ATTACHMENT_LOAD_OP_LOAD",
+        "resolveImageView": 0,
+        "role": "color",
+        "storeOp": "VK_ATTACHMENT_STORE_OP_STORE",
+        "view": 187
+      },
+      {
+        "format": "VK_FORMAT_R8G8B8A8_UNORM",
+        "image": 190,
+        "index": 1,
+        "loadOp": "VK_ATTACHMENT_LOAD_OP_LOAD",
+        "resolveImageView": 0,
+        "role": "color",
+        "storeOp": "VK_ATTACHMENT_STORE_OP_STORE",
+        "view": 192
+      },
+      {
+        "format": "VK_FORMAT_D32_SFLOAT",
+        "image": 180,
+        "index": 2,
+        "loadOp": "VK_ATTACHMENT_LOAD_OP_LOAD",
+        "resolveImageView": 0,
+        "role": "depth",
+        "storeOp": "VK_ATTACHMENT_STORE_OP_STORE",
+        "view": 182
+      }
+    ]
+  },
+  "schema": "gfxrecon-dump/1",
+  "selector": {
+    "BeginCommandBuffer": [
+      1763
+    ],
+    "Draw": [
+      [
+        2119
+      ]
+    ],
+    "QueueSubmit": [
+      2837
+    ],
+    "RenderPass": [
+      [
+        [
+          2093,
+          2222
+        ]
+      ]
+    ]
+  },
+  "stages": [
+    {
+      "entry": "main",
+      "module": 436,
+      "path": "shaders/436/",
+      "specialization": null,
+      "stage": "VK_SHADER_STAGE_VERTEX_BIT"
+    },
+    {
+      "entry": "main",
+      "module": 437,
+      "path": "shaders/437/",
+      "specialization": null,
+      "stage": "VK_SHADER_STAGE_FRAGMENT_BIT"
+    }
+  ],
+  "submit": 2837,
+  "subpass": 0,
+  "valid": true,
+  "vertex_buffers": {
+    "0": {
+      "buffer": 431,
+      "offset": 0
+    },
+    "1": {
+      "buffer": 432,
+      "offset": 0
+    },
+    "16": {
+      "buffer": 475,
+      "offset": 0
+    },
+    "17": {
+      "buffer": 476,
+      "offset": 0
+    },
+    "19": {
+      "buffer": 477,
+      "offset": 0
+    },
+    "21": {
+      "buffer": 479,
+      "offset": 0
+    },
+    "22": {
+      "buffer": 478,
+      "offset": 0
+    },
+    "25": {
+      "buffer": 474,
+      "offset": 0
+    },
+    "3": {
+      "buffer": 433,
+      "offset": 0
+    }
+  }
+}

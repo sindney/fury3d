@@ -1,0 +1,270 @@
+$ D:\git\fury3d\examples\fury.exe Player.lua Projects/feature/feature.bin --rhi=vulkan --render-thread=1 --gpu-dump D:\git\fury3d\test-artifacts\cluster-lod-vulkan-windows-rt1-verified\selection_thresholds\1000000000000.0.dump --gpu-dump-frame 30
+fury: GL context 4.6 (requested 4.6)
+[DBUG][fury::Engine::Initialize][219]: 2 thread launched!
+[DBUG][fury::Engine::Initialize][220]: Window width: 1280, height: 720
+[DBUG][fury::MeshUtil::CreateQuad][114]: quad_mesh [vtx: 4 tris: 2]
+[DBUG][fury::MeshUtil::CreateCube][159]: cube_mesh [vtx: 8 tris: 12]
+[DBUG][fury::MeshUtil::CreateIcoSphere][268]: ico_sphere_mesh [vtx: 162 tris: 320]
+[DBUG][fury::MeshUtil::CreateSphere][361]: sphere_mesh [vtx: 402 tris: 800]
+[DBUG][fury::MeshUtil::OptimizeMesh][892]: sphere_mesh[vtx: 362 tris: 800]
+[DBUG][fury::MeshUtil::CreateCylinder][464]: cylinder_mesh [vtx: 42 tris: 80]
+[DBUG][fury::MeshUtil::CreateCylinder][464]: cone_mesh [vtx: 42 tris: 80]
+[DBUG][fury::MeshUtil::OptimizeMesh][892]: cone_mesh[vtx: 32 tris: 80]
+[DBUG][fury::PhysicsWorld::PhysicsWorld][160]: PhysicsWorld created (Jolt 5.6.0, 16 hw threads).
+[INFO][main][720]: Loading Lua script: Player.lua
+[INFO][fury::RHI::`anonymous-namespace'::ResolveValue][155]: RHI backend 'vulkan' selected by --rhi
+[WARN][fury::`anonymous-namespace'::DebugCallback][41]: Vulkan validation: windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[INFO][fury::RHIVulkanDevice::RHIVulkanDevice][363]: Vulkan device: NVIDIA GeForce RTX 5060 Ti
+[INFO][fury::RHIVulkanDevice::RHIVulkanDevice][364]: Vulkan indirect supported: multiDraw=1 firstInstance=1 drawParameters=1 count=1; enabled: multiDraw=1 firstInstance=1 drawID=1 count=1
+[INFO][fury::RHIVulkanDevice::RHIVulkanDevice][372]: Vulkan indirect limits: maxDrawCount=4294967295 stride=20 storageRange=4294967295 perStageStorage=1048576 descriptorStorage=1048576 perStageResources=4294967295
+[INFO][fury::RHI::CreateDevice][747]: RHI backend: vulkan
+[INFO][fury::RHI::ProbeActiveDevice][289]: RHI probe center RGBA: 255,0,0,255
+[DBUG][fury::VulkanShaderModule::CreateCompute][319]: RHIClusteredComputeProbe: Vulkan compute shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: RHIClusteredGraphicsProbe: Vulkan shader DDC hit
+[INFO][fury::RHI::ProbeClusteredCompute][412]: RHI clustered compute probe: PASS
+[DBUG][fury::Texture::CreateEmpty][520]: DummyCube [1 x 1 x cube]
+[DBUG][fury::Texture::CreateEmpty][520]: Dummy2D [1 x 1 x 2d]
+[DBUG][fury::Texture::CreateEmpty][520]: Dummy2DArray [1 x 1 x 2d_array]
+[DBUG][fury::Texture::CreateEmpty][520]: DummyNormal [1 x 1 x 2d]
+[DBUG][fury::Texture::CreateEmpty][520]: Dummy3D [1 x 1 x 3d]
+[DBUG][][277]: body.jpg [1024 x 1024 x 2d]
+[DBUG][][277]: wheels.jpg [256 x 256 x 2d]
+[DBUG][][277]: fire.png [256 x 256 x 2d]
+[DBUG][][277]: smoke.png [256 x 256 x 2d]
+[DBUG][][277]: grass.jpg [600 x 600 x 2d]
+[DBUG][][277]: unspecified.png [1024 x 1024 x 2d]
+[DBUG][][277]: FoxTexture.png [1024 x 1024 x 2d]
+[DBUG][][277]: body.jpg [1024 x 1024 x 2d]
+[DBUG][][277]: wheels.jpg [256 x 256 x 2d]
+[DBUG][][277]: grass.jpg [600 x 600 x 2d]
+[DBUG][][277]: FoxTexture.png [1024 x 1024 x 2d]
+[DBUG][][277]: fire.png [256 x 256 x 2d]
+[DBUG][][277]: unspecified.png [1024 x 1024 x 2d]
+[DBUG][][277]: smoke.png [256 x 256 x 2d]
+[DBUG][fury::ParticleSystem::Subscribe][37]: ParticleSystem 'temp' subscribed (key=14829735431805717966)
+[DBUG][fury::ParticleSystem::Subscribe][37]: ParticleSystem 'temp' subscribed (key=14829735431805717967)
+[DBUG][fury::FileUtil::LoadCompressedFile][560]: Projects/feature/feature.bin successfully deserialized!
+[DBUG][fury::Texture::CreateEmpty][520]: gbuffer_depth [1280 x 720 x 2d]
+[DBUG][fury::Texture::CreateEmpty][520]: gbuffer_normal [1280 x 720 x 2d]
+[DBUG][fury::Texture::CreateEmpty][520]: gbuffer_diffuse [1280 x 720 x 2d]
+[DBUG][fury::Texture::CreateEmpty][520]: hdr_light [1280 x 720 x 2d]
+[DBUG][fury::Texture::CreateEmpty][520]: hdr_composite [1280 x 720 x 2d]
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: pointlight_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: dirlight_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: spotlight_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: clustered_lighting_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: pointlight_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: dirlight_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: spotlight_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: dirlight_csm_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: pbr_combine_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: sky_raymarch_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: pbr_final_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: depth_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_notexture_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_notexture_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_skin_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_notexture_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: forward_notexture_skin_shadow_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_shader_mask: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_skin_shader_mask: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_skin_shader_mask: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask_twosided: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask_twosided_wind: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_wind: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_billboard: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_instanced: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_instanced_ssbo: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_shader_instanced: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_shader_instanced_ssbo: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask_instanced: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask_instanced_ssbo: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask_twosided_wind_instanced: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_mask_twosided_wind_instanced_ssbo: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_wind_instanced: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_wind_instanced_ssbo: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_billboard_instanced: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: gbuffer_shader_billboard_instanced_ssbo: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_alphatest_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_wind_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_alphatest_wind_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_alphatest_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_wind_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_alphatest_wind_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_alphatest_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_alphatest_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_wind_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_wind_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_alphatest_wind_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: leagcy_depth_alphatest_wind_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_skin_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_alphatest_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_wind_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_alphatest_wind_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_alphatest_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_alphatest_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_wind_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_wind_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_alphatest_wind_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: prez_depth_alphatest_wind_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_alphatest_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_alphatest_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_wind_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_wind_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_alphatest_wind_instanced_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: cube_depth_alphatest_wind_instanced_ssbo_shader: Vulkan shader DDC hit
+[DBUG][fury::VulkanShaderModule::Create][216]: ocean_surface_shader: Vulkan shader DDC hit
+[DBUG][fury::FileUtil::LoadFile][506]: D:\git\fury3d\examples/Resource/Pipeline/DeferredLightingPBR.json successfully deserialized!
+[DBUG][fury::PostProcessRegistry::LoadFromDirectory][160]: PostProcessRegistry: registered 'ACES' from ACES.json
+[DBUG][fury::PostProcessRegistry::LoadFromDirectory][160]: PostProcessRegistry: registered 'CRT' from CRT.json
+[DBUG][fury::PostProcessRegistry::LoadFromDirectory][160]: PostProcessRegistry: registered 'FXAA' from FXAA.json
+[DBUG][fury::PostProcessRegistry::LoadFromDirectory][160]: PostProcessRegistry: registered 'SSAO' from SSAO.json
+[DBUG][fury::PostProcessRegistry::LoadFromDirectory][160]: PostProcessRegistry: registered 'SSR' from SSR.json
+[DBUG][fury::Engine::Run][734]: render thread: on
+[DBUG][fury::Engine::Run][783]: framerate cap: 144
+[DBUG][fury::Engine::Run][784]: gui_scale: 0 (system DPI), effective: 1.5
+[DBUG][fury::Engine::Run][786]: gui_font_scale: 0, effective: 1.5
+[DBUG][fury::Engine::Run][788]: system DPI: 1.5
+[DBUG][fury::Engine::Run][789]: dpi_aware_override: 0
+[DBUG][fury::MeshUtil::CreateCylinder][464]: spotlight_convex [vtx: 102 tris: 200]
+[DBUG][fury::MeshUtil::OptimizeMesh][892]: spotlight_convex[vtx: 82 tris: 200]
+[DBUG][18572][fury::VulkanShaderModule::CreateCompute][319]: ClusterSelect: Vulkan compute shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::CreateCompute][319]: ClusterCull: Vulkan compute shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: gbuffer_shader_cluster: Vulkan shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_shader_cluster: Vulkan shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: gbuffer_shader_cluster: Vulkan shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: gbuffer_notexture_shader_cluster: Vulkan shader DDC hit
+[DBUG][18572][fury::Texture::CreateEmpty][520]: 2048*2048*4*depth24*2d_array [2048 x 2048 x 2d_array]
+[DBUG][18572][fury::Texture::CreateEmpty][520]: 1024*1024*0*depth24*2d [1024 x 1024 x 2d]
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: Resource/Shader/PostProcess/ACES.glsl: Vulkan shader DDC hit
+[DBUG][18572][fury::Texture::CreateEmpty][520]: 1280*720*0*rgba16f*2d [1280 x 720 x 2d]
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: Resource/Shader/PostProcess/FXAA.glsl: Vulkan shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: ParticleShader: Vulkan shader DDC hit
+[DBUG][18572][fury::VulkanShaderModule::Create][216]: ParticleShaderShadow: Vulkan shader DDC hit
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][726]: Cluster diagnostics frame=30 instances=8 candidateInstances=8 fallbackInstances=0 batches=5 visibleInstances=8 selected=1386 visible=1386 commands=1386 drawnTriangles=97640 selectionOverflow=0 visibilityOverflow=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 0 selected=3 clusterOffset=0 clusterCount=3 selectedOffset=0 leafCapacity=3 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=0 cluster=0 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=0 cluster=1 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=0 cluster=2 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 1 selected=27 clusterOffset=3 clusterCount=27 selectedOffset=3 leafCapacity=27 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=1 cluster=3 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=1 cluster=4 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=1 cluster=5 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=1 cluster=6 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 2 selected=226 clusterOffset=30 clusterCount=562 selectedOffset=30 leafCapacity=251 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=2 cluster=97 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=2 cluster=280 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=2 cluster=281 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=2 cluster=282 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 3 selected=226 clusterOffset=30 clusterCount=562 selectedOffset=281 leafCapacity=251 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=3 cluster=97 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=3 cluster=280 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=3 cluster=281 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=3 cluster=282 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 4 selected=226 clusterOffset=30 clusterCount=562 selectedOffset=532 leafCapacity=251 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=4 cluster=97 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=4 cluster=280 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=4 cluster=281 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=4 cluster=282 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 5 selected=226 clusterOffset=30 clusterCount=562 selectedOffset=783 leafCapacity=251 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=5 cluster=97 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=5 cluster=280 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=5 cluster=281 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=5 cluster=282 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 6 selected=226 clusterOffset=30 clusterCount=562 selectedOffset=1034 leafCapacity=251 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=6 cluster=97 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=6 cluster=280 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=6 cluster=281 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=6 cluster=282 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][755]: Cluster instance 7 selected=226 clusterOffset=30 clusterCount=562 selectedOffset=1285 leafCapacity=251 threshold=1e+12 projectionScale=869.115
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 0 instance=7 cluster=97 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 1 instance=7 cluster=280 level=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 2 instance=7 cluster=281 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][810]:   pair 3 instance=7 cluster=282 level=1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][816]: Cluster selection comparison mismatches=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][817]: Cluster selected roots=1386
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][819]: Cluster selected level 0 clusters=102 triangles=7094
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][819]: Cluster selected level 1 clusters=840 triangles=56490
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][819]: Cluster selected level 2 clusters=366 triangles=28170
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][819]: Cluster selected level 3 clusters=36 triangles=2520
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][819]: Cluster selected level 4 clusters=42 triangles=3366
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][839]: Cluster batch 0 material='Material_Wheel' capacity=24 commands=24 visibleOffset=0 argumentOffset=0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 0 indexCount=174 instances=1 firstIndex=66489 vertexOffset=0 firstInstance=0 record=2,281,30,0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 1 indexCount=252 instances=1 firstIndex=66663 vertexOffset=0 firstInstance=1 record=2,282,30,0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 2 indexCount=96 instances=1 firstIndex=66915 vertexOffset=0 firstInstance=2 record=2,283,30,0
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][839]: Cluster batch 1 material='Material_Body' capacity=1476 commands=1326 visibleOffset=24 argumentOffset=24
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 0 indexCount=195 instances=1 firstIndex=78186 vertexOffset=0 firstInstance=24 record=2,334,30,1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 1 indexCount=192 instances=1 firstIndex=78381 vertexOffset=0 firstInstance=25 record=2,335,30,1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 2 indexCount=273 instances=1 firstIndex=78573 vertexOffset=0 firstInstance=26 record=2,336,30,1
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][839]: Cluster batch 2 material='Material_Glass' capacity=6 commands=6 visibleOffset=1500 argumentOffset=1500
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 0 indexCount=198 instances=1 firstIndex=66291 vertexOffset=0 firstInstance=1500 record=2,280,30,2
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 1 indexCount=198 instances=1 firstIndex=66291 vertexOffset=0 firstInstance=1501 record=3,280,30,2
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 2 indexCount=198 instances=1 firstIndex=66291 vertexOffset=0 firstInstance=1502 record=4,280,30,2
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][839]: Cluster batch 3 material='Material_Grass' capacity=27 commands=27 visibleOffset=1506 argumentOffset=1506
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 0 indexCount=192 instances=1 firstIndex=0 vertexOffset=0 firstInstance=1506 record=1,3,3,3
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 1 indexCount=192 instances=1 firstIndex=192 vertexOffset=0 firstInstance=1507 record=1,4,3,3
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 2 indexCount=183 instances=1 firstIndex=384 vertexOffset=0 firstInstance=1508 record=1,5,3,3
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][839]: Cluster batch 4 material='Material_Wood' capacity=3 commands=3 visibleOffset=1533 argumentOffset=1533
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 0 indexCount=192 instances=1 firstIndex=0 vertexOffset=0 firstInstance=1533 record=0,0,0,4
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 1 indexCount=210 instances=1 firstIndex=192 vertexOffset=0 firstInstance=1534 record=0,1,0,4
+[INFO][18572][fury::ClusterRenderer::Impl::LogDiagnostics][847]:   command 2 indexCount=66 instances=1 firstIndex=402 vertexOffset=0 firstInstance=1535 record=0,2,0,4
+[INFO][18572][fury::GpuDump::Write][295]: GpuDump: frame 30 -> D:\git\fury3d\test-artifacts\cluster-lod-vulkan-windows-rt1-verified\selection_thresholds\1000000000000.0.dump (12/8 textures)
+[INFO][fury::Engine::Run][1027]: gpu dump written to D:\git\fury3d\test-artifacts\cluster-lod-vulkan-windows-rt1-verified\selection_thresholds\1000000000000.0.dump at frame 30
+[DBUG][fury::Scene::~Scene][160]: Scene feature Destoried!
+[DBUG][fury::AnimationClip::~AnimationClip][20]: AnimationClip Run destoried!
+[DBUG][fury::AnimationClip::~AnimationClip][20]: AnimationClip Walk destoried!
+[DBUG][fury::Material::~Material][110]: Material: fox_material Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Material_Fire Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Character Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Material_Smoke Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: fox1 Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: JamesNode Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: spotlight_convex Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: ParticleDynamicMesh:ParticleRenderer Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: ParticleDynamicMesh:ParticleRenderer Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: ParticleDynamicMesh:ParticleRenderer Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: ParticleDynamicMesh:ParticleRenderer Destoried!
+[DBUG][fury::AnimationClip::~AnimationClip][20]: AnimationClip James|Walk destoried!
+[DBUG][fury::AnimationClip::~AnimationClip][20]: AnimationClip Survey destoried!
+[DBUG][fury::OcTree::~OcTree][64]: OcTree::~OcTree
+[DBUG][fury::Material::~Material][110]: Material: Material_Wheel Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Material_Body Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Material_Glass Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: Tank.005 Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Material_Grass Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: Ground Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::Material::~Material][110]: Material: Material_Wood Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: Feu Destoried!
+[DBUG][fury::SubMesh::~SubMesh][33]: SubMesh Destoried!
+[DBUG][fury::Pipeline::~Pipeline][92]: Pipeline deferred_lighting_pipeline_pbr destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: cube_mesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: quad_mesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: ico_sphere_mesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: sphere_mesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: cylinder_mesh Destoried!
+[DBUG][fury::Mesh::~Mesh][83]: Mesh: cone_mesh Destoried!

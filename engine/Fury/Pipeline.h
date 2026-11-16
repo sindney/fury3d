@@ -2,6 +2,7 @@
 #define _FURY_PIPELINE_H_
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <string>

@@ -30,14 +30,21 @@ unchanged. Clustered lighting is a separate feature.
   buffers are encoded into every command. Devices without the required ICB or
   execution-range capabilities use legacy rendering.
 - **Native Vulkan:** indexed multi-draw indirect with GPU-written counts and
-  first-instance visible-record addressing is required. No hardware-native
-  Vulkan driver is available on the macOS host. The non-MoltenVK Mesa
-  KosmicKrisp driver passes the focused `mdi-count` smoke with distinct
-  base-instance IDs; offline gfxrecon inspection of that smoke shows the
-  dispatch, compute-to-indirect barriers, and indirect-count call. The required
-  tank capture/replay remains unrun because KosmicKrisp crashes in
-  `wsi_configure_image` during tank swapchain creation. This smoke evidence does
-  not complete the tank capture lane or establish hardware-native performance.
+  first-instance visible-record addressing is required. A Windows NVIDIA RTX
+  5060 Ti tank capture/replay verified both compute dispatches, the required
+  barriers, five indirect-count batches, nonzero base-instance IDs, and final
+  image parity. Validated replay reports no cluster-attributable errors; two
+  pre-existing non-cluster findings remain and are identified in the evidence.
+  Exact commands and frame-30 semantics are retained under
+  `test-artifacts/gfxrecon-windows-native/`; use the post-readonly command
+  script for the final shader state. Capture uses `--render-thread=0` because
+  capture-layer timing exposes a separate startup thread-ownership assertion.
+- **macOS non-MoltenVK Vulkan / KosmicKrisp:** the focused `mdi-count` smoke
+  passes with distinct base-instance IDs, and offline inspection shows the
+  dispatch, compute-to-indirect barriers, and indirect-count call. Tank capture
+  remains unavailable on this driver because it crashes in
+  `wsi_configure_image` during swapchain creation. This smoke evidence does not
+  establish hardware-native performance.
 - **macOS Vulkan / MoltenVK:** not supported for GPU cluster rendering because
   `drawIndirectCount` is unavailable. Eligible meshes use the existing legacy
   path and the editor reports the missing capability. No single-indirect
@@ -73,10 +80,15 @@ configurations, with expected Vulkan indirect-smoke skips on macOS, and
 34 headless tests with two precondition skips in each configuration. All
 five cluster render cases on Metal passed in both configurations. Vulkan/MoltenVK
 reported an expected unsupported-platform skip after verifying legacy fallback;
-native Vulkan MDI cases remain platform work. Editor
+macOS native Vulkan MDI tank cases remain platform work. Editor
 cluster automation passed in both render-thread modes. The isolated packaged
 tank passed on native Metal with cooked shader hits and no source assets or
 host DDC/CLOD fallback; packaged MoltenVK verified the same legacy fallback.
+
+On Windows, the Debug build and all six native cluster/RHI CTest cases pass.
+All five Vulkan cluster comparison cases also pass with the render thread
+enabled on the RTX 5060 Ti. Results, images, and semantic dumps are retained
+under `test-artifacts/cluster-lod-vulkan-windows-rt1-verified/`.
 
 The render driver checks complete CPU/GPU selected sets from leaves through
 forest roots, all three tank materials, near/far reduction, non-uniform scale,
@@ -113,13 +125,15 @@ ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
 `tests/cluster_lod_perf.py` records legacy/cluster statistics and measured CPU
 GBuffer/frame time for the tank and Sponza. GPU time is reported only when a
 backend supplies real timing data; CPU time is not presented as GPU time.
-Native Vulkan tank gfxrecon capture/replay and hardware-native MDI performance
-remain platform work, not passing coverage. Exact KosmicKrisp commands, capture
-artifacts, and the driver crash backtrace are retained under
-`test-artifacts/gfxrecon-kosmickrisp/`; start with `COMMANDS.sh`. The gfxrecon
-layer also produced zeroed smoke readback on both host drivers despite recording
-the expected command stream; that is recorded as a capture-tool failure, not a
-renderer failure.
+Hardware-native Vulkan MDI performance remains unmeasured. The completed
+Windows tank capture/replay commands and results are under
+`test-artifacts/gfxrecon-windows-native/`; start with `COMMANDS.sh` and the
+final `post-readonly/post-readonly-COMMANDS.sh`. Exact KosmicKrisp commands,
+capture artifacts, and the driver crash backtrace are retained under
+`test-artifacts/gfxrecon-kosmickrisp/`; start with `COMMANDS.sh`. On that macOS
+host, the gfxrecon layer also produced zeroed smoke readback on both host
+drivers despite recording the expected command stream; that is recorded as a
+capture-tool failure, not a renderer failure.
 
 On the retained Apple M4 Pro Metal tank capture, cluster rendering reduces draw
 submissions from 56 to 36 and emits five material batches with 1,527 commands

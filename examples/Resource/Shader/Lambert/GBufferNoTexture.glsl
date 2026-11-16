@@ -57,9 +57,9 @@ struct Cluster
 	uint materialIndex;
 	uint level;
 };
-layout(std430, binding = 0) buffer ClusterInstances { ClusterInstance instances[]; };
-layout(std430, binding = 1) buffer ClusterVisibleRecords { ClusterVisibleRecord records[]; };
-layout(std430, binding = 2) buffer Clusters { Cluster clusters[]; };
+layout(std430, binding = 0) readonly buffer ClusterInstances { ClusterInstance instances[]; };
+layout(std430, binding = 1) readonly buffer ClusterVisibleRecords { ClusterVisibleRecord records[]; };
+layout(std430, binding = 2) readonly buffer Clusters { Cluster clusters[]; };
 #endif
 
 out vec3 out_normal;

@@ -1,0 +1,402 @@
+{
+  "backend": "vulkan",
+  "render_thread": 1,
+  "scene": "Projects/feature/feature.bin",
+  "capture_frame": 30,
+  "counts": {
+    "pass": 5,
+    "fail": 0,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "id": "adaptive_far",
+      "status": "pass",
+      "metrics": {
+        "near": {
+          "selected": 1527,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1527,
+          "commands": 1527,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 458,
+          "levels": {
+            "0": {
+              "clusters": 1154,
+              "triangles": 104361
+            },
+            "1": {
+              "clusters": 343,
+              "triangles": 22179
+            },
+            "2": {
+              "clusters": 30,
+              "triangles": 2340
+            }
+          },
+          "batches": {
+            "Material_Grass": 27,
+            "Material_Wheel": 24,
+            "Material_Body": 1467,
+            "Material_Glass": 6,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 128880
+        },
+        "far": {
+          "selected": 1506,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1506,
+          "commands": 1506,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 794,
+          "levels": {
+            "0": {
+              "clusters": 778,
+              "triangles": 70684
+            },
+            "1": {
+              "clusters": 586,
+              "triangles": 39570
+            },
+            "2": {
+              "clusters": 136,
+              "triangles": 10266
+            },
+            "3": {
+              "clusters": 6,
+              "triangles": 336
+            }
+          },
+          "batches": {
+            "Material_Wood": 3,
+            "Material_Wheel": 24,
+            "Material_Body": 1446,
+            "Material_Glass": 6,
+            "Material_Grass": 27
+          },
+          "drawn_triangles": 120856
+        }
+      },
+      "detail": "selected 1527>1506 drawn 128880>120856 (leaf cap 1536/134816)"
+    },
+    {
+      "id": "budget_fallback",
+      "status": "pass",
+      "metrics": {
+        "image": {
+          "mean": 0.0073,
+          "max": 54,
+          "frac": 0.000485
+        },
+        "stats": {
+          "selected": 30,
+          "instances": 2,
+          "visibleInstances": 2,
+          "visible": 30,
+          "commands": 30,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 30,
+          "levels": {
+            "0": {
+              "clusters": 30,
+              "triangles": 1838
+            }
+          },
+          "batches": {
+            "Material_Grass": 27,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 1838
+        }
+      },
+      "detail": "image mean=0.0073 frac=0.000485; budget selected=30 overflows=0"
+    },
+    {
+      "id": "leaf_parity",
+      "status": "pass",
+      "metrics": {
+        "image": {
+          "mean": 0.0147,
+          "max": 146,
+          "frac": 0.000639
+        },
+        "stats": {
+          "selected": 1536,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1536,
+          "commands": 1536,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 102,
+          "levels": {
+            "0": {
+              "clusters": 1536,
+              "triangles": 134816
+            }
+          },
+          "batches": {
+            "Material_Grass": 27,
+            "Material_Wheel": 24,
+            "Material_Body": 1476,
+            "Material_Glass": 6,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 134816
+        }
+      },
+      "detail": "image mean=0.0147 frac=0.000639; selected=1536 level0_tri=134816 batches=Material_Grass27,Material_Wheel24,Material_Body1476,Material_Glass6,Material_Wood3"
+    },
+    {
+      "id": "selection_thresholds",
+      "status": "pass",
+      "metrics": {
+        "0.0": {
+          "selected": 1536,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1536,
+          "commands": 1536,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 102,
+          "levels": {
+            "0": {
+              "clusters": 1536,
+              "triangles": 134816
+            }
+          },
+          "batches": {
+            "Material_Grass": 27,
+            "Material_Wheel": 24,
+            "Material_Body": 1476,
+            "Material_Glass": 6,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 134816
+        },
+        "0.25": {
+          "selected": 1536,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1536,
+          "commands": 1536,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 209,
+          "levels": {
+            "0": {
+              "clusters": 1423,
+              "triangles": 126612
+            },
+            "1": {
+              "clusters": 113,
+              "triangles": 7396
+            }
+          },
+          "batches": {
+            "Material_Wheel": 24,
+            "Material_Body": 1476,
+            "Material_Glass": 6,
+            "Material_Grass": 27,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 134008
+        },
+        "1.0": {
+          "selected": 1527,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1527,
+          "commands": 1527,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 458,
+          "levels": {
+            "0": {
+              "clusters": 1154,
+              "triangles": 104361
+            },
+            "1": {
+              "clusters": 343,
+              "triangles": 22179
+            },
+            "2": {
+              "clusters": 30,
+              "triangles": 2340
+            }
+          },
+          "batches": {
+            "Material_Grass": 27,
+            "Material_Wheel": 24,
+            "Material_Body": 1467,
+            "Material_Glass": 6,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 128880
+        },
+        "1000000000000.0": {
+          "selected": 1386,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1386,
+          "commands": 1386,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 1386,
+          "levels": {
+            "0": {
+              "clusters": 102,
+              "triangles": 7094
+            },
+            "1": {
+              "clusters": 840,
+              "triangles": 56490
+            },
+            "2": {
+              "clusters": 366,
+              "triangles": 28170
+            },
+            "3": {
+              "clusters": 36,
+              "triangles": 2520
+            },
+            "4": {
+              "clusters": 42,
+              "triangles": 3366
+            }
+          },
+          "batches": {
+            "Material_Wheel": 24,
+            "Material_Body": 1326,
+            "Material_Glass": 6,
+            "Material_Grass": 27,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 97640
+        }
+      },
+      "detail": "exact sets; selected 1536 > 1536 > 1527 > 1386"
+    },
+    {
+      "id": "transformed_selection",
+      "status": "pass",
+      "metrics": {
+        "baseline": {
+          "selected": 1536,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1536,
+          "commands": 1536,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 209,
+          "levels": {
+            "0": {
+              "clusters": 1423,
+              "triangles": 126612
+            },
+            "1": {
+              "clusters": 113,
+              "triangles": 7396
+            }
+          },
+          "batches": {
+            "Material_Wheel": 24,
+            "Material_Body": 1476,
+            "Material_Glass": 6,
+            "Material_Grass": 27,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 134008
+        },
+        "nonuniform": {
+          "selected": 1511,
+          "instances": 8,
+          "visibleInstances": 8,
+          "visible": 1511,
+          "commands": 1511,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 403,
+          "levels": {
+            "0": {
+              "clusters": 1205,
+              "triangles": 106843
+            },
+            "1": {
+              "clusters": 232,
+              "triangles": 15439
+            },
+            "2": {
+              "clusters": 61,
+              "triangles": 4695
+            },
+            "3": {
+              "clusters": 6,
+              "triangles": 420
+            },
+            "4": {
+              "clusters": 7,
+              "triangles": 561
+            }
+          },
+          "batches": {
+            "Material_Wheel": 24,
+            "Material_Body": 1451,
+            "Material_Glass": 6,
+            "Material_Grass": 27,
+            "Material_Wood": 3
+          },
+          "drawn_triangles": 127958
+        },
+        "offscreen": {
+          "selected": 1285,
+          "instances": 7,
+          "visibleInstances": 7,
+          "visible": 1285,
+          "commands": 1285,
+          "selectionOverflow": 0,
+          "visibilityOverflow": 0,
+          "selectionMismatches": 0,
+          "roots": 177,
+          "levels": {
+            "0": {
+              "clusters": 1193,
+              "triangles": 105967
+            },
+            "1": {
+              "clusters": 92,
+              "triangles": 6024
+            }
+          },
+          "batches": {
+            "Material_Wood": 3,
+            "Material_Wheel": 20,
+            "Material_Body": 1230,
+            "Material_Glass": 5,
+            "Material_Grass": 27
+          },
+          "drawn_triangles": 111991
+        }
+      },
+      "detail": "exact selected sets; nonuniform=1511 offscreen=1285"
+    }
+  ]
+}

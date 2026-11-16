@@ -1,0 +1,106 @@
+{
+  "id": "transformed_selection",
+  "status": "pass",
+  "metrics": {
+    "baseline": {
+      "selected": 1536,
+      "instances": 8,
+      "visibleInstances": 8,
+      "visible": 1536,
+      "commands": 1536,
+      "selectionOverflow": 0,
+      "visibilityOverflow": 0,
+      "selectionMismatches": 0,
+      "roots": 209,
+      "levels": {
+        "0": {
+          "clusters": 1423,
+          "triangles": 126612
+        },
+        "1": {
+          "clusters": 113,
+          "triangles": 7396
+        }
+      },
+      "batches": {
+        "Material_Wheel": 24,
+        "Material_Body": 1476,
+        "Material_Glass": 6,
+        "Material_Grass": 27,
+        "Material_Wood": 3
+      },
+      "drawn_triangles": 134008
+    },
+    "nonuniform": {
+      "selected": 1511,
+      "instances": 8,
+      "visibleInstances": 8,
+      "visible": 1511,
+      "commands": 1511,
+      "selectionOverflow": 0,
+      "visibilityOverflow": 0,
+      "selectionMismatches": 0,
+      "roots": 403,
+      "levels": {
+        "0": {
+          "clusters": 1205,
+          "triangles": 106843
+        },
+        "1": {
+          "clusters": 232,
+          "triangles": 15439
+        },
+        "2": {
+          "clusters": 61,
+          "triangles": 4695
+        },
+        "3": {
+          "clusters": 6,
+          "triangles": 420
+        },
+        "4": {
+          "clusters": 7,
+          "triangles": 561
+        }
+      },
+      "batches": {
+        "Material_Wheel": 24,
+        "Material_Body": 1451,
+        "Material_Glass": 6,
+        "Material_Grass": 27,
+        "Material_Wood": 3
+      },
+      "drawn_triangles": 127958
+    },
+    "offscreen": {
+      "selected": 1285,
+      "instances": 7,
+      "visibleInstances": 7,
+      "visible": 1285,
+      "commands": 1285,
+      "selectionOverflow": 0,
+      "visibilityOverflow": 0,
+      "selectionMismatches": 0,
+      "roots": 177,
+      "levels": {
+        "0": {
+          "clusters": 1193,
+          "triangles": 105967
+        },
+        "1": {
+          "clusters": 92,
+          "triangles": 6024
+        }
+      },
+      "batches": {
+        "Material_Wood": 3,
+        "Material_Wheel": 20,
+        "Material_Body": 1230,
+        "Material_Glass": 5,
+        "Material_Grass": 27
+      },
+      "drawn_triangles": 111991
+    }
+  },
+  "detail": "exact selected sets; nonuniform=1511 offscreen=1285"
+}

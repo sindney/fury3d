@@ -41,7 +41,7 @@
 
 - [x] 5.1 Compare CPU and Vulkan selected cluster sets across tank near/far cameras, multiple thresholds, shared instances, translated/rotated/non-uniformly scaled transforms, roots, and boundary-adjacent thresholds.
 - [x] 5.2 Compare LOD-zero and adaptive cluster GBuffer/final images against legacy tank renders, verify all three materials and no duplicate opaque draws, and confirm distant views reduce drawn triangles.
-- [ ] 5.3 Delegate a gfxrecon capture/replay inspection of the tank frame, verifying dispatches, barriers, indirect counts, per-draw IDs, and final-image parity; retain reproducible capture commands and frame-associated semantic output.
+- [x] 5.3 Delegate a gfxrecon capture/replay inspection of the tank frame, verifying dispatches, barriers, indirect counts, per-draw IDs, and final-image parity; retain reproducible capture commands and frame-associated semantic output.
 - [x] 5.4 Stress GPU counts, `maxDrawIndirectCount` splitting, atomic capacities, off-screen instances, unsafe cone transforms, and deterministic overflow fallback without holes or out-of-bounds accesses.
 - [x] 5.5 Run the Vulkan cluster tests with the render thread enabled and under AddressSanitizer, including toggles, mesh rebuilds, packet reuse, resource destruction, and on-demand readback.
 - [x] 5.6 Measure and document legacy versus cluster batch count, indirect draw count, selected/drawn triangles, GBuffer GPU/CPU time, and whole-frame time on tank and Sponza without claiming unmeasured hardware coverage.

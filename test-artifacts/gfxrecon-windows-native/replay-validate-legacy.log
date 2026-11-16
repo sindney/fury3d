@@ -1,0 +1,22 @@
+[gfxrecon] ERROR - DEBUG MESSENGER: Frame #1: VUID-VkSwapchainCreateInfoKHR-flags-03168: vkCreateSwapchainKHR(): pCreateInfo->flags includes VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR but the pNext chain does not contain an instance of VkImageFormatListCreateInfo.
+VkSwapchainCreateInfoKHR::pNext is NULL.
+The Vulkan spec states: If flags contains VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR then the pNext chain must include a VkImageFormatListCreateInfo structure with a viewFormatCount greater than zero and pViewFormats must have an element equal to imageFormat (https://docs.vulkan.org/spec/latest/chapters/VK_KHR_surface/wsi.html#VUID-VkSwapchainCreateInfoKHR-flags-03168)
+[gfxrecon] ERROR - DEBUG MESSENGER: Frame #1: VUID-RuntimeSpirv-NonWritable-06340: vkCreateGraphicsPipelines(): pCreateInfos[0].pStages[1] shader [VK_SHADER_STAGE_FRAGMENT_BIT] uses descriptor [Set 1, Binding 0, variable "CounterBuffer"] (type VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) which is not marked with NonWritable, but fragmentStoresAndAtomics was not enabled.
+The Vulkan spec states: If the fragmentStoresAndAtomics feature is not enabled, then all storage image, storage texel buffer, storage tensor, and storage buffer variables in the fragment stage must be decorated with the NonWritable decoration (https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#VUID-RuntimeSpirv-NonWritable-06340)
+[gfxrecon] INFO - GfxReconGui indexed pipeline cache protocol 1
+[gfxrecon] INFO - GfxReconGui effective swapchain mode: virtual
+[gfxrecon] WARNING - Mismatch:
+[gfxrecon] WARNING - Captured application name: fury.exe
+[gfxrecon] WARNING - Replayer process name: gfxrecon-replay.exe
+[gfxrecon] WARNING - This can lead to diverging driver behavior between the replayer and captured application
+[gfxrecon] WARNING - Recommendation: Rename gfxrecon-replay.exe to match the application's executable name
+[gfxrecon] INFO - Loading state for captured frame 30
+[gfxrecon] INFO - Enabling the VK_KHR_get_surface_capabilities2 extension
+[gfxrecon] INFO - Replay has added the following required layers to VkInstanceCreateInfo when calling vkCreateInstance:
+[gfxrecon] INFO - 	VK_LAYER_KHRONOS_validation
+[gfxrecon] INFO - Finished loading state for captured frame 30
+================== Start timer (Frame: 1) ==================
+================== End timer (Frame: 2) ==================
+Load time:  0.702551 seconds (frame 30)
+Total time: 0.707452 seconds
+Measured FPS: 204.081633 fps, 0.004900 seconds, 1 frame, 1 loop, framerange [1-2)

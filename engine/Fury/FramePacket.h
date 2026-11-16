@@ -15,6 +15,7 @@
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>

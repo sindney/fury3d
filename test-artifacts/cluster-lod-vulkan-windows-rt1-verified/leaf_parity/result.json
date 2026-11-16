@@ -1,0 +1,37 @@
+{
+  "id": "leaf_parity",
+  "status": "pass",
+  "metrics": {
+    "image": {
+      "mean": 0.0147,
+      "max": 146,
+      "frac": 0.000639
+    },
+    "stats": {
+      "selected": 1536,
+      "instances": 8,
+      "visibleInstances": 8,
+      "visible": 1536,
+      "commands": 1536,
+      "selectionOverflow": 0,
+      "visibilityOverflow": 0,
+      "selectionMismatches": 0,
+      "roots": 102,
+      "levels": {
+        "0": {
+          "clusters": 1536,
+          "triangles": 134816
+        }
+      },
+      "batches": {
+        "Material_Grass": 27,
+        "Material_Wheel": 24,
+        "Material_Body": 1476,
+        "Material_Glass": 6,
+        "Material_Wood": 3
+      },
+      "drawn_triangles": 134816
+    }
+  },
+  "detail": "image mean=0.0147 frac=0.000639; selected=1536 level0_tri=134816 batches=Material_Grass27,Material_Wheel24,Material_Body1476,Material_Glass6,Material_Wood3"
+}

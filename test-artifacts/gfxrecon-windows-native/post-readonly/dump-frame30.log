@@ -1,0 +1,72 @@
+[gfxrecon-cli] Opening D:\git\fury3d\test-artifacts\gfxrecon-windows-native\post-readonly\capture-frame30-rt0.gfxr
+[gfxrecon-cli] Indexed 2837 recorded calls across 1 frames.
+[gfxrecon-cli] Grouping passes
+[gfxrecon-cli] Writing capture, object and pipeline data
+[gfxrecon-cli] Writing 39 shader modules
+[gfxrecon-cli] Frame 1: 12 passes
+{
+  "command": "dump",
+  "ok": true,
+  "result": {
+    "cache_hit": false,
+    "complete": true,
+    "example_draw": {
+      "block": 1971,
+      "call": "vkCmdDrawIndexed",
+      "occurrence": 0,
+      "path": "frames/0001/passes/000-rendering-b1886/draws/0000-b1971-vkCmdDrawIndexed"
+    },
+    "manifest": {
+      "bytes_written": 2472477,
+      "capture": {
+        "path": "D:\\git\\fury3d\\test-artifacts\\gfxrecon-windows-native\\post-readonly\\capture-frame30-rt0.gfxr",
+        "sha256": "96c16bbb3863bf10ec9bb2189b9fb91a512201d5692c5c9cd17499b723a56748"
+      },
+      "complete": true,
+      "dynamic": null,
+      "elapsed_seconds": 1.2080994,
+      "files_written": 316,
+      "finished_utc": "2026-11-16T16:12:04Z",
+      "provenance": {
+        "capture_sha256": "96c16bbb3863bf10ec9bb2189b9fb91a512201d5692c5c9cd17499b723a56748",
+        "options": {
+          "draws": {},
+          "dynamic": "none",
+          "frames": [
+            1
+          ]
+        },
+        "schema": "gfxrecon-dump/1",
+        "tools": {
+          "cache_identity": "01061f6fb53c50a6-be456c0cfd60eb64-v6",
+          "disassembler_sha256": "d0dfd4b31afd3516fff8b4cf79116a52166197eb9b94295a9e5dd95f15322316",
+          "exporter_version": 1
+        }
+      },
+      "replay_count": 0,
+      "schema": "gfxrecon-dump/1",
+      "started_utc": "2026-11-16T16:12:03Z",
+      "status_counts": {
+        "draws": 41,
+        "dynamic_slots": {
+          "skipped": 123
+        },
+        "frames": 1,
+        "objects": 808,
+        "passes": 12,
+        "pipelines": 21,
+        "selected_draws": 41,
+        "shader_modules": 39,
+        "shaders": {
+          "glsl_ok": 39,
+          "spv_ok": 39,
+          "spvasm_ok": 39,
+          "unavailable_spv": 0
+        }
+      },
+      "threads": 16
+    },
+    "out": "D:\\git\\fury3d\\test-artifacts\\gfxrecon-windows-native\\post-readonly\\decoded-frame30",
+    "reused": false
+  }
+}

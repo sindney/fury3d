@@ -167,8 +167,15 @@ count and base-instance output; they do not replace it.
 On macOS, `test-artifacts/gfxrecon-kosmickrisp/COMMANDS.sh` retains the exact
 ICD selection, local gfxrecon-cli inspection commands, smoke capture evidence,
 and the KosmicKrisp tank swapchain crash. Its non-MoltenVK smoke proves the
-MDI-count path, but the tank capture/replay lane remains unrun. MoltenVK is
+MDI-count path, but its tank capture/replay lane remains unavailable. MoltenVK is
 unsupported for cluster LOD and does not substitute for native MDI validation.
+
+On native Windows Vulkan, `test-artifacts/gfxrecon-windows-native/RESULTS.md`
+records the completed tank capture/replay inspection. Use
+`post-readonly/post-readonly-COMMANDS.sh` for the final shader state. It covers
+validation, dispatches, barriers, indirect counts, first-instance IDs, replay
+image parity, and frame-30 semantic output. The capture command uses
+`--render-thread=0` to avoid a separate capture-timing startup assertion.
 
 ## Geometry cluster LOD comparisons
 

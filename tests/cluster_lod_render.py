@@ -407,8 +407,10 @@ def main(argv):
     if not Path(args.binary).is_file():
         log("RESULT FAIL missing binary: " + args.binary)
         return 1
-    artifacts = Path(args.artifacts) if args.artifacts else \
-        REPO / "test-artifacts" / ("cluster-lod-%s" % args.backend)
+    args.binary = str(Path(args.binary).resolve())
+    args.cwd = str(Path(args.cwd).resolve())
+    artifacts = (Path(args.artifacts) if args.artifacts else
+                 REPO / "test-artifacts" / ("cluster-lod-%s" % args.backend)).resolve()
     artifacts.mkdir(parents=True, exist_ok=True)
 
     unsupported = probe_unsupported_backend(args, artifacts)
