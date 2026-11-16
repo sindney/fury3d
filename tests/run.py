@@ -247,6 +247,7 @@ def cmd_run(args):
         "examples": str(REPO / "examples"),
         "tests": str(REPO / "tests"),
         "artifacts": str(artifacts),
+        "rhi": "metal" if platform.system() == "Darwin" else "vulkan",
         "default_timeout": defaults.get("timeout", 120),
     }
 

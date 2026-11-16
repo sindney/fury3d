@@ -5,14 +5,12 @@ end
 
 local scene = Scene.GetActive()
 if not scene then fail("no active scene") end
-local fingerprint = Scene.GetPersistentFingerprint(scene)
-if not fingerprint:find('"payload_clusters"', 1, true) then
-    fail("packaged mesh did not attach its cluster payload")
-end
-if not fingerprint:find('"payload_groups"', 1, true) then
-    fail("packaged mesh did not attach cluster groups")
-end
-if not fingerprint:find('"cluster_lod"', 1, true) then
-    fail("packaged mesh lost its cluster descriptor")
-end
+local attached = false
+scene:ForEachMesh(function(mesh)
+    local state = ClusterLodTest.Inspect(mesh)
+    if state.has_descriptor and state.has_payload and state.cluster_count > 0 then
+        attached = true
+    end
+end)
+if not attached then fail("packaged mesh did not attach its cluster descriptor and payload") end
 print("cluster_lod_pak: packaged payload attached OK")

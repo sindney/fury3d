@@ -16,7 +16,6 @@
 #include "Fury/Profiler.h"
 #include "Fury/Quaternion.h"
 #include "Fury/Scene.h"
-#include "Fury/SceneManager.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Transform.h"
 #include "Fury/Vector4.h"
@@ -723,14 +722,34 @@ namespace fury
 		// Joint::GetFinalMatrix pairs with the ibm) -- no parallel joint
 		// tree-walk is needed.
 		int channelCount = clip->GetChannelCount();
+		bool poseChanged = false;
 		for (int i = 0; i < channelCount && i < static_cast<int>(targets.size()); ++i)
 		{
 			const auto &t = targets[i];
-			if (t.kind == AnimTarget::TransformT && t.transform)
-				t.transform->SetDeltaTime(alpha);
+			if (t.kind != AnimTarget::TransformT || !t.transform) continue;
+
+			// Capture the pose before it is applied so the bounds refresh
+			// only runs when the pose actually moved.
+			Vector4 beforePos, beforeScale;
+			Quaternion beforeRot;
+			if (t.node)
+			{
+				beforePos = t.node->GetLocalPosition();
+				beforeRot = t.node->GetLocalRoattion();
+				beforeScale = t.node->GetLocalScale();
+			}
+
+			t.transform->SetDeltaTime(alpha);
+
+			if (t.node &&
+				(beforePos != t.node->GetLocalPosition() ||
+				 beforeRot != t.node->GetLocalRoattion() ||
+				 beforeScale != t.node->GetLocalScale()))
+				poseChanged = true;
 		}
 
-		UpdateSkinnedBounds();
+		if (poseChanged)
+			UpdateSkinnedBounds();
 	}
 
 	void Animator::UpdateSkinnedBounds()
@@ -741,24 +760,16 @@ namespace fury
 		// The pose applied this frame can carry a skinned mesh outside
 		// its bind-pose AABB -- refresh bounds from the deformed pose so
 		// culling / LOD / shadows see where the mesh actually is. The
-		// skinned branch of Mesh::CalculateAABB blends vertices by
-		// Joint::GetFinalMatrix() (world space), so convert back to the
-		// mesh node's model space before SetModelAABB, then re-insert
-		// into the scene manager (same propagation path Recompose uses).
+		// mesh render owns its bounds; the animator only says the pose
+		// moved.
 		std::function<void(const SceneNode::Ptr &)> walk =
 			[&](const SceneNode::Ptr &n)
 		{
 			if (!n) return;
 			if (auto render = n->GetComponent<MeshRender>())
 			{
-				auto mesh = render->GetMesh();
-				if (mesh && mesh->IsSkinnedMesh())
-				{
-					mesh->CalculateAABB();
-					n->SetModelAABB(n->GetWorldMatrix().Inverse().Multiply(mesh->GetAABB()));
-					if (Scene::Active && Scene::Active->GetSceneManager())
-						Scene::Active->GetSceneManager()->UpdateSceneNode(n);
-				}
+				if (render->UpdateSkinnedBounds())
+					n->UpdateOcTreeBounds();
 			}
 			for (unsigned int i = 0; i < n->GetChildCount(); ++i)
 				walk(n->GetChildAt(i));

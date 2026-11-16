@@ -1,6 +1,7 @@
 #ifndef _FURY_MESHRENDER_H_
 #define _FURY_MESHRENDER_H_
 
+#include "Fury/BoxBounds.h"
 #include "Fury/Component.h"
 
 namespace fury
@@ -11,13 +12,11 @@ namespace fury
 
 	class SceneNode;
 
-	class BoxBounds;
-
 	class Matrix4;
 
 	class Vector4;
 
-	class FURY_API MeshRender : public Component
+	class FURY_API MeshRender : public Component, public std::enable_shared_from_this<MeshRender>
 	{
 	public:
 
@@ -40,6 +39,17 @@ namespace fury
 		// GetLodMesh, etc.) -- MeshRender only stores the per-instance
 		// runtime selection.
 		unsigned int m_ActiveLod = 0;
+
+		// Posed world-space bounds of a skinned mesh. A skinned mesh
+		// renders with an identity model matrix, so its geometry follows
+		// the joints and not the node; the node's world AABB is published
+		// from this box and must not follow the node's transform.
+		BoxBounds m_SkinnedWorldBounds;
+
+		bool m_HasSkinnedBounds = false;
+
+		// Key of the owning node's OnTransformChange subscription.
+		size_t m_TransformSignalKey = 0;
 
 	public:
 
@@ -113,11 +123,21 @@ namespace fury
 		// in [1-band, 1+band]; apply to coverage before picking.
 		static float ComputeLodJitter(const Vector4 &worldPos);
 
+		// Recompute the posed world bounds of a skinned mesh and publish
+		// them to the owning node. Returns false for a static mesh or a
+		// mesh with no skinned topology.
+		bool UpdateSkinnedBounds();
+
 	protected:
 
 		virtual void OnAttaching(const std::shared_ptr<SceneNode> &node) override;
 
 		virtual void OnDetaching(const std::shared_ptr<SceneNode> &node) override;
+
+		// Push the cached posed bounds onto the owning node.
+		void PublishSkinnedBounds();
+
+		void OnOwnerTransformChanged(const std::shared_ptr<SceneNode> &node);
 	};
 }
 

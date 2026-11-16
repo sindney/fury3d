@@ -3,7 +3,7 @@
 -- union of the canonical fixtures plus the gap components this script
 -- attaches (FreeFlyController, CharacterController, Transform, and
 -- BodySetup on the island fixture), and that migrated components
--- round-trip through Serialize(Archive&) with identical fingerprints
+-- round-trip through Serialize(Archive&) with identical saved documents
 -- while unmigrated ones keep riding the Load/Save adapter.
 --
 -- Usage:
@@ -108,8 +108,6 @@ local tf_scl = tf_node:GetLocalScale()
 tf_node:AddComponent(Transform.Create(Vector4(11.0, 22.0, 33.0), tf_rot, Vector4(2.5)))
 root:AddChild(tf_node)
 
-local before = Scene.GetPersistentFingerprint(scene)
-
 local function mkdir(path)
     os.execute("mkdir -p '" .. path:gsub("'", "'\\''") .. "'")
 end
@@ -118,11 +116,14 @@ mkdir(artifact_dir)
 local function check_roundtrip(extension)
     local path = artifact_dir .. "/registry_scene." .. extension
     if not FileUtil.SaveByExtension(scene, path) then fail("save failed: " .. path) end
+    -- The save extracts memory-backed textures and rewrites their paths,
+    -- so the baseline is captured after it to describe the same state.
+    local before = FileUtil.SerializeSceneToString(scene)
     local loaded = Importer.LoadScene(path)
     if not loaded then fail("load failed: " .. path) end
     Scene.SetActive(loaded)
-    local differences = Scene.DiffPersistentFingerprints(before,
-        Scene.GetPersistentFingerprint(loaded))
+    local differences = Scene.DiffPersistentState(before,
+        FileUtil.SerializeSceneToString(loaded))
     if #differences ~= 0 then
         for i, entry in ipairs(differences) do
             if i <= 8 then
@@ -130,7 +131,7 @@ local function check_roundtrip(extension)
                     entry.path, entry.first, entry.second))
             end
         end
-        fail(extension .. " fingerprint diff has " .. #differences .. " entries")
+        fail(extension .. " document diff has " .. #differences .. " entries")
     end
     return path, loaded
 end
@@ -320,11 +321,26 @@ local ddc_root = os.getenv("FURY_DDC") or "DDC"
 local stored = ClusterLodTest.BuildAndStore(cluster_mesh, ddc_root)
 if not stored.ok then fail("cluster DDC store failed: " .. tostring(stored.error)) end
 if not stored.key:match("^CLOD_") then fail("cluster DDC key is not namespaced") end
-local cluster_fingerprint = Scene.GetPersistentFingerprint(cluster_source)
+local cluster_state = ClusterLodTest.Inspect(cluster_mesh)
+if not cluster_state.has_descriptor or not cluster_state.has_payload
+    or cluster_state.cluster_count == 0 then
+    fail("cluster payload was not attached after building")
+end
+local function check_cluster_state(scene, expected, label)
+    local matched = false
+    scene:ForEachMesh(function(mesh)
+        local state = ClusterLodTest.Inspect(mesh)
+        if state.key == expected.key then
+            matched = state.has_descriptor and state.has_payload
+                and state.cluster_count == expected.cluster_count
+                and state.group_count == expected.group_count
+        end
+    end)
+    if not matched then fail(label) end
+end
 ClusterLodTest.ClearDescriptor(cluster_mesh)
-if #Scene.DiffPersistentFingerprints(cluster_fingerprint,
-    Scene.GetPersistentFingerprint(cluster_source)) == 0 then
-    fail("cluster descriptor loss was not fingerprinted")
+if ClusterLodTest.Inspect(cluster_mesh).has_descriptor then
+    fail("cluster descriptor was not cleared")
 end
 stored = ClusterLodTest.BuildAndStore(cluster_mesh, ddc_root)
 if not stored.ok then fail("cluster descriptor restore failed") end
@@ -335,10 +351,7 @@ for _, extension in ipairs({ "json", "bin" }) do
     local loaded = Importer.LoadScene(path)
     if not loaded then fail("cluster descriptor load failed: " .. extension) end
     Scene.SetActive(loaded)
-    if #Scene.DiffPersistentFingerprints(cluster_fingerprint,
-        Scene.GetPersistentFingerprint(loaded)) ~= 0 then
-        fail("cluster descriptor fingerprint changed: " .. extension)
-    end
+    check_cluster_state(loaded, cluster_state, "cluster descriptor changed: " .. extension)
 end
 local cluster_json = read_file(compat_dir .. "/cluster_lod_roundtrip.json")
 if not cluster_json:find('"cluster_lod"', 1, true) then fail("cluster descriptor missing from JSON") end
@@ -347,11 +360,9 @@ if cluster_json:find('"gpu_clusters"', 1, true) or cluster_json:find('"merged_in
 end
 
 Scene.SetActive(cluster_source)
-local payload_fingerprint = Scene.GetPersistentFingerprint(cluster_source)
 ClusterLodTest.DetachPayload(cluster_mesh)
-if #Scene.DiffPersistentFingerprints(payload_fingerprint,
-    Scene.GetPersistentFingerprint(cluster_source)) == 0 then
-    fail("cluster payload loss was not fingerprinted")
+if ClusterLodTest.Inspect(cluster_mesh).has_payload then
+    fail("cluster payload was not detached")
 end
 local payload_path = ddc_root .. "/" .. stored.key:sub(1, 2) .. "/"
     .. stored.key:sub(3, 4) .. "/" .. stored.key .. ".clod"
@@ -362,10 +373,7 @@ local payload_bytes = read_file(payload_path)
 if read_file(source_payload_path) ~= payload_bytes then fail("durable and DDC payloads differ") end
 local loaded_payload = ClusterLodTest.Load(cluster_mesh, ddc_root)
 if not loaded_payload.ok then fail("cluster DDC load failed: " .. tostring(loaded_payload.error)) end
-if #Scene.DiffPersistentFingerprints(payload_fingerprint,
-    Scene.GetPersistentFingerprint(cluster_source)) ~= 0 then
-    fail("cluster payload did not reattach")
-end
+check_cluster_state(cluster_source, cluster_state, "cluster payload did not reattach")
 if not os.remove(payload_path) then fail("cannot remove cluster DDC payload") end
 if not os.remove(source_payload_path) then fail("cannot remove durable cluster payload") end
 local missing = ClusterLodTest.Load(cluster_mesh, ddc_root)

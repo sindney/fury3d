@@ -50,16 +50,17 @@ if scene:GetRootNode():FindChildRecursively("EditorCamera") then
     fail("editor-only EditorCamera leaked into the saved scene")
 end
 
--- Semantic round trip: save into the artifact dir, reload, compare
--- persistent fingerprints.
-local fp_source = Scene.GetPersistentFingerprint(scene)
+-- Semantic round trip: save into the artifact dir, reload, compare the
+-- saved documents.
 local out = output_root .. "/roundtrip/scene.json"
 mkdir(dirname(out))
 if not FileUtil.SaveByExtension(scene, out) then fail("round-trip save failed") end
+local source_document = FileUtil.SerializeSceneToString(scene)
 local reloaded = Importer.LoadScene(out)
 if not reloaded then fail("round-trip reload failed") end
 Scene.SetActive(reloaded)
-local diffs = Scene.DiffPersistentFingerprints(fp_source, Scene.GetPersistentFingerprint(reloaded))
+local diffs = Scene.DiffPersistentState(source_document,
+    FileUtil.SerializeSceneToString(reloaded))
 if #diffs ~= 0 then
     for i, entry in ipairs(diffs) do
         if i <= 8 then
@@ -67,7 +68,7 @@ if #diffs ~= 0 then
                 entry.path, entry.first, entry.second))
         end
     end
-    fail("round-trip semantic diff has " .. #diffs .. " entries")
+    fail("round-trip document diff has " .. #diffs .. " entries")
 end
 
 print("ui_saved_scene_verify OK: " .. saved_path)

@@ -102,6 +102,9 @@ namespace fury
 		// set recursively to true will call this on child nodes.
 		void RemoveFromOcTree(bool recursively = false);
 
+		// Re-insert this node into the scene manager it is registered with.
+		void UpdateOcTreeBounds();
+
 		void SetEditorOnly(bool value) { m_EditorOnly = value; }
 
 		bool IsEditorOnly() const { return m_EditorOnly; }

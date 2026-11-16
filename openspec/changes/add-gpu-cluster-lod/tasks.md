@@ -11,7 +11,7 @@
 ## 2. Payload persistence, DDC, cook, and pak
 
 - [x] 2.1 Implement versioned `.clod` binary serialization and validation for headers, merged indices, cluster/group records, alignment, truncation, and incompatible schema handling.
-- [x] 2.2 Persist cluster descriptors through native JSON/BIN mesh and scene round trips, and extend semantic scene fingerprints to detect descriptor or payload loss without embedding cluster arrays in scene JSON.
+- [x] 2.2 Persist cluster descriptors through native JSON/BIN mesh and scene round trips, and verify descriptor or payload loss with direct mesh inspection and saved-document comparison without embedding cluster arrays in scene JSON.
 - [x] 2.3 Implement `CLOD_` DDC keys, import/migration/runtime payload resolution, stale/missing/corrupt diagnostics, and mandatory-payload load failure with no runtime generation or legacy missing-payload path.
 - [x] 2.4 Add automatic import enumeration and once-per-shared-mesh builder invocation, durable `Resource/ClusterLOD` payloads with content/settings/version-keyed DDC cache hits, explicit generation errors, cook validation of existing payloads, and the `cluster_meshes` manifest section.
 - [x] 2.5 Add pak writing and `AssetBackend` loading for content-keyed cluster artifacts, including shared embedded meshes and operation without source FBX or host DDC.

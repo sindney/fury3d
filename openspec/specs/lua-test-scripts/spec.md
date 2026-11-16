@@ -14,7 +14,7 @@ Each script SHALL exit non-zero on invariant violation (exit code 1 for user err
 
 The required binding-smoke scripts SHALL include at minimum:
 
-- **`tests/lua/scene_archive_roundtrip.lua`** — save and reload fresh scenes through JSON and compressed BIN in isolated asset directories, compare structural counts and semantic fingerprints, verify string/clone texture identity, and exercise malformed and compatibility inputs. Reports structured field-path differences instead of only proving that the save binding writes a file.
+- **`tests/lua/scene_archive_roundtrip.lua`** — save and reload fresh scenes through JSON and compressed BIN in isolated asset directories, compare structural counts and canonical scene documents, verify string/clone texture identity, and exercise malformed and compatibility inputs. Reports structured field-path differences instead of only proving that the save binding writes a file.
 
 - **`tests/lua/scene_smoke_iterate.lua`** — exercise the `Scene.ForEachMesh` / `ForEachMaterial` / `ForEachNode` iteration bindings. Calls each in turn against `Scene.GetActive()`, counts callbacks, and logs the counts to stdout. Read-only — does not write any file. Does NOT summarize a scene as a feature (that's `fury info`'s job); only proves the iteration bindings work.
 
@@ -25,7 +25,7 @@ A `tests/lua/README.md` SHALL exist describing the folder split, the feature-pre
 #### Scenario: scene_archive_roundtrip.lua round-trips both formats
 - **WHEN** a user runs `./fury exec examples/Projects/feature/feature.bin tests/lua/scene_archive_roundtrip.lua examples/Projects/feature/feature.bin /tmp/feature-archive`
 - **THEN** fresh scenes load from isolated JSON and BIN outputs
-- **AND** structural counts and semantic fingerprints match under their exactness and tolerance rules
+- **AND** structural counts match and the saved documents compare equal under the exactness and tolerance rules
 - **AND** the process exits 0
 
 #### Scenario: scene_archive_roundtrip.lua rejects malformed input

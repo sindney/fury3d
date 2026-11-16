@@ -23,7 +23,8 @@ matches one of the engine systems the script exercises:
 
 - `physics_*`, `game_ui_*`, `editor_*`, `ocean_*`, `buoyancy_*`,
   `terrain_*`, `vegetation_*`, `particle_*`, `cloud_*`, `render_*`,
-  `shadow_*`, `scene_*`, `joystick_*`, `kraut_*`, `pak_*`, `pipeline_*`.
+  `shadow_*`, `scene_*`, `joystick_*`, `kraut_*`, `pak_*`, `pipeline_*`,
+  `skinned_*`.
 
 Generic binding-smoke scripts that exercise only the scene-graph or
 material iteration surface use `scene_*`. Scripts under `tests/lua/scenes/`
@@ -61,6 +62,9 @@ may omit the prefix.
 - `render_smoke_settings_roundtrip.lua` — `RenderSettings` save/reload.
 - `shadow_smoke_receive.lua` — shadow-receive + particle resolution.
 - `particle_smoke.lua` — `ParticleSystem` name resolution + save/reload.
+- `skinned_bounds.lua` — a posed skinned mesh's world bounds track the
+  joints and never reach the world origin; the mesh asset's stored bounds
+  survive posing.
 - `game_ui_smoke.lua`, `game_ui.lua`, `game_ui_capture.lua`,
   `game_ui_demo.lua`, `game_ui_settings_persist.lua`,
   `game_ui_slider_param.lua`, `game_ui_spawn.lua`, `game_ui_swim.lua`,

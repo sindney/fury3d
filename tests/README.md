@@ -40,14 +40,16 @@ categories. `--timeout-multiplier` scales manifest timeouts.
 Run the editor suite from `examples/`:
 
 ```bash
-./furye-ui-tests Editor.lua --ui-test --render-thread=0 \
+./furye-ui-tests Editor.lua --rhi=metal --ui-test --render-thread=0 \
   --ui-test-artifacts /tmp/fury-ui --ui-test-timeout 120
-./furye-ui-tests Editor.lua --ui-test --render-thread=1 \
+./furye-ui-tests Editor.lua --rhi=metal --ui-test --render-thread=1 \
   --ui-test-artifacts /tmp/fury-ui-render-thread --ui-test-timeout 120
 ```
 
 Use `--ui-test-filter <substring>` to select editor tests. Unknown filters,
-failed tests, and timeouts return non-zero. The UI lane also includes a
+failed tests, and timeouts return non-zero. The manifest's editor suite selects
+Metal on macOS and Vulkan on Windows/Linux through the `{rhi}` placeholder;
+direct macOS commands above use Metal explicitly. The UI lane also includes a
 render-thread smoke and an intentional `failure_probe` entry whose expected
 exit 1 verifies failure captures and JUnit reporting. UI runs use isolated scenes,
 settings, native-dialog results, and ImGui ini files; they do not read or write

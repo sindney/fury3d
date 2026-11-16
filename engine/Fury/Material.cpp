@@ -1,3 +1,4 @@
+#include <map>
 #include <unordered_map>
 #include <functional>
 
@@ -142,38 +143,40 @@ namespace fury
 		// still registers so its saved uuid resolves.
 		if (ar.EnterArray("textures", ArchiveFieldPolicy::Required))
 		{
-			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Textures.size();
-			auto it = m_Textures.begin();
-			for (std::size_t i = 0; i < count; ++i)
+			if (ar.IsLoading())
 			{
-				if (ar.IsLoading())
-					ar.SetArrayIndex(i);
-				if (ar.EnterObject())
+				for (std::size_t i = 0; i < ar.GetArraySize(); ++i)
 				{
-					if (ar.IsLoading())
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					std::string key;
+					ar << Required("key", key);
+					auto texture = Texture::Create("temp");
+					texture->Serialize(ar);
+					if (!texture->GetFilePath().empty() && Scene::Active)
 					{
-						std::string key;
-						ar << Required("key", key);
-						auto texture = Texture::Create("temp");
-						texture->Serialize(ar);
-						if (!texture->GetFilePath().empty() && Scene::Active)
+						if (auto em = Scene::Active->GetEntityManager())
 						{
-							if (auto em = Scene::Active->GetEntityManager())
-							{
-								em->Add(texture);
-								if (auto canonical = em->Get<Texture>(texture->GetFilePath()))
-									texture = canonical;
-							}
+							em->Add(texture);
+							if (auto canonical = em->Get<Texture>(texture->GetFilePath()))
+								texture = canonical;
 						}
-						SetTexture(key, texture);
 					}
-					else
-					{
-						std::string key = it->first;
-						ar << Required("key", key);
-						it->second->Serialize(ar);
-						++it;
-					}
+					SetTexture(key, texture);
+					ar.LeaveObject();
+				}
+			}
+			else
+			{
+				// Sorted by slot key so the document does not depend on
+				// the map's hash order.
+				std::map<std::string, Texture::Ptr> sorted(m_Textures.begin(), m_Textures.end());
+				for (const auto& kv : sorted)
+				{
+					if (!ar.EnterObject()) continue;
+					std::string key = kv.first;
+					ar << Required("key", key);
+					kv.second->Serialize(ar);
 					ar.LeaveObject();
 				}
 			}
@@ -183,38 +186,45 @@ namespace fury
 		// uniforms: {"key", "type", "data"}; type picks the concrete class.
 		if (ar.EnterArray("uniforms", ArchiveFieldPolicy::Required))
 		{
-			std::size_t count = ar.IsLoading() ? ar.GetArraySize() : m_Uniforms.size();
-			auto it = m_Uniforms.begin();
-			for (std::size_t i = 0; i < count; ++i)
+			if (ar.IsLoading())
 			{
-				if (ar.IsLoading())
-					ar.SetArrayIndex(i);
-				if (ar.EnterObject())
+				for (std::size_t i = 0; i < ar.GetArraySize(); ++i)
 				{
-					if (ar.IsLoading())
+					ar.SetArrayIndex(i);
+					if (!ar.EnterObject()) continue;
+					std::string key;
+					ar << Required("key", key);
+					std::string type;
+					ar << Required("type", type);
+					auto uniform = CreateUniformByType(type);
+					if (uniform)
 					{
-						std::string key;
-						ar << Required("key", key);
-						std::string type;
-						ar << Required("type", type);
-						auto uniform = CreateUniformByType(type);
-						if (uniform)
-						{
-							uniform->Serialize(ar);
-						}
-						else
-						{
-							ar.SetError("unknown uniform type '" + type + "'");
-						}
-						SetUniform(key, uniform);
+						uniform->Serialize(ar);
 					}
 					else
 					{
-						std::string key = it->first;
-						ar << Required("key", key);
-						it->second->Serialize(ar);
-						++it;
+						ar.SetError("unknown uniform type '" + type + "'");
 					}
+					SetUniform(key, uniform);
+					ar.LeaveObject();
+				}
+			}
+			else
+			{
+				// The material_id uniform holds a runtime counter the loader
+				// regenerates; it is not persistent state.
+				std::map<std::string, UniformBase::Ptr> sorted;
+				for (const auto& kv : m_Uniforms)
+				{
+					if (kv.first == Material::MATERIAL_ID) continue;
+					sorted.emplace(kv.first, kv.second);
+				}
+				for (const auto& kv : sorted)
+				{
+					if (!ar.EnterObject()) continue;
+					std::string key = kv.first;
+					ar << Required("key", key);
+					kv.second->Serialize(ar);
 					ar.LeaveObject();
 				}
 			}

@@ -63,6 +63,11 @@ namespace fury
 		// unsupported extension.
 		static bool LoadByExtension(const std::shared_ptr<Serializable> &source, const std::string &filePath);
 
+		// Read a saved document's text without deserializing it: plain
+		// JSON for .json, the JSON payload of the LZ4 envelope for .bin.
+		// Returns false on unsupported extension or a read failure.
+		static bool ReadDocumentByExtension(const std::string &filePath, std::string &out);
+
 		// In-memory archive transport used by CloneTree; weak references
 		// resolve against the active scene's EntityManager.
 		static std::string SerializeToString(const std::shared_ptr<Serializable> &source, int maxDecimalPlaces = kMaxDecimalPlaces);

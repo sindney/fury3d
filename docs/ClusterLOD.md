@@ -70,7 +70,7 @@ PACKAGED_TEST_KEEP=1 OUT_DIR=/tmp/cluster-lod-packaged tests/cluster_lod_package
 
 The final integration runs passed every supported native test in both
 configurations, with expected Vulkan indirect-smoke skips on macOS, and
-33 headless tests with two precondition skips in each configuration. All
+34 headless tests with two precondition skips in each configuration. All
 five cluster render cases on Metal passed in both configurations. Vulkan/MoltenVK
 reported an expected unsupported-platform skip after verifying legacy fallback;
 native Vulkan MDI cases remain platform work. Editor

@@ -464,7 +464,7 @@ static bool ProjectToScreen(const Vector4 &world, const Matrix4 &viewProj,
 
 // Draw the joint hierarchy of every skinned mesh in the active scene
 // as a line/marker overlay on top of the viewport. Walks each mesh's
-// root joint; for every joint, draws a line to its parent's world
+// joint list; for every joint, draws a line to its parent's world
 // position and a small dot at the joint's own world position.
 void RenderJointDebugOverlay(const ImVec2 &origin, const ImVec2 &size)
 {
@@ -493,43 +493,48 @@ void RenderJointDebugOverlay(const ImVec2 &origin, const ImVec2 &size)
 		auto root = mesh->GetRootJoint();
 		if (!root) return true;
 
-		// Build a name -> world-position lookup so we can draw each
-		// joint-to-parent line regardless of first-child/sibling link
-		// correctness. Iterate every joint by index (the mesh's flat
-		// list) instead of walking the linked tree. Joint world
+		// Collect every joint's world position by index (the mesh's
+		// flat list) so a parent is found by joint identity rather
+		// than by name -- two joints may share a name. Joint world
 		// positions come from each joint's linked SceneNode (wired at
 		// import and re-linked on scene load) -- the scene graph already
 		// includes ancestors like the skeleton root's parent.
-		std::unordered_map<std::string, Vector4> worldByName;
 		const unsigned int jCount = mesh->GetJointCount();
+		std::vector<Vector4> worldByIndex(jCount);
+		std::vector<bool> hasWorld(jCount, false);
+		std::unordered_map<const Joint *, unsigned int> indexByJoint;
 		for (unsigned int i = 0; i < jCount; ++i) {
 			auto j = mesh->GetJointAt(i);
 			if (!j) continue;
+			indexByJoint[j.get()] = i;
 			auto jn = j->GetSceneNode();
-			Vector4 jworld;
-			if (jn) {
-				const Matrix4 &w = jn->GetWorldMatrix();
-				jworld = Vector4(w.Raw[12], w.Raw[13], w.Raw[14], 1.0f);
-			}
-			worldByName[j->GetName()] = jworld;
+			if (!jn) continue;
+			const Matrix4 &w = jn->GetWorldMatrix();
+			worldByIndex[i] = Vector4(w.Raw[12], w.Raw[13], w.Raw[14], 1.0f);
+			hasWorld[i] = true;
 		}
 		for (unsigned int i = 0; i < jCount; ++i) {
 			auto j = mesh->GetJointAt(i);
-			if (!j) continue;
+			if (!j || !hasWorld[i]) continue;
 			++walkCount;
-			Vector4 selfWorld = worldByName[j->GetName()];
-			// Parent: look up via GetParent(). If absent, fall back
-			// to mesh origin so we still draw a dot at the root.
-			Vector4 parentWorld(0, 0, 0, 1);
+			// A joint with no parent inside this mesh -- the skeleton
+			// root -- has no bone to draw. Connecting it to the world
+			// origin would make unrelated skeletons look joined.
+			Vector4 parentWorld;
+			bool hasParent = false;
 			auto parent = j->GetParent();
 			if (parent) {
-				auto it = worldByName.find(parent->GetName());
-				if (it != worldByName.end()) parentWorld = it->second;
+				auto it = indexByJoint.find(parent.get());
+				if (it != indexByJoint.end() && hasWorld[it->second]) {
+					parentWorld = worldByIndex[it->second];
+					hasParent = true;
+				}
 			}
 			ImVec2 pSelf, pParent;
 			float dSelf = 0.0f, dParent = 0.0f;
-			bool okSelf = ProjectToScreen(selfWorld, viewProj, origin, size, pSelf, dSelf);
-			bool okParent = ProjectToScreen(parentWorld, viewProj, origin, size, pParent, dParent);
+			bool okSelf = ProjectToScreen(worldByIndex[i], viewProj, origin, size, pSelf, dSelf);
+			bool okParent = hasParent &&
+				ProjectToScreen(parentWorld, viewProj, origin, size, pParent, dParent);
 
 			ImU32 colDot = IM_COL32(255, 80, 80, 255);
 			if (okSelf && okParent) {

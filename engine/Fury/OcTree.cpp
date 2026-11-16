@@ -99,6 +99,8 @@ namespace fury
 
 	void OcTree::AddSceneNode(const SceneNode::Ptr &sceneNode)
 	{
+		sceneNode->RemoveFromOcTree(false);
+
 		BoxBounds nodeBounds = sceneNode->GetWorldAABB();
 
 		if (m_Root != nullptr && m_Root->GetAABB().IsInside(nodeBounds) != Side::IN)

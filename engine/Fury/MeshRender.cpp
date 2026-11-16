@@ -182,16 +182,79 @@ namespace fury
 	void MeshRender::OnAttaching(const std::shared_ptr<SceneNode> &node)
 	{
 		Component::OnAttaching(node);
-		if (m_Mesh.expired())
+		auto mesh = m_Mesh.lock();
+		if (!mesh)
 			return;
 
-		node->SetModelAABB(m_Mesh.lock()->GetAABB());
+		if (m_TransformSignalKey)
+		{
+			node->OnTransformChange->Disconnect(m_TransformSignalKey);
+			m_TransformSignalKey = 0;
+		}
+		m_HasSkinnedBounds = false;
+
+		if (!mesh->IsSkinnedMesh())
+		{
+			node->SetModelAABB(mesh->GetAABB());
+			return;
+		}
+
+		// A skinned mesh's geometry is placed by the joint matrices, so
+		// its bounds come from the pose. Fall back to the mesh's own
+		// reference bounds until a pose has been applied.
+		if (!UpdateSkinnedBounds())
+			node->SetModelAABB(mesh->GetAABB());
+
+		MeshRender::Ptr selfPtr = shared_from_this();
+		m_TransformSignalKey = node->OnTransformChange->Connect(selfPtr, &MeshRender::OnOwnerTransformChanged);
 	}
 
 	void MeshRender::OnDetaching(const std::shared_ptr<SceneNode> &node)
 	{
 		Component::OnDetaching(node);
+		if (m_TransformSignalKey)
+		{
+			node->OnTransformChange->Disconnect(m_TransformSignalKey);
+			m_TransformSignalKey = 0;
+		}
+		m_HasSkinnedBounds = false;
 		node->SetModelAABB(BoxBounds());
+	}
+
+	bool MeshRender::UpdateSkinnedBounds()
+	{
+		auto owner = m_Owner.lock();
+		auto mesh = m_Mesh.lock();
+		if (!owner || !mesh || !mesh->IsSkinnedMesh())
+			return false;
+
+		BoxBounds posed = mesh->CalculateSkinnedWorldAABB();
+		Vector4 size = posed.GetSize();
+		// A mesh with no skinned topology yields an empty box.
+		if (!(size.x > 0.0f || size.y > 0.0f || size.z > 0.0f))
+			return false;
+
+		m_SkinnedWorldBounds = posed;
+		m_HasSkinnedBounds = true;
+		PublishSkinnedBounds();
+		return true;
+	}
+
+	void MeshRender::PublishSkinnedBounds()
+	{
+		auto owner = m_Owner.lock();
+		if (!owner || !m_HasSkinnedBounds)
+			return;
+
+		owner->SetModelAABB(owner->GetWorldMatrix().Inverse().Multiply(m_SkinnedWorldBounds));
+	}
+
+	void MeshRender::OnOwnerTransformChanged(const std::shared_ptr<SceneNode> &node)
+	{
+		// The node's transform does not move a skinned mesh's geometry,
+		// so the published bounds stay put.
+		PublishSkinnedBounds();
+		node->UpdateOcTreeBounds();
 	}
 
 	unsigned int MeshRender::GetActiveLod() const

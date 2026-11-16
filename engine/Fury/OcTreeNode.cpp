@@ -141,8 +141,13 @@ namespace fury
 
 	void OcTreeNode::Clear()
 	{
+		// Release the back-pointer of every node still registered here.
 		for (auto &sceneNode : m_SceneNodes)
-			sceneNode->SetOcTreeNode(nullptr);
+		{
+			auto cell = sceneNode->m_OcTreeNode.lock();
+			if (!cell || cell.get() == this)
+				sceneNode->SetOcTreeNode(nullptr);
+		}
 		
 		m_SceneNodes.clear();
 		m_IsLeaf = true;
@@ -164,20 +169,28 @@ namespace fury
 
 	void OcTreeNode::RemoveSceneNode(const std::shared_ptr<SceneNode> &node)
 	{
+		// A node may be listed more than once; drop every copy.
+		unsigned int removed = 0;
 		auto it = m_SceneNodes.begin();
 		while (it != m_SceneNodes.end())
 		{
 			if (*it == node)
-				break;
-			++it;
+			{
+				it = m_SceneNodes.erase(it);
+				++removed;
+			}
+			else
+				++it;
 		}
 
-		if (it != m_SceneNodes.end())
-		{
-			m_SceneNodes.erase(it);
+		if (removed == 0)
+			return;
+
+		auto cell = node->m_OcTreeNode.lock();
+		if (!cell || cell.get() == this)
 			node->SetOcTreeNode(nullptr);
+		for (unsigned int i = 0; i < removed; ++i)
 			DecreaseSceneNodeCount();
-		}
 	}
 
 	void OcTreeNode::IncreaseSceneNodeCount()

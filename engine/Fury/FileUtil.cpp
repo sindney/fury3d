@@ -416,6 +416,37 @@ void SetArchiveContext(Archive& ar, const Serializable::Ptr& source) {
 		ar.SetPipelineContext(Pipeline::Active);
 }
 
+// Decompress an LZ4 envelope: an 8-byte header (network-order original and
+// compressed sizes) followed by the payload.
+bool DecompressEnvelope(const std::vector<unsigned char>& bytes, const std::string& path, std::string& out) {
+	if (bytes.size() < sizeof(uint32_t) * 2) {
+		FURYE << "Truncated compressed file " << path;
+		return false;
+	}
+
+	uint32_t netOrgSize, netCompressSize;
+	memcpy(&netOrgSize, bytes.data(), sizeof(uint32_t));
+	memcpy(&netCompressSize, bytes.data() + sizeof(uint32_t), sizeof(uint32_t));
+	uint32_t orgSize = ntohl(netOrgSize);
+	uint32_t compressSize = ntohl(netCompressSize);
+
+	if (bytes.size() < sizeof(uint32_t) * 2 + compressSize) {
+		FURYE << "Truncated compressed payload in " << path;
+		return false;
+	}
+
+	std::string buffer(orgSize, '\0');
+	int size = LZ4_decompress_safe((const char*)bytes.data() + sizeof(uint32_t) * 2,
+		buffer.data(), compressSize, orgSize);
+	if (size <= 0) {
+		FURYE << "Failed to decompress data! " << path;
+		return false;
+	}
+	buffer.resize(size);
+	out = std::move(buffer);
+	return true;
+}
+
 bool LoadDocument(const Serializable::Ptr& source, const rapidjson::Document& dom) {
 	RenderThread::Get().Flush();
 	ActiveSceneScope scene_scope(source);
@@ -511,38 +542,12 @@ bool FileUtil::LoadCompressedFile(const std::shared_ptr<Serializable>& source, c
 
 	std::vector<unsigned char> bytes;
 	if (AssetBackend::ReadAssetBytes(filePath, bytes)) {
+		std::string text;
+		if (!DecompressEnvelope(bytes, filePath, text))
+			return false;
+
 		Document dom;
-
-		{
-			if (bytes.size() < sizeof(uint32_t) * 2) {
-				FURYE << "Truncated compressed file " << filePath;
-				return false;
-			}
-
-			uint32_t netOrgSize, netCompressSize;
-			memcpy(&netOrgSize, bytes.data(), sizeof(uint32_t));
-			memcpy(&netCompressSize, bytes.data() + sizeof(uint32_t), sizeof(uint32_t));
-			uint32_t orgSize = ntohl(netOrgSize);
-			uint32_t compressSize = ntohl(netCompressSize);
-
-			if (bytes.size() < sizeof(uint32_t) * 2 + compressSize) {
-				FURYE << "Truncated compressed payload in " << filePath;
-				return false;
-			}
-
-			char* buffer = new char[orgSize];
-
-			int size = LZ4_decompress_safe((const char*)bytes.data() + sizeof(uint32_t) * 2, buffer, compressSize, orgSize);
-			if (size <= 0) {
-				FURYE << "Failed to decompress data!";
-				delete[] buffer;
-				return false;
-			}
-
-			dom.Parse(buffer, orgSize);
-
-			delete[] buffer;
-		}
+		dom.Parse(text.c_str());
 
 		if (dom.HasParseError()) {
 			FURYE << "Error parsing json file " << filePath << ": " << dom.GetParseError();
@@ -646,6 +651,29 @@ bool FileUtil::LoadByExtension(const std::shared_ptr<Serializable>& source, cons
 		return LoadCompressedFile(source, filePath);
 	} else {
 		FURYE << "FileUtil::LoadByExtension: unsupported extension '" << ext
+			  << "' (expected .json or .bin) for path " << filePath;
+		return false;
+	}
+}
+
+bool FileUtil::ReadDocumentByExtension(const std::string& filePath, std::string& out) {
+	std::vector<unsigned char> bytes;
+	if (!AssetBackend::ReadAssetBytes(filePath, bytes)) {
+		FURYE << "Path " << filePath << " not found!";
+		return false;
+	}
+
+	std::filesystem::path p(filePath);
+	std::string ext = p.extension().string();
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+				   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (ext == ".json") {
+		out.assign(bytes.begin(), bytes.end());
+		return true;
+	} else if (ext == ".bin") {
+		return DecompressEnvelope(bytes, filePath, out);
+	} else {
+		FURYE << "FileUtil::ReadDocumentByExtension: unsupported extension '" << ext
 			  << "' (expected .json or .bin) for path " << filePath;
 		return false;
 	}

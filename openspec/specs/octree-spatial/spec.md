@@ -88,6 +88,33 @@ The wrap SHALL repeat until either the new root contains the inserted node's AAB
 - **AND** the tree does not crash; the inserted node falls back to the root's `m_SceneNodes` bucket
 - **AND** subsequent in-bounds inserts continue to function normally
 
+### Requirement: A scene node SHALL occupy at most one cell per tree
+
+The spatial index SHALL hold each scene node at most once. A node's membership SHALL be tracked by its own back-pointer (`SceneNode::m_OcTreeNode`), and that back-pointer SHALL always name the cell the node currently occupies.
+
+`OcTree::AddSceneNode` SHALL drop the node's existing entry before inserting it, so a repeated insert moves the node rather than listing it twice. `OcTreeNode::RemoveSceneNode` SHALL remove every copy of the node in that cell, not just the first. `OcTreeNode::Clear` SHALL NOT clear a node's back-pointer when the node has since been registered in a different tree: a scene swap moves nodes between trees, and tearing down the old tree SHALL NOT strand the moved node outside its new tree's index.
+
+A node listed twice is reported twice by the render query, which yields two draw units and two viewport-pick ids for one node.
+
+#### Scenario: Re-inserting a node moves it instead of duplicating it
+
+- **GIVEN** a tree that already tracks a scene node
+- **WHEN** the node is inserted into the same tree again
+- **THEN** the tree reports that node exactly once
+
+#### Scenario: A node moved to another tree keeps its registration
+
+- **GIVEN** a node registered in one tree
+- **WHEN** the node is registered in a second tree and the first tree is cleared
+- **THEN** the node's back-pointer still names its cell in the second tree
+- **AND** the node is reported once by the second tree
+
+#### Scenario: The spatial index reports a node once
+
+- **GIVEN** a scene whose nodes have been re-inserted into the tree several times
+- **WHEN** the tree produces a render query
+- **THEN** each node appears exactly once in the query
+
 ### Requirement: OcTree SHALL expose statistics for the editor
 
 `OcTree::GetTotalSceneNodeCount() const` SHALL return the count of scene nodes tracked by the tree (root's `GetTotalSceneNodeCount()`).
