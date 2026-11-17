@@ -14,12 +14,11 @@ Date: 2026-11-16. Branch: feature/gpu-cluster-lod. Artifact dir:
   All required indirect features present, so the cluster MDI path is active.
 - Scene: `examples/Projects/feature/feature.bin`, `--rhi=vulkan`,
   `FURY_CAM=15,8,17,41.43,-15.82,5000`, `FURY_CLUSTER_LOD=1`, frame 30.
-- Reproducible commands: `COMMANDS.sh` in this directory.
+- Reproducible commands: `tests/gfxrecon/windows-native.sh`.
 
-Raw `.gfxr` captures and `.dump` texture payloads are local regeneration outputs,
-not versioned evidence. The versioned set retains the commands, reports, logs,
-selected decoded events and shader assembly, frame-associated semantic output,
-and comparison images; the commands regenerate the raw captures and dumps.
+Raw captures, logs, decoded output, and comparison images are ignored local
+regeneration outputs under `test-artifacts/`. The reusable commands and this
+report are versioned.
 
 Capture artifacts (original .gfxr retained):
 
@@ -253,9 +252,9 @@ Fix under test (applied by the coordinator; engine/tracked files otherwise
 unchanged by this task): the three `CLUSTER_BASE_INSTANCE` SSBO declarations in
 `examples/Resource/Shader/Lambert/GBuffer.glsl` (lines 70-72) and
 `GBufferNoTexture.glsl` (lines 60-62) are now `readonly buffer` (previously
-writable `buffer`). New artifacts in `post-readonly/`; exact commands in
-`post-readonly/post-readonly-COMMANDS.sh`. Original pre-fix evidence above is
-preserved untouched.
+writable `buffer`). Post-fix artifacts are generated in `post-readonly/`; exact
+commands are in `tests/gfxrecon/windows-native-post-readonly.sh`. Original
+pre-fix measurements above are retained for comparison.
 
 ### Procedure
 1. Uncaptured RT=0 reference + gpu-dump (`post-readonly/reference-frame30-rt0.log`):

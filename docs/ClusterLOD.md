@@ -35,9 +35,9 @@ unchanged. Clustered lighting is a separate feature.
   barriers, five indirect-count batches, nonzero base-instance IDs, and final
   image parity. Validated replay reports no cluster-attributable errors; two
   pre-existing non-cluster findings remain and are identified in the evidence.
-  Exact commands and frame-30 semantics are retained under
-  `test-artifacts/gfxrecon-windows-native/`; use the post-readonly command
-  script for the final shader state. Capture uses `--render-thread=0` because
+  Exact commands and frame-30 semantics are retained in
+  `docs/verification/gfxrecon-windows-native.md`; use
+  `tests/gfxrecon/windows-native-post-readonly.sh` for the final shader state. Capture uses `--render-thread=0` because
   capture-layer timing exposes a separate startup thread-ownership assertion.
 - **macOS non-MoltenVK Vulkan / KosmicKrisp:** the focused `mdi-count` smoke
   passes with distinct base-instance IDs, and offline inspection shows the
@@ -87,8 +87,8 @@ host DDC/CLOD fallback; packaged MoltenVK verified the same legacy fallback.
 
 On Windows, the Debug build and all six native cluster/RHI CTest cases pass.
 All five Vulkan cluster comparison cases also pass with the render thread
-enabled on the RTX 5060 Ti. Results, images, and semantic dumps are retained
-under `test-artifacts/cluster-lod-vulkan-windows-rt1-verified/`.
+enabled on the RTX 5060 Ti. The comparison driver writes results, images, and
+semantic dumps to its artifact directory.
 
 The render driver checks complete CPU/GPU selected sets from leaves through
 forest roots, all three tank materials, near/far reduction, non-uniform scale,
@@ -127,10 +127,11 @@ GBuffer/frame time for the tank and Sponza. GPU time is reported only when a
 backend supplies real timing data; CPU time is not presented as GPU time.
 Hardware-native Vulkan MDI performance remains unmeasured. The completed
 Windows tank capture/replay commands and results are under
-`test-artifacts/gfxrecon-windows-native/`; start with `COMMANDS.sh` and the
-final `post-readonly/post-readonly-COMMANDS.sh`. Exact KosmicKrisp commands,
-capture artifacts, and the driver crash backtrace are retained under
-`test-artifacts/gfxrecon-kosmickrisp/`; start with `COMMANDS.sh`. On that macOS
+`docs/verification/gfxrecon-windows-native.md`; start with
+`tests/gfxrecon/windows-native.sh` and
+`tests/gfxrecon/windows-native-post-readonly.sh`. Exact KosmicKrisp commands are
+in `tests/gfxrecon/kosmickrisp.sh`; captures and the driver crash backtrace are
+local artifact outputs. On that macOS
 host, the gfxrecon layer also produced zeroed smoke readback on both host
 drivers despite recording the expected command stream; that is recorded as a
 capture-tool failure, not a renderer failure.
@@ -139,7 +140,7 @@ On the retained Apple M4 Pro Metal tank capture, cluster rendering reduces draw
 submissions from 56 to 36 and emits five material batches with 1,527 commands
 and 128,880 drawn triangles at the adaptive near pose. The all-leaf cut emits
 1,536 commands and 134,816 triangles; the far pose emits 1,506 commands and
-120,856 triangles. See `test-artifacts/cluster-lod-perf/RESULTS.md` for CPU
+120,856 triangles. See `docs/verification/cluster-lod-perf.md` for CPU
 timings, historical MoltenVK emulation measurements, commands, and variance
 caveats. Those emulation measurements are not supported-path evidence. Metal
 GPU time and native Vulkan MDI GPU time are unmeasured.

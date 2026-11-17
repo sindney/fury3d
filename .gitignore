@@ -8,6 +8,9 @@
 /build-*/
 /cmake-build-*/
 
+# Test and capture outputs; reusable notes and repro scripts live in docs/ and tests/
+/test-artifacts/
+
 # CMake artifacts (defense-in-depth in case someone configures in-tree)
 CMakeCache.txt
 CMakeFiles/

@@ -47,7 +47,7 @@ FRAME=30
 #    the line to stdout, but this binary's Vulkan teardown path does not flush
 #    std::cout, so the text is not capturable; exit code 0 is the pass signal
 #    (the probe returns 0 only after asserting those exact values).
-#    See RESULTS.md "Limitations" and step 9 for the captured readback proof.
+#    See docs/verification/gfxrecon-windows-native.md "Limitations" and step 9 for the captured readback proof.
 # ---------------------------------------------------------------------------
 cd "${EXAMPLES}"
 ./fury.exe vulkan-indirect-smoke
@@ -55,7 +55,7 @@ echo "smoke_rc=$?"
 # ctest lane (from build-engine, Release): ctest -C Release -R vulkan_indirect_smoke -V
 
 # ---------------------------------------------------------------------------
-# 2. Uncaptured tank reference at frame 30 (render thread OFF; see RESULTS.md
+# 2. Uncaptured tank reference at frame 30 (render thread OFF; see docs/verification/gfxrecon-windows-native.md
 #    for why RT=0). Produces reference image + frame-associated gpu-dump stats.
 # ---------------------------------------------------------------------------
 cd "${EXAMPLES}"
@@ -67,7 +67,7 @@ echo "reference_rc=$?"
 
 # RT=1 variant (matches the default engine path). Used only to confirm RT does
 # not change the image; this exact command under the capture layer CRASHES (see
-# RESULTS.md "Renderer/capture failure").
+# docs/verification/gfxrecon-windows-native.md "Renderer/capture failure").
 FURY_CLUSTER_LOD=1 ./fury.exe Player.lua "${SCENE}" --rhi=vulkan \
   --screenshot "${ART}/reference-frame30.png" --screenshot-frame ${FRAME} \
   > "${ART_M}/reference-frame30.log" 2>&1
@@ -77,7 +77,7 @@ echo "reference_rt1_rc=$?"
 # 3. CAPTURED tank cluster frame (primary). Manual layer injection (no
 #    force-quit) so the captured process also emits the frame-associated
 #    --gpu-dump stats and --screenshot. RT=0 avoids the capture+render-thread
-#    assertion documented in RESULTS.md.
+#    assertion documented in docs/verification/gfxrecon-windows-native.md.
 # ---------------------------------------------------------------------------
 cd "${EXAMPLES}"
 VK_LAYER_PATH="${LAYER_WIN}" \
@@ -143,7 +143,7 @@ VK_LAYER_PATH="${VAL_WIN}" \
   --screenshot-dir "${ART}/replay-validate" --screenshot-prefix validate \
   --log-level info "${ART}/capture-frame30-rt0.gfxr" > "${ART_M}/replay-validate.log" 2>&1
 echo "validate_rc=$?"
-# Validation report: replay-validate.log (see RESULTS.md for the cluster-path
+# Validation report: replay-validate.log (see docs/verification/gfxrecon-windows-native.md for the cluster-path
 # findings). Screenshot: replay-validate/validate_frame_1.png
 
 # ---------------------------------------------------------------------------
@@ -212,6 +212,6 @@ python -I tests/tools/imgprobe.py diff \
 # Post-fix (2026-11-17): the cluster GBuffer SSBOs were redeclared 'readonly
 # buffer' (GBuffer.glsl / GBufferNoTexture.glsl). Targeted recapture/replay
 # that cleared VUID-RuntimeSpirv-NonWritable-06341 is scripted separately:
-#   post-readonly/post-readonly-COMMANDS.sh
-# See RESULTS.md "Post-fix (2026-11-17)".
+#   tests/gfxrecon/windows-native-post-readonly.sh
+# See docs/verification/gfxrecon-windows-native.md "Post-fix (2026-11-17)".
 # ---------------------------------------------------------------------------

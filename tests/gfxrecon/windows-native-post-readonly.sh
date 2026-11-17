@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post-readonly-COMMANDS.sh - targeted post-fix recapture/replay for the
+# windows-native-post-readonly.sh - targeted post-fix recapture/replay for the
 # validation finding (VUID-RuntimeSpirv-NonWritable-06341).
 #
 # Fix under test (applied by coordinator, NOT by this task): the three
@@ -7,8 +7,9 @@
 # (lines 70-72) and GBufferNoTexture.glsl (lines 60-62) are now declared
 # 'readonly buffer'. Engine/tracked files otherwise unchanged.
 #
-# Artifacts land in post-readonly/ next to this script. Same environment as
-# ../COMMANDS.sh: Windows 10, NVIDIA RTX 5060 Ti, GFXReconstruct 1.0.5-dev.
+# Artifacts land in test-artifacts/gfxrecon-windows-native/post-readonly/.
+# Same environment as windows-native.sh: Windows 10, NVIDIA RTX 5060 Ti,
+# GFXReconstruct 1.0.5-dev.
 
 set -u
 
