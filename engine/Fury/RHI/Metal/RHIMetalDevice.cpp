@@ -857,8 +857,24 @@ namespace fury
 		if (x < 0 || y < 0 || x >= desc.Width || y >= desc.Height)
 			return false;
 
-		// GL y-up convention: flip the row.
-		tex->Get()->getBytes(&out, 4, MTL::Region::Make2D(x, desc.Height - 1 - y, 1, 1), 0);
+		EndEncoders();
+		if (m_CommandBuffer != nullptr)
+		{
+			MTL::CommandBuffer *completed = m_CommandBuffer;
+			completed->commit();
+			completed->waitUntilCompleted();
+			m_CommandBuffer = m_Queue->commandBuffer();
+			if (completed->status() == MTL::CommandBufferStatusError || m_CommandBuffer == nullptr)
+				return false;
+		}
+		else if (m_LastCommandBuffer != nullptr)
+		{
+			m_LastCommandBuffer->waitUntilCompleted();
+			if (m_LastCommandBuffer->status() == MTL::CommandBufferStatusError)
+				return false;
+		}
+
+		tex->Get()->getBytes(&out, 4, MTL::Region::Make2D(x, y, 1, 1), 0);
 		return true;
 	}
 }

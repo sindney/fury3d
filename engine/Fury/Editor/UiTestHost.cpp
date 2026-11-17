@@ -13,6 +13,7 @@
 #include "imgui_te_internal.h" // ImGuiTestRunTask definition
 
 #include "Fury/Color.h"
+#include "Fury/Camera.h"
 #include "Fury/ClusterLodImport.h"
 #include "Fury/ClusterRenderer.h"
 #include "Fury/DeferredPipeline.h"
@@ -47,6 +48,12 @@
 
 namespace fury
 {
+	namespace Editor
+	{
+		extern ImVec2 g_ViewportContentMin;
+		extern ImVec2 g_ViewportContentSize;
+	}
+
 	namespace UiTestHost
 	{
 		namespace
@@ -420,6 +427,78 @@ namespace fury
 				IM_CHECK(Editor::GetSelectedSceneNode() == second.get());
 				first->RemoveFromParent();
 				second->RemoveFromParent();
+				ctx->Yield(2);
+			}
+
+			// Clicks centered and off-center meshes and verifies GPU picking selects them.
+			void TestViewportPicking(ImGuiTestContext *ctx)
+			{
+				auto root = Scene::Active ? Scene::Active->GetRootNode() : nullptr;
+				auto em = Scene::Active ? Scene::Active->GetEntityManager() : nullptr;
+				IM_CHECK(root != nullptr && em != nullptr);
+
+				auto mesh = MeshUtil::CreateCube("uitest_pick.mesh",
+					Vector4(-1.0f, -1.0f, -1.0f, 1.0f), Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+				auto material = Material::Create("uitest_pick.mat");
+				em->Add(mesh);
+				em->Add(material);
+				auto surface = SceneNode::Create("UiTestPickTarget");
+				surface->SetEditorOnly(true);
+				surface->SetLocalScale(Vector4(100.0f, 100.0f, 100.0f, 1.0f));
+				surface->AddComponent(Transform::Create());
+				surface->AddComponent(MeshRender::Create(material, mesh));
+				root->AddChild(surface);
+				surface->Recompose(true);
+				RegisterWithSceneManager(surface);
+				Editor::ClearSelection();
+				Editor::FrameSelection(surface.get());
+				ctx->Yield(8);
+
+				auto click = [&](const ImVec2 &pos) {
+					ctx->MouseTeleportToPos(pos);
+					ctx->Yield(2);
+					ctx->MouseClick(0);
+					ctx->Yield(8);
+				};
+				ImGuiWindow *viewport = ImGui::FindWindowByName("Viewport");
+				IM_CHECK(viewport != nullptr);
+				if (viewport != nullptr)
+				{
+					ctx->WindowFocus("//Viewport");
+					const ImVec2 center(
+						(viewport->ContentRegionRect.Min.x + viewport->ContentRegionRect.Max.x) * 0.5f,
+						(viewport->ContentRegionRect.Min.y + viewport->ContentRegionRect.Max.y) * 0.5f);
+					click(center);
+					IM_CHECK(Editor::GetSelectedSceneNode() == surface.get());
+				}
+
+				// Keep the framed camera fixed so a second Y flip reads empty space.
+				surface->SetLocalPosition(Vector4(0.0f, 150.0f, 0.0f, 1.0f));
+				surface->Recompose(true);
+				Editor::ClearSelection();
+				ctx->Yield(4);
+				auto cameraNode = Pipeline::Active ? Pipeline::Active->GetCurrentCamera() : nullptr;
+				auto camera = cameraNode ? cameraNode->GetComponent<Camera>() : nullptr;
+				IM_CHECK(camera != nullptr);
+				if (camera != nullptr)
+				{
+					const Matrix4 viewProj = camera->GetProjectionMatrix() * cameraNode->GetWorldMatrix().Inverse();
+					const Vector4 clip = viewProj.Multiply(surface->GetWorldPosition());
+					IM_CHECK(clip.w > 0.0f);
+					if (clip.w > 0.0f)
+					{
+						const ImVec2 &origin = Editor::g_ViewportContentMin;
+						const ImVec2 &size = Editor::g_ViewportContentSize;
+						const float ndcX = clip.x / clip.w;
+						const float ndcY = clip.y / clip.w;
+						click(ImVec2(origin.x + (ndcX * 0.5f + 0.5f) * size.x,
+							origin.y + (1.0f - (ndcY * 0.5f + 0.5f)) * size.y));
+						IM_CHECK(Editor::GetSelectedSceneNode() == surface.get());
+					}
+				}
+
+				Editor::ClearSelection();
+				surface->RemoveFromParent();
 				ctx->Yield(2);
 			}
 
@@ -1112,6 +1191,8 @@ namespace fury
 			test->TestFunc = TestSelectAndEditKnownNode;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "hierarchy_selection");
 			test->TestFunc = TestHierarchySelection;
+			test = IM_REGISTER_TEST(s_Engine, "editor", "viewport_picking");
+			test->TestFunc = TestViewportPicking;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "inspector_edit_dirty_undo");
 			test->TestFunc = TestInspectorEditDirtyUndo;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "cluster_settings_debug");

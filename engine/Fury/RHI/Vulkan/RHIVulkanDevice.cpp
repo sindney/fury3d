@@ -465,6 +465,34 @@ namespace fury
 		allocation = VK_NULL_HANDLE;
 	}
 
+	bool RHIVulkanDevice::FlushFrameForReadback()
+	{
+		if (!m_FrameActive)
+			return vkQueueWaitIdle(m_Queue) == VK_SUCCESS;
+		m_CommandList->EndRendering();
+		if (vkEndCommandBuffer(m_CommandBuffer) != VK_SUCCESS)
+			return false;
+		vkResetFences(m_Device, 1, &m_FrameFence);
+		const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		const bool waitForImage = m_BackbufferAcquired && !m_BackbufferWaitConsumed;
+		VkSubmitInfo submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+		submit.waitSemaphoreCount = waitForImage ? 1u : 0u;
+		submit.pWaitSemaphores = waitForImage ? &m_ImageAvailable : nullptr;
+		submit.pWaitDstStageMask = waitForImage ? &waitStage : nullptr;
+		submit.commandBufferCount = 1;
+		submit.pCommandBuffers = &m_CommandBuffer;
+		if (vkQueueSubmit(m_Queue, 1, &submit, m_FrameFence) != VK_SUCCESS)
+			return false;
+		m_BackbufferWaitConsumed |= waitForImage;
+		if (vkWaitForFences(m_Device, 1, &m_FrameFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+			return false;
+		m_FrameSubmitted = false;
+		vkResetCommandBuffer(m_CommandBuffer, 0);
+		VkCommandBufferBeginInfo begin = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+		begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		return vkBeginCommandBuffer(m_CommandBuffer, &begin) == VK_SUCCESS;
+	}
+
 	bool RHIVulkanDevice::ImmediateCommands(const std::function<bool(VkCommandBuffer)> &record)
 	{
 		if (m_Device == VK_NULL_HANDLE || vkQueueWaitIdle(m_Queue) != VK_SUCCESS)
@@ -538,9 +566,20 @@ namespace fury
 		extent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, extent.height));
 		unsigned int imageCount = capabilities.minImageCount + 1;
 		if (capabilities.maxImageCount > 0) imageCount = std::min(imageCount, capabilities.maxImageCount);
+		const VkFormat unormFormat = surfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB ? VK_FORMAT_B8G8R8A8_UNORM
+			: (surfaceFormat.format == VK_FORMAT_R8G8B8A8_SRGB ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_UNDEFINED);
+		const bool mutableBackbuffer = unormFormat != VK_FORMAT_UNDEFINED
+			&& HasDeviceExtension(m_PhysicalDevice, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME);
+		const VkFormat viewFormats[2] = { surfaceFormat.format, unormFormat };
+		VkImageFormatListCreateInfo formatList = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO };
+		formatList.viewFormatCount = 2;
+		formatList.pViewFormats = viewFormats;
 		VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-		if (HasDeviceExtension(m_PhysicalDevice, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME))
+		if (mutableBackbuffer)
+		{
 			info.flags = VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR;
+			info.pNext = &formatList;
+		}
 		info.surface = m_Surface;
 		info.minImageCount = imageCount;
 		info.imageFormat = surfaceFormat.format;
@@ -561,8 +600,6 @@ namespace fury
 		m_BackbufferImages.resize(imageCount);
 		vkGetSwapchainImagesKHR(m_Device, m_Swapchain, &imageCount, m_BackbufferImages.data());
 		m_BackbufferLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
-		const VkFormat unormFormat = m_BackbufferFormat == VK_FORMAT_B8G8R8A8_SRGB ? VK_FORMAT_B8G8R8A8_UNORM
-			: (m_BackbufferFormat == VK_FORMAT_R8G8B8A8_SRGB ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_UNDEFINED);
 		for (VkImage image : m_BackbufferImages)
 		{
 			VkImageViewCreateInfo view = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -633,6 +670,7 @@ namespace fury
 		}
 		BeginFrameTracking();
 		m_BackbufferAcquired = false;
+		m_BackbufferWaitConsumed = false;
 		m_FrameSubmitted = false;
 		vkResetCommandBuffer(m_CommandBuffer, 0);
 		VkCommandBufferBeginInfo begin = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -698,10 +736,11 @@ namespace fury
 		vkEndCommandBuffer(m_CommandBuffer);
 		vkResetFences(m_Device, 1, &m_FrameFence);
 		const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		const bool waitForImage = m_BackbufferAcquired && !m_BackbufferWaitConsumed;
 		VkSubmitInfo submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-		submit.waitSemaphoreCount = m_BackbufferAcquired ? 1u : 0u;
-		submit.pWaitSemaphores = m_BackbufferAcquired ? &m_ImageAvailable : nullptr;
-		submit.pWaitDstStageMask = m_BackbufferAcquired ? &waitStage : nullptr;
+		submit.waitSemaphoreCount = waitForImage ? 1u : 0u;
+		submit.pWaitSemaphores = waitForImage ? &m_ImageAvailable : nullptr;
+		submit.pWaitDstStageMask = waitForImage ? &waitStage : nullptr;
 		submit.commandBufferCount = 1;
 		submit.pCommandBuffers = &m_CommandBuffer;
 		submit.signalSemaphoreCount = 1;
@@ -718,6 +757,7 @@ namespace fury
 			vkQueuePresentKHR(m_Queue, &present);
 		}
 		m_BackbufferAcquired = false;
+		m_BackbufferWaitConsumed = false;
 		m_FrameActive = false;
 		vkQueueWaitIdle(m_Queue);
 	}
@@ -791,7 +831,8 @@ namespace fury
 		info.UseDynamicRendering = true;
 		info.PipelineInfoMain.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 		info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-		info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_BackbufferFormat;
+		VkFormat uiFormat = m_BackbufferUnormViews.empty() ? m_BackbufferFormat : GetBackbufferUnormFormat();
+		info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &uiFormat;
 		if (m_BackbufferUnormViews.empty() && m_Caps.BackbufferSRGB)
 		{
 			info.CustomShaderFragCreateInfo = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
@@ -1218,6 +1259,8 @@ namespace fury
 	{
 		auto *texture = static_cast<VulkanTexture *>(ref.get());
 		if (texture == nullptr || texture->GetDesc().Format != TextureFormat::R32UI || x < 0 || y < 0 || x >= texture->GetDesc().Width || y >= texture->GetDesc().Height)
+			return false;
+		if (!FlushFrameForReadback())
 			return false;
 		VkBuffer staging = VK_NULL_HANDLE;
 		VmaAllocation allocation = VK_NULL_HANDLE;
