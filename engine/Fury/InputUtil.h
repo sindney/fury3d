@@ -107,6 +107,8 @@ namespace fury
 
 		float GetMouseWheel();
 
+		void ClearMouseWheel();
+
 		bool GetMouseDown();
 
 		bool GetMouseDown(sf::Mouse::Button btn);

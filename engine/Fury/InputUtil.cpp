@@ -126,6 +126,11 @@ namespace fury
 		return m_MouseWheel;
 	}
 
+	void InputUtil::ClearMouseWheel()
+	{
+		m_MouseWheel = 0.0f;
+	}
+
 	bool InputUtil::GetMouseDown()
 	{
 		for (unsigned int i = 0; i < sf::Mouse::ButtonCount; i++)

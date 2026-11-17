@@ -446,7 +446,8 @@ namespace fury
 		}
 		else if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
 		{
-			inputMgr->m_MouseWheel = wheel->delta;
+			// One scroll can deliver several events per frame.
+			inputMgr->m_MouseWheel += wheel->delta;
 			float delta = wheel->delta;
 			int wx = wheel->position.x;
 			int wy = wheel->position.y;
@@ -804,6 +805,9 @@ namespace fury
 		while (window.isOpen() && running)
 		{
 			renderThreadInst.BeginLoopFrame();
+
+			// The scroll delta is per-frame, not latched.
+			InputUtil::Instance()->ClearMouseWheel();
 
 			while (const std::optional event = window.pollEvent())
 			{
