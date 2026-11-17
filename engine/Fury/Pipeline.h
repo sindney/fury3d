@@ -2,6 +2,7 @@
 #define _FURY_PIPELINE_H_
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <string>
@@ -73,6 +74,8 @@ namespace fury
 		CLUSTERED_LIGHTING,
 		CLUSTER_GRID_VIEW,
 		CLUSTER_LIGHT_COUNT_VIEW,
+		CLUSTER_LOD_VIEW,
+		CLUSTER_ID_VIEW,
 		LENGTH
 	};
 

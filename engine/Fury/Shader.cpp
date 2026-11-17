@@ -102,10 +102,12 @@ namespace fury
 			return GRHIDevice ? GRHIDevice->GetCommandList() : nullptr;
 		}
 
-		RHIShaderBlob MakeSourceBlob(const std::string &source)
+		RHIShaderBlob MakeSourceBlob(const std::string &source, const std::vector<std::string> &defines)
 		{
 			RHIShaderBlob blob;
 			blob.Data.assign(source.begin(), source.end());
+			for (const auto &define : defines)
+				blob.Defines.emplace_back(define, "");
 			blob.IsSource = true;
 			return blob;
 		}
@@ -264,7 +266,8 @@ namespace fury
 		if (GRHIDevice)
 		{
 			m_Module = GRHIDevice->CreateShaderModule(m_Name,
-				MakeSourceBlob(vsSource), MakeSourceBlob(fsSource), MakeSourceBlob(gsSource));
+				MakeSourceBlob(vsSource, m_Defines), MakeSourceBlob(fsSource, m_Defines),
+				MakeSourceBlob(gsSource, m_Defines));
 		}
 
 		m_Dirty = m_Module == nullptr || !m_Module->IsValid();
@@ -324,7 +327,7 @@ namespace fury
 			withEditor, withDebugOverlay);
 
 		if (GRHIDevice)
-			m_Module = GRHIDevice->CreateComputeModule(m_Name, MakeSourceBlob(src));
+			m_Module = GRHIDevice->CreateComputeModule(m_Name, MakeSourceBlob(src, m_Defines));
 
 		m_Dirty = m_Module == nullptr || !m_Module->IsValid();
 		return !m_Dirty;

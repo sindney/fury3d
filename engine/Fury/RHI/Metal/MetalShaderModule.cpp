@@ -2,6 +2,7 @@
 
 #if FURY_RHI_METAL
 
+#include <cstdio>
 #include <cstring>
 
 #include "Fury/Log.h"
@@ -56,6 +57,38 @@ namespace fury
 			return source.find("#version") != std::string::npos;
 		}
 
+		void AdoptComputeGroupSizeGLSL(const std::string &source, std::uint32_t out[3])
+		{
+			const char *names[3] = { "local_size_x", "local_size_y", "local_size_z" };
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				const size_t name = source.find(names[axis]);
+				if (name == std::string::npos)
+					continue;
+				const size_t equals = source.find('=', name + std::strlen(names[axis]));
+				unsigned int value = 0;
+				if (equals != std::string::npos
+					&& std::sscanf(source.c_str() + equals + 1, "%u", &value) == 1 && value > 0)
+					out[axis] = value;
+			}
+		}
+
+		void AdoptComputeGroupSize(const std::string &source, std::uint32_t out[3])
+		{
+			const std::string key = "max_total_threads_per_threadgroup(";
+			const size_t pos = source.find(key);
+			if (pos == std::string::npos)
+				return;
+			unsigned int x = 0, y = 0, z = 0;
+			if (std::sscanf(source.c_str() + pos + key.size(), "%u , %u , %u", &x, &y, &z) == 3
+				&& x > 0 && y > 0 && z > 0)
+			{
+				out[0] = x;
+				out[1] = y;
+				out[2] = z;
+			}
+		}
+
 		void AdoptStageGlobals(const ShaderStageCompile &compiled, MetalStageGlobals &out)
 		{
 			out.blockName = compiled.globalsBlockName;
@@ -99,6 +132,7 @@ namespace fury
 			input.name = name;
 			input.vertexSource = vertSource;
 			input.fragmentSource = fragSource;
+			input.defines = vertex.Defines;
 
 			ShaderModuleCompile compiled;
 			bool cacheHit = false;
@@ -190,6 +224,7 @@ namespace fury
 			ShaderCompileInput input;
 			input.name = name;
 			input.computeSource = source;
+			input.defines = compute.Defines;
 
 			ShaderModuleCompile compiled;
 			bool cacheHit = false;
@@ -217,6 +252,8 @@ namespace fury
 			out->m_CrossCompiled = true;
 			out->m_Compute = GetFunction(out->m_Library, "computeMain", name, "compute");
 			AdoptStageGlobals(compiled.compute, out->m_Globals[2]);
+			AdoptComputeGroupSizeGLSL(source, out->m_ComputeGroupSize);
+			AdoptComputeGroupSize(compiled.compute.msl, out->m_ComputeGroupSize);
 		}
 		else
 		{
@@ -224,6 +261,7 @@ namespace fury
 			if (out->m_Library == nullptr)
 				return nullptr;
 			out->m_Compute = GetFunction(out->m_Library, "computeMain", name, "compute");
+			AdoptComputeGroupSize(source, out->m_ComputeGroupSize);
 		}
 
 		if (out->m_Compute == nullptr)

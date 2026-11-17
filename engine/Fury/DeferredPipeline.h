@@ -18,6 +18,9 @@ namespace fury
 {
 	class Texture;
 
+	class ClusterRenderer;
+	struct ClusterLodStats;
+
 	class Shader;
 
 	class Pass;
@@ -139,6 +142,10 @@ namespace fury
 		// debug). Reads no scene state.
 		virtual void ExecutePacket(FramePacket &packet) override;
 
+		void LogClusterDiagnostics(std::uint64_t frameIndex, const FramePacket &packet) const;
+
+		void ReadClusterLodStats(ClusterLodStats &out) const;
+
 	protected:
 
 		// lightIndex is only used by TRANSPARENT passes: -1 draws the
@@ -254,6 +261,8 @@ namespace fury
 		std::array<Matrix4, ClusterGrid::MAX_SPOT_SHADOWS> m_ClusterSpotShadowMatrices;
 
 		bool m_ClusterResourcesValid = false;
+
+		std::unique_ptr<ClusterRenderer> m_GeometryClusters;
 
 		double m_LastClusterAssignMs = 0.0;
 

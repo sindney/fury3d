@@ -143,7 +143,16 @@ fury <script.lua> [args...] --screenshot <path> [--screenshot-frame <N>]
   and depth formats clamp to [0,1] like GL's UNSIGNED_BYTE readback).
   The render graph is derived from the pipeline's live passes/textures,
   so runtime-created targets (shadow maps, sky LUTs, chain temps) appear
-  alongside the JSON-described passes.
+  alongside the JSON-described passes. Geometry-cluster dumps additionally
+  log frame-associated selection, visibility, draw/triangle, batch, argument,
+  and Metal execution-range diagnostics on demand.
+
+**Geometry cluster test hooks.** `FURY_CLUSTER_LOD=1` enables the renderer,
+`FURY_CLUSTER_LOD_ERROR=<pixels>` overrides screen error (`0` selects the
+all-leaf test cut), and `FURY_CLUSTER_LOD_BUDGET=<clusters>` sets the capacity
+fallback limit. `FURY_CLUSTER_LOD_DEBUG=lod|id` selects a geometry debug view;
+`FURY_CLUSTER_LOD_DEBUG_CYCLE=1` renders LOD, ID, then normal shading. See
+`tests/README.md` for the automated Metal/Vulkan comparison driver.
 
 **Headless caveat.** SFML/OpenGL needs a window to provide a GL context,
 so an `sf::Window` opens briefly during capture (typically 50–150 ms
@@ -608,11 +617,32 @@ execution. It never falls through to the Lua launcher: no-args prints
 the top-level help and exits 0; unknown `argv[1]` exits 1 with an error.
 
 Subcommand inventory: `cook`, `package`, `convert`, `info`, `exec`,
-`exec-script`, `kraut`, `render-mesh`, `help`, `version`. `convert`,
+`exec-script`, `kraut`, `render-mesh`, `migrate-cluster-lod`, `help`, `version`. `convert`,
 `info`, `exec`, `kraut`, and `version` behave exactly as on `fury` (see
 the sections above); `exec` additionally accepts a `.pak` scene (mount,
 load the boot entry). `render-mesh` is the exception to "headless": it
 needs a GL context and opens a short-lived hidden window.
+
+### `furye-cli migrate-cluster-lod` - migrate native meshes to cluster LOD
+
+```
+furye-cli migrate-cluster-lod <scene.json|.bin> [--output <path>] [--ddc <path>]
+```
+
+Loads a native scene and builds each unique eligible static mesh once from its
+canonical submesh indices. Skinned and empty meshes remain outside the cluster
+path. The command writes the mesh descriptors into the output scene and stores
+versioned `.clod` payloads in both the DDC and the durable payload mirror. With
+the default executable DDC, that mirror is `Resource/ClusterLOD/`; a custom DDC
+uses `<ddc>/source/` so test and migration artifacts stay isolated.
+
+The default output is `<scene-stem>.migrated<ext>`. `--output` selects another
+path, including an explicit in-place migration. The scene is not saved if any
+eligible mesh fails generation, validation, or payload storage. A second run
+uses content-keyed cache hits instead of rebuilding. Descriptor-less native input
+is accepted only by this migration command; ordinary runtime loads remain strict.
+Runtime scene loading only resolves these existing payloads; it never invokes the
+builder.
 
 ### `furye-cli cook` - cook a scene's textures to BCn KTX2
 
@@ -646,6 +676,12 @@ render-setup time and never appear in the headless registry, so cook
 collects them from the node tree - and non-texture file assets as
 passthrough entries. Referenced files missing on disk are named per path
 and fail the cook with exit 1; nothing is silently skipped.
+
+Eligible meshes with cluster descriptors are validated against their current
+source hashes. Cook loads the existing `.clod` payloads and emits a
+`cluster_meshes` manifest section with schema, vertex, cluster, and group counts;
+it does not generate missing payloads. Package writes those artifacts under the
+same `cluster_meshes/CLOD_...clod` keys used by runtime pak resolution.
 
 **Format mapping.** Texture usage derives from the texture's cook
 settings (sRGB flag, normal-map binding, HDR source format):

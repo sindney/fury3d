@@ -15,6 +15,7 @@
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -95,6 +96,16 @@ namespace fury
 
 		// Skinned units: copied joint final matrices (empty for static).
 		std::vector<Matrix4> skinPalette;
+	};
+
+	struct PacketClusterInstance
+	{
+		std::uint64_t nodeKey = 0;
+		std::string nodeUuid;
+		std::shared_ptr<Mesh> mesh;
+		std::vector<std::shared_ptr<Material>> materials;
+		Matrix4 worldMatrix;
+		BoxBounds worldBounds;
 	};
 
 	// One shadow caster: static/skinned mesh form, or an indirection into
@@ -369,6 +380,12 @@ namespace fury
 		std::vector<PacketUnit> opaqueUnits;
 
 		std::vector<PacketUnit> transparentUnits;
+
+		std::vector<PacketClusterInstance> clusterInstances;
+
+		bool clusterLodEnabled = false;
+
+		float clusterLodError = 1.0f;
 
 		std::vector<PacketLight> lights;
 

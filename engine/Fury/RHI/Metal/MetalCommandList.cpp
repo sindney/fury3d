@@ -10,6 +10,7 @@
 
 #include "Fury/Log.h"
 #include "Fury/RHI/Metal/MetalEnumMap.h"
+#include "Fury/RHI/Metal/MetalIndirectEncoder.h"
 #include "Fury/RHI/Metal/RHIMetalDevice.h"
 
 namespace fury
@@ -38,13 +39,17 @@ namespace fury
 				att->setSlice(slice);
 		}
 
-		bool ResolveTextureIndex(const std::unordered_map<std::string, MetalBindingEntry> &bindings,
+		int TextureBindingValue(const MetalBindingEntry &entry) { return entry.Index; }
+		int TextureBindingValue(int index) { return index; }
+
+		template <typename T>
+		bool ResolveTextureIndex(const std::unordered_map<std::string, T> &bindings,
 			const std::string &name, int &index)
 		{
 			const auto exact = bindings.find(name);
 			if (exact != bindings.end())
 			{
-				index = exact->second.Index;
+				index = TextureBindingValue(exact->second);
 				return true;
 			}
 			const size_t open = name.rfind('[');
@@ -57,7 +62,7 @@ namespace fury
 			{
 				const auto found = bindings.find(candidate);
 				if (found == bindings.end()) continue;
-				index = found->second.Index + element;
+				index = TextureBindingValue(found->second) + element;
 				return true;
 			}
 			return false;
@@ -472,6 +477,7 @@ namespace fury
 
 	void MetalCommandList::SetPipeline(const RHIGraphicsPipelineRef &pipeline)
 	{
+		m_IndirectBindings = false;
 		m_CurrentPipeline = pipeline;
 		AdoptModule(pipeline != nullptr
 			? std::static_pointer_cast<MetalShaderModule>(pipeline->GetShaders())
@@ -493,6 +499,7 @@ namespace fury
 
 	void MetalCommandList::BindShaderModule(const RHIShaderModuleRef &module)
 	{
+		m_IndirectBindings = false;
 		m_CurrentPipeline = nullptr;
 		AdoptModule(std::static_pointer_cast<MetalShaderModule>(module));
 		m_TextureCursor = 0;
@@ -1018,7 +1025,8 @@ namespace fury
 		for (int i = 0; i < MAX_STREAMS; ++i)
 		{
 			if (m_VertexStreams[i] != nullptr)
-				m_Encoder->setVertexBuffer(m_VertexStreams[i]->Get(), 0, i);
+				m_Encoder->setVertexBuffer(m_VertexStreams[i]->Get(), 0,
+					m_IndirectBindings ? INDIRECT_STREAM_BASE + i : i);
 		}
 		for (int i = 0; i < m_MeshChannelCount; ++i)
 		{
@@ -1150,6 +1158,210 @@ namespace fury
 			m_IndexBuffer->Get(), firstIndex * (indexType == MTL::IndexTypeUInt32 ? 4 : 2), instanceCount, vertexOffset, 0);
 	}
 
+	bool MetalCommandList::PrepareIndirectBatch(const RHIIndirectBatchRef &ref)
+	{
+		auto batch = std::static_pointer_cast<MetalIndirectBatch>(ref);
+		const auto &caps = m_Device->GetCapabilities();
+		if (batch == nullptr || !caps.SupportsNativeIndirectBatchEncoding || m_Device->GetIndirectEncoderPSO() == nullptr)
+			return false;
+		const RHIIndirectBatchDesc &desc = batch->GetDesc();
+		if (desc.Pipeline == nullptr || desc.IndexBuffer == nullptr || desc.Capacity == 0)
+			return false;
+
+		m_MeshChannelCount = 0;
+		m_HasInstanceStream = false;
+		SetPipeline(desc.Pipeline);
+		m_IndirectBindings = true;
+		SetIndexBuffer(desc.IndexBuffer);
+		for (const auto &binding : desc.VertexBuffers)
+			SetVertexBuffer(binding.Buffer, binding.Stream);
+		for (const auto &binding : desc.StorageBuffers)
+		{
+			if (binding.Name.empty()) SetStorageBuffer(binding.Binding, binding.Buffer);
+			else SetStorageBufferNamed(binding.Name.c_str(), binding.Binding, binding.Buffer);
+		}
+		for (const auto &binding : desc.Textures)
+			SetTexture(binding.Name, binding.Texture);
+		if (!EnsurePSO() || m_PSO == nullptr)
+			return false;
+		std::vector<std::uint32_t> textureIndices;
+		std::vector<std::uint32_t> samplerIndices;
+		if (m_ArgumentBufferIndex >= 0)
+		{
+			for (const auto &binding : desc.Textures)
+			{
+				int textureIndex = -1;
+				int samplerIndex = -1;
+				std::string samplerName = binding.Name;
+				const size_t array = samplerName.find('[');
+				if (array == std::string::npos) samplerName += "Smplr";
+				else samplerName.insert(array, "Smplr");
+				if (!ResolveTextureIndex(m_ArgumentBufferTextures, binding.Name, textureIndex)
+					|| !ResolveTextureIndex(m_ArgumentBufferSamplers, samplerName, samplerIndex))
+					return false;
+				textureIndices.push_back(static_cast<std::uint32_t>(textureIndex));
+				samplerIndices.push_back(static_cast<std::uint32_t>(samplerIndex));
+			}
+		}
+		if (!batch->CreateTextureArguments(m_CurrentModule->GetFragment(), m_ArgumentBufferIndex,
+			textureIndices, samplerIndices))
+			return false;
+		for (int stage = 0; stage < 2; ++stage)
+		{
+			const auto &globals = m_CurrentModule->GetStageGlobals(stage);
+			if (!globals.HasBlock())
+				continue;
+			const auto it = m_UniformsByStage[stage].find(globals.blockName);
+			if (it == m_UniformsByStage[stage].end() || it->second.Index < 0
+				|| m_GlobalsShadow[stage].size() != globals.blockSize
+				|| !batch->CreateGlobalArgument(m_Device->GetMTLDevice(), stage,
+					it->second.Index, globals.blockSize))
+				return false;
+		}
+		if (!batch->CreateNative(m_Device->GetMTLDevice(), m_PSO, caps.MaxDrawIndirectCount))
+			return false;
+
+		MetalIndirectEncoderConfig config = {};
+		config.argumentOffset = static_cast<std::uint32_t>(desc.ArgumentOffset / sizeof(RHIIndirectDrawArgs));
+		config.countOffset = static_cast<std::uint32_t>(desc.CountOffset / sizeof(std::uint32_t));
+		config.countStride = static_cast<std::uint32_t>(desc.CountStride / sizeof(std::uint32_t));
+		config.capacity = desc.Capacity;
+		config.maxDrawCount = caps.MaxDrawIndirectCount;
+		config.index32 = static_cast<MetalBuffer *>(desc.IndexBuffer.get())->GetDesc().Index32 ? 1u : 0u;
+		config.primitive = static_cast<std::uint32_t>(MetalEnumMap::Primitive(m_Primitive));
+		config.storageCount = static_cast<std::uint32_t>(desc.StorageBuffers.size());
+		config.vertexBufferBase = INDIRECT_STREAM_BASE;
+		config.fragmentArgumentIndex = batch->GetTextureArgumentIndex() >= 0
+			? static_cast<std::uint32_t>(batch->GetTextureArgumentIndex()) : 0xffffffffu;
+		for (int stage = 0; stage < 2; ++stage)
+			config.globalArgumentIndices[stage] = batch->GetGlobalArgumentIndex(stage) >= 0
+				? static_cast<std::uint32_t>(batch->GetGlobalArgumentIndex(stage)) : 0xffffffffu;
+		for (std::uint32_t i = 0; i < config.storageCount; ++i)
+		{
+			const auto &binding = desc.StorageBuffers[i];
+			std::uint32_t vertex = 0xffffffffu;
+			std::uint32_t fragment = 0xffffffffu;
+			if (binding.Name.empty())
+			{
+				vertex = binding.Binding;
+				fragment = binding.Binding;
+			}
+			else
+			{
+				const auto v = m_UniformsByStage[0].find(binding.Name);
+				const auto f = m_UniformsByStage[1].find(binding.Name);
+				if (v != m_UniformsByStage[0].end()) vertex = static_cast<std::uint32_t>(v->second.Index);
+				if (f != m_UniformsByStage[1].end()) fragment = static_cast<std::uint32_t>(f->second.Index);
+			}
+			if ((vertex == 0xffffffffu && fragment == 0xffffffffu)
+				|| (vertex != 0xffffffffu && vertex >= 64) || (fragment != 0xffffffffu && fragment >= 64))
+				return false;
+			config.storage[i] = { vertex, fragment };
+		}
+
+		EndEncoder();
+		m_Device->EndBlitEncoder();
+		MTL::ComputeCommandEncoder *encoder = EnsureComputeEncoder();
+		if (encoder == nullptr)
+			return false;
+		encoder->setComputePipelineState(m_Device->GetIndirectEncoderPSO());
+		encoder->setBuffer(batch->GetResources(), 0, 0);
+		encoder->setBytes(&config, sizeof(config), 1);
+		encoder->setBuffer(static_cast<MetalBuffer *>(desc.Arguments.get())->Get(), 0, 2);
+		encoder->setBuffer(static_cast<MetalBuffer *>(desc.Counts.get())->Get(), 0, 3);
+		encoder->setBuffer(batch->GetRanges(), 0, 4);
+		encoder->setBuffer(static_cast<MetalBuffer *>(desc.IndexBuffer.get())->Get(), 0, 5);
+		encoder->useResource(batch->GetCommands(), MTL::ResourceUsageWrite);
+		auto useBuffer = [&](const RHIBufferRef &buffer, MTL::ResourceUsage usage)
+		{
+			MetalBuffer *native = static_cast<MetalBuffer *>(buffer.get());
+			if (native != nullptr && native->Get() != nullptr)
+				encoder->useResource(native->Get(), usage);
+		};
+		useBuffer(desc.Arguments, MTL::ResourceUsageRead);
+		useBuffer(desc.Counts, MTL::ResourceUsageRead);
+		useBuffer(desc.IndexBuffer, MTL::ResourceUsageRead);
+		for (int stage = 0; stage < 2; ++stage)
+			if (batch->GetGlobalArgument(stage) != nullptr)
+				encoder->useResource(batch->GetGlobalArgument(stage), MTL::ResourceUsageRead);
+		encoder->useResource(batch->GetRanges(), MTL::ResourceUsageWrite);
+		for (const auto &binding : desc.VertexBuffers)
+			useBuffer(binding.Buffer, MTL::ResourceUsageRead);
+		for (const auto &binding : desc.StorageBuffers)
+			useBuffer(binding.Buffer, MTL::ResourceUsageRead | MTL::ResourceUsageWrite);
+		encoder->dispatchThreadgroups(MTL::Size::Make((desc.Capacity + 63) / 64, 1, 1), MTL::Size::Make(64, 1, 1));
+		encoder->memoryBarrier(MTL::BarrierScopeBuffers);
+		Barrier();
+		m_Device->RetainIndirectBatch(ref);
+		return true;
+	}
+
+	bool MetalCommandList::DrawIndexedIndirect(const RHIIndirectBatchRef &ref)
+	{
+		auto batch = std::static_pointer_cast<MetalIndirectBatch>(ref);
+		const auto &caps = m_Device->GetCapabilities();
+		if (batch == nullptr || batch->GetCommands() == nullptr || batch->GetRanges() == nullptr
+			|| !caps.SupportsIndirectCount || !caps.SupportsMultiDrawIndirect || !caps.SupportsIndirectFirstInstance)
+			return false;
+		const RHIIndirectBatchDesc &desc = batch->GetDesc();
+		m_MeshChannelCount = 0;
+		m_HasInstanceStream = false;
+		SetPipeline(desc.Pipeline);
+		m_IndirectBindings = true;
+		SetIndexBuffer(desc.IndexBuffer);
+		for (const auto &binding : desc.VertexBuffers)
+			SetVertexBuffer(binding.Buffer, binding.Stream);
+		for (const auto &binding : desc.StorageBuffers)
+		{
+			if (binding.Name.empty()) SetStorageBuffer(binding.Binding, binding.Buffer);
+			else SetStorageBufferNamed(binding.Name.c_str(), binding.Binding, binding.Buffer);
+		}
+		for (const auto &binding : desc.Textures)
+			SetTexture(binding.Name, binding.Texture);
+		if (EnsureEncoder() == nullptr || !EnsurePSO())
+			return false;
+		for (int stage = 0; stage < 2; ++stage)
+		{
+			const auto &globals = m_CurrentModule->GetStageGlobals(stage);
+			if (globals.HasBlock() && !batch->UpdateGlobalArgument(stage,
+				m_GlobalsShadow[stage].data(), m_GlobalsShadow[stage].size()))
+				return false;
+		}
+		FlushDrawState();
+
+		{
+			const MTL::RenderStages stages = MTL::RenderStageVertex | MTL::RenderStageFragment;
+			m_Encoder->useResource(batch->GetRanges(), MTL::ResourceUsageRead, stages);
+			if (batch->GetTextureArguments() != nullptr)
+				m_Encoder->useResource(batch->GetTextureArguments(), MTL::ResourceUsageRead, stages);
+			for (int stage = 0; stage < 2; ++stage)
+				if (batch->GetGlobalArgument(stage) != nullptr)
+					m_Encoder->useResource(batch->GetGlobalArgument(stage), MTL::ResourceUsageRead, stages);
+			auto useBuffer = [&](const RHIBufferRef &buffer, MTL::ResourceUsage usage)
+			{
+				MetalBuffer *native = static_cast<MetalBuffer *>(buffer.get());
+				if (native != nullptr && native->Get() != nullptr)
+					m_Encoder->useResource(native->Get(), usage, stages);
+			};
+			useBuffer(desc.IndexBuffer, MTL::ResourceUsageRead);
+			for (const auto &binding : desc.VertexBuffers)
+				useBuffer(binding.Buffer, MTL::ResourceUsageRead);
+			for (const auto &binding : desc.StorageBuffers)
+				useBuffer(binding.Buffer, MTL::ResourceUsageRead | MTL::ResourceUsageWrite);
+			for (const auto &binding : desc.Textures)
+			{
+				MetalTexture *texture = static_cast<MetalTexture *>(binding.Texture.get());
+				if (texture != nullptr && texture->Get() != nullptr)
+					m_Encoder->useResource(texture->Get(), MTL::ResourceUsageRead, stages);
+			}
+		}
+		for (std::uint32_t chunk = 0; chunk < batch->GetChunkCount(); ++chunk)
+			m_Encoder->executeCommandsInBuffer(batch->GetCommands(), batch->GetRanges(),
+				chunk * sizeof(MTL::IndirectCommandBufferExecutionRange));
+		m_Device->RetainIndirectBatch(ref);
+		return true;
+	}
+
 	void MetalCommandList::Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ)
 	{
 		if (m_CurrentModule == nullptr || m_CurrentModule->GetCompute() == nullptr
@@ -1210,10 +1422,14 @@ namespace fury
 				enc->setBytes(m_GlobalsShadow[2].data(), m_GlobalsShadow[2].size(), static_cast<NS::UInteger>(index));
 		}
 
-		// One thread per cluster at 64 threads per threadgroup (the cluster
-		// count is a multiple of 64); clamp to the device's threadgroup limit.
-		const NS::UInteger threads = std::min<NS::UInteger>(64, entry->PSO->maxTotalThreadsPerThreadgroup());
-		enc->dispatchThreadgroups(MTL::Size::Make(groupsX, groupsY, groupsZ), MTL::Size::Make(threads, 1, 1));
+		// Match the local size preserved in the generated MSL.
+		const auto *groupSize = m_CurrentModule->GetComputeGroupSize();
+		const NS::UInteger maximum = entry->PSO->maxTotalThreadsPerThreadgroup();
+		const NS::UInteger threadsX = std::min<NS::UInteger>(groupSize[0], maximum);
+		const NS::UInteger threadsY = std::min<NS::UInteger>(groupSize[1], maximum / threadsX);
+		const NS::UInteger threadsZ = std::min<NS::UInteger>(groupSize[2], maximum / (threadsX * threadsY));
+		enc->dispatchThreadgroups(MTL::Size::Make(groupsX, groupsY, groupsZ),
+			MTL::Size::Make(threadsX, threadsY, threadsZ));
 	}
 
 	void MetalCommandList::ClearStorageBuffer(const RHIBufferRef &buffer)
@@ -1294,6 +1510,13 @@ namespace fury
 
 	const std::vector<RHIVertexAttribute> *MetalCommandList::CurrentVertexLayout()
 	{
+		if (m_IndirectBindings && m_CurrentPipeline != nullptr)
+		{
+			m_IndirectLayout = m_CurrentPipeline->GetDesc().VertexAttributes;
+			for (auto &attr : m_IndirectLayout)
+				attr.Stream = INDIRECT_STREAM_BASE + attr.Stream;
+			return &m_IndirectLayout;
+		}
 		// Mesh geometry wins: passes carry no vertex attributes (GL resolves
 		// by name at draw time), so the dynamic mesh desc is the layout.
 		if (m_MeshChannelCount > 0 || m_HasInstanceStream)
@@ -1314,6 +1537,9 @@ namespace fury
 		m_PSO = nullptr;
 		m_UniformBindings.clear();
 		m_TextureBindings.clear();
+		m_ArgumentBufferIndex = -1;
+		m_ArgumentBufferTextures.clear();
+		m_ArgumentBufferSamplers.clear();
 
 		if (m_CurrentModule == nullptr || !m_CurrentModule->IsValid())
 			return false;
@@ -1328,6 +1554,7 @@ namespace fury
 			key.ColorFormats[i] = static_cast<uint8_t>(m_ColorFormats[i]);
 		}
 		key.DepthFormat = static_cast<uint8_t>(m_DepthFormat);
+		key.Indirect = m_IndirectBindings;
 		const auto *layout = CurrentVertexLayout();
 		key.VertexHash = layout != nullptr ? HashVertexLayout(*layout) : 0;
 		// PSO topology class differs for point/line/triangle on some GPUs.
@@ -1337,6 +1564,9 @@ namespace fury
 		if (entry == nullptr)
 			return false;
 		m_PSO = entry->PSO;
+		m_ArgumentBufferIndex = entry->Maps.ArgumentBufferIndex;
+		m_ArgumentBufferTextures = entry->Maps.ArgumentBufferTextures;
+		m_ArgumentBufferSamplers = entry->Maps.ArgumentBufferSamplers;
 		m_UniformBindings = entry->Maps.Uniforms;
 		m_TextureBindings = entry->Maps.Textures;
 		for (int s = 0; s < 2; ++s)

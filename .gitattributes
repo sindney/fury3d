@@ -37,6 +37,9 @@ CMakeLists.txt  text eol=lf
 *.dylib         binary
 *.a             binary
 *.bin           binary
+*.clod          binary
+*.gfxr          binary
+*.tracy         binary
 *.fbx           binary
 *.gltf          binary
 *.glb           binary

@@ -53,6 +53,7 @@ namespace fury
 				float time = 0.0f;
 				bool playing = true;
 				float lastWallClock = 0.0f;
+				Mesh::Ptr previewMesh;
 			};
 			std::unordered_map<std::string, PreviewState> g_PreviewState;
 
@@ -108,7 +109,8 @@ namespace fury
 				// the frame executor.
 				PacketCamera cam;
 				cam.valid = true;
-				cam.worldPos = Vector4(0.0f, 0.0f, 0.0f, 1.0f);
+				cam.worldMatrix = vp.view.Inverse();
+				cam.worldPos = vp.eye;
 				cam.invertWorldMatrix = vp.view;
 				cam.projectionMatrix = vp.proj;
 				cam.nearClip = 0.0f;
@@ -118,6 +120,24 @@ namespace fury
 				PacketParticles pk;
 				if (renderer->GatherPacket(pk, cam, RenderThread::Get().CurrentFrameIndex()) > 0)
 				{
+					// The scene gather reuses the renderer's parity mesh later in the frame.
+					auto &previewMesh = PreviewFor(popup_id).previewMesh;
+					if (!previewMesh)
+					{
+						previewMesh = Mesh::Create("ParticlePreviewMesh:" + popup_id);
+						previewMesh->Positions.SetBufferUsage(RHIBufferUsage::DYNAMIC);
+						previewMesh->UVs.SetBufferUsage(RHIBufferUsage::DYNAMIC);
+						previewMesh->Indices.SetBufferUsage(RHIBufferUsage::DYNAMIC);
+					}
+					previewMesh->Positions.Data = pk.mesh->Positions.Data;
+					previewMesh->UVs.Data = pk.mesh->UVs.Data;
+					previewMesh->Indices.Data = pk.mesh->Indices.Data;
+					previewMesh->Positions.SetDirty();
+					previewMesh->UVs.SetDirty();
+					previewMesh->Indices.SetDirty();
+					previewMesh->SetDirty();
+					pk.mesh = previewMesh;
+
 					// Preview draws at the origin the orbit frames on.
 					Matrix4 id;
 					id.Identity();

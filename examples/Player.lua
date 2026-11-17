@@ -13,6 +13,8 @@
 --   * Escape closes the window (ends the play session)
 
 local octree = nil
+local cluster_lod_debug = os.getenv("FURY_CLUSTER_LOD_DEBUG") or ""
+local cluster_debug_frame = 0
 
 local function on_init()
     octree = OcTree.Create()
@@ -37,6 +39,20 @@ local function on_init()
     end
 
     local scene = Scene.GetActive()
+
+    local transform_test = os.getenv("FURY_CLUSTER_LOD_TEST_TRANSFORM")
+    if transform_test == "nonuniform" or transform_test == "offscreen" then
+        local tanks = scene:GetRootNode():FindChildRecursively("TankGroup")
+        local tank = tanks and tanks:GetChildAt(0)
+        if tank then
+            if transform_test == "nonuniform" then
+                tank:SetLocalScale(Vector4(1.4, 0.8, 1.1, 1.0))
+            else
+                tank:SetLocalPosition(Vector4(100000.0, 0.0, 0.0, 1.0))
+            end
+            tank:Recompose(false)
+        end
+    end
 
     -- Pipeline from the scene's renderSettings (fall back to the default
     -- LDR pipeline when the scene doesn't name one).
@@ -157,6 +173,19 @@ local function on_update(dt)
         Window.Close()
         return
     end
+    cluster_debug_frame = cluster_debug_frame + 1
+    local geometry_debug = cluster_lod_debug
+    if os.getenv("FURY_CLUSTER_LOD_DEBUG_CYCLE") == "1" then
+        if cluster_debug_frame <= 10 then
+            geometry_debug = "lod"
+        elseif cluster_debug_frame <= 20 then
+            geometry_debug = "id"
+        else
+            geometry_debug = ""
+        end
+    end
+    Pipeline.GetActive():SetSwitch(PipelineSwitch.CLUSTER_LOD_VIEW, geometry_debug == "lod")
+    Pipeline.GetActive():SetSwitch(PipelineSwitch.CLUSTER_ID_VIEW, geometry_debug == "id")
     Pipeline.GetActive():Execute(octree)
 end
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -38,6 +39,9 @@
 #include "Fury/Ktx2Loader.h"
 #include "Fury/Log.h"
 #include "Fury/Material.h"
+#include "Fury/ClusterLodPayloadStore.h"
+#include "Fury/ClusterShaderSources.h"
+#include "Fury/RHI/Metal/MetalIndirectEncoder.h"
 #include "Fury/Mesh.h"
 #include "Fury/OceanWaves.h"
 #include "Fury/ParticleSystem.h"
@@ -74,6 +78,17 @@ namespace fury
 			std::string note;
 		};
 
+		struct ClusterManifestEntry
+		{
+			std::string key;
+			std::string ddcRel;
+			std::uint64_t sourceHash = 0;
+			std::uint32_t schema = 0;
+			std::uint32_t vertexCount = 0;
+			std::uint32_t clusterCount = 0;
+			std::uint32_t groupCount = 0;
+		};
+
 		struct ShaderManifestEntry
 		{
 			std::string key;
@@ -89,6 +104,7 @@ namespace fury
 			std::string shader;
 			std::string resolvedPath;
 			std::string permutation;
+			std::vector<std::string> defines;
 		};
 
 		std::string ToLower(const std::string& s)
@@ -570,10 +586,26 @@ namespace fury
 					: BuildShaderCompileInput(label, source, defines, false, debugOverlay);
 				item.shader = path;
 				item.resolvedPath = resolved;
+				item.defines = defines;
 				for (size_t i = 0; i < defines.size(); ++i)
 					item.permutation += (i == 0 ? "" : ",") + defines[i];
 				if (compute)
 					item.permutation += (item.permutation.empty() ? "" : ",") + std::string("stage=compute");
+				work.push_back(std::move(item));
+				return true;
+			};
+			auto addSource = [&](const std::string &name, const std::string &source,
+				const std::vector<std::string> &defines) -> bool {
+				std::string signature = name + "|stage=compute";
+				for (const auto &define : defines)
+					signature += "|" + define;
+				if (!seen.insert(signature).second)
+					return true;
+				ShaderWork item;
+				item.input = BuildComputeShaderCompileInput(name, source, defines, false, debugOverlay);
+				item.shader = name;
+				item.defines = defines;
+				item.permutation = "stage=compute";
 				work.push_back(std::move(item));
 				return true;
 			};
@@ -615,6 +647,18 @@ namespace fury
 				}
 			}
 
+			const size_t pipelineWorkCount = work.size();
+			for (size_t i = 0; i < pipelineWorkCount; ++i)
+			{
+				const auto &item = work[i];
+				if (item.shader.find("/GBuffer") == std::string::npos)
+					continue;
+				auto defines = item.defines;
+				defines.push_back("CLUSTER_BASE_INSTANCE");
+				if (!addShader(item.shader, defines, item.input.name + "_cluster"))
+					return false;
+			}
+
 			const std::pair<const char *, std::vector<std::string>> dynamicShaders[] = {
 				{ "Resource/Shader/Terrain/DrawTerrain.glsl", {} },
 				{ "Resource/Shader/Lambert/Particle.glsl", {} },
@@ -633,6 +677,9 @@ namespace fury
 				if (!addShader(item.first, item.second, item.first))
 					return false;
 			if (!addShader("Resource/Shader/ClusterAssign.glsl", {}, "Resource/Shader/ClusterAssign.glsl", true))
+				return false;
+			if (!addSource("ClusterSelect", ClusterSelectShaderSource, {})
+				|| !addSource("ClusterCull", ClusterCullShaderSource, {}))
 				return false;
 
 			const std::string postDir = ResolveCookAsset("Resource/PostProcess");
@@ -666,6 +713,8 @@ namespace fury
 				add(path, "pipeline");
 			for (const auto &item : work)
 			{
+				if (item.resolvedPath.empty())
+					continue;
 				std::string key = item.shader.compare(0, 9, "Resource/") == 0 ? item.shader
 					: FileUtil::ToCanonicalAssetKey(Scene::ResolveAsset(item.shader));
 				if (key.empty()) key = CookAssetKey(item.resolvedPath);
@@ -687,7 +736,8 @@ namespace fury
 		bool WriteManifest(const std::string& path, const std::string& scenePath, const std::string& target,
 			const std::string& toolVersion, const std::vector<TextureEntry>& textures,
 			const std::vector<ShaderManifestEntry>& shaders,
-			const std::vector<PassthroughEntry>& passthrough, const std::vector<std::string>& unresolved)
+			const std::vector<PassthroughEntry>& passthrough,
+			const std::vector<ClusterManifestEntry>& clusters, const std::vector<std::string>& unresolved)
 		{
 			rapidjson::StringBuffer sb;
 			rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
@@ -758,6 +808,29 @@ namespace fury
 					writer.Key("note");
 					writer.String(entry.note.c_str());
 				}
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("cluster_meshes");
+			writer.StartArray();
+			for (const ClusterManifestEntry &entry : clusters)
+			{
+				writer.StartObject();
+				writer.Key("key");
+				writer.String(entry.key.c_str());
+				writer.Key("ddc");
+				writer.String(entry.ddcRel.c_str());
+				writer.Key("source_hash");
+				writer.Uint64(entry.sourceHash);
+				writer.Key("schema");
+				writer.Uint(entry.schema);
+				writer.Key("vertices");
+				writer.Uint(entry.vertexCount);
+				writer.Key("clusters");
+				writer.Uint(entry.clusterCount);
+				writer.Key("groups");
+				writer.Uint(entry.groupCount);
 				writer.EndObject();
 			}
 			writer.EndArray();
@@ -903,6 +976,7 @@ namespace fury
 		std::vector<TextureEntry> textures;
 		std::vector<ShaderManifestEntry> shaders;
 		std::vector<PassthroughEntry> passthrough;
+		std::vector<ClusterManifestEntry> clusters;
 		std::unordered_set<std::string> unresolvedSet;
 
 		for (size_t i = 0; i < texturePaths.size(); ++i)
@@ -1001,6 +1075,48 @@ namespace fury
 				: stored;
 			textures.push_back(std::move(entry));
 		}
+
+		std::unordered_set<std::string> clusterKeys;
+		em->ForEach<Mesh>([&](const std::shared_ptr<Mesh> &mesh)
+		{
+			const ClusterLodDescriptor *descriptor = mesh->GetClusterLodDescriptor();
+			if (!descriptor)
+				return true;
+			if (descriptor->content_hash != MeshContentHash(mesh.get()))
+			{
+				result.error = "stale cluster descriptor for mesh '" + mesh->GetName() + "'";
+				return false;
+			}
+			const std::string contentKey = MakeClusterLodPayloadKey(*descriptor);
+			if (!clusterKeys.insert(contentKey).second)
+				return true;
+			std::string error;
+			ClusterLodPayloadResult payload = LoadClusterLodPayload(*descriptor,
+				mesh->Positions.Data.size() / 3, ddc, error);
+			if (!payload)
+			{
+				result.error = "mesh '" + mesh->GetName() + "': " + error;
+				return false;
+			}
+			const std::string stored = ddc.PathForKey(contentKey, ".clod");
+			const std::string rootPrefix = ddc.Root() + "/";
+			ClusterManifestEntry entry;
+			entry.key = MakeClusterLodPackedKey(contentKey);
+			entry.ddcRel = stored.compare(0, rootPrefix.size(), rootPrefix) == 0
+				? stored.substr(rootPrefix.size()) : stored;
+			entry.sourceHash = descriptor->content_hash;
+			entry.schema = descriptor->schema_version;
+			entry.vertexCount = payload.vertex_count;
+			entry.clusterCount = payload.asset->clusters.size();
+			entry.groupCount = payload.asset->groups.size();
+			clusters.push_back(std::move(entry));
+			return true;
+		});
+		if (!result.error.empty())
+			return result;
+		result.clusterMeshesTotal = clusters.size();
+		std::sort(clusters.begin(), clusters.end(),
+			[](const ClusterManifestEntry &a, const ClusterManifestEntry &b) { return a.key < b.key; });
 
 		CollectPassthrough<Mesh>(em, "mesh", false, passthrough, unresolvedSet);
 		CollectPassthrough<Heightmap>(em, "heightmap", true, passthrough, unresolvedSet);
@@ -1131,6 +1247,29 @@ namespace fury
 			}
 		}
 
+		for (ShaderTarget target : shaderTargets)
+		{
+			if (target != ShaderTarget::Metal)
+				continue;
+			++result.shadersTotal;
+			ShaderArtifact artifact;
+			artifact.key = MetalIndirectEncoderCacheKey();
+			artifact.extension = ".metal";
+			artifact.bytes.assign(MetalIndirectEncoderSource,
+				MetalIndirectEncoderSource + std::strlen(MetalIndirectEncoderSource));
+			if (ddc.Has(artifact.key, artifact.extension))
+				++result.shadersDdcHits;
+			else
+			{
+				if (!StoreShaderArtifacts(ddc, { artifact }, result.error))
+					return result;
+				++result.shadersCooked;
+			}
+			const std::string pakKey = ShaderArtifactPakKey(artifact, ddc);
+			shaders.push_back({ pakKey, pakKey.substr(4), "MetalIndirectICBEncoder",
+				"version=" + std::to_string(MetalIndirectEncoderVersion), "metal" });
+		}
+
 		std::sort(shaders.begin(), shaders.end(),
 			[](const ShaderManifestEntry& a, const ShaderManifestEntry& b) { return a.key < b.key; });
 		std::sort(textures.begin(), textures.end(),
@@ -1143,7 +1282,7 @@ namespace fury
 		std::string manifestPath = opts.manifestOut;
 		if (manifestPath.empty())
 			manifestPath = StemOf(scenePath) + ".cookmanifest.json";
-		if (!WriteManifest(manifestPath, scenePath, target, ktxVersion, textures, shaders, passthrough, result.unresolved))
+		if (!WriteManifest(manifestPath, scenePath, target, ktxVersion, textures, shaders, passthrough, clusters, result.unresolved))
 		{
 			result.error = "cannot write cook manifest to " + manifestPath;
 			return result;
@@ -1153,7 +1292,8 @@ namespace fury
 		std::cout << "[cook] done: " << result.texturesCooked << " textures cooked, " << result.texturesDdcHits
 			<< " ddc-hits; " << result.shadersCooked << " shader targets cooked, " << result.shadersDdcHits
 			<< " ddc-hits; " << result.unresolved.size() << " unresolved, "
-			<< passthrough.size() << " passthrough -> " << manifestPath << "\n";
+			<< passthrough.size() << " passthrough, " << result.clusterMeshesTotal
+			<< " cluster meshes -> " << manifestPath << "\n";
 
 		return result;
 	}

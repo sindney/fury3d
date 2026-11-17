@@ -2,6 +2,7 @@
 
 #if defined(FURY_WITH_SLANG) && FURY_WITH_SLANG
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -197,6 +198,8 @@ namespace fury
 			const char *stageDefine, const char *stageName, const char *entryName,
 			ShaderStageCompile &out, std::string &error)
 		{
+			const bool clusterBaseInstance = std::find_if(in.defines.begin(), in.defines.end(),
+				[](const auto &define) { return define.first == "CLUSTER_BASE_INSTANCE"; }) != in.defines.end();
 			std::string defaultError;
 			const auto defaults = ParseUniformDefaults(source, defaultError);
 			if (!defaultError.empty())
@@ -271,6 +274,33 @@ namespace fury
 					wi += wc;
 				}
 			}
+			if (std::strcmp(stageName, "fragment") == 0 && clusterBaseInstance)
+			{
+				auto *words = reinterpret_cast<uint32_t *>(spirv.data());
+				const size_t wordCount = spirv.size() / 4;
+				std::vector<uint32_t> sampledImages;
+				for (size_t wi = 5; wi + 3 < wordCount; )
+				{
+					const uint32_t wc = words[wi] >> 16;
+					const uint32_t op = words[wi] & 0xFFFF;
+					if (wc == 0 || wi + wc > wordCount)
+						break;
+					if (op == 59 && wc >= 4 && words[wi + 3] == 0)
+						sampledImages.push_back(words[wi + 2]);
+					wi += wc;
+				}
+				for (size_t wi = 5; wi + 3 < wordCount; )
+				{
+					const uint32_t wc = words[wi] >> 16;
+					const uint32_t op = words[wi] & 0xFFFF;
+					if (wc == 0 || wi + wc > wordCount)
+						break;
+					if (op == 71 && wc >= 4 && words[wi + 2] == 34
+						&& std::find(sampledImages.begin(), sampledImages.end(), words[wi + 1]) != sampledImages.end())
+						words[wi + 3] = 1;
+					wi += wc;
+				}
+			}
 			out.spirv = spirv;
 
 			try
@@ -287,6 +317,11 @@ namespace fury
 
 				spirv_cross::CompilerMSL::Options options;
 				options.set_msl_version(2, 3, 0);
+				if (std::strcmp(stageName, "fragment") == 0 && clusterBaseInstance)
+				{
+					options.argument_buffers = true;
+					compiler.add_discrete_descriptor_set(0);
+				}
 				compiler.set_msl_options(options);
 				out.msl = compiler.compile();
 

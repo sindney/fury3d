@@ -2,10 +2,15 @@
 
 #include <cmath>
 #include <functional>
+#include <map>
 #include <random>
 
 #include "Fury/Camera.h"
 #include "Fury/Component.h"
+#include "Fury/ClusterLodBuilder.h"
+#include "Fury/ClusterLodImport.h"
+#include "Fury/ClusterLodPayloadStore.h"
+#include "Fury/DdcStore.h"
 #include "Fury/EntityManager.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/EditorAnimationWindow.h"
@@ -34,6 +39,7 @@
 #include "Fury/ParticleRenderer.h"
 #include "Fury/ParticleSystem.h"
 #include "Fury/PlayerController.h"
+#include "Fury/RenderThread.h"
 #include "Fury/Scene.h"
 #include "Fury/SceneNode.h"
 #include "Fury/Shader.h"
@@ -271,6 +277,33 @@ void RenderCameraBody(SceneNode* node, Camera* cam) {
 // read-only summary (mesh name + per-slot collapsing headers).
 // Buttons are placed at the front of the line so the action cluster
 // is consistent across rows.
+static std::string RebuildClusterLodPayload(const std::shared_ptr<Mesh> &mesh) {
+	RenderThread::Get().Flush();
+
+	const std::uint32_t vertex_count =
+		static_cast<std::uint32_t>(mesh->Positions.Data.size() / 3);
+	// BuildClusterLod validates the built asset; its error is the
+	// validation report.
+	ClusterLodBuildResult built = BuildClusterLod(*mesh, ClusterLodBuildOptions());
+	if (!built)
+		return "build/validation failed: " + built.error;
+
+	ClusterLodDescriptor descriptor;
+	descriptor.content_hash = MeshContentHash(mesh.get());
+	descriptor.options = built.asset->options;
+	descriptor.enabled = true;
+
+	const auto &scene = Scene::Active;
+	DdcStore ddc(DdcStore::ResolveRoot(scene ? scene->GetClusterDdcRoot() : ""));
+	std::string error;
+	if (!StoreClusterLodPayload(ddc, *built.asset, descriptor, vertex_count, error))
+		return "store failed: " + error;
+
+	mesh->SetClusterLodDescriptor(descriptor);
+	mesh->SetClusterLodAsset(built.asset);
+	return "";
+}
+
 void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 	(void)node;
 	auto mesh = mr->GetMesh();
@@ -328,6 +361,47 @@ void RenderMeshRenderBody(SceneNode* node, MeshRender* mr) {
 			ImGui::TextDisabled("LOD: (single mesh)");
 		} else {
 			ImGui::Text("LOD chain: %u level(s); active = %u", lod_count, mr->GetActiveLod());
+		}
+	}
+
+	// Cluster LOD status and validated rebuild.
+	{
+		static std::map<std::string, std::string> s_ClusterRebuildErrors;
+		if (!mesh || !IsClusterLodEligibleMesh(*mesh)) {
+			ImGui::TextDisabled("Cluster LOD: (unavailable)");
+		} else {
+			const ClusterLodDescriptor *clod = mesh->GetClusterLodDescriptor();
+			if (clod) {
+				ImGui::Text("Cluster LOD: schema v%u, %s", clod->schema_version,
+					clod->enabled ? "enabled" : "disabled");
+			} else {
+				ImGui::TextDisabled("Cluster LOD: (no descriptor)");
+			}
+			const std::shared_ptr<ClusterLodAsset> &clod_asset = mesh->GetClusterLodAsset();
+			if (clod_asset) {
+				const std::size_t leaf = static_cast<std::size_t>(std::count_if(
+					clod_asset->clusters.begin(), clod_asset->clusters.end(),
+					[](const ClusterLodCluster &c) { return c.level == 0; }));
+				ImGui::Text("Clusters: %zu total, %zu leaf; groups: %zu",
+					clod_asset->clusters.size(), leaf, clod_asset->groups.size());
+			} else {
+				ImGui::TextDisabled("Cluster payload: (not loaded)");
+			}
+			if (ImGui::Button("Rebuild Cluster LOD")) {
+				std::string error = RebuildClusterLodPayload(mesh);
+				if (error.empty()) {
+					s_ClusterRebuildErrors.erase(mesh->GetUUID());
+					Editor::MarkSceneDirty();
+					Editor::Log("info", ("Cluster LOD rebuilt for '" + mesh->GetName() + "'").c_str());
+				} else {
+					error = "mesh '" + mesh->GetName() + "': " + error;
+					s_ClusterRebuildErrors[mesh->GetUUID()] = error;
+					Editor::Log("error", error.c_str());
+				}
+			}
+			auto error = s_ClusterRebuildErrors.find(mesh->GetUUID());
+			if (error != s_ClusterRebuildErrors.end())
+				ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", error->second.c_str());
 		}
 	}
 

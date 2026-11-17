@@ -56,6 +56,10 @@ namespace fury
 
 		std::string m_WorkingDir;
 
+		std::string m_ClusterDdcRoot;
+
+		bool m_AllowMissingClusterLodForMigration = false;
+
 		// Per-scene render settings (pipeline path, HDR, CSM,
 		// postprocess chain). Always non-null.
 		std::shared_ptr<RenderSettings> m_RenderSettings;
@@ -86,6 +90,12 @@ namespace fury
 		std::string GetWorkingDir() const;
 
 		void SetWorkingDir(const std::string &path);
+
+		void SetClusterDdcRoot(const std::string &path) { m_ClusterDdcRoot = path; }
+
+		const std::string &GetClusterDdcRoot() const { return m_ClusterDdcRoot; }
+
+		void SetAllowMissingClusterLodForMigration(bool allow) { m_AllowMissingClusterLodForMigration = allow; }
 
 		// Per-scene render settings; the editor writes through this.
 		// Mark the scene dirty after edits.

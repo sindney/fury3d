@@ -40,6 +40,7 @@ namespace fury
 	{
 		int texturesTotal = 0, texturesCooked = 0, texturesDdcHits = 0;
 		int shadersTotal = 0, shadersCooked = 0, shadersDdcHits = 0;
+		int clusterMeshesTotal = 0;
 
 		// Referenced paths missing on disk; the caller exits non-zero.
 		std::vector<std::string> unresolved;

@@ -86,6 +86,66 @@ namespace fury
 
 	typedef std::shared_ptr<MetalBuffer> MetalBufferRef;
 
+	class FURY_API MetalIndirectBatch : public RHIIndirectBatch
+	{
+	protected:
+
+		RHIIndirectBatchDesc m_Desc;
+
+		MTL::IndirectCommandBuffer *m_Commands = nullptr;
+
+		MetalBufferRef m_Ranges;
+
+		MTL::Buffer *m_Resources = nullptr;
+
+		MTL::Buffer *m_TextureArguments = nullptr;
+
+		MTL::Buffer *m_GlobalArguments[2] = { nullptr, nullptr };
+
+		int m_GlobalArgumentIndices[2] = { -1, -1 };
+
+		int m_TextureArgumentIndex = -1;
+
+		std::uint32_t m_ChunkCount = 0;
+
+	public:
+
+		explicit MetalIndirectBatch(const RHIIndirectBatchDesc &desc) : m_Desc(desc) {}
+
+		~MetalIndirectBatch() override;
+
+		const RHIIndirectBatchDesc &GetDesc() const override { return m_Desc; }
+
+		bool CreateNative(MTL::Device *device, MTL::RenderPipelineState *pipeline, std::uint32_t maxDrawCount);
+
+		bool CreateTextureArguments(MTL::Function *fragment, int bufferIndex,
+			const std::vector<std::uint32_t> &textureIndices, const std::vector<std::uint32_t> &samplerIndices);
+
+		bool CreateGlobalArgument(MTL::Device *device, int stage, int bufferIndex, size_t size);
+
+		bool UpdateGlobalArgument(int stage, const void *data, size_t size);
+
+		MTL::Buffer *GetGlobalArgument(int stage) const { return stage >= 0 && stage < 2 ? m_GlobalArguments[stage] : nullptr; }
+
+		int GetGlobalArgumentIndex(int stage) const { return stage >= 0 && stage < 2 ? m_GlobalArgumentIndices[stage] : -1; }
+
+		MTL::IndirectCommandBuffer *GetCommands() const { return m_Commands; }
+
+		MTL::Buffer *GetRanges() const { return m_Ranges != nullptr ? m_Ranges->Get() : nullptr; }
+
+		RHIBufferRef GetExecutionRangeBuffer() const override { return m_Ranges; }
+
+		MTL::Buffer *GetResources() const { return m_Resources; }
+
+		MTL::Buffer *GetTextureArguments() const { return m_TextureArguments; }
+
+		int GetTextureArgumentIndex() const { return m_TextureArgumentIndex; }
+
+		std::uint32_t GetChunkCount() const { return m_ChunkCount; }
+	};
+
+	typedef std::shared_ptr<MetalIndirectBatch> MetalIndirectBatchRef;
+
 	class FURY_API MetalRenderTargetSet : public RHIRenderTargetSet
 	{
 	public:

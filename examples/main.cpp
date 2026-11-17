@@ -48,6 +48,7 @@
 #include <Fury/Fury.h>
 #include <Fury/GLLoader.h>
 #include <Fury/Gui.h>
+#include <Fury/InputUtil.h>
 #include <Fury/Log.h>
 #include <Fury/LuaBindings.h>
 #include <Fury/PhysicsWorld.h>
@@ -437,6 +438,55 @@ int main(int argc, char *argv[])
 	}
 #endif
 
+
+	// `fury vulkan-indirect-smoke`: focused GPU indirect and base-instance check.
+	if (argc >= 2 && std::strcmp(argv[1], "vulkan-indirect-smoke") == 0) {
+		fury::RHI::SetCommandLineBackend("vulkan");
+		sf::Window window;
+		if (!CreateWindowNegotiated(window, sf::VideoMode({256, 256}),
+				"Fury3d-vk-indirect-smoke", sf::Style::None)) {
+			std::cerr << "fury vulkan-indirect-smoke: window creation failed\n";
+			return 1;
+		}
+		window.setVerticalSyncEnabled(false);
+		(void)window.setActive();
+		fury::ThreadUtil::Initialize(0);
+		fury::ThreadUtil::Instance()->SetMainThread();
+		fury::Log<0>::Initialize(fury::LogLevel::WARN, nullptr, true,
+			fury::Formatter::Simple, false);
+		fury::RHIWindowInfo info;
+		info.Window = &window;
+		info.Vsync = false;
+		fury::RHIDevice *device = fury::RHI::CreateDevice(fury::RHIBackend::VULKAN, info);
+		const int rc = device ? fury::RHI::ProbeIndexedIndirectSmoke() : 1;
+		fury::RHI::DestroyDevice();
+		return rc;
+	}
+
+	// `fury metal-indirect-smoke`: focused GPU ICB and base-instance check.
+	if (argc >= 2 && std::strcmp(argv[1], "metal-indirect-smoke") == 0) {
+		fury::RHI::SetCommandLineBackend("metal");
+		sf::Window window;
+		if (!CreateWindowNegotiated(window, sf::VideoMode({256, 256}),
+				"Fury3d-metal-indirect-smoke", sf::Style::None)) {
+			std::cerr << "fury metal-indirect-smoke: window creation failed\n";
+			return 1;
+		}
+		window.setVerticalSyncEnabled(false);
+		(void)window.setActive();
+		fury::ThreadUtil::Initialize(0);
+		fury::ThreadUtil::Instance()->SetMainThread();
+		fury::InputUtil::Initialize(256, 256);
+		fury::Log<0>::Initialize(fury::LogLevel::WARN, nullptr, true,
+			fury::Formatter::Simple, false);
+		fury::RHIWindowInfo info;
+		info.Window = &window;
+		info.Vsync = false;
+		fury::RHIDevice *device = fury::RHI::CreateDevice(fury::RHIBackend::METAL, info);
+		const int rc = device ? fury::RHI::ProbeIndexedIndirectSmoke() : 1;
+		fury::RHI::DestroyDevice();
+		return rc;
+	}
 
 	// `fury render-thread-smoke [N]`: standalone render-thread context-handoff
 	// check. Render thread clears+swaps N frames with a center-pixel readback

@@ -6,6 +6,7 @@
 
 #include "Fury/Log.h"
 #include "Fury/RHI/Metal/MetalEnumMap.h"
+#include "Fury/RHI/Metal/MetalIndirectEncoder.h"
 
 namespace fury
 {
@@ -59,8 +60,14 @@ namespace fury
 		td->setDepth(static_cast<NS::UInteger>(desc.Type == TextureType::TEXTURE_3D ? desc.Depth : 1));
 		td->setArrayLength(static_cast<NS::UInteger>(desc.Type == TextureType::TEXTURE_2D_ARRAY ? desc.Depth : 1));
 		// MipLevels is the literal level count (GL allocates it verbatim);
-		// 0 is meaningless, floor at 1.
-		const unsigned int mipCount = desc.MipLevels > 0 ? static_cast<unsigned int>(desc.MipLevels) : 1;
+		// 0 is meaningless, floor at 1. Metal validates the count against
+		// the dimensions (4x4 fits 3 levels), so clamp to the largest
+		// level the texture can actually hold.
+		const unsigned int dim = std::max(desc.Width, std::max(desc.Height,
+			desc.Type == TextureType::TEXTURE_3D ? desc.Depth : 1));
+		const unsigned int maxLevels = 32 - static_cast<unsigned int>(__builtin_clz(dim));
+		const unsigned int mipCount = std::min(
+			desc.MipLevels > 0 ? static_cast<unsigned int>(desc.MipLevels) : 1, maxLevels);
 		td->setMipmapLevelCount(mipCount);
 		td->setUsage(desc.RenderTarget
 			? MTL::TextureUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead)
@@ -379,6 +386,186 @@ namespace fury
 			m_Desc.Size = offset + size;
 		}
 		std::memcpy(static_cast<unsigned char *>(m_Buffer->contents()) + offset, data, size);
+	}
+
+	MetalIndirectBatch::~MetalIndirectBatch()
+	{
+		for (MTL::Buffer *buffer : m_GlobalArguments)
+			if (buffer != nullptr) buffer->release();
+		if (m_TextureArguments != nullptr) m_TextureArguments->release();
+		if (m_Resources != nullptr) m_Resources->release();
+		if (m_Commands != nullptr) m_Commands->release();
+	}
+
+	bool MetalIndirectBatch::CreateTextureArguments(MTL::Function *fragment, int bufferIndex,
+		const std::vector<std::uint32_t> &textureIndices, const std::vector<std::uint32_t> &samplerIndices)
+	{
+		if (bufferIndex < 0)
+			return true;
+		if (fragment == nullptr || textureIndices.size() != m_Desc.Textures.size()
+			|| samplerIndices.size() != m_Desc.Textures.size())
+			return false;
+		MTL::ArgumentEncoder *encoder = fragment->newArgumentEncoder(static_cast<NS::UInteger>(bufferIndex));
+		if (encoder == nullptr)
+			return false;
+		MTL::Buffer *buffer = fragment->device()->newBuffer(encoder->encodedLength(), MTL::ResourceStorageModeShared);
+		if (buffer == nullptr)
+		{
+			encoder->release();
+			return false;
+		}
+		std::memset(buffer->contents(), 0, buffer->length());
+		encoder->setArgumentBuffer(buffer, 0);
+		for (size_t i = 0; i < m_Desc.Textures.size(); ++i)
+		{
+			auto *texture = static_cast<MetalTexture *>(m_Desc.Textures[i].Texture.get());
+			if (texture == nullptr || texture->Get() == nullptr || texture->GetSampler() == nullptr)
+			{
+				buffer->release();
+				encoder->release();
+				return false;
+			}
+			encoder->setTexture(texture->Get(), textureIndices[i]);
+			encoder->setSamplerState(texture->GetSampler(), samplerIndices[i]);
+		}
+		encoder->release();
+		m_TextureArguments = buffer;
+		m_TextureArgumentIndex = bufferIndex;
+		return true;
+	}
+
+	bool MetalIndirectBatch::CreateGlobalArgument(MTL::Device *device, int stage, int bufferIndex, size_t size)
+	{
+		if (device == nullptr || stage < 0 || stage >= 2 || bufferIndex < 0 || size == 0)
+			return false;
+		if (m_GlobalArguments[stage] != nullptr)
+			m_GlobalArguments[stage]->release();
+		m_GlobalArguments[stage] = device->newBuffer(size, MTL::ResourceStorageModeShared);
+		if (m_GlobalArguments[stage] == nullptr)
+			return false;
+		m_GlobalArgumentIndices[stage] = bufferIndex;
+		return true;
+	}
+
+	bool MetalIndirectBatch::UpdateGlobalArgument(int stage, const void *data, size_t size)
+	{
+		MTL::Buffer *buffer = GetGlobalArgument(stage);
+		if (buffer == nullptr || data == nullptr || size != buffer->length())
+			return false;
+		std::memcpy(buffer->contents(), data, size);
+		return true;
+	}
+
+	bool MetalIndirectBatch::CreateNative(MTL::Device *device, MTL::RenderPipelineState *pipeline, std::uint32_t maxDrawCount)
+	{
+		auto arguments = std::static_pointer_cast<MetalBuffer>(m_Desc.Arguments);
+		auto counts = std::static_pointer_cast<MetalBuffer>(m_Desc.Counts);
+		auto indices = std::static_pointer_cast<MetalBuffer>(m_Desc.IndexBuffer);
+		if (device == nullptr || pipeline == nullptr || arguments == nullptr || counts == nullptr || indices == nullptr
+			|| arguments->Get() == nullptr || counts->Get() == nullptr || indices->Get() == nullptr
+			|| m_Desc.Capacity == 0 || maxDrawCount == 0 || (m_Desc.ArgumentOffset % sizeof(RHIIndirectDrawArgs)) != 0
+			|| (m_Desc.CountOffset % sizeof(std::uint32_t)) != 0 || (m_Desc.CountStride % sizeof(std::uint32_t)) != 0
+			|| m_Desc.CountStride < sizeof(std::uint32_t)
+			|| m_Desc.ArgumentOffset > arguments->GetDesc().Size
+			|| m_Desc.Capacity > (arguments->GetDesc().Size - m_Desc.ArgumentOffset) / sizeof(RHIIndirectDrawArgs)
+			|| m_Desc.StorageBuffers.size() > MetalIndirectMaxStorageBuffers)
+			return false;
+		for (const auto &binding : m_Desc.VertexBuffers)
+		{
+			auto buffer = std::static_pointer_cast<MetalBuffer>(binding.Buffer);
+			if (binding.Stream >= MetalIndirectMaxVertexBuffers || buffer == nullptr || buffer->Get() == nullptr)
+				return false;
+		}
+		for (const auto &binding : m_Desc.StorageBuffers)
+		{
+			auto buffer = std::static_pointer_cast<MetalBuffer>(binding.Buffer);
+			if (buffer == nullptr || buffer->Get() == nullptr)
+				return false;
+		}
+
+		m_ChunkCount = (m_Desc.Capacity + maxDrawCount - 1) / maxDrawCount;
+		if (m_Desc.CountOffset > counts->GetDesc().Size
+			|| static_cast<size_t>(m_ChunkCount - 1) * m_Desc.CountStride + sizeof(std::uint32_t)
+				> counts->GetDesc().Size - m_Desc.CountOffset)
+			return false;
+
+		if (m_Resources != nullptr) { m_Resources->release(); m_Resources = nullptr; }
+		m_Ranges.reset();
+		if (m_Commands != nullptr) { m_Commands->release(); m_Commands = nullptr; }
+
+		NS::SharedPtr<MTL::IndirectCommandBufferDescriptor> descriptor =
+			NS::TransferPtr(MTL::IndirectCommandBufferDescriptor::alloc()->init());
+		descriptor->setCommandTypes(MTL::IndirectCommandTypeDrawIndexed);
+		descriptor->setInheritPipelineState(false);
+		descriptor->setInheritBuffers(false);
+		descriptor->setMaxVertexBufferBindCount(64);
+		descriptor->setMaxFragmentBufferBindCount(64);
+		m_Commands = device->newIndirectCommandBuffer(descriptor.get(), m_Desc.Capacity, MTL::ResourceStorageModeShared);
+		if (m_Commands == nullptr)
+			return false;
+
+		RHIBufferDesc rangeDesc;
+		rangeDesc.Name = "MetalIndirectExecutionRanges";
+		rangeDesc.Type = RHIBufferType::STORAGE;
+		rangeDesc.Usage = RHIBufferUsage::STATIC;
+		rangeDesc.UsageFlags = RHI_BUFFER_TRANSFER_SRC;
+		rangeDesc.Size = sizeof(MTL::IndirectCommandBufferExecutionRange) * m_ChunkCount;
+		m_Ranges = MetalBuffer::Create(device, rangeDesc, nullptr);
+		if (m_Ranges == nullptr)
+			return false;
+		std::memset(m_Ranges->Get()->contents(), 0, m_Ranges->Get()->length());
+
+		NS::SharedPtr<MTL::ArgumentDescriptor> descriptors[MetalIndirectResourceDescriptorCount];
+		const NS::Object *objects[MetalIndirectResourceDescriptorCount];
+		for (std::uint32_t i = 0; i < MetalIndirectResourceDescriptorCount; ++i)
+		{
+			descriptors[i] = NS::TransferPtr(MTL::ArgumentDescriptor::alloc()->init());
+			MTL::DataType type = MTL::DataTypePointer;
+			MTL::BindingAccess access = MTL::BindingAccessReadOnly;
+			if (i == MetalIndirectResourceCommands) type = MTL::DataTypeIndirectCommandBuffer;
+			else if (i == MetalIndirectResourcePipeline) type = MTL::DataTypeRenderPipeline;
+			else if (i == MetalIndirectResourceRanges || i == 7) access = MTL::BindingAccessReadWrite;
+			descriptors[i]->setDataType(type);
+			descriptors[i]->setAccess(access);
+			descriptors[i]->setIndex(i == 7 ? MetalIndirectResourceStorage
+				: (i == 8 ? MetalIndirectResourceFragmentArguments
+					: (i == 9 ? MetalIndirectResourceGlobalArguments : i)));
+			if (i == 6) descriptors[i]->setArrayLength(MetalIndirectMaxVertexBuffers);
+			if (i == 7) descriptors[i]->setArrayLength(MetalIndirectMaxStorageBuffers);
+			if (i == 9) descriptors[i]->setArrayLength(2);
+			objects[i] = descriptors[i].get();
+		}
+		NS::SharedPtr<NS::Array> array = NS::TransferPtr(NS::Array::alloc()->init(objects, MetalIndirectResourceDescriptorCount));
+		MTL::ArgumentEncoder *encoder = device->newArgumentEncoder(array.get());
+		if (encoder == nullptr)
+			return false;
+		m_Resources = device->newBuffer(encoder->encodedLength(), MTL::ResourceStorageModeShared);
+		if (m_Resources == nullptr)
+		{
+			encoder->release();
+			return false;
+		}
+		std::memset(m_Resources->contents(), 0, m_Resources->length());
+		encoder->setArgumentBuffer(m_Resources, 0);
+		encoder->setIndirectCommandBuffer(m_Commands, MetalIndirectResourceCommands);
+		encoder->setRenderPipelineState(pipeline, MetalIndirectResourcePipeline);
+		encoder->setBuffer(arguments->Get(), 0, MetalIndirectResourceArguments);
+		encoder->setBuffer(counts->Get(), 0, MetalIndirectResourceCounts);
+		encoder->setBuffer(m_Ranges->Get(), 0, MetalIndirectResourceRanges);
+		encoder->setBuffer(indices->Get(), 0, MetalIndirectResourceIndices);
+		for (const auto &binding : m_Desc.VertexBuffers)
+		encoder->setBuffer(static_cast<MetalBuffer *>(binding.Buffer.get())->Get(), 0,
+			MetalIndirectResourceVertices + binding.Stream);
+		for (std::uint32_t i = 0; i < m_Desc.StorageBuffers.size(); ++i)
+			encoder->setBuffer(static_cast<MetalBuffer *>(m_Desc.StorageBuffers[i].Buffer.get())->Get(), 0,
+				MetalIndirectResourceStorage + i);
+		if (m_TextureArguments != nullptr)
+			encoder->setBuffer(m_TextureArguments, 0, MetalIndirectResourceFragmentArguments);
+		for (int stage = 0; stage < 2; ++stage)
+			if (m_GlobalArguments[stage] != nullptr)
+				encoder->setBuffer(m_GlobalArguments[stage], 0, MetalIndirectResourceGlobalArguments + stage);
+		encoder->release();
+		return true;
 	}
 
 	std::shared_ptr<MetalRenderTargetSet> MetalRenderTargetSet::Create(const RHIRenderTargetSetDesc &desc)

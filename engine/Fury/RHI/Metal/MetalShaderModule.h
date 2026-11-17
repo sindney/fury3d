@@ -65,6 +65,8 @@ namespace fury
 
 		MTL::Function *m_Compute = nullptr;
 
+		std::uint32_t m_ComputeGroupSize[3] = { 64, 1, 1 };
+
 		MetalStageGlobals m_Globals[3];   // [0] = vertex, [1] = fragment, [2] = compute
 
 		std::unordered_map<std::string, int> m_StageInputs;
@@ -118,6 +120,8 @@ namespace fury
 		MTL::Function *GetFragment() const { return m_Fragment; }
 
 		MTL::Function *GetCompute() const { return m_Compute; }
+
+		const std::uint32_t *GetComputeGroupSize() const { return m_ComputeGroupSize; }
 
 		const MetalStageGlobals &GetStageGlobals(int stage) const { return m_Globals[stage]; }
 

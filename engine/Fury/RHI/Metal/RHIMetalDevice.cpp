@@ -11,7 +11,9 @@
 
 #include "Fury/InputUtil.h"
 #include "Fury/Log.h"
+#include "Fury/ShaderCache.h"
 #include "Fury/RHI/Metal/MetalEnumMap.h"
+#include "Fury/RHI/Metal/MetalIndirectEncoder.h"
 #include "Fury/RHI/Metal/MetalWindowBridge.h"
 
 #include "stb_image_write.h"
@@ -50,11 +52,11 @@ namespace fury
 		return std::tie(Module, Blend, ColorWrite,
 			BlendEnabled[0], BlendEnabled[1], BlendEnabled[2], BlendEnabled[3],
 			ColorFormats[0], ColorFormats[1], ColorFormats[2], ColorFormats[3],
-			DepthFormat, VertexHash)
+			DepthFormat, VertexHash, Indirect)
 			< std::tie(o.Module, o.Blend, o.ColorWrite,
 			o.BlendEnabled[0], o.BlendEnabled[1], o.BlendEnabled[2], o.BlendEnabled[3],
 			o.ColorFormats[0], o.ColorFormats[1], o.ColorFormats[2], o.ColorFormats[3],
-			o.DepthFormat, o.VertexHash);
+			o.DepthFormat, o.VertexHash, o.Indirect);
 	}
 
 	RHIDevice *CreateMetalDevice(const RHIWindowInfo &window)
@@ -120,12 +122,80 @@ namespace fury
 		m_Caps.SupportsCompressedBC = true;
 		m_Caps.MaxTextureSize = 16384;
 		m_Caps.MaxTextureArrayLayers = 2048;
+		InitializeIndirectEncoding();
 
 		FURYI << "Metal device: " << m_Device->name()->utf8String();
 	}
 
+	bool RHIMetalDevice::InitializeIndirectEncoding()
+	{
+		if (!__builtin_available(macOS 10.15, *))
+		{
+			FURYW << "Metal cluster LOD unavailable: indexed ICBs with stage-scoped resource usage require macOS 10.15";
+			return false;
+		}
+
+		NS::SharedPtr<MTL::CompileOptions> options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
+		options->setLanguageVersion(MTL::LanguageVersion2_1);
+		std::string encoderSource;
+		std::string resourceError;
+		if (!LoadOrStoreTextShaderResource(MetalIndirectEncoderCacheKey(), ".metal",
+			MetalIndirectEncoderSource, encoderSource, resourceError))
+		{
+			FURYW << "Metal cluster LOD unavailable: ICB encoder resource failed: " << resourceError;
+			return false;
+		}
+		NS::Error *error = nullptr;
+		MTL::Library *library = m_Device->newLibrary(
+			NS::String::string(encoderSource.c_str(), NS::UTF8StringEncoding), options.get(), &error);
+		if (library == nullptr)
+		{
+			FURYW << "Metal cluster LOD unavailable: ICB encoder compilation failed: "
+				<< (error != nullptr ? error->localizedDescription()->utf8String() : "unknown");
+			return false;
+		}
+		MTL::Function *function = library->newFunction(NS::String::string("computeMain", NS::UTF8StringEncoding));
+		if (function != nullptr)
+			m_IndirectEncoderPSO = m_Device->newComputePipelineState(function, &error);
+		if (function != nullptr) function->release();
+		library->release();
+		if (m_IndirectEncoderPSO == nullptr)
+		{
+			FURYW << "Metal cluster LOD unavailable: ICB encoder pipeline creation failed: "
+				<< (error != nullptr ? error->localizedDescription()->utf8String() : "unknown");
+			return false;
+		}
+
+		NS::SharedPtr<MTL::IndirectCommandBufferDescriptor> descriptor =
+			NS::TransferPtr(MTL::IndirectCommandBufferDescriptor::alloc()->init());
+		descriptor->setCommandTypes(MTL::IndirectCommandTypeDrawIndexed);
+		descriptor->setInheritPipelineState(false);
+		descriptor->setInheritBuffers(false);
+		MTL::IndirectCommandBuffer *probe = m_Device->newIndirectCommandBuffer(descriptor.get(), 1, MTL::ResourceStorageModeShared);
+		if (probe == nullptr)
+		{
+			FURYW << "Metal cluster LOD unavailable: indexed ICB creation failed";
+			return false;
+		}
+		probe->release();
+
+		m_Caps.SupportsIndirectCount = true;
+		m_Caps.SupportsMultiDrawIndirect = true;
+		m_Caps.SupportsIndirectFirstInstance = true;
+		m_Caps.SupportsNativeIndirectBatchEncoding = true;
+		m_Caps.MaxDrawIndirectCount = 16384;
+		m_Caps.IndirectArgumentStride = sizeof(RHIIndirectDrawArgs);
+		m_Caps.IndirectCountOffsetAlignment = sizeof(std::uint32_t);
+		FURYI << "Metal indexed ICBs: GPU encoding + execution ranges, maxRange=" << m_Caps.MaxDrawIndirectCount;
+		return true;
+	}
+
 	RHIMetalDevice::~RHIMetalDevice()
 	{
+		if (m_LastCommandBuffer != nullptr)
+			m_LastCommandBuffer->waitUntilCompleted();
+		m_FrameIndirectBatches.clear();
+		if (m_IndirectEncoderPSO != nullptr) m_IndirectEncoderPSO->release();
 		for (auto &kv : m_PSOCache)
 			kv.second.PSO->release();
 		m_PSOCache.clear();
@@ -204,6 +274,12 @@ namespace fury
 				if (m_LastPresented != nullptr) m_LastPresented->release();
 				m_LastPresented = m_Drawable;
 				m_LastPresented->retain();
+			}
+			if (!m_FrameIndirectBatches.empty())
+			{
+				std::vector<RHIIndirectBatchRef> retained;
+				retained.swap(m_FrameIndirectBatches);
+				m_CommandBuffer->addCompletedHandler([retained](MTL::CommandBuffer *) mutable { retained.clear(); });
 			}
 			m_CommandBuffer->commit();
 			if (m_LastCommandBuffer != nullptr) m_LastCommandBuffer->release();
@@ -347,6 +423,46 @@ namespace fury
 			static_cast<MetalBuffer *>(buffer.get())->Update(m_Device, data, size, offset);
 	}
 
+	RHIIndirectBatchRef RHIMetalDevice::CreateIndirectBatch(const RHIIndirectBatchDesc &desc)
+	{
+		return m_Caps.SupportsNativeIndirectBatchEncoding ? std::make_shared<MetalIndirectBatch>(desc) : nullptr;
+	}
+
+	bool RHIMetalDevice::ReadbackBuffer(const RHIBufferReadbackRequest &request, RHIBufferReadbackResult &out)
+	{
+		out = {};
+		out.FrameIndex = request.FrameIndex;
+		if (m_CommandBuffer != nullptr)
+			return false;
+		auto source = std::static_pointer_cast<MetalBuffer>(request.Buffer);
+		if (source == nullptr || source->Get() == nullptr || request.Size == 0
+			|| request.Offset > source->GetDesc().Size
+			|| request.Size > source->GetDesc().Size - request.Offset)
+			return false;
+		if (m_LastCommandBuffer != nullptr)
+		{
+			m_LastCommandBuffer->waitUntilCompleted();
+			if (m_LastCommandBuffer->status() == MTL::CommandBufferStatusError)
+			{
+				NS::Error *error = m_LastCommandBuffer->error();
+				FURYE << "Metal buffer readback: GPU command buffer failed: "
+					<< (error != nullptr ? error->localizedDescription()->utf8String() : "unknown");
+				if (error != nullptr && error->userInfo() != nullptr && error->userInfo()->description() != nullptr)
+					FURYE << "Metal GPU error details: " << error->userInfo()->description()->utf8String();
+				return false;
+			}
+		}
+		const unsigned char *bytes = static_cast<const unsigned char *>(source->Get()->contents()) + request.Offset;
+		out.Bytes.assign(bytes, bytes + request.Size);
+		return true;
+	}
+
+	void RHIMetalDevice::RetainIndirectBatch(const RHIIndirectBatchRef &batch)
+	{
+		if (batch != nullptr)
+			m_FrameIndirectBatches.push_back(batch);
+	}
+
 	RHIShaderModuleRef RHIMetalDevice::CreateShaderModule(const std::string &name, const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry)
 	{
 		return MetalShaderModule::Create(m_Device, name, vertex, fragment, geometry);
@@ -383,6 +499,7 @@ namespace fury
 		NS::SharedPtr<MTL::RenderPipelineDescriptor> desc = NS::TransferPtr(MTL::RenderPipelineDescriptor::alloc()->init());
 		desc->setVertexFunction(const_cast<MTL::Function *>(module->GetVertex()));
 		desc->setFragmentFunction(const_cast<MTL::Function *>(module->GetFragment()));
+		desc->setSupportIndirectCommandBuffers(key.Indirect);
 
 		for (int i = 0; i < 4; ++i)
 		{
@@ -475,6 +592,33 @@ namespace fury
 					{
 						entry.Maps.Textures[name] = binding;
 						entry.Maps.TexturesByStage[stage][name] = binding;
+					}
+					if (stage == 1 && arg->type() == MTL::ArgumentTypeBuffer && arg->bufferStructType() != nullptr)
+					{
+						bool textureArgumentBuffer = false;
+						auto *members = arg->bufferStructType()->members();
+						if (members != nullptr)
+						{
+							for (NS::UInteger mi = 0; mi < members->count(); ++mi)
+							{
+								auto *member = static_cast<MTL::StructMember *>(members->object(mi));
+								if (member == nullptr || member->name() == nullptr)
+									continue;
+								const std::string memberName = member->name()->utf8String();
+								if (member->dataType() == MTL::DataTypeTexture)
+								{
+									entry.Maps.ArgumentBufferTextures[memberName] = static_cast<int>(member->argumentIndex());
+									textureArgumentBuffer = true;
+								}
+								else if (member->dataType() == MTL::DataTypeSampler)
+								{
+									entry.Maps.ArgumentBufferSamplers[memberName] = static_cast<int>(member->argumentIndex());
+									textureArgumentBuffer = true;
+								}
+							}
+						}
+						if (textureArgumentBuffer)
+							entry.Maps.ArgumentBufferIndex = static_cast<int>(arg->index());
 					}
 				}
 			};
@@ -713,8 +857,24 @@ namespace fury
 		if (x < 0 || y < 0 || x >= desc.Width || y >= desc.Height)
 			return false;
 
-		// GL y-up convention: flip the row.
-		tex->Get()->getBytes(&out, 4, MTL::Region::Make2D(x, desc.Height - 1 - y, 1, 1), 0);
+		EndEncoders();
+		if (m_CommandBuffer != nullptr)
+		{
+			MTL::CommandBuffer *completed = m_CommandBuffer;
+			completed->commit();
+			completed->waitUntilCompleted();
+			m_CommandBuffer = m_Queue->commandBuffer();
+			if (completed->status() == MTL::CommandBufferStatusError || m_CommandBuffer == nullptr)
+				return false;
+		}
+		else if (m_LastCommandBuffer != nullptr)
+		{
+			m_LastCommandBuffer->waitUntilCompleted();
+			if (m_LastCommandBuffer->status() == MTL::CommandBufferStatusError)
+				return false;
+		}
+
+		tex->Get()->getBytes(&out, 4, MTL::Region::Make2D(x, y, 1, 1), 0);
 		return true;
 	}
 }

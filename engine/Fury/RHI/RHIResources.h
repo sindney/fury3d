@@ -32,6 +32,19 @@ namespace fury
 		virtual uintptr_t GetNativeHandle() const = 0;
 	};
 
+	class FURY_API RHIIndirectBatch
+	{
+	public:
+
+		virtual ~RHIIndirectBatch() = default;
+
+		virtual const RHIIndirectBatchDesc &GetDesc() const = 0;
+
+		virtual RHIBufferRef GetExecutionRangeBuffer() const { return nullptr; }
+	};
+
+	typedef std::shared_ptr<RHIIndirectBatch> RHIIndirectBatchRef;
+
 	class FURY_API RHISampler
 	{
 	public:

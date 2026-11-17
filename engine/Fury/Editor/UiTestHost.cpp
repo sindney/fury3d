@@ -13,6 +13,10 @@
 #include "imgui_te_internal.h" // ImGuiTestRunTask definition
 
 #include "Fury/Color.h"
+#include "Fury/Camera.h"
+#include "Fury/ClusterLodImport.h"
+#include "Fury/ClusterRenderer.h"
+#include "Fury/DeferredPipeline.h"
 #include "Fury/Editor/Editor.h"
 #include "Fury/Editor/Editor3DPreview.h"
 #include "Fury/Editor/EditorGpuProfilerWindow.h"
@@ -27,6 +31,7 @@
 #include "Fury/MeshUtil.h"
 #include "Fury/Pipeline.h"
 #include "Fury/RenderSettings.h"
+#include "Fury/RenderThread.h"
 #include "Fury/RHI/RHIDevice.h"
 #include "Fury/RenderUtil.h"
 #include "Fury/Scene.h"
@@ -39,9 +44,16 @@
 #include <cstring>
 #include <deque>
 #include <filesystem>
+#include <future>
 
 namespace fury
 {
+	namespace Editor
+	{
+		extern ImVec2 g_ViewportContentMin;
+		extern ImVec2 g_ViewportContentSize;
+	}
+
 	namespace UiTestHost
 	{
 		namespace
@@ -260,6 +272,26 @@ namespace fury
 
 			// ----- tests ---------------------------------------------------
 
+			// Same render-thread read the "Read Cluster Stats" button
+			// performs; the static that caches the button result lives in
+			// EditorWindows.cpp, so the probe re-issues the read against
+			// the pipeline for machine-checkable counts.
+			ClusterLodStats ProbeClusterStats()
+			{
+				auto pipeline = Pipeline::Active;
+				std::promise<ClusterLodStats> done;
+				auto wait = done.get_future();
+				RenderThread::Get().EnqueueJob([pipeline, &done]() {
+					ClusterLodStats result;
+					if (auto deferred = dynamic_cast<DeferredPipeline *>(pipeline.get()))
+						deferred->ReadClusterLodStats(result);
+					else
+						result.unavailableReason = "deferred pipeline is unavailable";
+					done.set_value(std::move(result));
+				});
+				return wait.get();
+			}
+
 			// Finds an ImGui child window ("Parent/Prefix_HASH") by its parent
 			// window and id prefix. Item refs cannot traverse child scopes, so
 			// tests re-base onto the child window.
@@ -398,6 +430,78 @@ namespace fury
 				ctx->Yield(2);
 			}
 
+			// Clicks centered and off-center meshes and verifies GPU picking selects them.
+			void TestViewportPicking(ImGuiTestContext *ctx)
+			{
+				auto root = Scene::Active ? Scene::Active->GetRootNode() : nullptr;
+				auto em = Scene::Active ? Scene::Active->GetEntityManager() : nullptr;
+				IM_CHECK(root != nullptr && em != nullptr);
+
+				auto mesh = MeshUtil::CreateCube("uitest_pick.mesh",
+					Vector4(-1.0f, -1.0f, -1.0f, 1.0f), Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+				auto material = Material::Create("uitest_pick.mat");
+				em->Add(mesh);
+				em->Add(material);
+				auto surface = SceneNode::Create("UiTestPickTarget");
+				surface->SetEditorOnly(true);
+				surface->SetLocalScale(Vector4(100.0f, 100.0f, 100.0f, 1.0f));
+				surface->AddComponent(Transform::Create());
+				surface->AddComponent(MeshRender::Create(material, mesh));
+				root->AddChild(surface);
+				surface->Recompose(true);
+				RegisterWithSceneManager(surface);
+				Editor::ClearSelection();
+				Editor::FrameSelection(surface.get());
+				ctx->Yield(8);
+
+				auto click = [&](const ImVec2 &pos) {
+					ctx->MouseTeleportToPos(pos);
+					ctx->Yield(2);
+					ctx->MouseClick(0);
+					ctx->Yield(8);
+				};
+				ImGuiWindow *viewport = ImGui::FindWindowByName("Viewport");
+				IM_CHECK(viewport != nullptr);
+				if (viewport != nullptr)
+				{
+					ctx->WindowFocus("//Viewport");
+					const ImVec2 center(
+						(viewport->ContentRegionRect.Min.x + viewport->ContentRegionRect.Max.x) * 0.5f,
+						(viewport->ContentRegionRect.Min.y + viewport->ContentRegionRect.Max.y) * 0.5f);
+					click(center);
+					IM_CHECK(Editor::GetSelectedSceneNode() == surface.get());
+				}
+
+				// Keep the framed camera fixed so a second Y flip reads empty space.
+				surface->SetLocalPosition(Vector4(0.0f, 150.0f, 0.0f, 1.0f));
+				surface->Recompose(true);
+				Editor::ClearSelection();
+				ctx->Yield(4);
+				auto cameraNode = Pipeline::Active ? Pipeline::Active->GetCurrentCamera() : nullptr;
+				auto camera = cameraNode ? cameraNode->GetComponent<Camera>() : nullptr;
+				IM_CHECK(camera != nullptr);
+				if (camera != nullptr)
+				{
+					const Matrix4 viewProj = camera->GetProjectionMatrix() * cameraNode->GetWorldMatrix().Inverse();
+					const Vector4 clip = viewProj.Multiply(surface->GetWorldPosition());
+					IM_CHECK(clip.w > 0.0f);
+					if (clip.w > 0.0f)
+					{
+						const ImVec2 &origin = Editor::g_ViewportContentMin;
+						const ImVec2 &size = Editor::g_ViewportContentSize;
+						const float ndcX = clip.x / clip.w;
+						const float ndcY = clip.y / clip.w;
+						click(ImVec2(origin.x + (ndcX * 0.5f + 0.5f) * size.x,
+							origin.y + (1.0f - (ndcY * 0.5f + 0.5f)) * size.y));
+						IM_CHECK(Editor::GetSelectedSceneNode() == surface.get());
+					}
+				}
+
+				Editor::ClearSelection();
+				surface->RemoveFromParent();
+				ctx->Yield(2);
+			}
+
 			// Commits a transform and a component edit, verifies live model
 			// values + dirty state, and exercises the input widget's built-in undo.
 			void TestInspectorEditDirtyUndo(ImGuiTestContext *ctx)
@@ -514,6 +618,172 @@ namespace fury
 				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_LIGHT_COUNT_VIEW));
 				IM_CHECK(!Editor::IsSceneDirty());
 				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+			}
+
+			// Cluster LOD render settings (default state, enablement, screen
+			// error, on-demand stats), the Geometry Clusters debug views, and
+			// the MeshRender cluster inspector with its rebuild button.
+			void TestClusterLodEditor(ImGuiTestContext *ctx)
+			{
+				IM_CHECK(Pipeline::Active != nullptr);
+				auto settings = Scene::Active ? Scene::Active->GetRenderSettings() : nullptr;
+				IM_CHECK(settings != nullptr);
+				auto root = Scene::Active->GetRootNode();
+				IM_CHECK(root != nullptr);
+				auto mesh = Scene::Active->GetEntityManager()->Get<Mesh>(kMeshPath);
+				IM_CHECK(mesh != nullptr);
+
+				// The isolated run starts from a fresh scene: the setting
+				// must load disabled. Force the known state regardless.
+				IM_CHECK(!settings->IsClusterLodEnabled());
+				settings->SetClusterLodEnabled(false);
+				settings->SetClusterLodScreenError(1.0f);
+				Pipeline::Active->ApplyRenderSettings(*settings);
+				Editor::ClearSceneDirty();
+
+				// Eligible cluster surface so stats/debug views have content.
+				// MeshUtil shapes ship no SubMesh records, which
+				// IsClusterLodEligibleMesh requires; the ico sphere is large
+				// enough that the builder emits a group DAG above the leaves.
+				auto clusterMesh = MeshUtil::CreateIcoSphere("uitest_cluster.mesh", 1.0f, 3);
+				auto subMesh = SubMesh::Create();
+				subMesh->Indices.Data = clusterMesh->Indices.Data;
+				clusterMesh->AddSubMesh(subMesh);
+				Scene::Active->GetEntityManager()->Add(clusterMesh);
+				IM_CHECK(IsClusterLodEligibleMesh(*clusterMesh));
+				auto material = Material::Create("uitest_clod_surface.mat");
+				Scene::Active->GetEntityManager()->Add(material);
+				auto surface = SceneNode::Create("UiTestClodSurface");
+				surface->SetEditorOnly(true);
+				surface->SetLocalScale(Vector4(100.0f, 100.0f, 100.0f, 1.0f));
+				surface->AddComponent(Transform::Create());
+				surface->AddComponent(MeshRender::Create(material, clusterMesh));
+				root->AddChild(surface);
+				surface->Recompose(true);
+				RegisterWithSceneManager(surface);
+				ctx->Yield(4);
+
+				// --- Render Settings -> Engine --------------------------------
+				Editor::SetWindowVisible("Settings", true);
+				ctx->Yield(2);
+				ctx->WindowFocus("//Settings");
+				ctx->SetRef("Settings");
+				ctx->ItemOpen("Engine");
+
+				// Enablement round-trip: each click must flip model + dirty.
+				ctx->ItemClick("Cluster LOD");
+				ctx->Yield(2);
+				IM_CHECK(settings->IsClusterLodEnabled());
+				IM_CHECK(Editor::IsSceneDirty());
+				ctx->ItemClick("Cluster LOD");
+				ctx->Yield(2);
+				IM_CHECK(!settings->IsClusterLodEnabled());
+				IM_CHECK(Editor::IsSceneDirty());
+				ctx->ItemClick("Cluster LOD");
+				ctx->Yield(2);
+				IM_CHECK(settings->IsClusterLodEnabled());
+				Editor::ClearSceneDirty();
+
+				// Positive screen-error edit lands in model + widget.
+				ctx->ItemInputValue("Cluster Screen Error", 2.5f);
+				ctx->Yield(2);
+				IM_CHECK(settings->GetClusterLodScreenError() == 2.5f);
+				float shown = 0.0f;
+				IM_CHECK(ctx->ItemReadAsScalar("Cluster Screen Error", ImGuiDataType_Float, &shown));
+				IM_CHECK(shown == 2.5f);
+				IM_CHECK(Editor::IsSceneDirty());
+				Editor::ClearSceneDirty();
+
+				// On-demand stats. No cluster payload yet, so the read may
+				// report the legacy-fallback reason; the frame must be valid.
+				ctx->ItemClick("Read Cluster Stats");
+				ctx->Yield(2);
+				ClusterLodStats stats = ProbeClusterStats();
+				IM_CHECK(stats.frameIndex != 0);
+				FURYI << "[uitest] pre-rebuild cluster stats: frame " << stats.frameIndex
+					<< " candidates " << stats.candidateInstances
+					<< " reason '" << stats.unavailableReason << "'";
+				ctx->CaptureScreenshotWindow("//Settings", ImGuiCaptureFlags_HideMouseCursor);
+
+				// --- Viewport debug menu: Geometry Clusters -------------------
+				ctx->WindowFocus("//Viewport");
+				ctx->SetRef("Viewport");
+				ctx->ItemClick("##debug_views");
+				ctx->MenuClick("//$FOCUSED/Geometry Clusters/Cluster LOD");
+				ctx->Yield(4);
+				IM_CHECK(Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_LOD_VIEW));
+				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_ID_VIEW));
+				IM_CHECK(!Editor::IsSceneDirty());
+				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+				ctx->CaptureScreenshotWindow("//Viewport", ImGuiCaptureFlags_HideMouseCursor);
+
+				ctx->ItemClick("##debug_views");
+				ctx->MenuClick("//$FOCUSED/Geometry Clusters/Cluster ID");
+				ctx->Yield(4);
+				IM_CHECK(Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_ID_VIEW));
+				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_LOD_VIEW));
+				IM_CHECK(!Editor::IsSceneDirty());
+				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+				ctx->CaptureScreenshotWindow("//Viewport", ImGuiCaptureFlags_HideMouseCursor);
+
+				ctx->ItemClick("##debug_views");
+				ctx->MenuClick("//$FOCUSED/Geometry Clusters/Off");
+				ctx->Yield(2);
+				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_LOD_VIEW));
+				IM_CHECK(!Pipeline::Active->IsSwitchOn(PipelineSwitch::CLUSTER_ID_VIEW));
+				IM_CHECK(!Editor::IsSceneDirty());
+				ImGui::ClosePopupToLevel(0, true);
+				ctx->Yield(2);
+
+				// --- MeshRender inspector: status + rebuild -------------------
+				ctx->WindowFocus("//Scene Inspector");
+				ctx->SetRef("Scene Inspector");
+				ctx->ItemClick("hier:RootNode/hier:UiTestClodSurface");
+				ctx->Yield(2);
+				IM_CHECK(Editor::GetSelectedSceneNode() == surface.get());
+				ctx->WindowFocus("//Node Properties");
+				ctx->SetRef("Node Properties");
+				IM_CHECK(ctx->ItemExists("MeshRender/Cast Shadows"));
+				IM_CHECK(ctx->ItemExists("MeshRender/Rebuild Cluster LOD"));
+				IM_CHECK(clusterMesh->GetClusterLodDescriptor() == nullptr);
+
+				// Rebuild writes the DDC cache and updates the in-memory mesh;
+				// checked-in assets and scenes are untouched.
+				ctx->ItemClick("MeshRender/Rebuild Cluster LOD");
+				ctx->Yield(4);
+				const ClusterLodDescriptor *descriptor = clusterMesh->GetClusterLodDescriptor();
+				IM_CHECK(descriptor != nullptr);
+				IM_CHECK(descriptor->enabled);
+				auto clodAsset = clusterMesh->GetClusterLodAsset();
+				IM_CHECK(clodAsset != nullptr);
+				IM_CHECK(!clodAsset->clusters.empty());
+				IM_CHECK(!clodAsset->groups.empty());
+				IM_CHECK(Editor::IsSceneDirty());
+				ctx->CaptureScreenshotWindow("//Node Properties", ImGuiCaptureFlags_HideMouseCursor);
+
+				// With a payload in place the on-demand stats report counts.
+				ctx->WindowFocus("//Settings");
+				ctx->SetRef("Settings");
+				ctx->ItemClick("Read Cluster Stats");
+				ctx->Yield(2);
+				stats = ProbeClusterStats();
+				IM_CHECK(stats.frameIndex != 0);
+				IM_CHECK(stats.unavailableReason.empty());
+				IM_CHECK(stats.candidateInstances >= 1);
+				IM_CHECK(stats.instances >= 1);
+				FURYI << "[uitest] post-rebuild cluster stats: frame " << stats.frameIndex
+					<< " candidates " << stats.candidateInstances
+					<< " accepted " << stats.instances << " selected " << stats.selected;
+				ctx->CaptureScreenshotWindow("//Settings", ImGuiCaptureFlags_HideMouseCursor);
+
+				// Per-test cleanup: drop the surface, restore the setting.
+				surface->RemoveFromParent();
+				settings->SetClusterLodEnabled(false);
+				settings->SetClusterLodScreenError(1.0f);
+				Editor::ClearSceneDirty();
 				ctx->Yield(2);
 			}
 
@@ -921,10 +1191,14 @@ namespace fury
 			test->TestFunc = TestSelectAndEditKnownNode;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "hierarchy_selection");
 			test->TestFunc = TestHierarchySelection;
+			test = IM_REGISTER_TEST(s_Engine, "editor", "viewport_picking");
+			test->TestFunc = TestViewportPicking;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "inspector_edit_dirty_undo");
 			test->TestFunc = TestInspectorEditDirtyUndo;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "cluster_settings_debug");
 			test->TestFunc = TestClusterSettingsDebug;
+			test = IM_REGISTER_TEST(s_Engine, "editor", "cluster_lod_editor");
+			test->TestFunc = TestClusterLodEditor;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "content_browser_mesh_preview");
 			test->TestFunc = TestContentBrowserMeshPreview;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "profiler_tabs");

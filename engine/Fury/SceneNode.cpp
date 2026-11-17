@@ -21,6 +21,7 @@
 #include "Fury/OceanComponent.h"
 #include "Fury/BuoyancyComponent.h"
 
+#include <algorithm>
 #include <map>
 
 namespace fury

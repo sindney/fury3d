@@ -211,6 +211,8 @@ end
 local legacy = load_case("legacy_optional.json", document({ version = "", textures = "" }), true)
 if legacy:GetRenderSettings():IsHDR() then fail("legacy optional render settings defaulted to HDR") end
 if legacy:GetRenderSettings():IsClusteredLighting() then fail("missing clustered_lighting did not default to false") end
+if legacy:GetRenderSettings():IsClusterLodEnabled() then fail("missing cluster_lod did not default to false") end
+if legacy:GetRenderSettings():GetClusterLodScreenError() ~= 1.0 then fail("missing cluster_lod_error did not default to 1") end
 if #legacy:GetRenderSettings():GetChain() ~= 0 then fail("legacy optional chain is not empty") end
 
 local clustered_enabled = load_case("clustered_enabled.json", document({
@@ -235,6 +237,18 @@ if clustered_disabled:GetRenderSettings():IsClusteredLighting() then
 end
 compare_files(compat_dir .. "/clustered_enabled_roundtrip.bin",
     compat_dir .. "/clustered_enabled_roundtrip.json", "clustered JSON/BIN")
+
+local cluster_lod_enabled = load_case("cluster_lod_enabled.json", document({
+    render = ',"renderSettings": {"cluster_lod": true, "cluster_lod_error": 2.5}',
+}), true)
+if not cluster_lod_enabled:GetRenderSettings():IsClusterLodEnabled() then fail("cluster_lod=true was not loaded") end
+if cluster_lod_enabled:GetRenderSettings():GetClusterLodScreenError() ~= 2.5 then fail("cluster_lod_error was not loaded") end
+local cluster_lod_json = save_and_load(cluster_lod_enabled, compat_dir .. "/cluster_lod_roundtrip.json")
+local cluster_lod_bin = save_and_load(cluster_lod_json, compat_dir .. "/cluster_lod_roundtrip.bin")
+if not cluster_lod_bin:GetRenderSettings():IsClusterLodEnabled() then fail("cluster_lod did not round trip") end
+if cluster_lod_bin:GetRenderSettings():GetClusterLodScreenError() ~= 2.5 then fail("cluster_lod_error did not round trip") end
+compare_files(compat_dir .. "/cluster_lod_roundtrip.bin",
+    compat_dir .. "/cluster_lod_roundtrip.json", "cluster LOD JSON/BIN")
 
 load_case("invalid_required.json", document({ name = "42" }), false)
 load_case("future_version.json", document({ version = '"version": 999,' }), false)

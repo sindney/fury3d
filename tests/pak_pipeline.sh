@@ -3,6 +3,7 @@
 #
 # Builds a tiny synthetic project in /tmp/paktest-<pid>, then exercises:
 #   a. scene build (furye-cli exec-script + save) and load-back verify
+#   a2. descriptor-less strict-load rejection, migration, and strict reload
 #   b. cook: textures + per-backend shader artifacts/default reflection;
 #      --rhi=metal restricts the shader manifest
 #   c. recook: texture and shader DDC cache hits, 0 cooked
@@ -37,6 +38,7 @@ if [ -n "${PAK_TEST_RHI:-}" ]; then
     RHI_ARGS=(--rhi "$PAK_TEST_RHI")
 fi
 LUA_TEST="$REPO_ROOT/tests/lua/pak_scene_load.lua"
+CLUSTER_LUA_TEST="$REPO_ROOT/tests/lua/cluster_lod_pak.lua"
 
 [ -x "$FURY" ] || { echo "pak_pipeline FAIL: $FURY not found (build first)" >&2; exit 1; }
 [ -x "$FURYCLI" ] || { echo "pak_pipeline FAIL: $FURYCLI not found (build first)" >&2; exit 1; }
@@ -47,6 +49,7 @@ PROJ="$TMP/proj"
 DDC="$TMP/ddc"
 LOGS="$TMP/logs"
 mkdir -p "$PROJ" "$DDC" "$LOGS"
+export FURY_DDC="$DDC"
 
 cleanup() {
     if [ "${PAK_TEST_KEEP:-0}" = "1" ]; then
@@ -74,8 +77,9 @@ cp "$EXAMPLES/Projects/ocean/rock.png" "$PROJ/terrain_rock.png"
 cat > "$TMP/build_scene.lua" <<'LUA'
 -- build_scene.lua: tiny scene, one cube node per texture, save to arg[1].
 local out = arg and arg[1]
-if not out or out == "" then
-    io.stderr:write("build_scene FAIL: expected output path as arg[1]\n")
+local ddc_root = arg and arg[2]
+if not out or out == "" or not ddc_root or ddc_root == "" then
+    io.stderr:write("build_scene FAIL: expected output path and DDC root\n")
     os.exit(1)
 end
 
@@ -89,7 +93,27 @@ render_settings:SetClusteredLighting(true)
 render_settings:AddEffect("ACES", true)
 
 local cube = MeshUtil.CreateCube()
+local canonical = SubMesh.Create()
+canonical:SetIndices(cube:GetIndices())
+cube:AddSubMesh(canonical)
+local cluster = ClusterLodTest.BuildAndStore(cube, ddc_root)
+if not cluster.ok then
+    io.stderr:write("build_scene FAIL: " .. tostring(cluster.error) .. "\n")
+    os.exit(1)
+end
 scene:AddMesh(cube)
+
+local duplicate = MeshUtil.CreateCube()
+duplicate:SetName("cube_duplicate")
+local duplicate_submesh = SubMesh.Create()
+duplicate_submesh:SetIndices(duplicate:GetIndices())
+duplicate:AddSubMesh(duplicate_submesh)
+local duplicate_cluster = ClusterLodTest.BuildAndStore(duplicate, ddc_root)
+if not duplicate_cluster.ok then
+    io.stderr:write("build_scene FAIL: duplicate " .. tostring(duplicate_cluster.error) .. "\n")
+    os.exit(1)
+end
+scene:AddMesh(duplicate)
 
 for _, name in ipairs({ "sky_cloud.png", "sky_moon.png", "terrain_rock.png" }) do
     local mat = Material.Create("mat_" .. name)
@@ -110,7 +134,7 @@ print("build_scene: saved " .. out)
 os.exit(0)
 LUA
 
-if ! (cd "$PROJ" && "$FURYCLI" exec-script "$TMP/build_scene.lua" "$PROJ/scene.json" \
+if ! (cd "$PROJ" && "$FURYCLI" exec-script "$TMP/build_scene.lua" "$PROJ/scene.json" "$DDC" \
         > "$LOGS/a_build.log" 2>&1); then
     cat "$LOGS/a_build.log" >&2; die "stage a: scene build failed"
 fi
@@ -124,11 +148,41 @@ grep -q "pak_scene_load: PASS" "$LOGS/a_verify.log" \
     || die "stage a: verify PASS line missing"
 stage "a" "build synthetic scene (3 textures, 3 cube nodes) and load back"
 
+# Descriptor-less native input is accepted only by the migration command.
+python3 - "$PROJ/scene.json" "$PROJ/legacy.json" <<'PY'
+import json, sys
+scene = json.load(open(sys.argv[1]))
+removed = 0
+for mesh in scene.get("meshes", []):
+    if "cluster_lod" in mesh:
+        del mesh["cluster_lod"]
+        removed += 1
+assert removed == 2, "expected two shared-content cluster descriptors, got %d" % removed
+json.dump(scene, open(sys.argv[2], "w"), indent=2)
+PY
+if (cd "$PROJ" && "$FURY" exec legacy.json "$LUA_TEST" 3 4 sky_moon.png \
+        > "$LOGS/a_legacy_strict.log" 2>&1); then
+    die "stage a2: descriptor-less native scene passed strict loading"
+fi
+grep -q "missing mandatory cluster descriptor" "$LOGS/a_legacy_strict.log" \
+    || die "stage a2: strict load failed for an unexpected reason"
+if ! (cd "$PROJ" && "$FURYCLI" migrate-cluster-lod legacy.json --output migrated.json --ddc "$DDC" \
+        > "$LOGS/a_migrate.log" 2>&1); then
+    cat "$LOGS/a_migrate.log" >&2; die "stage a2: migration failed"
+fi
+if ! (cd "$PROJ" && "$FURY" exec migrated.json "$LUA_TEST" 3 4 sky_moon.png \
+        > "$LOGS/a_migrated_verify.log" 2>&1); then
+    cat "$LOGS/a_migrated_verify.log" >&2; die "stage a2: migrated strict reload failed"
+fi
+grep -q "pak_scene_load: PASS" "$LOGS/a_migrated_verify.log" \
+    || die "stage a2: migrated reload PASS line missing"
+stage "a2" "migration-only descriptor-less load, build, and strict reload"
+
 # ---------------------------------------------------------------------------
 # b. cook: exit 0, manifest shape, DDC layout, BCn, mip chain
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" cook scene.json --texture-target legacy --ddc "$DDC" \
-        "${RHI_ARGS[@]}" > "$LOGS/b_cook.log" 2>&1); then
+        ${RHI_ARGS[@]+"${RHI_ARGS[@]}"} > "$LOGS/b_cook.log" 2>&1); then
     cat "$LOGS/b_cook.log" >&2; die "stage b: cook failed"
 fi
 MANIFEST="$PROJ/scene.cookmanifest.json"
@@ -162,24 +216,35 @@ for e in tex:
     assert (w, h) == (e["width"], e["height"]), \
         "%s: ktx2 %dx%d != manifest %dx%d" % (path, w, h, e["width"], e["height"])
     assert levels == e["mips"], "%s: ktx2 levels %d != manifest mips %d" % (path, levels, e["mips"])
+clusters = m.get("cluster_meshes", [])
+assert len(clusters) == 1, "expected one cluster mesh payload, got %d" % len(clusters)
+cluster = clusters[0]
+assert cluster["key"].startswith("cluster_meshes/CLOD_"), cluster["key"]
+assert cluster["clusters"] > 0 and cluster["vertices"] > 0
+cluster_path = os.path.join(ddc_root, *cluster["ddc"].split("/"))
+assert os.path.isfile(cluster_path), "missing cluster payload " + cluster_path
+assert open(cluster_path, "rb").read(4) == b"CLOD", "bad cluster payload magic"
+print("cluster manifest OK: %s, %d clusters" % (cluster["key"], cluster["clusters"]))
 print("manifest OK: 3 textures, ddc tiered, BCn, full mip chain, ktx2 dims match")
 shaders = m.get("shaders", [])
 assert shaders, "no cooked shader artifacts"
-assert {e["backend"] for e in shaders} == {"opengl", "vulkan", "metal"}
+expected_backends = set(os.environ.get("PAK_TEST_RHI", "opengl,vulkan,metal").split(","))
+assert {e["backend"] for e in shaders} == expected_backends
 for e in shaders:
     assert e["key"] == "DDC/" + e["ddc"]
     path = os.path.join(ddc_root, *e["ddc"].split("/"))
     assert os.path.isfile(path), "missing shader artifact " + path
     if e["ddc"].endswith(".refl"):
         r = json.load(open(path))
-        if e["shader"].endswith("/ClusterAssign.glsl"):
+        if e["shader"].endswith("/ClusterAssign.glsl") or e["shader"] in ("ClusterSelect", "ClusterCull"):
             assert r["version"] == 3 and "compute" in r
             assert "storageBuffers" in r["compute"]
-            names = {b["name"] for b in r["compute"]["storageBuffers"]}
-            assert {"ClusterLightBuffer", "ClusterCountBuffer", "ClusterIndexBuffer", "ClusterOverflowBuffer"} <= names
+            if e["shader"].endswith("/ClusterAssign.glsl"):
+                names = {b["name"] for b in r["compute"]["storageBuffers"]}
+                assert {"ClusterLightBuffer", "ClusterCountBuffer", "ClusterIndexBuffer", "ClusterOverflowBuffer"} <= names
         else:
             assert r["version"] == 2 and "vertex" in r and "fragment" in r
-print("shader manifest OK: %d artifacts across opengl/vulkan/metal" % len(shaders))
+print("shader manifest OK: %d artifacts across %s" % (len(shaders), ",".join(sorted(expected_backends))))
 found_default = False
 for e in shaders:
     if e["backend"] == "metal" and e["shader"].endswith("/GBuffer.glsl") and e["ddc"].endswith(".refl"):
@@ -210,7 +275,7 @@ stage "b2" "--rhi=metal restricts cooked shader targets"
 # c. recook: everything served from the DDC
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" cook scene.json --texture-target legacy --ddc "$DDC" \
-        "${RHI_ARGS[@]}" > "$LOGS/c_recook.log" 2>&1); then
+        ${RHI_ARGS[@]+"${RHI_ARGS[@]}"} > "$LOGS/c_recook.log" 2>&1); then
     cat "$LOGS/c_recook.log" >&2; die "stage c: recook failed"
 fi
 grep -q "0 textures cooked, 3 ddc-hits; 0 shader targets cooked" "$LOGS/c_recook.log" \
@@ -222,7 +287,7 @@ stage "c" "recook: all texture and shader artifacts served from DDC"
 # ---------------------------------------------------------------------------
 printf 'X' >> "$PROJ/sky_moon.png" # content hash changes; ktx still ingests it
 if ! (cd "$PROJ" && "$FURYCLI" cook scene.json --texture-target legacy --ddc "$DDC" \
-        "${RHI_ARGS[@]}" > "$LOGS/d_touch.log" 2>&1); then
+        ${RHI_ARGS[@]+"${RHI_ARGS[@]}"} > "$LOGS/d_touch.log" 2>&1); then
     cat "$LOGS/d_touch.log" >&2; die "stage d: recook after touch failed"
 fi
 grep -q "1 textures cooked, 2 ddc-hits; 0 shader targets cooked" "$LOGS/d_touch.log" \
@@ -235,7 +300,7 @@ stage "d" "touch sky_moon.png: exactly 1 recooked, 2 ddc-hits"
 # e. package (lz4 default) + headless exec on the pak
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" package scene.json --texture-target legacy --ddc "$DDC" \
-        "${RHI_ARGS[@]}" > "$LOGS/e_package.log" 2>&1); then
+        ${RHI_ARGS[@]+"${RHI_ARGS[@]}"} > "$LOGS/e_package.log" 2>&1); then
     cat "$LOGS/e_package.log" >&2; die "stage e: package failed"
 fi
 [ -f "$PROJ/scene.pak" ] || die "stage e: scene.pak not written"
@@ -293,7 +358,7 @@ stage "g" "exec boundary: no sibling mount, loose scene loads"
 # h. --compression none: every entry stored uncompressed
 # ---------------------------------------------------------------------------
 if ! (cd "$PROJ" && "$FURYCLI" package scene.json --texture-target legacy --ddc "$DDC" \
-        "${RHI_ARGS[@]}" --compression none --output "$TMP/none.pak") > "$LOGS/h_package.log" 2>&1; then
+        ${RHI_ARGS[@]+"${RHI_ARGS[@]}"} --compression none --output "$TMP/none.pak") > "$LOGS/h_package.log" 2>&1; then
     cat "$LOGS/h_package.log" >&2; die "stage h: package --compression none failed"
 fi
 [ -f "$TMP/none.pak" ] || die "stage h: none.pak not written"
@@ -324,6 +389,7 @@ manifest = json.load(open(manifest_path))
 expect = {"scene.json", "sky_cloud.png", "sky_moon.png", "terrain_rock.png"}
 expect.update(e["key"] for e in manifest["shaders"])
 expect.update(e["key"] for e in manifest["passthrough"])
+expect.update(e["key"] for e in manifest["cluster_meshes"])
 assert set(entries) == expect, "entry keys %s != %s" % (sorted(entries), sorted(expect))
 assert boot == "scene.json", "boot key is %r" % boot
 for key, (codec, nblocks) in entries.items():
@@ -422,6 +488,8 @@ manifest = json.load(open(manifest_path))
 sources = {"scene.json": open(os.path.join(proj, "scene.json"), "rb").read()}
 for e in manifest["textures"]:
     sources[e["key"]] = open(os.path.join(ddc, *e["ddc"].split("/")), "rb").read()
+for e in manifest["cluster_meshes"]:
+    sources[e["key"]] = open(os.path.join(ddc, *e["ddc"].split("/")), "rb").read()
 for e in manifest["shaders"]:
     sources[e["key"]] = open(os.path.join(ddc, *e["ddc"].split("/")), "rb").read()
 for e in manifest["passthrough"]:
@@ -502,6 +570,12 @@ if ! (cd "$TMP/iso" && "$FURY" exec roundtrip.pak "$LUA_TEST" 3 4 sky_moon.png c
 fi
 grep -q "pak_scene_load: PASS" "$LOGS/i_remount.log" \
     || die "stage i: repacked pak PASS line missing"
+if ! (cd "$TMP/iso" && FURY_DDC="$TMP/iso/empty-ddc" "$FURY" exec roundtrip.pak "$CLUSTER_LUA_TEST" \
+        > "$LOGS/i_cluster.log" 2>&1); then
+    cat "$LOGS/i_cluster.log" >&2; die "stage i: packaged cluster payload did not attach"
+fi
+grep -q "cluster_lod_pak: packaged payload attached OK" "$LOGS/i_cluster.log" \
+    || die "stage i: packaged cluster PASS line missing"
 if grep -q "Failed to load image\|EROR" "$LOGS/i_remount.log"; then
     grep "Failed to load image\|EROR" "$LOGS/i_remount.log" >&2
     die "stage i: repacked pak served a bad asset"

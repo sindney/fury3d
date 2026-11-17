@@ -1,8 +1,10 @@
 #ifndef _FURY_RHI_TYPES_H_
 #define _FURY_RHI_TYPES_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Fury/Color.h"
@@ -99,6 +101,23 @@ namespace fury
 		DYNAMIC
 	};
 
+	enum RHIBufferUsageFlagBits : std::uint32_t
+	{
+		RHI_BUFFER_TRANSFER_SRC = 1u << 0,
+		RHI_BUFFER_INDIRECT = 1u << 1
+	};
+
+	struct RHIIndirectDrawArgs
+	{
+		std::uint32_t indexCount = 0;
+		std::uint32_t instanceCount = 1;
+		std::uint32_t firstIndex = 0;
+		std::int32_t vertexOffset = 0;
+		std::uint32_t firstInstance = 0;
+	};
+
+	static_assert(sizeof(RHIIndirectDrawArgs) == 20, "Canonical indexed indirect arguments");
+
 	struct RHIBufferDesc
 	{
 		std::string Name;
@@ -106,6 +125,8 @@ namespace fury
 		RHIBufferType Type = RHIBufferType::VERTEX;
 
 		RHIBufferUsage Usage = RHIBufferUsage::STATIC;
+
+		std::uint32_t UsageFlags = 0;
 
 		size_t Size = 0;
 
@@ -206,6 +227,8 @@ namespace fury
 	{
 		std::vector<unsigned char> Data;
 
+		std::vector<std::pair<std::string, std::string>> Defines;
+
 		bool IsSource = true;
 	};
 
@@ -228,6 +251,40 @@ namespace fury
 		RHIFillMode Fill = RHIFillMode::SOLID;
 
 		std::vector<RHIVertexAttribute> VertexAttributes;
+	};
+
+	struct RHIIndirectBufferBinding
+	{
+		std::string Name;
+		std::uint32_t Binding = 0;
+		RHIBufferRef Buffer;
+	};
+
+	struct RHIIndirectVertexBinding
+	{
+		std::uint32_t Stream = 0;
+		RHIBufferRef Buffer;
+	};
+
+	struct RHIIndirectTextureBinding
+	{
+		std::string Name;
+		RHITextureRef Texture;
+	};
+
+	struct RHIIndirectBatchDesc
+	{
+		RHIBufferRef Arguments;
+		RHIBufferRef Counts;
+		std::uint32_t Capacity = 0;
+		size_t ArgumentOffset = 0;
+		size_t CountOffset = 0;
+		std::uint32_t CountStride = 4;
+		RHIGraphicsPipelineRef Pipeline;
+		RHIBufferRef IndexBuffer;
+		std::vector<RHIIndirectVertexBinding> VertexBuffers;
+		std::vector<RHIIndirectBufferBinding> StorageBuffers;
+		std::vector<RHIIndirectTextureBinding> Textures;
 	};
 
 	struct RHIRenderTargetAttachment
@@ -275,6 +332,30 @@ namespace fury
 		bool SupportsTexture3D = false;
 
 		bool SupportsCompressedBC = false;
+
+		bool SupportsIndirectCount = false;
+
+		bool SupportsMultiDrawIndirect = false;
+
+		bool SupportsIndirectFirstInstance = false;
+
+		bool SupportsShaderDrawID = false;
+
+		bool SupportsNativeIndirectBatchEncoding = false;
+
+		std::uint32_t MaxDrawIndirectCount = 0;
+
+		std::uint32_t IndirectArgumentStride = 0;
+
+		std::uint32_t IndirectCountOffsetAlignment = 0;
+
+		std::uint32_t MaxStorageBufferRange = 0;
+
+		std::uint32_t MaxPerStageDescriptorStorageBuffers = 0;
+
+		std::uint32_t MaxDescriptorSetStorageBuffers = 0;
+
+		std::uint32_t MaxPerStageResources = 0;
 
 		int MaxTextureSize = 0;
 

@@ -59,6 +59,8 @@ namespace fury
 
 		Matrix4 GetTransformMatrix() const;
 
+		const std::array<Plane, 6> &GetPlanes() const { return m_Planes; }
+
 		BoxBounds GetBoxBounds() const;
 	};
 }

@@ -230,6 +230,31 @@ namespace fury
 			ar.LeaveArray();
 		}
 
+		if (ar.IsLoading())
+		{
+			m_ClusterLodDescriptor.reset();
+			m_ClusterLodAsset.reset();
+		}
+		if (ar.EnterObject("cluster_lod", ArchiveFieldPolicy::Optional, m_ClusterLodDescriptor.has_value()))
+		{
+			if (ar.IsLoading())
+				m_ClusterLodDescriptor.emplace();
+			ClusterLodDescriptor &descriptor = *m_ClusterLodDescriptor;
+			ar << Required("schema_version", descriptor.schema_version);
+			ar << Required("content_hash", descriptor.content_hash);
+			ar << Optional("enabled", descriptor.enabled);
+			if (ar.EnterObject("build_options", ArchiveFieldPolicy::Required))
+			{
+				ar << Required("cluster_triangle_limit", descriptor.options.cluster_triangle_limit);
+				ar << Required("cluster_vertex_limit", descriptor.options.cluster_vertex_limit);
+				ar << Required("group_cluster_limit", descriptor.options.group_cluster_limit);
+				ar << Required("reduction_ratio", descriptor.options.reduction_ratio);
+				ar << Required("target_error", descriptor.options.target_error);
+				ar.LeaveObject();
+			}
+			ar.LeaveObject();
+		}
+
 		// LOD chain (LOD 1..N): inline full Mesh objects, optional.
 		ar << Conditional("lod_thresholds", m_LodThresholds, !m_LodMeshes.empty());
 		if (ar.EnterArray("lod_billboard_flags", ArchiveFieldPolicy::Optional,
@@ -688,19 +713,10 @@ namespace fury
 		m_Thresholds = thresholds;
 	}
 
-	// MeshContentHash -- FNV-1a 64-bit over positions + top-level indices
-	// + each submesh's indices. See header for rationale. Returns 0 on
-	// a null mesh so callers can short-circuit without dereferencing.
-	// We iterate the underlying std::vector<byte> rather than the typed
-	// ArrayBuffer wrappers to avoid any chance of touching GPU state
-	// (this is safe to call on a worker thread).
 	namespace
 	{
-		// FNV-1a 64-bit constants. The offset basis is the official
-		// FNV-1a 64-bit starting value; the prime is the official
-		// 64-bit prime.
 		const uint64_t kFnv1aOffset = 0xcbf29ce484222325ULL;
-		const uint64_t kFnv1aPrime  = 0x100000001b3ULL;
+		const uint64_t kFnv1aPrime = 0x100000001b3ULL;
 
 		inline void Fnv1aAbsorbBytes(uint64_t &state, const void *data, size_t n)
 		{
@@ -711,28 +727,44 @@ namespace fury
 				state *= kFnv1aPrime;
 			}
 		}
+
+		template<typename T>
+		void Fnv1aAbsorbVector(uint64_t &state, const std::vector<T> &values)
+		{
+			const uint64_t size = values.size();
+			Fnv1aAbsorbBytes(state, &size, sizeof(size));
+			Fnv1aAbsorbBytes(state, values.data(), values.size() * sizeof(T));
+		}
 	}
 
 	uint64_t MeshContentHash(const Mesh* mesh)
 	{
 		if (!mesh) return 0;
 		uint64_t h = kFnv1aOffset;
-		// Positions: float3 stride, so size() * sizeof(float) bytes.
-		Fnv1aAbsorbBytes(h, mesh->Positions.Data.data(),
-						 mesh->Positions.Data.size() * sizeof(float));
-		// Top-level indices (one shared index buffer for non-submeshes).
-		Fnv1aAbsorbBytes(h, mesh->Indices.Data.data(),
-						 mesh->Indices.Data.size() * sizeof(unsigned int));
-		// Per-submesh indices, in submesh order, so re-ordering
-		// submeshes changes the hash (matches "content fingerprint"
-		// intent).
-		const unsigned int n = mesh->GetSubMeshCount();
-		for (unsigned int i = 0; i < n; ++i)
+		const char domain[] = "FURY_MESH_CONTENT_V2";
+		Fnv1aAbsorbBytes(h, domain, sizeof(domain) - 1);
+		Fnv1aAbsorbVector(h, mesh->Positions.Data);
+		Fnv1aAbsorbVector(h, mesh->Normals.Data);
+		Fnv1aAbsorbVector(h, mesh->Tangents.Data);
+		Fnv1aAbsorbVector(h, mesh->UVs.Data);
+		Fnv1aAbsorbVector(h, mesh->Colors.Data);
+		Fnv1aAbsorbVector(h, mesh->Weights.Data);
+		Fnv1aAbsorbVector(h, mesh->IDs.Data);
+		Fnv1aAbsorbVector(h, mesh->Indices.Data);
+		const uint64_t submeshCount = mesh->GetSubMeshCount();
+		Fnv1aAbsorbBytes(h, &submeshCount, sizeof(submeshCount));
+		for (unsigned int i = 0; i < submeshCount; ++i)
 		{
 			auto sm = mesh->GetSubMeshAt(i);
-			if (!sm) continue;
-			Fnv1aAbsorbBytes(h, sm->Indices.Data.data(),
-							 sm->Indices.Data.size() * sizeof(unsigned int));
+			if (sm)
+			{
+				Fnv1aAbsorbVector(h, sm->Indices.Data);
+			}
+			else
+			{
+				const std::vector<unsigned int> empty;
+				Fnv1aAbsorbVector(h, empty);
+			}
 		}
 		return h;
 	}

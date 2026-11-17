@@ -50,6 +50,9 @@ namespace fury
 
 		FURY_API bool ProbeClusteredCompute();
 
+		// 0 = pass, 77 = required indirect features unavailable, 1 = failure.
+		FURY_API int ProbeIndexedIndirectSmoke();
+
 		// Creates the device, runs the init probe, and sets GRHIDevice on
 		// success. Returns nullptr (device unusable / not compiled / probe
 		// failed) without touching GRHIDevice on failure.

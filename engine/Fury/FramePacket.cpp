@@ -28,6 +28,9 @@ namespace fury
 		camera = PacketCamera();
 		opaqueUnits.clear();
 		transparentUnits.clear();
+		clusterInstances.clear();
+		clusterLodEnabled = false;
+		clusterLodError = 1.0f;
 		lights.clear();
 		localLightIndices.clear();
 		instanced.clear();

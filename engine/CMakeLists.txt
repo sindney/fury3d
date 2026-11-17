@@ -17,6 +17,8 @@ else()
 	message(SEND_ERROR "Only support windows && osx currentlly.")
 endif()
 
+include(CTest)
+
 option(GUI_IMP "Use ImGui." ON)
 if(GUI_IMP)
 	add_definitions(-D_FURY_GUI_IMP_)
@@ -517,6 +519,15 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/Camera.cpp
 	${PROJECT_SOURCE_DIR}/Fury/CharacterController.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Cli.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodBuilder.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodImport.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodMeshAdapter.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodPayloadStore.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodSelection.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterRenderer.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodSerialization.cpp
+	${PROJECT_SOURCE_DIR}/Fury/ClusterLodValidation.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Color.cpp
 	${PROJECT_SOURCE_DIR}/Fury/Component.cpp
 	${PROJECT_SOURCE_DIR}/Fury/CookPipeline.cpp
@@ -600,6 +611,7 @@ set(FURY_CORE_SRC
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Vulkan/RHIVulkanDevice.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalCommandList.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalEnumMap.cpp
+	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalIndirectEncoder.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalResources.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/MetalShaderModule.cpp
 	${PROJECT_SOURCE_DIR}/Fury/RHI/Metal/RHIMetalDevice.cpp
@@ -1004,6 +1016,84 @@ else()
 		${FURY_UI_TEST_ENGINE_DIR})
 	target_link_libraries(furye-ui-tests PRIVATE nfd::nfd Threads::Threads)
 	install(TARGETS furye-ui-tests DESTINATION bin)
+endif()
+
+if(BUILD_TESTING)
+	add_executable(cluster_lod_asset_tests
+		${PROJECT_SOURCE_DIR}/../tests/native/ClusterLodAssetTests.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp)
+	target_include_directories(cluster_lod_asset_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	if(MSVC)
+		target_compile_definitions(cluster_lod_asset_tests PRIVATE FURY_API_EXPORT)
+	endif()
+	add_test(NAME cluster_lod_asset COMMAND cluster_lod_asset_tests)
+
+	add_executable(cluster_lod_builder_tests
+		${PROJECT_SOURCE_DIR}/../tests/native/ClusterLodBuilderTests.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodBuilder.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodSelection.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodValidation.cpp)
+	target_include_directories(cluster_lod_builder_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	target_link_libraries(cluster_lod_builder_tests PRIVATE meshoptimizer)
+	if(MSVC)
+		target_compile_definitions(cluster_lod_builder_tests PRIVATE FURY_API_EXPORT)
+	endif()
+	add_test(NAME cluster_lod_builder COMMAND cluster_lod_builder_tests)
+
+	add_executable(cluster_lod_fixture_tests
+		${PROJECT_SOURCE_DIR}/../tests/native/ClusterLodFixturesTests.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodBuilder.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodSelection.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodValidation.cpp)
+	target_include_directories(cluster_lod_fixture_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	target_link_libraries(cluster_lod_fixture_tests PRIVATE meshoptimizer)
+	if(MSVC)
+		target_compile_definitions(cluster_lod_fixture_tests PRIVATE FURY_API_EXPORT)
+	endif()
+	add_test(NAME cluster_lod_fixtures COMMAND cluster_lod_fixture_tests)
+
+	add_executable(cluster_lod_selection_tests
+		${PROJECT_SOURCE_DIR}/../tests/native/ClusterLodSelectionTests.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodSelection.cpp)
+	target_include_directories(cluster_lod_selection_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	if(MSVC)
+		target_compile_definitions(cluster_lod_selection_tests PRIVATE FURY_API_EXPORT)
+	endif()
+	add_test(NAME cluster_lod_selection COMMAND cluster_lod_selection_tests)
+
+	add_executable(cluster_lod_serialization_tests
+		${PROJECT_SOURCE_DIR}/../tests/native/ClusterLodSerializationTests.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodBuilder.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodSelection.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodSerialization.cpp
+		${PROJECT_SOURCE_DIR}/Fury/ClusterLodValidation.cpp)
+	target_include_directories(cluster_lod_serialization_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	target_link_libraries(cluster_lod_serialization_tests PRIVATE meshoptimizer)
+	if(MSVC)
+		target_compile_definitions(cluster_lod_serialization_tests PRIVATE FURY_API_EXPORT)
+	endif()
+	add_test(NAME cluster_lod_serialization COMMAND cluster_lod_serialization_tests)
+
+	add_executable(rhi_indirect_tests
+		${PROJECT_SOURCE_DIR}/../tests/native/RHIIndirectTests.cpp)
+	target_include_directories(rhi_indirect_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	add_test(NAME rhi_indirect_api COMMAND rhi_indirect_tests)
+	add_test(NAME vulkan_indirect_smoke COMMAND fury vulkan-indirect-smoke)
+	set_tests_properties(vulkan_indirect_smoke PROPERTIES SKIP_RETURN_CODE 77)
+	add_test(NAME vulkan_indirect_split_smoke COMMAND fury vulkan-indirect-smoke)
+	set_tests_properties(vulkan_indirect_split_smoke PROPERTIES SKIP_RETURN_CODE 77
+		ENVIRONMENT "FURY_INDIRECT_SMOKE_CAPACITY=16385")
+	if(OS_MACOSX AND FURY_RHI_METAL)
+		add_test(NAME metal_indirect_smoke COMMAND fury metal-indirect-smoke)
+		set_tests_properties(metal_indirect_smoke PROPERTIES SKIP_RETURN_CODE 77)
+		add_test(NAME metal_indirect_split_smoke COMMAND fury metal-indirect-smoke)
+		set_tests_properties(metal_indirect_split_smoke PROPERTIES SKIP_RETURN_CODE 77
+			ENVIRONMENT "FURY_INDIRECT_SMOKE_CAPACITY=16385")
+	endif()
 endif()
 
 # Tracy tools (tracy-profiler GUI + tracy-capture CLI) land next to fury/furye

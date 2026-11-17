@@ -69,13 +69,19 @@ namespace fury
 		// Descriptor resources + stage inputs of one stage from its SPIR-V.
 		bool ReflectStage(const std::vector<unsigned char> &spirv, VkShaderStageFlagBits stage,
 			std::vector<VulkanShaderResource> &resources, std::unordered_map<std::string, int> &stageInputs,
-			const std::string &name, std::string &error)
+			const std::string &name, std::string &error,
+			bool *usesBaseInstance = nullptr, bool *usesDrawID = nullptr)
 		{
 			try
 			{
 				spirv_cross::CompilerGLSL compiler(
 					reinterpret_cast<const uint32_t *>(spirv.data()), spirv.size() / 4);
 				const auto refs = compiler.get_shader_resources();
+				compiler.update_active_builtins();
+				if (usesBaseInstance != nullptr)
+					*usesBaseInstance = compiler.has_active_builtin(spv::BuiltInBaseInstance, spv::StorageClassInput);
+				if (usesDrawID != nullptr)
+					*usesDrawID = compiler.has_active_builtin(spv::BuiltInDrawIndex, spv::StorageClassInput);
 
 				auto append = [&](const spirv_cross::SmallVector<spirv_cross::Resource> &list,
 					VulkanShaderResourceType type)
@@ -197,6 +203,7 @@ namespace fury
 			input.name = name;
 			input.vertexSource.assign(reinterpret_cast<const char *>(vertex.Data.data()), vertex.Data.size());
 			input.fragmentSource.assign(reinterpret_cast<const char *>(fragment.Data.data()), fragment.Data.size());
+			input.defines = vertex.Defines;
 
 			ShaderModuleCompile compiled;
 			bool cacheHit = false;
@@ -229,7 +236,7 @@ namespace fury
 
 			std::string reflectError;
 			if (!ReflectStage(compiled.vertex.spirv, VK_SHADER_STAGE_VERTEX_BIT, reflected, out->m_StageInputs,
-					name, reflectError)
+					name, reflectError, &out->m_UsesBaseInstance, &out->m_UsesDrawID)
 				|| !ReflectStage(compiled.fragment.spirv, VK_SHADER_STAGE_FRAGMENT_BIT, reflected, out->m_StageInputs,
 					name, reflectError))
 			{
@@ -256,7 +263,8 @@ namespace fury
 				return nullptr;
 
 			std::string reflectError;
-			if (!ReflectStage(vertSpv, VK_SHADER_STAGE_VERTEX_BIT, reflected, out->m_StageInputs, name, reflectError)
+			if (!ReflectStage(vertSpv, VK_SHADER_STAGE_VERTEX_BIT, reflected, out->m_StageInputs, name, reflectError,
+				&out->m_UsesBaseInstance, &out->m_UsesDrawID)
 				|| !ReflectStage(fragSpv, VK_SHADER_STAGE_FRAGMENT_BIT, reflected, out->m_StageInputs,
 					name, reflectError))
 			{
@@ -298,6 +306,7 @@ namespace fury
 			ShaderCompileInput input;
 			input.name = name;
 			input.computeSource.assign(reinterpret_cast<const char *>(compute.Data.data()), compute.Data.size());
+			input.defines = compute.Defines;
 
 			ShaderModuleCompile compiled;
 			bool cacheHit = false;

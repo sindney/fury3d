@@ -671,6 +671,8 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
 
                 // Bind DescriptorSets for image view (font or user texture) and samplers
                 VkDescriptorSet image_view = (VkDescriptorSet)pcmd->GetTexID();
+                if (image_view == VK_NULL_HANDLE)
+                    continue;
                 if (image_view != last_image_view)
                     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bd->PipelineLayout, 0, 1, &image_view, 0, nullptr);
                 last_image_view = image_view;

@@ -183,6 +183,12 @@ namespace fury
 
 		virtual void DrawIndexedInstanced(unsigned int indexCount, unsigned int instanceCount, unsigned int firstIndex = 0, int vertexOffset = 0) = 0;
 
+		virtual bool CopyBuffer(const RHIBufferRef &, const RHIBufferRef &, size_t, size_t, size_t) { return false; }
+
+		virtual bool PrepareIndirectBatch(const RHIIndirectBatchRef &) { return false; }
+
+		virtual bool DrawIndexedIndirect(const RHIIndirectBatchRef &) { return false; }
+
 		virtual void Dispatch(unsigned int groupsX, unsigned int groupsY, unsigned int groupsZ) = 0;
 
 		// glMemoryBarrier-equivalent; no-op where the backend serializes implicitly.

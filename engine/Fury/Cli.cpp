@@ -16,6 +16,7 @@
 #include "Fury/AssetBackend.h"
 #include "Fury/AssetLoader.h"
 #include "Fury/Camera.h"
+#include "Fury/ClusterLodImport.h"
 #include "Fury/CookPipeline.h"
 #include "Fury/DdcStore.h"
 #include "Fury/BoxBounds.h"
@@ -526,7 +527,8 @@ namespace fury
 		// `LoadSceneForExecImpl` so the public Cli::LoadSceneForExec
 		// (defined outside the anonymous namespace) can delegate here
 		// without colliding on the unqualified name.
-		std::shared_ptr<Scene> LoadSceneForExecImpl(const std::string &path)
+		std::shared_ptr<Scene> LoadSceneForExecImpl(const std::string &path,
+			const std::string &cluster_ddc_root = "", bool migrate_cluster_lod = false)
 		{
 			const std::string ext = ToLowerExt(path);
 			std::string working_dir = DirOf(path);
@@ -554,11 +556,14 @@ namespace fury
 				if (!pak_working_dir.empty()) pak_working_dir += "/";
 				auto tree = OcTree::Create();
 				auto scene = Scene::Create("exec", pak_working_dir, tree);
+				scene->SetClusterDdcRoot(cluster_ddc_root);
+				scene->SetAllowMissingClusterLodForMigration(migrate_cluster_lod);
 				auto prev_active = Scene::Active;
 				Scene::Active = scene;
 				bool ok = (boot_ext == ".json")
 					? FileUtil::LoadFile(scene, boot)
 					: FileUtil::LoadCompressedFile(scene, boot);
+				scene->SetAllowMissingClusterLodForMigration(false);
 				Scene::Active = prev_active;
 				return ok ? scene : nullptr;
 			}
@@ -567,11 +572,14 @@ namespace fury
 			{
 				auto tree = OcTree::Create();
 				auto scene = Scene::Create("exec", working_dir, tree);
+				scene->SetClusterDdcRoot(cluster_ddc_root);
+				scene->SetAllowMissingClusterLodForMigration(migrate_cluster_lod);
 				auto prev_active = Scene::Active;
 				Scene::Active = scene;
 				bool ok = (ext == ".json")
 					? FileUtil::LoadFile(scene, path)
 					: FileUtil::LoadCompressedFile(scene, path);
+				scene->SetAllowMissingClusterLodForMigration(false);
 				Scene::Active = prev_active;
 				return ok ? scene : nullptr;
 			}
@@ -882,7 +890,7 @@ namespace fury
 				return 1;
 			}
 
-			auto scene = LoadSceneForExecImpl(scene_path);
+			auto scene = LoadSceneForExecImpl(scene_path, opts.ddcRoot);
 			if (!scene)
 			{
 				std::cerr << "furye-cli cook: failed to load scene '" << scene_path << "'\n";
@@ -1060,6 +1068,8 @@ namespace fury
 
 			if (!add_manifest_entries("textures", true))
 				return 1;
+			if (!add_manifest_entries("cluster_meshes", true))
+				return 1;
 			if (!add_manifest_entries("shaders", true))
 				return 1;
 			if (!add_manifest_entries("passthrough", false))
@@ -1094,6 +1104,75 @@ namespace fury
 			std::cout << "wrote " << out_path << "\n";
 			return 0;
 		}
+
+#if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
+		int DoMigrateClusterLod(int argc, char **argv)
+		{
+			if (argc < 3 || WantsHelp(argv[2]))
+			{
+				std::cout << "furye-cli migrate-cluster-lod <scene.json|.bin> [--output path] [--ddc path]\n";
+				return argc < 3 ? 1 : 0;
+			}
+			const std::string input = argv[2];
+			const std::string ext = ToLowerExt(input);
+			if (ext != ".json" && ext != ".bin")
+			{
+				std::cerr << "furye-cli migrate-cluster-lod: expected native .json or .bin input\n";
+				return 1;
+			}
+			std::string output;
+			std::string ddc_root;
+			for (int i = 3; i < argc; ++i)
+			{
+				const std::string arg = argv[i];
+				if (arg == "--output" && i + 1 < argc) { output = argv[++i]; continue; }
+				if (arg == "--ddc" && i + 1 < argc) { ddc_root = argv[++i]; continue; }
+				std::cerr << "furye-cli migrate-cluster-lod: unknown option '" << arg << "'\n";
+				return 1;
+			}
+			if (output.empty())
+				output = input.substr(0, input.size() - ext.size()) + ".migrated" + ext;
+
+			auto scene = LoadSceneForExecImpl(input, ddc_root, true);
+			if (!scene)
+			{
+				std::cerr << "furye-cli migrate-cluster-lod: cannot load " << input << "\n";
+				return 1;
+			}
+			DdcStore ddc(DdcStore::ResolveRoot(ddc_root));
+			int built = 0;
+			int hits = 0;
+			std::string failure;
+			scene->GetEntityManager()->ForEach<Mesh>([&](const Mesh::Ptr &mesh)
+			{
+				bool cache_hit = false;
+				std::string error;
+				if (!PrepareClusterLodForImport(mesh, ddc, cache_hit, error))
+				{
+					failure = error;
+					return false;
+				}
+				if (mesh->GetClusterLodDescriptor())
+				{
+					if (cache_hit) ++hits;
+					else ++built;
+				}
+				return true;
+			});
+			if (!failure.empty())
+			{
+				std::cerr << "furye-cli migrate-cluster-lod: " << failure << "\n";
+				return 1;
+			}
+			auto prev_active = Scene::Active;
+			Scene::Active = scene;
+			const int rc = WriteSceneByExt(scene, output);
+			Scene::Active = prev_active;
+			if (rc == 0)
+				std::cout << "cluster migration: " << built << " built, " << hits << " cache hits\n";
+			return rc;
+		}
+#endif
 
 		// Largest world-AABB dimension over all MeshRender nodes (0 when
 		// the scene has no finite mesh bounds). Same walk as the
@@ -1836,7 +1915,7 @@ namespace fury
 			"convert", "info", "exec", "help", "--help", "-h", "version", "--version",
 #if defined(FURY_HEADLESS_CLI) && FURY_HEADLESS_CLI
 			// furye-cli: editor-side tooling joins the dispatch.
-			"cook", "package", "exec-script", "kraut", "shaderc",
+			"cook", "package", "exec-script", "kraut", "shaderc", "migrate-cluster-lod",
 #endif
 			nullptr,
 		};
@@ -2064,6 +2143,7 @@ namespace fury
 			if (sub == "package")                                  return DoPackage(cli_argc, cli_argv_ptr);
 			if (sub == "exec-script")                              return DoExecScript(cli_argc, cli_argv_ptr);
 			if (sub == "shaderc")                                  return DoShaderc(cli_argc, cli_argv_ptr);
+			if (sub == "migrate-cluster-lod")                      return DoMigrateClusterLod(cli_argc, cli_argv_ptr);
 #endif
 			std::cerr << kProgName << ": unknown subcommand '" << sub << "'\n\n" << TopHelp();
 			return 1;

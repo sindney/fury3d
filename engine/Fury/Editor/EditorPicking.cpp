@@ -272,7 +272,8 @@ namespace fury
 					// Readback in the same job: the target holds this frame's
 					// id pass right here.
 					unsigned int id = 0;
-					GRHIDevice->ReadbackPixelUInt(g_PickColor->GetRHITexture(), req.readX, req.readY, id);
+					if (!GRHIDevice->ReadbackPixelUInt(g_PickColor->GetRHITexture(), req.readX, req.readY, id))
+						FURYE << "EditorPicking: pixel readback failed";
 
 					cmd->PopRenderTarget();
 

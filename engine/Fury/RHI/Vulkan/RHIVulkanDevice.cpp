@@ -268,16 +268,33 @@ namespace fury
 			deviceExtensions.push_back(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME);
 		if (HasDeviceExtension(m_PhysicalDevice, "VK_KHR_portability_subset"))
 			deviceExtensions.push_back("VK_KHR_portability_subset");
+		if (HasDeviceExtension(m_PhysicalDevice, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME))
+			deviceExtensions.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+		VkPhysicalDeviceVulkan11Features supported11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+		VkPhysicalDeviceVulkan12Features supported12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+		VkPhysicalDeviceVulkan13Features supported13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+		supported11.pNext = &supported12;
+		supported12.pNext = &supported13;
+		VkPhysicalDeviceFeatures2 supported2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+		supported2.pNext = &supported11;
+		vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supported2);
+		VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+		features11.shaderDrawParameters = supported11.shaderDrawParameters;
+		VkPhysicalDeviceVulkan12Features features12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+		features12.drawIndirectCount = supported12.drawIndirectCount;
 		VkPhysicalDeviceVulkan13Features features13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		features13.dynamicRendering = VK_TRUE;
-		VkPhysicalDeviceFeatures supportedFeatures;
-		vkGetPhysicalDeviceFeatures(m_PhysicalDevice, &supportedFeatures);
+		features11.pNext = &features12;
+		features12.pNext = &features13;
+		VkPhysicalDeviceFeatures supportedFeatures = supported2.features;
 		VkPhysicalDeviceFeatures enabledFeatures = {};
 		enabledFeatures.fillModeNonSolid = supportedFeatures.fillModeNonSolid;
 		enabledFeatures.samplerAnisotropy = supportedFeatures.samplerAnisotropy;
 		enabledFeatures.textureCompressionBC = supportedFeatures.textureCompressionBC;
+		enabledFeatures.multiDrawIndirect = supportedFeatures.multiDrawIndirect;
+		enabledFeatures.drawIndirectFirstInstance = supportedFeatures.drawIndirectFirstInstance;
 		VkDeviceCreateInfo deviceInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-		deviceInfo.pNext = &features13;
+		deviceInfo.pNext = &features11;
 		deviceInfo.queueCreateInfoCount = 1;
 		deviceInfo.pQueueCreateInfos = &queueInfo;
 		deviceInfo.enabledExtensionCount = static_cast<unsigned int>(deviceExtensions.size());
@@ -331,7 +348,33 @@ namespace fury
 		m_Caps.SupportsCompressedBC = supportedFeatures.textureCompressionBC == VK_TRUE;
 		m_Caps.MaxTextureSize = properties.limits.maxImageDimension2D;
 		m_Caps.MaxTextureArrayLayers = properties.limits.maxImageArrayLayers;
+		m_Caps.SupportsMultiDrawIndirect = enabledFeatures.multiDrawIndirect == VK_TRUE;
+		m_Caps.SupportsIndirectFirstInstance = enabledFeatures.drawIndirectFirstInstance == VK_TRUE;
+		m_Caps.SupportsShaderDrawID = features11.shaderDrawParameters == VK_TRUE;
+		m_Caps.SupportsIndirectCount = features12.drawIndirectCount == VK_TRUE
+			&& (vkCmdDrawIndexedIndirectCount != nullptr || vkCmdDrawIndexedIndirectCountKHR != nullptr);
+		m_Caps.MaxDrawIndirectCount = properties.limits.maxDrawIndirectCount;
+		m_Caps.IndirectArgumentStride = sizeof(VkDrawIndexedIndirectCommand);
+		m_Caps.IndirectCountOffsetAlignment = 4;
+		m_Caps.MaxStorageBufferRange = properties.limits.maxStorageBufferRange;
+		m_Caps.MaxPerStageDescriptorStorageBuffers = properties.limits.maxPerStageDescriptorStorageBuffers;
+		m_Caps.MaxDescriptorSetStorageBuffers = properties.limits.maxDescriptorSetStorageBuffers;
+		m_Caps.MaxPerStageResources = properties.limits.maxPerStageResources;
 		FURYI << "Vulkan device: " << properties.deviceName;
+		FURYI << "Vulkan indirect supported: multiDraw=" << supportedFeatures.multiDrawIndirect
+			<< " firstInstance=" << supportedFeatures.drawIndirectFirstInstance
+			<< " drawParameters=" << supported11.shaderDrawParameters
+			<< " count=" << supported12.drawIndirectCount
+			<< "; enabled: multiDraw=" << m_Caps.SupportsMultiDrawIndirect
+			<< " firstInstance=" << m_Caps.SupportsIndirectFirstInstance
+			<< " drawID=" << m_Caps.SupportsShaderDrawID
+			<< " count=" << m_Caps.SupportsIndirectCount;
+		FURYI << "Vulkan indirect limits: maxDrawCount=" << m_Caps.MaxDrawIndirectCount
+			<< " stride=" << m_Caps.IndirectArgumentStride
+			<< " storageRange=" << m_Caps.MaxStorageBufferRange
+			<< " perStageStorage=" << m_Caps.MaxPerStageDescriptorStorageBuffers
+			<< " descriptorStorage=" << m_Caps.MaxDescriptorSetStorageBuffers
+			<< " perStageResources=" << m_Caps.MaxPerStageResources;
 	}
 
 	RHIVulkanDevice::~RHIVulkanDevice()
@@ -422,6 +465,34 @@ namespace fury
 		allocation = VK_NULL_HANDLE;
 	}
 
+	bool RHIVulkanDevice::FlushFrameForReadback()
+	{
+		if (!m_FrameActive)
+			return vkQueueWaitIdle(m_Queue) == VK_SUCCESS;
+		m_CommandList->EndRendering();
+		if (vkEndCommandBuffer(m_CommandBuffer) != VK_SUCCESS)
+			return false;
+		vkResetFences(m_Device, 1, &m_FrameFence);
+		const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		const bool waitForImage = m_BackbufferAcquired && !m_BackbufferWaitConsumed;
+		VkSubmitInfo submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+		submit.waitSemaphoreCount = waitForImage ? 1u : 0u;
+		submit.pWaitSemaphores = waitForImage ? &m_ImageAvailable : nullptr;
+		submit.pWaitDstStageMask = waitForImage ? &waitStage : nullptr;
+		submit.commandBufferCount = 1;
+		submit.pCommandBuffers = &m_CommandBuffer;
+		if (vkQueueSubmit(m_Queue, 1, &submit, m_FrameFence) != VK_SUCCESS)
+			return false;
+		m_BackbufferWaitConsumed |= waitForImage;
+		if (vkWaitForFences(m_Device, 1, &m_FrameFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+			return false;
+		m_FrameSubmitted = false;
+		vkResetCommandBuffer(m_CommandBuffer, 0);
+		VkCommandBufferBeginInfo begin = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+		begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		return vkBeginCommandBuffer(m_CommandBuffer, &begin) == VK_SUCCESS;
+	}
+
 	bool RHIVulkanDevice::ImmediateCommands(const std::function<bool(VkCommandBuffer)> &record)
 	{
 		if (m_Device == VK_NULL_HANDLE || vkQueueWaitIdle(m_Queue) != VK_SUCCESS)
@@ -495,9 +566,20 @@ namespace fury
 		extent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, extent.height));
 		unsigned int imageCount = capabilities.minImageCount + 1;
 		if (capabilities.maxImageCount > 0) imageCount = std::min(imageCount, capabilities.maxImageCount);
+		const VkFormat unormFormat = surfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB ? VK_FORMAT_B8G8R8A8_UNORM
+			: (surfaceFormat.format == VK_FORMAT_R8G8B8A8_SRGB ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_UNDEFINED);
+		const bool mutableBackbuffer = unormFormat != VK_FORMAT_UNDEFINED
+			&& HasDeviceExtension(m_PhysicalDevice, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME);
+		const VkFormat viewFormats[2] = { surfaceFormat.format, unormFormat };
+		VkImageFormatListCreateInfo formatList = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO };
+		formatList.viewFormatCount = 2;
+		formatList.pViewFormats = viewFormats;
 		VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-		if (HasDeviceExtension(m_PhysicalDevice, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME))
+		if (mutableBackbuffer)
+		{
 			info.flags = VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR;
+			info.pNext = &formatList;
+		}
 		info.surface = m_Surface;
 		info.minImageCount = imageCount;
 		info.imageFormat = surfaceFormat.format;
@@ -518,8 +600,6 @@ namespace fury
 		m_BackbufferImages.resize(imageCount);
 		vkGetSwapchainImagesKHR(m_Device, m_Swapchain, &imageCount, m_BackbufferImages.data());
 		m_BackbufferLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
-		const VkFormat unormFormat = m_BackbufferFormat == VK_FORMAT_B8G8R8A8_SRGB ? VK_FORMAT_B8G8R8A8_UNORM
-			: (m_BackbufferFormat == VK_FORMAT_R8G8B8A8_SRGB ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_UNDEFINED);
 		for (VkImage image : m_BackbufferImages)
 		{
 			VkImageViewCreateInfo view = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -590,6 +670,7 @@ namespace fury
 		}
 		BeginFrameTracking();
 		m_BackbufferAcquired = false;
+		m_BackbufferWaitConsumed = false;
 		m_FrameSubmitted = false;
 		vkResetCommandBuffer(m_CommandBuffer, 0);
 		VkCommandBufferBeginInfo begin = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -655,10 +736,11 @@ namespace fury
 		vkEndCommandBuffer(m_CommandBuffer);
 		vkResetFences(m_Device, 1, &m_FrameFence);
 		const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		const bool waitForImage = m_BackbufferAcquired && !m_BackbufferWaitConsumed;
 		VkSubmitInfo submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-		submit.waitSemaphoreCount = m_BackbufferAcquired ? 1u : 0u;
-		submit.pWaitSemaphores = m_BackbufferAcquired ? &m_ImageAvailable : nullptr;
-		submit.pWaitDstStageMask = m_BackbufferAcquired ? &waitStage : nullptr;
+		submit.waitSemaphoreCount = waitForImage ? 1u : 0u;
+		submit.pWaitSemaphores = waitForImage ? &m_ImageAvailable : nullptr;
+		submit.pWaitDstStageMask = waitForImage ? &waitStage : nullptr;
 		submit.commandBufferCount = 1;
 		submit.pCommandBuffers = &m_CommandBuffer;
 		submit.signalSemaphoreCount = 1;
@@ -675,6 +757,7 @@ namespace fury
 			vkQueuePresentKHR(m_Queue, &present);
 		}
 		m_BackbufferAcquired = false;
+		m_BackbufferWaitConsumed = false;
 		m_FrameActive = false;
 		vkQueueWaitIdle(m_Queue);
 	}
@@ -748,7 +831,8 @@ namespace fury
 		info.UseDynamicRendering = true;
 		info.PipelineInfoMain.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 		info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-		info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_BackbufferFormat;
+		VkFormat uiFormat = m_BackbufferUnormViews.empty() ? m_BackbufferFormat : GetBackbufferUnormFormat();
+		info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &uiFormat;
 		if (m_BackbufferUnormViews.empty() && m_Caps.BackbufferSRGB)
 		{
 			info.CustomShaderFragCreateInfo = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
@@ -968,6 +1052,67 @@ namespace fury
 		if (buffer != nullptr) static_cast<VulkanBuffer *>(buffer.get())->Update(data, size, offset);
 	}
 
+	RHIIndirectBatchRef RHIVulkanDevice::CreateIndirectBatch(const RHIIndirectBatchDesc &desc)
+	{
+		return std::make_shared<VulkanIndirectBatch>(desc);
+	}
+
+	bool RHIVulkanDevice::ReadbackBuffer(const RHIBufferReadbackRequest &request, RHIBufferReadbackResult &out)
+	{
+		out = {};
+		out.FrameIndex = request.FrameIndex;
+		if (m_FrameActive)
+			return false;
+		auto source = std::static_pointer_cast<VulkanBuffer>(request.Buffer);
+		if (source == nullptr || source->Get() == VK_NULL_HANDLE || request.Size == 0
+			|| request.Offset > source->GetCapacity()
+			|| request.Size > source->GetCapacity() - request.Offset)
+			return false;
+		if (vkWaitForFences(m_Device, 1, &m_FrameFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+			return false;
+
+		VkBuffer staging = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		void *mapped = nullptr;
+		if (!CreateHostBuffer(request.Size, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			staging, stagingAllocation, &mapped))
+			return false;
+		const VkBuffer nativeSource = source->Get();
+		const VkDeviceSize sourceOffset = request.Offset;
+		const VkDeviceSize copySize = request.Size;
+		const bool copied = ImmediateCommands([&](VkCommandBuffer cmd)
+		{
+			VkBufferMemoryBarrier before = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			before.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+			before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			before.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			before.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			before.buffer = nativeSource;
+			before.offset = sourceOffset;
+			before.size = copySize;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &before, 0, nullptr);
+			VkBufferCopy region = { sourceOffset, 0, copySize };
+			vkCmdCopyBuffer(cmd, nativeSource, staging, 1, &region);
+			VkBufferMemoryBarrier after = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+			after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+			after.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			after.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			after.buffer = staging;
+			after.offset = 0;
+			after.size = copySize;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+				0, 0, nullptr, 1, &after, 0, nullptr);
+			return true;
+		});
+		if (copied)
+			out.Bytes.assign(static_cast<const unsigned char *>(mapped),
+				static_cast<const unsigned char *>(mapped) + request.Size);
+		DestroyHostBuffer(staging, stagingAllocation);
+		return copied;
+	}
+
 	RHIShaderModuleRef RHIVulkanDevice::CreateShaderModule(const std::string &name, const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry)
 	{
 		auto module = VulkanShaderModule::Create(m_Device, name, vertex, fragment, geometry);
@@ -1114,6 +1259,8 @@ namespace fury
 	{
 		auto *texture = static_cast<VulkanTexture *>(ref.get());
 		if (texture == nullptr || texture->GetDesc().Format != TextureFormat::R32UI || x < 0 || y < 0 || x >= texture->GetDesc().Width || y >= texture->GetDesc().Height)
+			return false;
+		if (!FlushFrameForReadback())
 			return false;
 		VkBuffer staging = VK_NULL_HANDLE;
 		VmaAllocation allocation = VK_NULL_HANDLE;

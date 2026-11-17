@@ -47,6 +47,8 @@ namespace fury
 	std::string ShaderArtifactPakKey(const ShaderArtifact &artifact, const DdcStore &ddc);
 
 	bool StoreShaderArtifacts(DdcStore &ddc, const std::vector<ShaderArtifact> &artifacts, std::string &error);
+	bool LoadOrStoreTextShaderResource(const std::string &key, const std::string &extension,
+		const std::string &embedded, std::string &out, std::string &error);
 	bool LoadShaderArtifacts(const DdcStore &ddc, const std::string &key, ShaderTarget target,
 		std::vector<ShaderArtifact> &artifacts, bool compute = false);
 

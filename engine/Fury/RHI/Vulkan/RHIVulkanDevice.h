@@ -53,6 +53,7 @@ namespace fury
 		VkExtent2D m_BackbufferExtent = { 0, 0 };
 		unsigned int m_BackbufferIndex = 0;
 		bool m_BackbufferAcquired = false;
+		bool m_BackbufferWaitConsumed = false;
 		VkSemaphore m_ImageAvailable = VK_NULL_HANDLE;
 		VkSemaphore m_RenderFinished = VK_NULL_HANDLE;
 		VkFence m_FrameFence = VK_NULL_HANDLE;
@@ -96,6 +97,8 @@ namespace fury
 		void UpdateSampler(const RHITextureRef &texture, const RHISamplerDesc &sampler) override;
 		RHIBufferRef CreateBuffer(const RHIBufferDesc &desc, const void *initialData = nullptr) override;
 		void UpdateBuffer(const RHIBufferRef &buffer, const void *data, size_t size, size_t offset = 0) override;
+		RHIIndirectBatchRef CreateIndirectBatch(const RHIIndirectBatchDesc &desc) override;
+		bool ReadbackBuffer(const RHIBufferReadbackRequest &request, RHIBufferReadbackResult &out) override;
 		RHIShaderModuleRef CreateShaderModule(const std::string &name, const RHIShaderBlob &vertex, const RHIShaderBlob &fragment, const RHIShaderBlob &geometry) override;
 		RHIShaderModuleRef CreateComputeModule(const std::string &name, const RHIShaderBlob &compute) override;
 		RHIGraphicsPipelineRef CreateGraphicsPipeline(const RHIGraphicsPipelineDesc &desc, const RHIShaderModuleRef &shaders) override;
@@ -131,6 +134,7 @@ namespace fury
 		VkExtent2D GetBackbufferExtent() const { return m_BackbufferExtent; }
 		bool AcquireBackbuffer(unsigned int width, unsigned int height);
 		bool RecreateSwapchain(unsigned int width, unsigned int height);
+		bool FlushFrameForReadback();
 		bool ImmediateCommands(const std::function<bool(VkCommandBuffer)> &record);
 		bool TransitionTexture(const RHITextureRef &texture);
 		bool CreateHostBuffer(size_t size, VkBufferUsageFlags usage, VkBuffer &buffer, VmaAllocation &allocation, void **mapped = nullptr);
