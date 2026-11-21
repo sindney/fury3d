@@ -3,14 +3,14 @@ vec4 GBufferPackDiffuse(vec3 color, float metallic)
 	return vec4(color, metallic);
 }
 
-vec3 GBufferDecodeDiffuse(vec4 packed)
+vec3 GBufferDecodeDiffuse(vec4 value)
 {
-	return packed.rgb;
+	return value.rgb;
 }
 
-float GBufferDecodeMetallic(vec4 packed)
+float GBufferDecodeMetallic(vec4 value)
 {
-	return packed.a;
+	return value.a;
 }
 
 vec2 GBufferOctEncode(vec3 normal)
@@ -26,9 +26,9 @@ vec2 GBufferOctEncode(vec3 normal)
 	return encoded * 0.5 + 0.5;
 }
 
-vec3 GBufferOctDecode(vec2 packed)
+vec3 GBufferOctDecode(vec2 value)
 {
-	vec2 encoded = packed * 2.0 - 1.0;
+	vec2 encoded = value * 2.0 - 1.0;
 	vec3 n = vec3(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
 	float t = max(-n.z, 0.0);
 	n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
@@ -40,14 +40,14 @@ vec4 GBufferPackNormal(vec3 normal, float roughness)
 	return vec4(GBufferOctEncode(normal), roughness, 1.0);
 }
 
-vec3 GBufferDecodeNormal(vec4 packed)
+vec3 GBufferDecodeNormal(vec4 value)
 {
-	return GBufferOctDecode(packed.rg);
+	return GBufferOctDecode(value.rg);
 }
 
-float GBufferDecodeRoughness(vec4 packed)
+float GBufferDecodeRoughness(vec4 value)
 {
-	return packed.b;
+	return value.b;
 }
 
 float GBufferLinearDepth(float viewDepth, float cameraFar)
