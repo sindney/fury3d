@@ -45,7 +45,7 @@ end
 local t1 = lod0:GetLodThreshold(1)
 local tLast = lod0:GetLodThreshold(tiers - 1)
 print("thresholds: t1=" .. t1 .. " tLast=" .. tLast)
-if t1 < 0.99 then fail("t1 should be ~1.0 (8m clamp), got " .. t1) end
+if t1 <= 1.0 then fail("authored 8m threshold must remain above one, got " .. t1) end
 if tLast >= 0.5 then fail("billboard threshold too high: " .. tLast) end
 for i = 2, tiers - 1 do
     if lod0:GetLodThreshold(i) > lod0:GetLodThreshold(i - 1) then
@@ -79,12 +79,19 @@ end)
 print("materials=" .. matCount)
 if not maskSeen then fail("no MASK (foliage) material found") end
 if not windAll then fail("not all mesh-tier materials are wind-enabled") end
+local billboard = lod0:GetBillboardMaterial()
+if not billboard or billboard:GetUniform("u_billboard_normal_atlas") ~= 1.0 then
+    fail("billboard normal atlas is not enabled")
+end
+if billboard:GetTextureSRGB("normal_texture") then fail("normal atlas must use linear data") end
+if billboard:GetPreZ() then fail("billboards must bypass the depth pre-phase") end
 
 -- Round-trip: save and reload, chain intact.
-if not Scene.SaveActive("/tmp/kraut_gen/PalmTree2_rt.bin") then
+local output = arg and arg[1] or (os.tmpname() .. ".bin")
+if not Scene.SaveActive(output) then
     fail("re-save failed")
 end
-if not Scene.LoadActive("/tmp/kraut_gen/PalmTree2_rt.bin") then
+if not Scene.LoadActive(output) then
     fail("reload failed")
 end
 scene = Scene.GetActive()
@@ -96,5 +103,8 @@ if not lod0 then fail("LOD0 lost on reload") end
 if lod0:GetLodCount() ~= 5 then fail("chain lost on reload: " .. lod0:GetLodCount()) end
 if not lod0:IsLodBillboard(4) then fail("billboard flag lost on reload") end
 if not lod0:GetLodMesh(4) then fail("billboard mesh lost on reload") end
+if lod0:GetBillboardMaterial():GetUniform("u_billboard_normal_atlas") ~= 1.0 then
+    fail("billboard normal atlas lost on reload")
+end
 
 print("kraut_import_roundtrip OK")

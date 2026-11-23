@@ -30,13 +30,12 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image, ImageFile
-
-ImageFile.LOAD_TRUNCATED_IMAGES = True  # some Kraut TGAs trip PIL's strict RLE reader
+from PIL import Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLES = os.path.join(REPO, "examples")
-FURY = os.path.join(EXAMPLES, "fury")
+# Kraut authoring commands run in the headless editor CLI.
+FURY = os.path.join(EXAMPLES, "furye-cli")
 TREES_ROOT = os.path.join(EXAMPLES, "Resource", "Trees")
 DESCRIPTORS = os.path.join(TREES_ROOT, "Descriptors")
 
@@ -71,6 +70,43 @@ def run(args, cwd):
     return proc.stdout
 
 
+def load_foliage_image(path):
+    if not path.lower().endswith(".tga"):
+        return Image.open(path).convert("RGBA")
+    with open(path, "rb") as f:
+        data = f.read()
+    width, height = struct.unpack_from("<HH", data, 12)
+    channels = data[16] // 8
+    if data[1] != 0 or data[2] not in (2, 10) or channels not in (3, 4):
+        raise ValueError(f"unsupported foliage TGA: {path}")
+    offset = 18 + data[0]
+    pixels = bytearray()
+    expected = width * height * channels
+    while len(pixels) < expected:
+        if data[2] == 2:
+            pixels.extend(data[offset:offset + expected])
+            break
+        packet = data[offset]
+        offset += 1
+        count = (packet & 127) + 1
+        if packet & 128:
+            pixels.extend(data[offset:offset + channels] * count)
+            offset += channels
+        else:
+            pixels.extend(data[offset:offset + count * channels])
+            offset += count * channels
+    if len(pixels) != expected:
+        raise ValueError(f"invalid foliage TGA pixel count: {path}")
+    # Decode RLE across scanlines, matching stb_image in the baker and engine.
+    mode = "RGBA" if channels == 4 else "RGB"
+    image = Image.frombytes(mode, (width, height), bytes(pixels), "raw", "BGRA" if channels == 4 else "BGR")
+    if not data[17] & 32:
+        image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    if data[17] & 16:
+        image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    return image.convert("RGBA")
+
+
 def tone_map_foliage(out_dir, name, glb_path):
     """Darken leaf textures + the billboard atlas toward deep green
     (FOLIAGE_TONE), in place. Foliage textures are identified by material
@@ -79,6 +115,14 @@ def tone_map_foliage(out_dir, name, glb_path):
         data = f.read()
     jlen = struct.unpack("<I", data[12:16])[0]
     gltf = json.loads(data[20:20 + jlen])
+
+    billboard = gltf["asset"]["extras"]["kraut"]["billboard"]
+    if billboard.get("albedo") != "unlit" or billboard.get("normal_space") != "object":
+        raise SystemExit(f"gen_tree_assets: unsupported billboard shading contract for {name}")
+    for key in ("texture", "normal_texture"):
+        path = os.path.join(out_dir, billboard[key])
+        if not os.path.isfile(path):
+            raise SystemExit(f"gen_tree_assets: missing billboard {key}: {path}")
 
     targets = set()
     images = gltf.get("images", [])
@@ -99,13 +143,18 @@ def tone_map_foliage(out_dir, name, glb_path):
         path = os.path.join(out_dir, uri)
         if not os.path.isfile(path):
             continue
-        im = Image.open(path).convert("RGBA")
+        im = load_foliage_image(path)
+        if im.getchannel("A").getextrema()[1] == 0:
+            raise ValueError(f"fully transparent foliage texture: {path}")
         lut = []
         for c in range(3):
             lut += [min(255, int(v * FOLIAGE_TONE[c])) for v in range(256)]
         lut += list(range(256))  # alpha untouched
         im = im.point(lut)
-        im.save(path)
+        if path.lower().endswith(".tga"):
+            im.save(path, compression="tga_rle")
+        else:
+            im.save(path)
     print(f"gen_tree_assets: tone-mapped {len(targets)} foliage textures for {name}")
 
 
@@ -204,6 +253,18 @@ def main():
                 b = os.path.join(tmp, name, name + ".bin")
                 if not os.path.isfile(a) or _norm_scene_json(a) != _norm_scene_json(b):
                     raise SystemExit(f"gen_tree_assets: {name}.bin is stale -- rerun tools/gen_tree_assets.py")
+                with open(os.path.join(tmp, name, name + ".glb"), "rb") as f:
+                    glb = f.read()
+                size = struct.unpack_from("<I", glb, 12)[0]
+                gltf = json.loads(glb[20:20 + size])
+                paths = [name + ".glb"] + [image["uri"] for image in gltf["images"]]
+                for relative in paths:
+                    with open(os.path.join(TREES_ROOT, name, relative), "rb") as f:
+                        committed = f.read()
+                    with open(os.path.join(tmp, name, relative), "rb") as f:
+                        generated = f.read()
+                    if committed != generated:
+                        raise SystemExit(f"gen_tree_assets: {name}/{relative} is stale -- rerun tools/gen_tree_assets.py")
         print("gen_tree_assets: committed assets are current")
         return 0
 

@@ -108,7 +108,7 @@ namespace fury
 		// -> caller picks the deepest LOD). PickLodForCoverage maps a
 		// coverage value to a tier using the mesh's threshold chain:
 		// threshold(i) is the coverage below which tier i activates, so
-		// tier 0 owns [threshold(1), 1.0].
+		// tier 0 owns coverage >= threshold(1).
 		static float ComputeCoverageForBounds(const BoxBounds &worldAabb,
 			const std::shared_ptr<SceneNode> &cameraNode);
 		// Data-driven overload (render thread): same math from packet data.

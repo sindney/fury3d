@@ -35,8 +35,8 @@ namespace fury
 
 	// Depth-only shader variant set for the vegetation pre-z pre-phase:
 	// the prez_depth_* entries (shadow variants with LINEAR_DEPTH so the
-	// EQUAL reuse matches the gbuffer's linear gl_FragDepth). Any variant
-	// may be null (legacy pipeline JSONs lack them) -- Pick falls back.
+	// EQUAL reuse matches the gbuffer's linear gl_FragDepth).
+	// Missing matching variants disable the pre-phase for that frame.
 	struct PreZDepthShaders
 	{
 		std::shared_ptr<Shader> Plain;

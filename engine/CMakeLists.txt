@@ -1019,6 +1019,10 @@ else()
 endif()
 
 if(BUILD_TESTING)
+	add_executable(vegetation_math_tests ${PROJECT_SOURCE_DIR}/../tests/native/VegetationMathTests.cpp)
+	target_include_directories(vegetation_math_tests PRIVATE ${PROJECT_SOURCE_DIR})
+	add_test(NAME vegetation_math COMMAND vegetation_math_tests)
+
 	add_executable(cluster_lod_asset_tests
 		${PROJECT_SOURCE_DIR}/../tests/native/ClusterLodAssetTests.cpp
 		${PROJECT_SOURCE_DIR}/Fury/ClusterLodAsset.cpp)

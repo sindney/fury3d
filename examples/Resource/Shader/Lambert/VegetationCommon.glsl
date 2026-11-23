@@ -44,22 +44,12 @@ vec3 VegetationWindOffset(vec4 weights, vec3 worldPos, float time, vec4 windPara
 // Cell k is rendered from azimuth ((k + 0.5) / cols - 0.5) * 2*pi around
 // the node's +Z axis (contract with the Kraut atlas baker).
 //
-// upBias bends the SHADING normal from camera-facing toward +Y:
-// normal = normalize(mix(fwd, up, upBias)). A pure camera-facing normal
-// collapses N.L under overhead sun (billboards ~10x darker than the mesh
-// tiers); a pure up normal overshoots ~3x at noon and dies against axial
-// sun. The mesh canopy (two-sided leaf cards, isotropic normals) responds
-// ~constant per sun elevation, so no fixed normal matches it at every
-// azimuth -- the empirically tuned default (0.28, see 10.3 in
-// openspec/changes/add-kraut-vegetation/tasks.md) lands the billboard
-// within ~0% of the deepest mesh tier for overhead + front sun and
-// ~-50% for perpendicular side sun (inherent: a quad has no side leaves).
-// Geometry and UVs are unaffected -- the quad still faces the camera.
+// upBias supplies a shading normal when no object-space normal atlas is bound.
 void VegetationBillboard(mat4 worldMat, vec3 cameraPos, vec3 quadPos, vec2 quadUV, vec2 atlasInfo,
-	float upBias,
+	float upBias, vec3 pivot,
 	out vec3 worldPos, out vec3 worldNormal, out vec2 uv)
 {
-	vec3 origin = (worldMat * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	vec3 origin = (worldMat * vec4(pivot, 1.0)).xyz;
 	float sx = length(worldMat[0].xyz);
 	float sy = length(worldMat[1].xyz);
 

@@ -536,16 +536,19 @@
    "id": "kraut_import_roundtrip",
    "lane": "headless",
    "script": "{tests}/lua/kraut_import_roundtrip.lua",
-   "scene": "/tmp/kraut_gen/PalmTree2.bin",
+   "scene": "Resource/Trees/PalmTree2/PalmTree2.bin",
    "timeout": 180,
    "tags": [
     "kraut",
     "vegetation",
     "import"
    ],
-   "notes": "Only headless test not reproducible from the repo alone; regenerate the fragment with examples/KrautCLI import into /tmp/kraut_gen to enable.",
+   "notes": "Committed tree fragment round-trip preserves LOD thresholds, materials, and the linear normal atlas.",
    "requires": [
-    "/tmp/kraut_gen/PalmTree2.bin"
+    "{examples}/Resource/Trees/PalmTree2/PalmTree2.bin"
+   ],
+   "args": [
+    "{artifacts}/kraut_roundtrip.bin"
    ]
   },
   {
@@ -1731,6 +1734,99 @@
    "requires": [
     "{examples}/fury",
     "{examples}/Projects/feature/feature.bin"
+   ]
+  },
+  {
+   "id": "foliage_lod_assets",
+   "lane": "headless",
+   "command": [
+    "python3",
+    "{tests}/foliage_lod_assets.py"
+   ],
+   "timeout": 180,
+   "tags": [
+    "kraut",
+    "vegetation",
+    "lod",
+    "assets"
+   ],
+   "requires": [
+    "{examples}/Resource/Trees/PalmTree2/PalmTree2.bin",
+    "{examples}/Resource/Trees/Tree1/Tree1.bin"
+   ]
+  },
+  {
+   "id": "foliage_lod_render_metal",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/foliage_lod_render.py",
+    "--backend",
+    "metal",
+    "--artifacts",
+    "{artifacts}/foliage-lod-metal"
+   ],
+   "display": true,
+   "timeout": 420,
+   "tags": [
+    "kraut",
+    "vegetation",
+    "lod",
+    "prez",
+    "metal"
+   ],
+   "requires": [
+    "{examples}/Resource/Trees/PalmTree2/PalmTree2.bin",
+    "{examples}/Resource/Trees/Tree1/Tree1.bin"
+   ]
+  },
+  {
+   "id": "foliage_lod_render_vulkan",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/foliage_lod_render.py",
+    "--backend",
+    "vulkan",
+    "--artifacts",
+    "{artifacts}/foliage-lod-vulkan"
+   ],
+   "display": true,
+   "timeout": 420,
+   "tags": [
+    "kraut",
+    "vegetation",
+    "lod",
+    "prez",
+    "vulkan"
+   ],
+   "requires": [
+    "{examples}/Resource/Trees/PalmTree2/PalmTree2.bin",
+    "{examples}/Resource/Trees/Tree1/Tree1.bin"
+   ]
+  },
+  {
+   "id": "render_normal_mapped_draw_cache_parity",
+   "lane": "render",
+   "command": [
+    "python3",
+    "{tests}/render_regression.py",
+    "--case",
+    "normal_mapped_draw_cache_parity",
+    "--backend",
+    "{rhi}",
+    "--binary",
+    "{examples}/fury",
+    "--artifacts",
+    "{artifacts}/normal-mapped-cache"
+   ],
+   "display": true,
+   "timeout": 180,
+   "tags": [
+    "render",
+    "normal-maps",
+    "cache",
+    "vegetation"
    ]
   }
  ]

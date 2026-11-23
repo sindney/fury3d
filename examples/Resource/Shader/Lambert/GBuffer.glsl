@@ -75,15 +75,17 @@ layout(std430, binding = 2) readonly buffer Clusters { Cluster clusters[]; };
 #ifdef BILLBOARD
 uniform vec3 camera_pos;
 uniform vec2 u_billboard_atlas = vec2(8.0, 1.0);
-// Shading-normal up bias (0 = camera-facing). Tuned 0.28 default tracks
-// the mesh tiers' sun response; per-material override for art direction.
 uniform float u_billboard_up_bias = 0.28;
+uniform vec3 u_billboard_pivot = vec3(0.0);
 #endif
 
 out vec3 out_normal;
 out vec3 out_tangent;
 out vec2 out_uv;
 out float out_depth;
+#ifdef BILLBOARD
+out mat3 out_billboard_normal_matrix;
+#endif
 #ifdef CLUSTER_BASE_INSTANCE
 flat out uint out_cluster_id;
 flat out uint out_cluster_level;
@@ -123,8 +125,9 @@ void main()
 	vec3 bbPos;
 	vec3 bbNormal;
 	vec2 bbUV;
-	VegetationBillboard(worldMat, camera_pos, vertex_position, vertex_uv, u_billboard_atlas, u_billboard_up_bias, bbPos, bbNormal, bbUV);
+	VegetationBillboard(worldMat, camera_pos, vertex_position, vertex_uv, u_billboard_atlas, u_billboard_up_bias, u_billboard_pivot, bbPos, bbNormal, bbUV);
 	vec4 worldPos = vec4(bbPos, 1.0);
+	out_billboard_normal_matrix = mat3(invert_view_matrix) * transpose(inverse(mat3(worldMat)));
 	out_normal = normalize(invert_view_matrix * vec4(bbNormal, 0.0)).xyz;
 	out_tangent = vec3(0.0);
 	out_uv = bbUV;
@@ -180,6 +183,10 @@ uniform vec3 ambient_color;
 uniform sampler2D diffuse_texture;
 uniform sampler2D normal_texture;
 uniform int normal_texture_valid = 0;
+#ifdef BILLBOARD
+uniform float u_billboard_normal_atlas = 0.0;
+in mat3 out_billboard_normal_matrix;
+#endif
 
 uniform float ambient_factor = 1;
 uniform float diffuse_factor = 1;
@@ -229,6 +236,14 @@ void main()
 	// loses all depth. The unflipped normal gives dark undersides from
 	// below and sun-lit undersides (thin-leaf translucency) when backlit.
 	vec3 nrm = normalize(out_normal);
+#ifdef BILLBOARD
+	if (u_billboard_normal_atlas > 0.5)
+	{
+		vec3 objectNormal = texture(normal_texture, out_uv).xyz * 2.0 - 1.0;
+		if (dot(objectNormal, objectNormal) > 1e-6)
+			nrm = normalize(out_billboard_normal_matrix * objectNormal);
+	}
+#else
 	vec3 tangent = out_tangent - nrm * dot(nrm, out_tangent);
 	if (normal_texture_valid != 0 && dot(tangent, tangent) > 1e-6)
 	{
@@ -237,6 +252,8 @@ void main()
 		vec3 mapNormal = texture(normal_texture, out_uv).xyz * 2.0 - 1.0;
 		nrm = normalize(mat3(tangent, bitangent, nrm) * mapNormal);
 	}
+
+#endif
 
 	vec3 finalDiffuse = texel.rgb * diffuse_factor + ambient_color * ambient_factor;
 #ifdef WITH_DBG_OVERLAY

@@ -1,19 +1,14 @@
 # Fury3D — Vegetation (Kraut trees, LODs, billboards, instancing, wind)
 
-> Status (2026-09-04): shipped with change `add-kraut-vegetation` incl. the
-> section-10 follow-ups: corrected LOD tier selection (tier 0 owns
-> [t1, 1.0] now), dithered per-instance tier transitions (`FURY_LOD_JITTER=0`
-> to A/B), up-biased billboard shading normals, and the grass layer below.
-> Validated headless on macOS GL 4.1 (divisor-VBO instancing path). The
-> GL 4.3+ SSBO instance-stream path is compiled in but untested on hardware
-> yet — it is auto-selected at runtime when SSBOs exist; set
-> `FURY_INSTANCE_SSBO=0` to force the divisor path, `=1` to force SSBO
-> (validation on Windows GL 4.3+ is a known follow-up).
+> Kraut trees use unlit color atlases and object-space normal atlases for
+> runtime lighting. Mesh export and atlas baking share the canopy normal
+> model. LOD coverage is unsaturated; tier 0 owns coverage >= threshold(1).
+> `FURY_LOD_JITTER=0` disables per-instance transition jitter.
 
 ## Overview
 
 Trees are generated offline by the vendored Kraut-CLI toolchain
-(`engine/ThirdParty/Kraut` submodule, `fury kraut` wraps it) and imported
+(`engine/ThirdParty/Kraut` submodule, `furye-cli kraut` wraps it) and imported
 through the regular glTF importer with a kraut-aware postprocess. Rendering
 adds: per-tier LOD chains with a billboard terminal tier, two-sided
 alpha-cutout foliage shading, leaf-shaped shadows (alpha-tested depth
@@ -25,8 +20,8 @@ rendering for forests.
 ## The toolchain
 
 ```
-fury kraut generate <descriptor.tree> [--seed N] [--out dir]
-fury kraut import   <tree.glb> [output.json|.bin]
+furye-cli kraut generate <descriptor.tree> [--seed N] [--out dir]
+furye-cli kraut import   <tree.glb> [output.json|.bin]
 ```
 
 - `generate` runs KrautCLI's `--format glb` export (per-LOD meshes
@@ -34,8 +29,8 @@ fury kraut import   <tree.glb> [output.json|.bin]
   PBR materials, `asset.extras.kraut` with LOD thresholds + billboard atlas
   grid + provenance), copies the referenced textures next to the glb
   (`.dds` resolves to `.tga`/`.png` siblings), bakes the billboard atlas with
-  KrautPreview (`<stem>_BillboardAtlas.png`, one row of orthographic views),
-  and writes per-tier preview screenshots. Deterministic per
+  KrautPreview (`<stem>_BillboardAtlas.png` and `<stem>_BillboardNormals.png`,
+  matching rows of orthographic views), and writes per-tier preview screenshots. Deterministic per
   descriptor + seed.
 - `import` reads the glb into a scene fragment: the LOD chain keeps the
   extras' thresholds, the billboard becomes the flagged terminal tier,
@@ -49,11 +44,17 @@ SDL2 fetch; atlas/previews skipped with a warning at generate time).
 
 Committed samples: `examples/Resource/Trees/{Descriptors,PalmTree2,Tree1}/`
 + `trees.json`, baked by `tools/gen_tree_assets.py` (`--check` verifies the
-committed fragments are current). A fresh checkout without the Kraut
+committed fragments, glb exports, and textures are current). A fresh checkout without the Kraut
 submodule still renders the samples. The bake also tone-maps the kraut
 content leaf textures (bright lime by default) toward deep palm green via
 `FOLIAGE_TONE` -- applied to the foliage textures AND the billboard atlas so
 the terminal tier stays color-consistent.
+
+After changing the exporter or baker, regenerate and re-import the tree.
+Project scenes embed their mesh and material records: refresh those records
+as well as the standalone tree fragment. Replacing only the color PNG cannot
+add the normal-atlas binding. Imports reject missing normal atlases and
+unsupported normal spaces or canopy-model versions.
 
 **sRGB caveat**: albedo textures must carry `srgb: true` in the scene's
 texture records or the HDR pipeline samples gamma-encoded values as linear
@@ -76,7 +77,7 @@ for that).
   `extras.kraut.lod_thresholds` (Kraut distances converted via the tree's
   bounding radius at reference fov 0.7854) with a synthesized ramp fallback.
   Tier selection (`MeshRender::PickLodForCoverage`): threshold(i) is the
-  coverage below which tier i activates (tier 0 owns [t1, 1.0]); the pick is
+  coverage below which tier i activates (tier 0 owns coverage >= t1); the pick is
   dithered per object -- `MeshRender::ComputeLodJitter` applies a stable
   position-hashed coverage jitter (±15%) so neighbors swap tiers at
   different distances instead of popping in lockstep. `FURY_LOD_JITTER=0`
@@ -88,21 +89,31 @@ for that).
   and picks the atlas cell by camera azimuth around the trunk axis
   (`u_billboard_atlas` = cols/rows from the material). Cell *k* of the atlas
   shows the tree from azimuth `((k+0.5)/cols - 0.5) * 2pi` around +Z — the
-  same formula the KrautPreview `--atlas` baker uses. Shading normals are
-  `mix(fwd, up, u_billboard_up_bias)` (default 0.28, tuned for tree canopies;
-  per-asset override via `extras.kraut.billboard.up_bias` -- grass writes
-  1.0 = pure up to match its card normals). The importer caps the billboard
-  tier at 0.12 coverage: a mesh->billboard swap is only invisible once the
-  tree is small on screen (the exporter's default ~0.25 visibly popped).
-- **Foliage shading**: `Material::m_TwoSided` (cull off per draw) and MASK
-  alpha test. Leaf normals are bent to a crown-dome proxy at import
-  (KrautImportPostprocess; kraut cards carry card-plane-horizontal normals
-  that read dark from overhead). No camera flip -- flipping washed the
-  canopy flat at low sun; the dome keeps volume: lit crown, shaded
-  underside, thin-leaf translucency when backlit. Deep LOD tiers get the
-  same bent normals (the generator's simplified normals are unreliable).
-  Shadow depth shaders (`DrawDepth*.glsl`) have ALPHA_TEST variants so leaf
-  cards cast leaf-shaped shadows.
+  same formula the KrautPreview `--atlas` baker uses. The normal atlas stores
+  signed object-space normals encoded as RGB = N * 0.5 + 0.5. Its texture is
+  linear data (`srgb: false`). The shader applies the instance inverse-transpose
+  and view rotation, so lighting follows tree rotation and scene lights.
+  `u_billboard_pivot` aligns the quad with the atlas's bounding-box center.
+  The terminal tier activates below at most 0.12 screen coverage.
+- **Foliage shading**: `Material::m_TwoSided` disables culling, and MASK
+  applies the 0.4 alpha cutoff. `Tools/KrautCLI/FoliageShading.h` supplies
+  the crown-dome normals for both glb meshes and atlas baking. The glb
+  declares `extras.kraut.canopy_normals = "crown_dome_v1"`; the importer
+  preserves these authored normals. Older unmarked exports receive the
+  dome model on import. Billboard leaves are expanded into stable radial
+  cards for both static export and baking. Atlas views use the same raster
+  texture sources as the meshes, bake without directional lighting, and
+  dilate RGB into transparent borders without changing alpha.
+- **Billboard fallback**: assets without a normal atlas use
+  `normalize(mix(cameraForward, up, u_billboard_up_bias))`. An explicit
+  `extras.kraut.billboard.up_bias` overrides the default; otherwise the
+  importer derives it from mean canopy normal Y. Grass supplies 1.0.
+  The conversion is `m / (m + sqrt(1 - m*m))`, with m clamped to [0,1].
+- **Vegetation pre-Z**: flagged mesh materials write depth, then shade at
+  EQUAL. Billboards draw once in the ordinary phase even when pre-Z is
+  active. A missing matching alpha/wind/skinning depth variant disables
+  the pre-phase for the frame. Shader changes rebind mesh attributes;
+  cached and uncached draws use the same instancing variant selection.
 - **Wind**: `Material::m_WindEnabled` selects the WIND vertex-shader variant
   (gbuffer + depth, so shadows sway in sync). Displacement is pre-projection
   from `vertex_color` weights (Kraut packs R=branch sway, G=leaf flutter,
@@ -182,6 +193,26 @@ instance add/remove/duplicate, and a seeded scatter-over-terrain helper
 
 ## Validation (headless, `fury` + fixed-frame screenshots)
 
+
+Run the contract and visual regression checks after changing tree shading:
+
+```sh
+ctest --test-dir build -R vegetation_math --output-on-failure
+python3 tests/foliage_lod_assets.py
+python3 tools/gen_tree_assets.py --check
+python3 tests/foliage_lod_render.py --backend metal
+python3 tests/foliage_lod_render.py --backend vulkan
+```
+
+The visual checks compare sun/rotation setups and a distant mip level for both sample trees,
+plain and instanced pre-Z/cache parity, partial depth-shader sets, SSBO and
+vertex-attribute instance streams, and every natural LOD band. Captures and
+metrics go under `test-artifacts/foliage-lod-<backend>/`. Asset checks reject
+collapsed foliage, transparent source textures, mismatched atlas silhouettes,
+nonlinear normal textures, absolute sample paths, and import-time rebending.
+`gen_tree_assets.py` decodes TGA RLE across scanlines and fails on empty
+foliage; it does not accept Pillow's permissive truncated-image fallback.
+
 - `tests/lua/scenes/instancing_smoke.lua` — 2500 instanced cubes: instance count
   asserted, draw calls flat (< 200; per-instance submission would be >2500).
 - `tests/lua/kraut_import_roundtrip.lua` — import a kraut glb, save, reload:
@@ -225,11 +256,13 @@ Billboard atlas (8 cylindrical views of PalmTree2, baked by
 - The SSBO instance path is preferred but untested on real GL 4.3+
   hardware (macOS dev machines only exercise the divisor fallback);
   validate with a screenshot A/B on Windows before trusting it there.
-- Billboard shading normals are up-biased (`u_billboard_up_bias`, tuned
-  0.28 default) so billboards track the mesh tiers' sun response instead
-  of going dark under overhead sun; a residual ~-50% gap remains at
-  perpendicular side sun (a quad has no side leaves). The atlas texture
-  itself carries baked top-down lighting from the KrautPreview bake.
+- Cylindrical atlases have eight azimuth views and one elevation. Camera
+  elevation, view-cell switches, and silhouette simplification can still
+  produce visible transitions. Normal atlases do not encode canopy depth
+  or replace missing branches.
+- PalmTree2's deep mesh tiers omit the lower canopy: fronds start around
+  2.57 m in LOD2 and 2.67 m in LOD3, versus near ground in LOD0/LOD1.
+  This generator/asset issue remains out of scope for the shading fix.
 - Kraut impostor modes (octahedral-ish multi-view) are richer than the
   cylindrical billboard atlas but a bigger shader lift; not in v1.
 - Scatter placement is script/editor-helper driven; an editor paint tool

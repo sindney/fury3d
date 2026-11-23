@@ -175,6 +175,27 @@
         {"name": "off", "backend": "metal", "expect_clustered": 1, "env": {"FURY_CLUSTERED": "1", "FURY_CAMERA_DRIFT": "1", "FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000"}},
         {"name": "cycle", "backend": "metal", "expect_clustered": 1, "env": {"FURY_CLUSTERED": "1", "FURY_CLUSTER_DEBUG_CYCLE": "1", "FURY_CAMERA_DRIFT": "1", "FURY_CAMERA_NEAR": "0.5", "FURY_CAMERA_FAR": "5000"}}
       ]
+    },
+    "normal_mapped_draw_cache_parity": {
+      "kind": "image_ab",
+      "script": "{tests}/lua/render_scenario.lua",
+      "scenario": "clustered_normal_mapped_hdr",
+      "max_mean": 0.25,
+      "max_frac": 0.005,
+      "captures": [
+        {
+          "name": "cached",
+          "env": {
+            "FURY_DRAWCMD_CACHE": "1"
+          }
+        },
+        {
+          "name": "uncached",
+          "env": {
+            "FURY_DRAWCMD_CACHE": "0"
+          }
+        }
+      ]
     }
   }
 }

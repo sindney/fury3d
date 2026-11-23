@@ -32,6 +32,7 @@
 #include "Fury/Texture.h"
 #include "Fury/Transform.h"
 #include "Fury/Uniform.h"
+#include "Fury/VegetationUtil.h"
 #include "Fury/Vector4.h"
 
 // tinygltf pulls in its own JSON header; we suppress its stb_image to avoid
@@ -1239,20 +1240,21 @@ void ResampleChannel(
 // material flags (two-sided on MASK, wind on all), and scales the tree's
 // root nodes meters -> cm (kraut glb is meters per glTF spec; fury's
 // world unit is cm -- LOD coverage math is scale-invariant).
-static void KrautImportPostprocess(
+static bool KrautImportPostprocess(
 	const tinygltf::Model& model,
 	const Scene::Ptr& scene,
 	const std::vector<std::shared_ptr<Mesh>>& meshes,
 	const std::vector<std::shared_ptr<Material>>& materials,
 	const std::vector<std::vector<int>>& submesh_to_gltf_material,
-	std::vector<std::shared_ptr<SceneNode>>& gltf_node_to_scene_node)
+	std::vector<std::shared_ptr<SceneNode>>& gltf_node_to_scene_node,
+	const std::string& input_stem, const std::string& input_dir)
 {
 	if (!model.asset.extras.IsObject())
-		return;
+		return true;
 	const auto& extrasObj = model.asset.extras.Get<tinygltf::Value::Object>();
 	auto krautIt = extrasObj.find("kraut");
 	if (krautIt == extrasObj.end() || !krautIt->second.IsObject())
-		return;
+		return true;
 	const auto& kraut = krautIt->second.Get<tinygltf::Value::Object>();
 
 	std::vector<float> thresholds;
@@ -1265,18 +1267,41 @@ static void KrautImportPostprocess(
 
 	int atlasCols = 8, atlasRows = 1;
 	float bbUpBias = 0.28f;
+	bool bbUpBiasExplicit = false;
+	std::string bbNormalUri;
+	std::string bbNormalSpace;
+	Vector4 bbPivot(0.0f, 0.0f, 0.0f);
+	const auto normals = kraut.find("canopy_normals");
+	const bool authoredCanopyNormals = normals != kraut.end() && normals->second.IsString()
+		&& normals->second.Get<std::string>() == "crown_dome_v1";
+	if (normals != kraut.end() && !authoredCanopyNormals)
+	{
+		FURYE << "gltf-importer: unsupported canopy normal model";
+		return false;
+	}
 	if (auto it = kraut.find("billboard"); it != kraut.end() && it->second.IsObject())
 	{
 		const auto& bb = it->second.Get<tinygltf::Value::Object>();
+		if (auto n = bb.find("normal_texture"); n != bb.end() && n->second.IsString())
+			bbNormalUri = n->second.Get<std::string>();
+		if (auto n = bb.find("normal_space"); n != bb.end() && n->second.IsString())
+			bbNormalSpace = n->second.Get<std::string>();
+		if (auto p = bb.find("pivot"); p != bb.end() && p->second.IsArray())
+		{
+			const auto& v = p->second.Get<tinygltf::Value::Array>();
+			if (v.size() == 3 && v[0].IsNumber() && v[1].IsNumber() && v[2].IsNumber())
+				bbPivot = Vector4(v[0].GetNumberAsDouble(), v[1].GetNumberAsDouble(), v[2].GetNumberAsDouble());
+		}
 		if (auto c = bb.find("atlas_cols"); c != bb.end() && c->second.IsNumber())
 			atlasCols = c->second.GetNumberAsInt();
 		if (auto r = bb.find("atlas_rows"); r != bb.end() && r->second.IsNumber())
 			atlasRows = r->second.GetNumberAsInt();
-		// optional per-asset shading-normal override (10.3 tuned 0.28 for
-		// tree canopies; grass wants 1.0 = pure up, matching its card
-		// normals so the billboard tier doesn't go dark)
+		// Grass can supply an all-up fallback normal.
 		if (auto u = bb.find("up_bias"); u != bb.end() && u->second.IsNumber())
+		{
 			bbUpBias = static_cast<float>(u->second.GetNumberAsDouble());
+			bbUpBiasExplicit = true;
+		}
 	}
 
 	// Foliage flags on all kraut tree materials: wind everywhere (trunk
@@ -1292,16 +1317,8 @@ static void KrautImportPostprocess(
 		}
 	}
 
-	// Canopy-normal bend: kraut leaf cards carry horizontal (card-plane)
-	// normals, so raw geometric normals leave the canopy dark from overhead
-	// while the old camera-facing flip washed it flat at low sun. Bend
-	// foliage normals toward a flattened crown-dome proxy instead:
-	// proxy = normalize(dir.x, dir.y*0.4 + crownR*0.6, dir.z) with dir from
-	// the crown center -- the canopy reads as a volumetric dome at every
-	// sun angle. Applied per tier so all chain levels shade identically
-	// (deep-tier generator normals are degraded). Height < 2 m meshes are
-	// skipped: ground cover (grass) uses deliberate all-up normals.
-	for (size_t mi = 0; mi < meshes.size(); ++mi)
+	// Unmarked assets receive the canopy shading model at import.
+	for (size_t mi = 0; !authoredCanopyNormals && mi < meshes.size(); ++mi)
 	{
 		auto& m = meshes[mi];
 		const BoxBounds aabb = m->GetAABB();
@@ -1363,6 +1380,46 @@ static void KrautImportPostprocess(
 		{
 			m->Normals.SetDirty();
 			m->SetDirty();
+		}
+	}
+
+	// Mean up-normal per mesh over the vertices its foliage submeshes use.
+	std::unordered_map<std::string, std::pair<double, size_t>> canopy_up;
+	for (size_t mi = 0; mi < meshes.size(); ++mi)
+	{
+		auto& m = meshes[mi];
+		if (m->GetSubMeshCount() == 0 || m->Normals.Data.empty())
+			continue;
+		for (unsigned int si = 0; si < m->GetSubMeshCount(); ++si)
+		{
+			// foliage submesh = MASK + two-sided material (trunk/bark keep
+			// their authored normals)
+			bool foliage = false;
+			if (mi < submesh_to_gltf_material.size() && si < submesh_to_gltf_material[mi].size())
+			{
+				int gm = submesh_to_gltf_material[mi][si];
+				if (gm >= 0 && gm < static_cast<int>(materials.size()))
+				{
+					auto& mat = materials[gm];
+					foliage = mat->GetAlphaMode() == AlphaMode::MASK && mat->GetTwoSided();
+				}
+			}
+			if (!foliage)
+				continue;
+			auto sub = m->GetSubMeshAt(si);
+			if (!sub)
+				continue;
+			auto& acc = canopy_up[m->GetName()];
+			std::vector<char> seen(m->Positions.Data.size() / 3, 0);
+			for (unsigned int vi : sub->Indices.Data)
+			{
+				size_t base = static_cast<size_t>(vi) * 3;
+				if (vi >= seen.size() || seen[vi] || base + 2 >= m->Normals.Data.size())
+					continue;
+				seen[vi] = 1;
+				acc.first += m->Normals.Data[base + 1];
+				acc.second += 1;
+			}
 		}
 	}
 
@@ -1436,11 +1493,42 @@ static void KrautImportPostprocess(
 				auto bbMat = materials[gm];
 				bbMat->SetUniform("u_billboard_atlas",
 					Uniform2f::Create({static_cast<float>(atlasCols), static_cast<float>(atlasRows)}));
-				// Tuned against the mesh tiers (10.3): camera-facing
-				// normals go ~10x dark under overhead sun, pure up
-				// overshoots ~3x; 0.28 lands within ~0% at high/front sun.
-				// extras.kraut.billboard.up_bias overrides per asset.
-				bbMat->SetUniform("u_billboard_up_bias", Uniform1f::Create({ bbUpBias }));
+				float bias = bbUpBias;
+				if (!bbUpBiasExplicit)
+				{
+					auto it = canopy_up.find(lod0->GetName());
+					if (it != canopy_up.end() && it->second.second > 0)
+						bias = BillboardBiasFromMeanUp(
+							static_cast<float>(it->second.first / static_cast<double>(it->second.second)));
+				}
+				bbMat->SetUniform("u_billboard_up_bias", Uniform1f::Create({ bias }));
+				bbMat->SetUniform("u_billboard_pivot", Uniform3f::Create({bbPivot.x, bbPivot.y, bbPivot.z}));
+				Texture::Ptr normalAtlas;
+				if (!bbNormalUri.empty() && bbNormalSpace == "object")
+				{
+					for (size_t ti = 0; ti < model.textures.size(); ++ti)
+					{
+						int source = model.textures[ti].source;
+						if (source >= 0 && source < static_cast<int>(model.images.size())
+							&& model.images[source].uri == bbNormalUri)
+						{
+							normalAtlas = CreateEngineTexture(model, static_cast<int>(ti), false, input_stem, input_dir);
+							break;
+						}
+					}
+				}
+				if (normalAtlas && normalAtlas->GetWidth() > 0 && normalAtlas->GetHeight() > 0)
+				{
+					bbMat->SetTexture(Material::NORMAL_TEXTURE, normalAtlas);
+					scene->GetEntityManager()->Add(normalAtlas);
+				}
+				else if (!bbNormalUri.empty())
+				{
+					FURYE << "gltf-importer: unsupported or missing billboard normal atlas '" << bbNormalUri << "'";
+					return false;
+				}
+				bbMat->SetUniform("u_billboard_normal_atlas", Uniform1f::Create({normalAtlas ? 1.0f : 0.0f}));
+				bbMat->SetPreZ(false);
 				bbMat->SetAlphaMode(AlphaMode::MASK);
 				bbMat->SetTwoSided(true);
 				// billboards never sway: displacing a camera-facing quad
@@ -1502,6 +1590,7 @@ static void KrautImportPostprocess(
 		c->SetLocalScale(c->GetLocalScale() * 100.0f);
 		c->Recompose(true);
 	}
+	return true;
 }
 
 std::shared_ptr<Scene> GltfImporter::Import(
@@ -1840,8 +1929,9 @@ std::shared_ptr<Scene> GltfImporter::Import(
 
 	// Kraut trees (glb with asset.extras.kraut): thresholds from extras,
 	// billboard terminal tier, foliage material flags, meters -> cm.
-	KrautImportPostprocess(model, scene, meshes, materials,
-		submesh_to_gltf_material, gltf_node_to_scene_node);
+	if (!KrautImportPostprocess(model, scene, meshes, materials,
+		submesh_to_gltf_material, gltf_node_to_scene_node, input_stem, input_dir))
+		return nullptr;
 
 	DdcStore cluster_ddc(DdcStore::ResolveRoot());
 	for (const auto &mesh : meshes)

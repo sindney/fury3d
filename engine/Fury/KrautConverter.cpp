@@ -324,6 +324,7 @@ namespace fury
 		std::vector<std::string> args = {
 			descriptor_path,
 			"--atlas", r.output_path,
+			"--atlas-normals", (output_dir.empty() ? stem : output_dir + "/" + stem) + "_BillboardNormals.png",
 			"--atlas-cols", std::to_string(atlasCols),
 		};
 		if (!descParent.empty())
@@ -349,11 +350,12 @@ namespace fury
 		}
 		r.exit_code = RunSubprocessCapture(binary, args, r.stdout_capture, r.stderr_capture);
 
-		if (r.exit_code != 0 || !FileExists(r.output_path))
+		const std::string normalPath = (output_dir.empty() ? stem : output_dir + "/" + stem) + "_BillboardNormals.png";
+		if (r.exit_code != 0 || !FileExists(r.output_path) || !FileExists(normalPath))
 		{
-			if (r.exit_code == 0 && !FileExists(r.output_path))
+			if (r.exit_code == 0 && (!FileExists(r.output_path) || !FileExists(normalPath)))
 				r.stderr_capture += "\nKrautConverter: subprocess exited 0 but '"
-					+ r.output_path + "' was not written";
+					+ r.output_path + "' or its normal atlas was not written";
 			r.output_path.clear();
 		}
 		return r;

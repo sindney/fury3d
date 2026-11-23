@@ -10,6 +10,7 @@
 #include "Fury/Camera.h"
 
 #include <cmath>
+#include <limits>
 #include <cstdlib>
 #include <string>
 
@@ -321,7 +322,7 @@ namespace fury
 		auto size = mx - mn;
 		float radius = 0.5f * std::sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
 		if (radius < 1e-6f)
-			return 1.0f;
+			return std::numeric_limits<float>::max();
 
 		// View-space distance from the AABB center to the camera
 		// origin. Combined with the perspective half-FOV tangent,
@@ -334,9 +335,8 @@ namespace fury
 		float halfFovTan = std::tan(fov * 0.5f);
 		if (halfFovTan < 1e-6f)
 			return -1.0f;
-		// Coverage as the model's apparent height / viewport height.
+		// Oversized projections retain coverage above one.
 		float coverage = (radius / distance) / halfFovTan;
-		if (coverage > 1.0f) coverage = 1.0f;
 		return coverage;
 	}
 
@@ -349,7 +349,7 @@ namespace fury
 			return count - 1;
 
 		// threshold(i) is the coverage below which tier i activates
-		// (Mesh.h contract); tier 0 owns [threshold(1), 1.0]. Walk
+		// (Mesh.h contract); tier 0 owns coverage >= threshold(1). Walk
 		// deep->shallow: each tier whose threshold the coverage still
 		// meets promotes the pick one slot shallower. (The historical
 		// shallow->deep walk compared against threshold(i) directly,

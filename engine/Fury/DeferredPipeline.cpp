@@ -90,6 +90,39 @@ namespace
 	// black billboards under a low sun).
 	constexpr float kBillboardUpBias = 0.28f;
 
+	void BindBillboardDefaults(const std::shared_ptr<Shader>& shader, const std::shared_ptr<Material>& material)
+	{
+		if (!material->GetUniform("u_billboard_up_bias"))
+			shader->BindFloat("u_billboard_up_bias", kBillboardUpBias);
+		if (!material->GetUniform("u_billboard_normal_atlas"))
+			shader->BindFloat("u_billboard_normal_atlas", 0.0f);
+		if (!material->GetUniform("u_billboard_pivot"))
+			shader->BindFloat("u_billboard_pivot", 0.0f, 0.0f, 0.0f);
+	}
+
+	void CacheMaterialBindings(DrawCommand& cmd, bool billboard)
+	{
+		auto material = cmd.material;
+		auto shader = cmd.shader;
+		for (const auto& kv : material->GetTextures())
+			cmd.textureBinds.push_back({shader->GetUniformLocation(kv.first), kv.second});
+		if (!material->GetTexture(Material::NORMAL_TEXTURE))
+			cmd.textureBinds.push_back({shader->GetUniformLocation(Material::NORMAL_TEXTURE), GetDummyNormalTexture()});
+		for (const auto& kv : material->GetUniforms())
+			cmd.uniformBinds.push_back({shader->GetUniformLocation(kv.first), kv.second});
+		cmd.uniformBinds.push_back({shader->GetUniformLocation("normal_texture_valid"),
+			Uniform1i::Create({material->GetTexture(Material::NORMAL_TEXTURE) ? 1 : 0})});
+		if (billboard)
+		{
+			if (!material->GetUniform("u_billboard_up_bias"))
+				cmd.uniformBinds.push_back({shader->GetUniformLocation("u_billboard_up_bias"), Uniform1f::Create({kBillboardUpBias})});
+			if (!material->GetUniform("u_billboard_normal_atlas"))
+				cmd.uniformBinds.push_back({shader->GetUniformLocation("u_billboard_normal_atlas"), Uniform1f::Create({0.0f})});
+			if (!material->GetUniform("u_billboard_pivot"))
+				cmd.uniformBinds.push_back({shader->GetUniformLocation("u_billboard_pivot"), Uniform3f::Create({0.0f, 0.0f, 0.0f})});
+		}
+	}
+
 	RHICommandList *Cmd()
 	{
 		return GRHIDevice != nullptr ? GRHIDevice->GetCommandList() : nullptr;
@@ -147,6 +180,31 @@ namespace
 		return false;
 	}
 
+	bool PreZShadersCoverVisible(const FramePacket& packet, const PreZDepthShaders& shaders)
+	{
+		for (const auto& unit : packet.opaqueUnits)
+		{
+			auto material = unit.material;
+			if (!unit.billboard && material && material->GetPreZ()
+				&& !shaders.Pick(unit.mesh->IsSkinnedMesh(), material->GetAlphaMode() == AlphaMode::MASK
+					&& material->GetTexture(Material::DIFFUSE_TEXTURE), material->GetWindEnabled()))
+				return false;
+		}
+		for (const auto& pk : packet.instanced)
+		{
+			bool hasMeshBatch = false;
+			for (const auto& batch : pk.batches)
+				hasMeshBatch |= !batch.Billboard && !batch.WorldMatrices.empty();
+			if (!hasMeshBatch) continue;
+			for (const auto& material : pk.materials)
+				if (material && material->GetPreZ()
+					&& !shaders.PickInstanced(material->GetAlphaMode() == AlphaMode::MASK
+						&& material->GetTexture(Material::DIFFUSE_TEXTURE), material->GetWindEnabled()))
+					return false;
+		}
+		return true;
+	}
+
 	bool ClusterLodBackendActive()
 	{
 		if (GRHIDevice == nullptr)
@@ -193,13 +251,12 @@ namespace
 		return true;
 	}
 
-	// Shared shader-variant resolution for DrawUnit / the draw-command
-	// cache (identical rules, identical fallback order).
-	std::shared_ptr<Shader> ResolveUnitShader(const std::shared_ptr<Pass> &pass,
+	// Cached and uncached draws share shader and instance-stream selection.
+	std::shared_ptr<Shader> ResolveMeshShader(const std::shared_ptr<Pass> &pass,
 		const std::shared_ptr<Material> &material, const std::shared_ptr<Mesh> &mesh,
-		bool billboard, bool shadowBit)
+		bool billboard, bool shadowBit, bool instanced = false)
 	{
-		auto shader = material->GetShaderForPass(pass->GetRenderIndex());
+		auto shader = instanced ? nullptr : material->GetShaderForPass(pass->GetRenderIndex());
 		if (shader != nullptr)
 			return shader;
 
@@ -222,6 +279,12 @@ namespace
 			textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
 				(unsigned int)ShaderTexture::TWO_SIDED |
 				(unsigned int)ShaderTexture::ALPHA_TEST;
+		if (instanced)
+		{
+			textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
+			if (InstancedMeshStreamer::Get().UseSSBO())
+				textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
+		}
 		ShaderType shaderType = mesh->IsSkinnedMesh() ? ShaderType::SKINNED_MESH : ShaderType::STATIC_MESH;
 		shader = pass->GetShader(shaderType, textureFlags);
 
@@ -240,7 +303,7 @@ namespace
 			shader = pass->GetShader(shaderType,
 				textureFlags & ~(unsigned int)ShaderTexture::SHADOW &
 					~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
-		if (shader == nullptr && !billboard)
+		if (shader == nullptr && !billboard && !instanced)
 			shader = pass->GetShader(shaderType,
 				material->GetTextureFlags());
 		return shader;
@@ -249,23 +312,17 @@ namespace
 
 	std::shared_ptr<Shader> PreZDepthShaders::Pick(bool skinned, bool alphaTest, bool wind) const
 	{
-		if (skinned)
-			return Skin ? Skin : Plain;
-		std::shared_ptr<Shader> s;
-		if (alphaTest && wind) s = AlphaTestWind;
-		else if (alphaTest) s = AlphaTest;
-		else if (wind) s = Wind;
-		return s ? s : Plain;
+		if (skinned) return Skin;
+		if (alphaTest && wind) return AlphaTestWind;
+		if (alphaTest) return AlphaTest;
+		return wind ? Wind : Plain;
 	}
 
 	std::shared_ptr<Shader> PreZDepthShaders::PickInstanced(bool alphaTest, bool wind) const
 	{
-		std::shared_ptr<Shader> s;
-		if (alphaTest && wind) s = InstAlphaTestWind;
-		if (!s && alphaTest) s = InstAlphaTest;
-		if (!s && wind) s = InstWind;
-		if (!s) s = Inst;
-		return s;
+		if (alphaTest && wind) return InstAlphaTestWind;
+		if (alphaTest) return InstAlphaTest;
+		return wind ? InstWind : Inst;
 	}
 
 	DeferredPipeline::Ptr DeferredPipeline::Create(const std::string &name)
@@ -1261,9 +1318,8 @@ namespace
 				if (vegPreZ)
 				{
 					preZShaders = FetchPreZDepthShaders(this);
-					// No depth variants at all (legacy pipeline JSON):
-					// fall back to the plain single-phase draw.
-					vegPreZ = preZShaders.Plain != nullptr || preZShaders.Inst != nullptr;
+					// EQUAL reuse requires every flagged draw's matching depth variant.
+					vegPreZ = PreZShadersCoverVisible(packet, preZShaders);
 				}
 				if (vegPreZ)
 				{
@@ -1709,6 +1765,7 @@ namespace
 		int cursor = 0;
 		if (shaderChanged)
 		{
+			m_CurrentMesh = nullptr;
 			materialChanged = true;
 
 			shader->Bind();
@@ -1786,7 +1843,7 @@ namespace
 			}
 			else
 			{
-				shader = ResolveUnitShader(pass, material, mesh, billboard, false);
+				shader = ResolveMeshShader(pass, material, mesh, billboard, false);
 				if (shader == nullptr)
 				{
 					FURYW << "Failed to draw unit " << unit.nodeKey << ", shader not found!";
@@ -1809,13 +1866,7 @@ namespace
 				(shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
 			cmd.alphaCutoff = material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f;
 
-			for (const auto &kv : material->GetTextures())
-				cmd.textureBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
-			for (const auto &kv : material->GetUniforms())
-				cmd.uniformBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
-			if (billboard && !material->GetUniform("u_billboard_up_bias"))
-				cmd.uniformBinds.push_back({ shader->GetUniformLocation("u_billboard_up_bias"),
-					Uniform1f::Create({ kBillboardUpBias }) });
+			CacheMaterialBindings(cmd, billboard);
 			for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 			{
 				auto ptr = pass->GetTextureAt(i, true);
@@ -1936,7 +1987,7 @@ namespace
 		const int drawSubMesh = unit.subMesh;
 		const bool billboard = unit.billboard;
 
-		auto shader = ResolveUnitShader(pass, material, mesh, billboard,
+		auto shader = ResolveMeshShader(pass, material, mesh, billboard,
 			lightIndex >= 0 && packet.lights[lightIndex].castShadows);
 
 		if (shader == nullptr)
@@ -1971,6 +2022,8 @@ namespace
 		if (materialChanged)
 		{
 			shader->BindMaterial(material);
+			if (billboard)
+				BindBillboardDefaults(shader, material);
 
 			// Alpha test: only MASK materials get a cutoff >= 0;
 			// everything else disables the discard branch via -1.
@@ -2232,8 +2285,8 @@ namespace
 					// participate (single quads, negligible overdraw).
 					if (filter != PreZFilter::None)
 					{
-						const bool flagged = material->GetPreZ();
-						if (batch.Billboard || (filter == PreZFilter::Flagged) != flagged)
+						const bool flagged = !batch.Billboard && material->GetPreZ();
+						if ((filter == PreZFilter::Flagged) != flagged)
 							continue;
 					}
 
@@ -2250,15 +2303,15 @@ namespace
 						}
 						else
 						{
-							shader = ResolveUnitShader(pass, material, tierMesh, batch.Billboard, false);
+							shader = ResolveMeshShader(pass, material, tierMesh, batch.Billboard, false, true);
 						}
 						if (shader == nullptr)
 							continue;
 						shader->Bind();
 						shader->BindCameraData(packet.camera);
 						shader->BindMaterial(material);
-						if (batch.Billboard && !material->GetUniform("u_billboard_up_bias"))
-							shader->BindFloat("u_billboard_up_bias", kBillboardUpBias);
+						if (batch.Billboard)
+							BindBillboardDefaults(shader, material);
 						shader->BindFloat("u_alpha_cutoff",
 							material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f);
 						const bool windActive = preZShaders != nullptr ? wind :
@@ -2309,37 +2362,7 @@ namespace
 						}
 						else
 						{
-							unsigned int textureFlags = material->GetTextureFlags();
-							if (material->GetAlphaMode() == AlphaMode::MASK)
-								textureFlags |= (unsigned int)ShaderTexture::ALPHA_TEST;
-							if (material->GetTwoSided())
-								textureFlags |= (unsigned int)ShaderTexture::TWO_SIDED;
-							if (material->GetWindEnabled())
-								textureFlags |= (unsigned int)ShaderTexture::WIND;
-							if (batch.Billboard)
-								textureFlags |= (unsigned int)ShaderTexture::BILLBOARD |
-									(unsigned int)ShaderTexture::TWO_SIDED |
-									(unsigned int)ShaderTexture::ALPHA_TEST;
-							textureFlags |= (unsigned int)ShaderTexture::INSTANCED;
-							if (useSSBO)
-								textureFlags |= (unsigned int)ShaderTexture::INSTANCE_SSBO;
-
-							// Fallback order: drop the SSBO bit (divisor variant of
-							// the same shader), then wind, then the remaining
-							// vegetation bits. INSTANCED is never dropped -- a
-							// non-instanced shader would draw the whole batch at
-							// one transform.
-							shader = pass->GetShader(ShaderType::STATIC_MESH, textureFlags);
-							if (shader == nullptr && (textureFlags & (unsigned int)ShaderTexture::INSTANCE_SSBO))
-								shader = pass->GetShader(ShaderType::STATIC_MESH,
-									textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO);
-							if (shader == nullptr)
-								shader = pass->GetShader(ShaderType::STATIC_MESH,
-									textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO & ~(unsigned int)ShaderTexture::WIND);
-							if (shader == nullptr)
-								shader = pass->GetShader(ShaderType::STATIC_MESH,
-									textureFlags & ~(unsigned int)ShaderTexture::INSTANCE_SSBO &
-										~(unsigned int)ShaderTexture::TWO_SIDED & ~(unsigned int)ShaderTexture::WIND);
+							shader = ResolveMeshShader(pass, material, tierMesh, batch.Billboard, false, true);
 							if (shader == nullptr)
 							{
 								FURYW << "Failed to draw instanced " << pk.nodeKey << ", shader not found!";
@@ -2361,13 +2384,7 @@ namespace
 							(shader->GetTextureFlags() & (unsigned int)ShaderTexture::WIND) != 0;
 						cmd.alphaCutoff = material->GetAlphaMode() == AlphaMode::MASK ? material->GetAlphaCutoff() : -1.0f;
 
-						for (const auto &kv : material->GetTextures())
-							cmd.textureBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
-						for (const auto &kv : material->GetUniforms())
-							cmd.uniformBinds.push_back({ shader->GetUniformLocation(kv.first), kv.second });
-						if (batch.Billboard && !material->GetUniform("u_billboard_up_bias"))
-							cmd.uniformBinds.push_back({ shader->GetUniformLocation("u_billboard_up_bias"),
-								Uniform1f::Create({ kBillboardUpBias }) });
+						CacheMaterialBindings(cmd, batch.Billboard);
 						for (unsigned int i = 0; i < pass->GetTextureCount(true); i++)
 						{
 							auto ptr = pass->GetTextureAt(i, true);
