@@ -1,7 +1,6 @@
 #ifndef _FURY_TEXTURE_H_
 #define _FURY_TEXTURE_H_
 
-#include <stack>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -21,7 +20,7 @@ namespace fury
 	{
 	protected:
 
-		static std::unordered_map<std::string, std::stack<std::shared_ptr<Texture>>> m_TexturePool;
+		static std::unordered_map<std::string, std::vector<std::shared_ptr<Texture>>> m_TexturePool;
 
 		static std::string GetKeyFromParams(int width, int height, int depth, TextureFormat format, TextureType type);
 
@@ -36,7 +35,7 @@ namespace fury
 		// create new or reuse texture from pool. textures are named like 512x512xrgba8x2d.
 		static Ptr GetTemporary(int width, int height, int depth, TextureFormat format, TextureType type = TextureType::TEXTURE_2D);
 
-		// collect texture to pool for reuse.
+		// Return to the pool; reuse waits until all other Texture owners drop it.
 		static void ReleaseTemporary(const std::shared_ptr<Texture> &ptr);
 
 		// delete and release all textures from pool.
@@ -83,7 +82,7 @@ namespace fury
 
 		void Serialize(Archive& ar) override;
 
-		void CreateFromImage(const std::string &filePath, bool srgb, bool mipMap);
+		void CreateFromImage(std::string filePath, bool srgb, bool mipMap);
 
 		// Cooked-texture path: parse a KTX2 (unsupercompressed BCn payload)
 		// and upload its mip chain via glCompressedTexSubImage2D. Falls back

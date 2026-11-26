@@ -3194,7 +3194,8 @@ namespace fury
 				// emits "srgb": <flag> for the embedded record.
 				"SetTextureSRGB", [](Material &mat, const std::string &key, bool srgb) {
 					if (auto tex = mat.GetTexture(key))
-						tex->SetFilePathAndSRGB(tex->GetFilePath(), srgb);
+						if (tex->IsSRGB() != srgb && !tex->GetFilePath().empty())
+							tex->CreateFromImage(tex->GetFilePath(), srgb, tex->GetMipmap());
 				},
 				"GetTextureSRGB", [](const Material &mat, const std::string &key) -> bool {
 					auto tex = mat.GetTexture(key);
@@ -3202,7 +3203,9 @@ namespace fury
 				},
 				"SetTexture", [](Material &mat, const std::string &key, const std::string &path) {
 					auto tex = Texture::Create(key);
-					tex->SetFilePathAndSRGB(path, true);
+					// Resolve/decode on the game thread; CreateFromImage queues the
+					// upload before the next frame submission when threaded.
+					tex->CreateFromImage(path, true, true);
 					mat.SetTexture(key, tex);
 				},
 				"GetUniform", [](Material &mat, const std::string &key, sol::this_state s) -> sol::object {

@@ -1713,9 +1713,8 @@ namespace
 		m_CurrentMateral = nullptr;
 		m_CurrentMesh = nullptr;
 
-		// Now that every pass (transparent shadow-receive included) is
-		// done sampling this frame's shadow maps, return them to the
-		// temporary pool.
+		// The pool only reuses textures with no remaining borrowers. Frame
+		// results and editor previews can retain these beyond this frame.
 		for (auto &tex : packet.frameShadowTemps)
 			Texture::ReleaseTemporary(tex);
 		packet.frameShadowTemps.clear();

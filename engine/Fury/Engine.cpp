@@ -945,7 +945,7 @@ namespace fury
 				FrameResult frameResult;
 				while (renderThreadInst.PollFrameResult(frameResult))
 				{
-					if (!frameResult.shadowTextures.empty() && Pipeline::Active)
+					if (Pipeline::Active)
 						Pipeline::Active->UpdateShadowTextureCache(frameResult.shadowTextures);
 				}
 			}

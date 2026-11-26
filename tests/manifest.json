@@ -14,6 +14,14 @@
  },
  "tests": [
   {
+   "id": "sphere_uv",
+   "lane": "headless",
+   "script": "{tests}/lua/sphere_uv.lua",
+   "scene": "Projects/feature/feature.bin",
+   "tags": ["mesh", "texture"],
+   "requires": ["{examples}/Projects/feature/feature.bin"]
+  },
+  {
    "id": "scene_smoke_iterate",
    "lane": "headless",
    "script": "{tests}/lua/scene_smoke_iterate.lua",
@@ -1542,7 +1550,8 @@
    "notes": "Diffuse plus tangent-space normal material on the OpenGL fallback path.",
    "requires": [
     "{examples}/fury",
-    "{examples}/Projects/feature/normal_wave.png"
+    "{examples}/Projects/feature/Travertine013_1K-JPG_NormalDX.jpg",
+    "{examples}/Projects/feature/Travertine013_1K-JPG_Color.jpg"
    ]
   },
   {
@@ -1574,7 +1583,8 @@
    "notes": "Diffuse plus tangent-space normal material on the Metal fallback path.",
    "requires": [
     "{examples}/fury",
-    "{examples}/Projects/feature/normal_wave.png"
+    "{examples}/Projects/feature/Travertine013_1K-JPG_NormalDX.jpg",
+    "{examples}/Projects/feature/Travertine013_1K-JPG_Color.jpg"
    ]
   },
   {
@@ -1611,7 +1621,8 @@
    "notes": "Active Metal clustered/fallback A/B for tangent-space normal mapping.",
    "requires": [
     "{examples}/fury",
-    "{examples}/Projects/feature/normal_wave.png"
+    "{examples}/Projects/feature/Travertine013_1K-JPG_NormalDX.jpg",
+    "{examples}/Projects/feature/Travertine013_1K-JPG_Color.jpg"
    ]
   },
   {

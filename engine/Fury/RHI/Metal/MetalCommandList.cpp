@@ -1107,17 +1107,23 @@ namespace fury
 		{
 			const int stage = static_cast<int>(kv.first >> 32);
 			const int index = static_cast<int>(kv.first & 0xFFFFFFFF);
-			if (kv.second.Texture == nullptr)
+			// A slot with no texture still needs a bound sampler: Metal
+			// sampling an unbound texture is undefined, and a material
+			// whose texture never reached the GPU binds exactly that.
+			MetalTexture *tex = kv.second.Texture != nullptr
+				? static_cast<MetalTexture *>(kv.second.Texture.get())
+				: static_cast<MetalTexture *>(m_Device->GetFallbackTexture().get());
+			if (tex == nullptr)
 				continue;
 			if (stage == 0)
 			{
-				m_Encoder->setVertexTexture(kv.second.Texture->Get(), index);
-				m_Encoder->setVertexSamplerState(kv.second.Texture->GetSampler(), index);
+				m_Encoder->setVertexTexture(tex->Get(), index);
+				m_Encoder->setVertexSamplerState(tex->GetSampler(), index);
 			}
 			else
 			{
-				m_Encoder->setFragmentTexture(kv.second.Texture->Get(), index);
-				m_Encoder->setFragmentSamplerState(kv.second.Texture->GetSampler(), index);
+				m_Encoder->setFragmentTexture(tex->Get(), index);
+				m_Encoder->setFragmentSamplerState(tex->GetSampler(), index);
 			}
 		}
 	}

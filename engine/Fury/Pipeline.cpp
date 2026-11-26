@@ -1080,6 +1080,9 @@ namespace fury
 	void Pipeline::UpdateShadowTextureCache(
 		const std::unordered_map<std::uint64_t, std::shared_ptr<Texture>> &byLightKey)
 	{
+		// Per-frame map: a light that stopped casting shadows drops out
+		// instead of leaving a stale pooled texture behind.
+		m_LastShadowTextures.clear();
 		for (const auto &kv : byLightKey)
 			m_LastShadowTextures[reinterpret_cast<SceneNode *>(
 				static_cast<uintptr_t>(kv.first))] = kv.second;

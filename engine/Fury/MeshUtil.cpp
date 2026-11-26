@@ -276,7 +276,7 @@ namespace fury
 
 	std::shared_ptr<Mesh> MeshUtil::CreateSphere(const std::string &name, float radius, int segH, int segV)
 	{
-		if (segH < 2 || segV < 3)
+		if (segH < 3 || segV < 3 || radius <= 0.0f)
 		{
 			FURYW << "SegH or SegV tooooo small!";
 			return nullptr;
@@ -300,9 +300,11 @@ namespace fury
 			radius = radius / std::cos(avgRadianH * 0.5f);*/
 
 		unsigned int index = 0;
-		auto AddVertex = [&mesh, &index](float x, float y, float z) -> unsigned int
+		auto AddVertex = [&mesh, &index, radius](float x, float y, float z, float u, float v) -> unsigned int
 		{
 			mesh->Positions.Data.insert(mesh->Positions.Data.end(), { x, y, z });
+			mesh->Normals.Data.insert(mesh->Normals.Data.end(), { x / radius, y / radius, z / radius });
+			mesh->UVs.Data.insert(mesh->UVs.Data.end(), { u, v });
 			return index++;
 		};
 
@@ -310,13 +312,22 @@ namespace fury
 		{
 			currentRadius = std::sin(h * avgRadianH) * radius;
 			currentHeight = std::cos(h * avgRadianH) * radius;
+			if (h == 0 || h == segH - 1)
+			{
+				currentRadius = 0.0f;
+				currentHeight = h == 0 ? radius : -radius;
+			}
 
 			// fill current ring
-			for (int v = 0; v < segV; v++)
+			// Duplicate the meridian at U=0/1: triangles must not interpolate
+			// across the wrap. V follows the latitude, rather than projecting
+			// XZ (which stretched textures and mirrored the two hemispheres).
+			for (int v = 0; v <= segV; v++)
 			{
-				float radian = avgRadianV * v;
+				float radian = v == segV ? 0.0f : avgRadianV * v;
 				currentRing.push_back(AddVertex(
-					cos(radian) * currentRadius, currentHeight, sin(radian) * currentRadius));
+					cos(radian) * currentRadius, currentHeight, sin(radian) * currentRadius,
+					static_cast<float>(v) / segV, static_cast<float>(h) / (segH - 1)));
 			}
 
 			if (previousRing.size() > 0)
@@ -324,39 +335,19 @@ namespace fury
 				// has previous ring, we connect them to triangles.
 				for (unsigned int i = 0; i < currentRing.size() - 1; i++)
 				{
-					mesh->Indices.Data.insert(mesh->Indices.Data.end(), {
-						previousRing[i], previousRing[i + 1], currentRing[i + 1],
-						currentRing[i + 1], currentRing[i], previousRing[i]
-					});
+					// Each polar cell has only one non-degenerate triangle.
+					if (h > 1)
+						mesh->Indices.Data.insert(mesh->Indices.Data.end(), {
+							previousRing[i], previousRing[i + 1], currentRing[i + 1] });
+					if (h < segH - 1)
+						mesh->Indices.Data.insert(mesh->Indices.Data.end(), {
+							currentRing[i + 1], currentRing[i], previousRing[i] });
 				}
-				mesh->Indices.Data.insert(mesh->Indices.Data.end(), {
-					previousRing.back(), previousRing.front(), currentRing.front(),
-					currentRing.front(), currentRing.back(), previousRing.back()
-				});
-			}
-			else
-			{
-				// don't have previous ring, then we're on top.
-				// close this ring.
-				unsigned int center = AddVertex(0, currentHeight, 0);
-				for (unsigned int i = 0; i < currentRing.size() - 1; i++)
-				{
-					mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, currentRing[i + 1], currentRing[i] });
-				}
-				mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, currentRing.front(), currentRing.back() });
 			}
 
 			previousRing = currentRing;
 			currentRing.erase(currentRing.begin(), currentRing.end());
 		}
-
-		// close bottom ring
-		unsigned int center = AddVertex(0, -radius, 0);
-		for (unsigned int i = 0; i < previousRing.size() - 1; i++)
-		{
-			mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, previousRing[i], previousRing[i + 1] });
-		}
-		mesh->Indices.Data.insert(mesh->Indices.Data.end(), { center, previousRing.back(), previousRing.front() });
 
 		FURYD << mesh->GetName() << " [vtx: " << mesh->Positions.Data.size() / 3 << " tris: " << mesh->Indices.Data.size() / 3 << "]";
 
@@ -976,7 +967,7 @@ namespace fury
 
 		auto GetUVAt = [&mesh](unsigned int index) -> Vector4
 		{
-			unsigned int j = index * 3;
+			unsigned int j = index * 2;
 			return Vector4(mesh->UVs.Data[j], mesh->UVs.Data[j + 1], 0, 0);
 		};
 

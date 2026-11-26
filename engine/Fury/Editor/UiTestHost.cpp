@@ -38,6 +38,7 @@
 #include "Fury/SceneNode.h"
 #include "Fury/SceneManager.h"
 #include "Fury/Transform.h"
+#include "Fury/Texture.h"
 
 #include <chrono>
 #include <cstdio>
@@ -271,6 +272,64 @@ namespace fury
 			}
 
 			// ----- tests ---------------------------------------------------
+
+			void TestTextureLifetime(ImGuiTestContext *ctx)
+			{
+				std::promise<bool> done;
+				auto wait = done.get_future();
+				const auto imagePath = std::filesystem::absolute("Projects/feature/unspecified.png").string();
+				RenderThread::Get().EnqueueJob([imagePath, &done]() {
+					bool ok = true;
+					// A result can wait several frames before a preview consumes it.
+					// Returning a texture to the pool must not end that ownership.
+					auto texture = Texture::GetTemporary(13, 17, 0, TextureFormat::RGBA8);
+					auto *original = texture.get();
+					FrameResult result;
+					result.shadowTextures[1] = texture;
+					Texture::ReleaseTemporary(texture);
+					texture.reset();
+					auto acquireAnother = [&]() {
+						auto next = Texture::GetTemporary(13, 17, 0, TextureFormat::RGBA8);
+						ok = ok && next.get() != original;
+						Texture::ReleaseTemporary(next);
+					};
+					for (int frame = 0; frame < 4; ++frame)
+						acquireAnother();
+					std::function<void()> preview = [held = result.shadowTextures.at(1)]() {};
+					result.shadowTextures.clear();
+					for (int frame = 0; frame < 4; ++frame)
+						acquireAnother();
+					preview = nullptr;
+					// The two idle textures are reusable once all borrowers drop them.
+					auto first = Texture::GetTemporary(13, 17, 0, TextureFormat::RGBA8);
+					auto second = Texture::GetTemporary(13, 17, 0, TextureFormat::RGBA8);
+					ok = ok && (first.get() == original || second.get() == original);
+					Texture::ReleaseTemporary(first);
+					Texture::ReleaseTemporary(second);
+
+					// Reloading from GetFilePath() must survive DeleteBuffer clearing
+					// the old resource, and preserve an explicitly disabled mip chain.
+					auto image = Texture::Create("reload_probe");
+					image->CreateFromImage(imagePath, true, false);
+					const int width = image->GetWidth(), height = image->GetHeight();
+					image->CreateFromImage(image->GetFilePath(), false, image->GetMipmap());
+					ok = ok && width > 0 && height > 0 && image->GetWidth() == width
+						&& image->GetHeight() == height && image->GetFilePath() == imagePath
+						&& image->GetRHITexture() && !image->IsSRGB() && !image->GetMipmap();
+					done.set_value(ok);
+				});
+				IM_CHECK(wait.get());
+
+				// An empty result must evict a light that stopped casting shadows.
+				auto pipeline = DeferredPipeline::Create("shadow_cache_probe");
+				auto node = FindNode(kSubjectName);
+				IM_CHECK(node != nullptr);
+				auto texture = Texture::Create("cache_probe");
+				pipeline->UpdateShadowTextureCache({{reinterpret_cast<std::uint64_t>(node.get()), texture}});
+				IM_CHECK(pipeline->GetLastShadowTexture(*node) == texture);
+				pipeline->UpdateShadowTextureCache({});
+				IM_CHECK(pipeline->GetLastShadowTexture(*node) == nullptr);
+			}
 
 			// Same render-thread read the "Read Cluster Stats" button
 			// performs; the static that caches the button result lives in
@@ -1187,6 +1246,8 @@ namespace fury
 			io.ExportResultsFilename = s_JunitPath.c_str();
 
 			ImGuiTest *test = nullptr;
+			test = IM_REGISTER_TEST(s_Engine, "editor", "texture_lifetime");
+			test->TestFunc = TestTextureLifetime;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "select_and_edit_known_node");
 			test->TestFunc = TestSelectAndEditKnownNode;
 			test = IM_REGISTER_TEST(s_Engine, "editor", "hierarchy_selection");

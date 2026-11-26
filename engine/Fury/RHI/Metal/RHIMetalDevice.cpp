@@ -357,6 +357,29 @@ namespace fury
 		return MetalTexture::Create(m_Device, desc);
 	}
 
+	const RHITextureRef &RHIMetalDevice::GetFallbackTexture()
+	{
+		if (m_FallbackTexture == nullptr)
+		{
+			RHITextureDesc desc;
+			desc.Name = "metal_fallback";
+			desc.Type = TextureType::TEXTURE_2D;
+			desc.Format = TextureFormat::RGBA8;
+			desc.Width = 1;
+			desc.Height = 1;
+			desc.MipLevels = 1;
+			desc.Sampler.Filter = FilterMode::NEAREST;
+			desc.Sampler.Wrap = WrapMode::CLAMP_TO_EDGE;
+			m_FallbackTexture = MetalTexture::Create(m_Device, desc);
+			if (m_FallbackTexture != nullptr)
+			{
+				const unsigned char white[4] = { 255, 255, 255, 255 };
+				static_cast<MetalTexture *>(m_FallbackTexture.get())->Upload(white, sizeof(white), 0, -1);
+			}
+		}
+		return m_FallbackTexture;
+	}
+
 	void RHIMetalDevice::UpdateTexture(const RHITextureRef &texture, const void *data, size_t size, int mipLevel, int layer)
 	{
 		if (texture == nullptr)

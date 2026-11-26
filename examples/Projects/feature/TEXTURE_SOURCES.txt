@@ -1,0 +1,9 @@
+Travertine013_1K-JPG_Color.jpg and Travertine013_1K-JPG_NormalDX.jpg
+Source: ambientCG, Travertine 013 (https://ambientcg.com/view?id=Travertine013)
+Download: https://ambientcg.com/get?file=Travertine013_1K-JPG.zip
+License: Creative Commons CC0 1.0 Universal
+License details: https://docs.ambientcg.com/license/
+
+Both files are unmodified from the 1K-JPG archive. Color is sampled as sRGB;
+the normal map is sampled as linear data. The procedural sphere's UV/TBN
+convention uses the NormalDX variant (green inverted relative to NormalGL).

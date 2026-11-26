@@ -36,7 +36,7 @@
 
 namespace fury
 {
-	std::unordered_map<std::string, std::stack<std::shared_ptr<Texture>>> Texture::m_TexturePool;
+	std::unordered_map<std::string, std::vector<std::shared_ptr<Texture>>> Texture::m_TexturePool;
 
 	Texture::Ptr Texture::Create(const std::string &name)
 	{
@@ -52,11 +52,17 @@ namespace fury
 		auto it = m_TexturePool.find(key);
 		if (it != m_TexturePool.end())
 		{
-			if (!it->second.empty())
+			// BufferManager keeps weak references. A sole pool reference means
+			// no packet, frame result, or editor preview can still sample it.
+			auto &textures = it->second;
+			for (size_t i = textures.size(); i-- > 0;)
 			{
-				auto texture = it->second.top();
-				it->second.pop();
-				return texture;
+				if (textures[i].use_count() == 1)
+				{
+					auto texture = std::move(textures[i]);
+					textures.erase(textures.begin() + i);
+					return texture;
+				}
 			}
 		}
 
@@ -70,24 +76,17 @@ namespace fury
 	{
 		FURY_RHI_THREAD_GUARD();
 		auto key = Texture::GetKeyFromPtr(ptr);
-		auto it = m_TexturePool.find(key);
-		if (it == m_TexturePool.end())
-			it = m_TexturePool.emplace(key, std::stack<Texture::Ptr>()).first;
-		
-		it->second.push(ptr);
+		m_TexturePool[key].push_back(ptr);
 	}
 
 	void Texture::ReleaseTempories()
 	{
-		for (auto pair : m_TexturePool)
+		for (auto &pair : m_TexturePool)
 		{
-			auto &stack = pair.second;
-			while (!stack.empty())
-			{
-				BufferManager::Instance()->Release(stack.top()->GetBufferId());
-				stack.pop();
-			}
+			for (auto &texture : pair.second)
+				BufferManager::Instance()->Release(texture->GetBufferId());
 		}
+		m_TexturePool.clear();
 	}
 
 	std::string Texture::GetKeyFromParams(int width, int height, int depth, TextureFormat format, TextureType type)
@@ -166,13 +165,14 @@ namespace fury
 		}
 	}
 
-	void Texture::CreateFromImage(const std::string &filePath, bool srgb, bool mipMap)
+	void Texture::CreateFromImage(std::string filePath, bool srgb, bool mipMap)
 	{
 		// Path resolution + decode + bookkeeping run on the CALLING thread:
 		// Scene::ResolveAsset depends on the active scene's working dir,
 		// which only the caller's context knows (mid-run scene opens must
 		// not resolve paths on the render thread). Only the GL upload is
 		// dispatched to the GL thread.
+		// Own the path: callers may pass GetFilePath(), which DeleteBuffer clears.
 		DeleteBuffer();
 
 		int channels = 0;

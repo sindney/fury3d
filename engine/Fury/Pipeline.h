@@ -153,40 +153,13 @@ namespace fury
 
 		// Per-frame, per-light shadow texture cache for editor debug views.
 		// Keyed by the light's SceneNode* raw pointer (lifetime = scene
-		// lifetime; cleared at the top of each Execute). Value is the
-		// shadow texture returned by Draw{Dir,Point,Spot,Cascaded}LightShadowMap.
+		// lifetime; replaced each frame when the frame's results arrive).
+		// Value is the shadow texture returned by
+		// Draw{Dir,Point,Spot,Cascaded}LightShadowMap.
 		// Only populated when a shadow map was actually drawn this frame;
 		// the editor's Profiler -> Shadows tab reads this to render one
 		// section per shadow-casting light.
 		std::unordered_map<SceneNode*, std::shared_ptr<Texture>> m_LastShadowTextures;
-
-		// Per-light cached shadow data, same lifetime as
-		// m_LastShadowTextures (cleared at the top of each Execute).
-		// The transparent pass's shadow-receive path needs the
-		// matrices the deferred light draws already composed, in the
-		// conventions their shaders expect:
-		//   - Directional single-map / spot: maps view -> shadow UV
-		//     (one Matrix4 in `single`).
-		//   - CSM: per-cascade view -> shadow UV matrices + the
-		//     split (shadow_far) used by the CSM shader to pick a
-		//     cascade on linear view depth.
-		// Stored for the dir/spot 2D paths (CSM/spot, and dir when
-		// CSM is off) so the transparent pass and the per-emitter
-		// particle block can find the bind inputs.
-		struct ShadowData
-		{
-			Matrix4 single;
-			std::vector<Matrix4> csm;       // size 4 when populated
-			Vector4 shadowFar = Vector4(0,0,0,0);
-		};
-		std::unordered_map<SceneNode*, ShadowData> m_LastShadowMatrices;
-
-		// Shadow-map temporaries held until the END of Execute.
-		// ReleaseTemporary returns the map to a spec-keyed pool for
-		// immediate reuse, so releasing at light-draw time let a second
-		// same-spec caster's shadow draw pop and overwrite the first
-		// light's map before pass_transparent sampled it.
-		std::vector<std::shared_ptr<Texture>> m_FrameShadowTemps;
 
 		// end debug
 

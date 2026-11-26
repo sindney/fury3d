@@ -949,12 +949,16 @@ void RenderProfilerShadowsTab() {
 				}
 				ImGui::EndGroup();
 			} else {
+				// ImGui stores a raw texture ID. Keep its Texture alive in the
+				// packet too, so the pool cannot reuse it before GUI submission.
+				Editor::QueueOverlayJob([shadowTex]() {});
 				ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
 							 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
 			}
 			break;
 
 		case LightType::SPOT:
+			Editor::QueueOverlayJob([shadowTex]() {});
 			ImGui::Image((ImTextureID)(intptr_t)shadowTex->GetID(),
 						 ImVec2(256 * scale, 256 * scale), ImVec2(0, 1), ImVec2(1, 0));
 			break;

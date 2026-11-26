@@ -60,6 +60,8 @@ namespace fury
 
 		MTL::CommandQueue *m_Queue = nullptr;
 
+		RHITextureRef m_FallbackTexture;
+
 		RHICapabilities m_Caps;
 
 		MetalCommandList m_CommandList;
@@ -114,6 +116,10 @@ namespace fury
 		RHIBackend GetBackend() const override { return RHIBackend::METAL; }
 
 		const RHICapabilities &GetCapabilities() const override { return m_Caps; }
+
+		// 1x1 white texture bound to sampler slots that have no texture:
+		// Metal sampling an unbound texture is undefined.
+		const RHITextureRef &GetFallbackTexture();
 
 		void SetClusteredLightingSupported(bool supported) override { m_Caps.SupportsClusteredLighting = supported; }
 

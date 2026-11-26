@@ -389,10 +389,13 @@ local function build_clustered_materials(root)
     if cfg.normal_mapped then
         local nmat = Material.Create("cm_normal_mapped")
         nmat:SetUniform("diffuse_color", { 0.8, 0.8, 0.8 })
-        nmat:SetUniform("metallic_factor", 0.5)
-        nmat:SetUniform("roughness_factor", 0.2)
-        nmat:SetTexture("diffuse_texture", "Projects/feature/unspecified.png")
-        nmat:SetTexture("normal_texture", "Projects/feature/normal_wave.png")
+        -- Non-metallic and rough enough that the albedo and the normal-map
+        -- relief both read across the lit area; a mirror finish hides them
+        -- in a single pinpoint highlight.
+        nmat:SetUniform("metallic_factor", 0.0)
+        nmat:SetUniform("roughness_factor", 0.45)
+        nmat:SetTexture("diffuse_texture", "Projects/feature/Travertine013_1K-JPG_Color.jpg")
+        nmat:SetTexture("normal_texture", "Projects/feature/Travertine013_1K-JPG_NormalDX.jpg")
         nmat:SetTextureSRGB("normal_texture", false)
         scene:AddMaterial(nmat)
         local nnode = SceneNode.Create("Sphere_normal_mapped")

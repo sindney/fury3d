@@ -15,6 +15,16 @@ The Metal backend SHALL provide device creation, a `CAMetalLayer` swapchain atta
 - **WHEN** the engine starts with `--rhi=metal` on macOS
 - **THEN** the engine logs the selected `metal` backend and renders frames through the CAMetalLayer swapchain
 
+### Requirement: Metal SHALL bind a fallback for explicitly empty sampled texture slots
+
+When a draw explicitly sets a sampled 2D texture slot to null, the Metal backend SHALL bind a 1x1 white fallback texture and its sampler state to that slot. The draw SHALL NOT leave a required sampler unbound.
+
+#### Scenario: A material whose texture never reached the GPU still renders deterministically
+
+- **WHEN** a material binds a texture that has no GPU texture
+- **THEN** the draw binds the fallback texture and its sampler to that slot
+- **AND** the Metal validation layer reports no missing sampler binding
+
 ### Requirement: MetalRHI SHALL compile MSL source at load time
 
 The Metal backend SHALL create shader libraries from MSL source text produced by the cross-compiler (cook/DDC products), letting the OS cache compiled variants. Loose uniforms SHALL be emulated via a shadow constant buffer and the reflection metadata as specified in `rhi-abstraction`.

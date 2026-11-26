@@ -52,7 +52,7 @@ Lua bindings (in `engine/Fury/LuaBindings.cpp`) that expose scene-mutation and s
 - `:GetUniform(key)` — returns the uniform value (number for `Uniform1f`/`Uniform1ui`; table for `Uniform3f`/`Uniform4f`) or `nil` if absent.
 - `:SetUniform(key, value)` — sets the uniform value, inferring the uniform type from the Lua value's shape (`number` → `Uniform1f`, `{x,y,z}` → `Uniform3f`, `{x,y,z,w}` → `Uniform4f`, integer-valued `number` → `Uniform1ui`).
 - `:GetTexture(key)` — returns the texture path string or `nil`.
-- `:SetTexture(key, path)` — sets the texture path; the engine resolves the path against `Scene::Active`'s working directory at render time.
+- `:SetTexture(key, path)` — loads the image on the calling game thread, resolving the path against `Scene::Active`'s working directory, and queues its GPU upload before the next frame submission. Existing scene-loaded material textures keep their encoding and mipmap settings.
 - `:GetTextureCount()` — int.
 
 The set of valid uniform keys matches the keys documented in `docs/CLI.md`'s scene-format appendix (`diffuse_color`, `diffuse_factor`, `specular_color`, `specular_factor`, `ambient_color`, `ambient_factor`, `emissive_color`, `emissive_factor`, `transparency`, `shininess`, `material_id`).
@@ -72,6 +72,11 @@ The set of valid uniform keys matches the keys documented in `docs/CLI.md`'s sce
 #### Scenario: Set texture by key
 - **WHEN** a script calls `material:SetTexture("diffuse", "textures/foo.png")`
 - **THEN** `material:GetTexture("diffuse")` returns `"textures/foo.png"`
+- **AND** the image is decoded and its upload is queued before the next frame that draws the material
+
+#### Scenario: SetTextureSRGB updates the GPU encoding
+- **WHEN** a script calls `material:SetTexture("normal", "textures/n.png")` and then `material:SetTextureSRGB("normal", false)` before the material is first drawn
+- **THEN** the texture is reloaded with linear encoding, preserving its mipmap setting
 
 ### Requirement: The `MeshUtil` namespace table SHALL expose primitive-mesh factory and mesh-processing utilities
 
@@ -96,6 +101,19 @@ A `MeshUtil` Lua table SHALL be registered with:
 #### Scenario: Recompute normals
 - **WHEN** a script calls `MeshUtil.CalculateNormal(mesh)` on a mesh whose normals were zeroed
 - **THEN** `mesh:GetNormals()` returns a non-zero buffer of the expected length
+
+#### Scenario: Recompute tangents from a two-component UV buffer
+
+- **WHEN** `MeshUtil.CalculateTangent(mesh)` reads a mesh's UV channel
+- **THEN** vertex i uses UV elements 2*i and 2*i+1, within the two-float-per-vertex buffer
+- **AND** the calculated tangents follow the direction of increasing U
+
+#### Scenario: A procedural sphere supports tangent-space texture sampling
+
+- **WHEN** `MeshUtil.CreateSphere(segments)` creates a sphere
+- **THEN** its UVs follow longitude and latitude, with a duplicated meridian at U=0 and U=1
+- **AND** no triangle interpolates across that meridian or has zero area at a pole
+- **AND** radial normals and calculated tangents give the same tangent-frame handedness on both hemispheres
 
 ### Requirement: The `MeshSimplifier` namespace table SHALL expose `SimplifyMesh` with a plain-table options argument
 

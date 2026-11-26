@@ -139,8 +139,8 @@
       "capture_frame": 40,
       "requires": [
         "{examples}/Resource/Pipeline/DeferredLightingPBR.json",
-        "{examples}/Projects/feature/normal_wave.png",
-        "{examples}/Projects/feature/unspecified.png"
+        "{examples}/Projects/feature/Travertine013_1K-JPG_NormalDX.jpg",
+        "{examples}/Projects/feature/Travertine013_1K-JPG_Color.jpg"
       ],
       "tolerances": {
         "mean_abs_diff": 1.0,

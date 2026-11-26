@@ -8,12 +8,13 @@ Editor visualization for per-light shadow maps. The Profiler window's Shadows ta
 
 ### Requirement: `Pipeline` SHALL track per-light shadow maps by `SceneNode` identity
 
-`Pipeline` SHALL own a `std::unordered_map<SceneNode*, Texture::Ptr> m_LastShadowTextures` (keyed by the light's `SceneNode*` raw pointer — the editor only iterates lights that already exist on the render query, so the lifetime is the scene lifetime). The map SHALL be cleared at the top of each `Pipeline::Execute` (immediately before the `query->Sort` step). A public `Texture::Ptr GetLastShadowTexture(const SceneNode& lightNode) const` accessor SHALL return the entry for the given light, or `nullptr` if the light did not draw a shadow map this frame.
+`Pipeline` SHALL own a `std::unordered_map<SceneNode*, Texture::Ptr> m_LastShadowTextures` (keyed by the light's `SceneNode*` raw pointer — the editor only iterates lights that already exist on the render query, so the lifetime is the scene lifetime). The map SHALL be replaced with the frame's shadow map set when that frame's results arrive (`Pipeline::UpdateShadowTextureCache`), so a light that drew no shadow map in that frame has no entry. A public `Texture::Ptr GetLastShadowTexture(const SceneNode& lightNode) const` accessor SHALL return the entry for the given light, or `nullptr` if the light did not draw a shadow map this frame.
 
-#### Scenario: Map is cleared at the start of each Execute
+#### Scenario: Map holds only the current frame's shadow maps
 
-- **WHEN** `Pipeline::Execute(sceneManager)` runs and the previous frame left entries in `m_LastShadowTextures`
-- **THEN** the map is empty at the point the first `Draw*LightShadowMap` call runs
+- **WHEN** a frame's results arrive and the previous frame left entries in `m_LastShadowTextures`
+- **THEN** the map holds exactly the lights that drew a shadow map in that frame
+- **AND** a light that stopped casting shadows has no entry
 
 #### Scenario: GetLastShadowTexture returns the per-frame texture
 
@@ -25,9 +26,9 @@ Editor visualization for per-light shadow maps. The Profiler window's Shadows ta
 - **WHEN** a light's `CastShadows == false`
 - **THEN** `GetLastShadowTexture(*node)` returns `nullptr` for that node
 
-### Requirement: Each `Draw*LightShadowMap` method SHALL publish its result into `m_LastShadowTextures`
+### Requirement: The rendered shadow map SHALL reach `m_LastShadowTextures` through the frame result
 
-The four `Pipeline::Draw{Dir,Point,Spot,Cascaded}LightShadowMap` methods SHALL each record their returned texture into `m_LastShadowTextures[&lightNode]` before returning. The `lightNode` raw pointer SHALL be captured from the `SceneNode& node` parameter; `node->GetComponent<Light>()` is already non-null in those call sites (`DeferredPipeline.cpp:285, 363, 453`).
+The shadow maps drawn by `Draw{Dir,Point,Spot,Cascaded}LightShadowMap` SHALL be recorded in the frame packet's `shadowResults[lightIndex].texture` and carried to the game thread in the frame result, keyed by the light's node key. `Pipeline::UpdateShadowTextureCache` SHALL map those entries into `m_LastShadowTextures[&lightNode]`.
 
 #### Scenario: DrawDirLightShadowMap records the 2D shadow texture
 
@@ -43,6 +44,16 @@ The four `Pipeline::Draw{Dir,Point,Spot,Cascaded}LightShadowMap` methods SHALL e
 
 - **WHEN** `DrawCascadedShadowMap(...)` returns `(arrayTex, matrices)`
 - **THEN** `m_LastShadowTextures[&node] == arrayTex` for that frame
+
+### Requirement: A rendered shadow map SHALL NOT be reused while a frame result or preview retains it
+
+Shadow-map temporaries SHALL be returned to the `Texture` temporary pool at the end of their rendering passes. The pool SHALL only re-lease a texture when it is its sole remaining owner. Frame packets, frame results, the game-thread cache, and queued editor previews SHALL retain shared ownership for as long as they need the contents. Direct ImGui images SHALL retain the texture in their packet as well as storing its raw ID. This requirement SHALL hold regardless of how many frames elapse before a preview runs.
+
+#### Scenario: The editor samples the map it was given
+
+- **WHEN** a frame renders a light's shadow map and the editor queues a preview job for it
+- **THEN** the texture still holds that light's shadow map when the preview job runs, including when results arrive two or more frames later
+- **AND** it was not re-rendered as another light's map in between
 
 ### Requirement: The Profiler Shadows tab SHALL iterate every shadow-casting light in the scene
 
